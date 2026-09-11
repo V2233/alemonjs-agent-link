@@ -1,0 +1,160 @@
+{
+  "name": "alemonjs-agent-link",
+  "version": "0.0.1",
+  "description": "AgentLink",
+  "author": {
+    "name": "ningmengchongshui",
+    "email": "ningmengchongshui@gmail.com",
+    "url": "https://github.com/ningmengchongshui"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "files": [
+    "lib",
+    "python",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "import": "./lib/index.js"
+    },
+    "./package": "./package.json"
+  },
+  "scripts": {
+    "dev": "npx lvy app.ts",
+    "start": "node index.js",
+    "view": "npx lvy dev --jsxp",
+    "build": "yarn install --frozen-lockfile && npx lvy build",
+    "bundle": "yarn install --frozen-lockfile && npx lvy build",
+    "test": "npx lvy build && node --test --test-force-exit test/*.test.mjs && python3 -m unittest python/test_dsh_bridge.py",
+    "eslint": "eslint src --fix",
+    "link-codex": "ln -s \"$PWD/.github/skills\" \"$PWD/.codex/skills\"",
+    "format": "prettier --write .",
+    "check-format": "git diff --exit-code",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@alemonjs/discord": "^2.1.25",
+    "@alemonjs/process": "^0.0.8",
+    "@alemonjs/qq-bot": "^2.1.35",
+    "@eslint/js": "^9.14.0",
+    "@types/node": "22",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "8.18.1",
+    "alemonjs": "^2.1.103",
+    "cssnano": "^7.0.6",
+    "eslint": "^9.14.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "eslint-plugin-react": "^7.37.2",
+    "eslint-plugin-unused-imports": "^4.1.4",
+    "globals": "^16.2.0",
+    "husky": "^9.1.7",
+    "jsxp": "^1.4.0",
+    "lvyjs": "^0.3.0-alpha.5",
+    "prettier": "^3.5.3",
+    "sass": "^1.83.0",
+    "tailwindcss": "^3",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "^8.19.1",
+    "ws": "8.18.1"
+  },
+  "keywords": [
+    "alemonjs"
+  ],
+  "alemonjs": {
+    "config": [
+      {
+        "description": "Python 可执行文件；未设置时自动创建插件专用虚拟环境",
+        "name": "pythonExecutable",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "本机 DSH Bridge 监听端口",
+        "name": "bridgePort",
+        "required": false,
+        "type": "number"
+      },
+      {
+        "description": "默认 DSH 模型",
+        "name": "model",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Agent 默认系统提示词",
+        "name": "defaultSystemPrompt",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "单条 QQ 回复最大字符数",
+        "name": "maxMessageLength",
+        "required": false,
+        "type": "number"
+      },
+      {
+        "description": "单次 Agent 请求超时（毫秒）",
+        "name": "requestTimeoutMs",
+        "required": false,
+        "type": "number"
+      },
+      {
+        "description": "每群最多等待的 Agent 请求数，默认 3",
+        "name": "maxQueuedPerGroup",
+        "required": false,
+        "type": "number"
+      },
+      {
+        "description": "全局同时执行的 Agent 请求上限，默认 8",
+        "name": "maxConcurrentRequests",
+        "required": false,
+        "type": "number"
+      },
+      {
+        "description": "本机同时保留的隔离 DSH Worker 上限，默认 16",
+        "name": "maxActiveWorkers",
+        "required": false,
+        "type": "number"
+      },
+      {
+        "description": "提供给 Agent 的近期普通群聊条数，默认 20；设为 0 关闭",
+        "name": "recentChatMaxMessages",
+        "required": false,
+        "type": "number"
+      },
+      {
+        "description": "近期普通群聊的保留时长（秒），默认 900；设为 0 关闭",
+        "name": "recentChatWindowSeconds",
+        "required": false,
+        "type": "number"
+      },
+      {
+        "description": "提供给 Agent 的近期群聊最大字符数，默认 6000；设为 0 关闭",
+        "name": "recentChatMaxChars",
+        "required": false,
+        "type": "number"
+      },
+      {
+        "description": "压缩后提供给 Agent 的近期群聊最大字符数，默认 1600；设为 0 关闭",
+        "name": "recentChatSummaryMaxChars",
+        "required": false,
+        "type": "number"
+      }
+    ]
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "bugs": "https://github.com/xiuxianjs/agent-link/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xiuxianjs/agent-link.git"
+  },
+  "packageManager": "yarn@1.22.22",
+  "dependencies": {
+    "@alemonjs/db": "^0.0.20"
+  }
+}

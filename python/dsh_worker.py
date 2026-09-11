@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""One group-scoped DSH worker. It receives JSONL only from the loopback bridge."""
+import json, os, sys, uuid
+from pathlib import Path
+
+WORKSPACE = Path(os.environ['DSH_WORKSPACE']).resolve()
+DSH_HOME = Path(os.environ['DSH_HOME']).resolve()
+
+def emit(value):
+    sys.stdout.write(json.dumps(value, ensure_ascii=False) + '\n'); sys.stdout.flush()
+
+def text_chunks(notification):
+    if getattr(notification, 'method', None) != 'session.event': return []
+    payload = getattr(notification, 'payload', None); event = payload.get('event') if isinstance(payload, dict) else None
+    if not isinstance(event, dict) or event.get('type') != 'text-chunks': return []
+    data = event.get('data'); texts = data.get('texts') if isinstance(data, dict) else None
+    return [text for text in texts or [] if isinstance(text, str) and text]
+
+def main():
+    try:
+        from deepseek_harness import DeepSeekHarness
+        from deepseek_harness_runtime import bundled_runtime_path
+        runtime = str(bundled_runtime_path())
+    except Exception as error:
+        emit({'type': 'fatal', 'error': f'DSH runtime unavailable: {error}'}); return 2
+    harness = DeepSeekHarness(dsh_home=str(DSH_HOME), cwd=str(WORKSPACE), dsh_bin=runtime,
+        profile=os.environ.get('DSH_PROFILE', 'sdk'), provider=os.environ.get('DSH_PROVIDER', 'deepseek-official'),
+        model=os.environ.get('DSH_MODEL', 'deepseek-v4-flash'), api_key=os.environ['DSH_PROXY_TOKEN'],
+        base_url=os.environ['DSH_PROXY_BASE_URL'], patches=(os.environ['DSH_CHAT_ONLY_PATCH'],),
+        request_timeout_seconds=float(os.environ.get('DSH_WORKER_TIMEOUT_SECONDS', '115')))
+    # The Python SDK has no resume_session API: harness.run() calls
+    # start_session() every time. Keep Session objects alive in this isolated
+    # worker, and namespace physical SDK sessions per worker lifetime so an
+    # old DSH home can never collide after crash recovery.
+    worker_epoch = uuid.uuid4().hex
+    sessions = {}
+    # These events carry no request content and are consumed by the bridge only.
+    # They make a timeout diagnosable without exposing worker stderr to logs.
+    emit({'type': 'ready'})
+    for line in sys.stdin:
+        try:
+            command = json.loads(line)
+            if command['type'] == 'shutdown': break
+            if command['type'] != 'chat': emit({'type': 'error', 'error': 'unsupported command'}); continue
+            streamed = []
+            def on_notification(notification):
+                for text in text_chunks(notification): streamed.append(text); emit({'type': 'content', 'content': text})
+            logical_session_id = command['sessionId']
+            session = sessions.get(logical_session_id)
+            if session is None:
+                session = harness.start_session(f'{logical_session_id}:w{worker_epoch}')
+                sessions[logical_session_id] = session
+            emit({'type': 'phase', 'phase': 'harness-run'})
+            result = session.run(command['message'], on_notification=on_notification)
+            emit({'type': 'result', 'content': result.final_response or ''.join(streamed), 'finish_reason': result.finish_reason, 'events': result.events})
+        except Exception as error:
+            # The bridge exposes only the stable error field; detail remains on
+            # the authenticated worker pipe for parent-side diagnostics.
+            emit({'type': 'error', 'error': 'DSH worker execution failed', 'detail': str(error)[-2000:]})
+    harness.close(); return 0
+
+if __name__ == '__main__': raise SystemExit(main())
