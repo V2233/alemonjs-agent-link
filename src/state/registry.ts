@@ -7,25 +7,71 @@ const prefix = 'data:agent-link';
 const recentTtlSeconds = 15 * 60;
 const dedupeTtlSeconds = 15 * 60;
 
-const advanceMetaScript = `
+const beginResetScript = `
 local raw = redis.call('GET', KEYS[1])
 local meta = {}
 if raw then
   local ok, decoded = pcall(cjson.decode, raw)
   if ok and type(decoded) == 'table' then meta = decoded end
 end
+if meta.transition == 'resetting' and type(meta.operationId) == 'string' then
+  return cjson.encode(meta)
+end
 meta.generation = (tonumber(meta.generation) or 0) + 1
 meta.policy = 'chat-only'
 meta.lastActivity = tonumber(ARGV[1])
-meta.isolated = true
+meta.isolated = false
+meta.transition = 'resetting'
+meta.operationId = ARGV[2]
 redis.call('SET', KEYS[1], cjson.encode(meta))
-redis.call('ZADD', KEYS[2], meta.lastActivity, ARGV[2])
-return tostring(meta.generation)
+redis.call('ZADD', KEYS[2], meta.lastActivity, ARGV[3])
+return cjson.encode(meta)
+`;
+
+const completeResetScript = `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local ok, meta = pcall(cjson.decode, raw)
+if not ok or type(meta) ~= 'table' then return 0 end
+if meta.transition ~= 'resetting' or meta.operationId ~= ARGV[1] then return 0 end
+meta.isolated = true
+meta.transition = cjson.null
+meta.operationId = cjson.null
+redis.call('SET', KEYS[1], cjson.encode(meta))
+return 1
+`;
+
+const beginPurgeScript = `
+local raw = redis.call('GET', KEYS[1])
+local meta = {}
+if raw then
+  local ok, decoded = pcall(cjson.decode, raw)
+  if ok and type(decoded) == 'table' then meta = decoded end
+end
+if meta.transition == 'purging' and type(meta.operationId) == 'string' then
+  return cjson.encode(meta)
+end
+meta.policy = 'chat-only'
+meta.lastActivity = tonumber(ARGV[1])
+meta.isolated = false
+meta.transition = 'purging'
+meta.operationId = ARGV[2]
+redis.call('SET', KEYS[1], cjson.encode(meta))
+redis.call('ZADD', KEYS[2], meta.lastActivity, ARGV[3])
+return cjson.encode(meta)
 `;
 
 export type GroupPolicy = 'chat-only';
 export type RecentMessage = { id?: string; text: string; timestamp: number };
-type GroupMeta = { generation: number; policy: GroupPolicy; lastActivity: number; isolated: boolean };
+export type GroupTransition = 'resetting' | 'purging';
+export type GroupMeta = {
+  generation: number;
+  policy: GroupPolicy;
+  lastActivity: number;
+  isolated: boolean;
+  transition?: GroupTransition;
+  operationId?: string;
+};
 
 const groupHash = (channelId: string): string => createHash('sha256').update(channelId).digest('hex');
 const key = (channelId: string, name: string): string => `${prefix}:group:${groupHash(channelId)}:${name}`;
@@ -64,7 +110,9 @@ const parseMeta = (value: string | null): GroupMeta => {
       policy: 'chat-only',
       lastActivity: typeof raw.lastActivity === 'number' ? raw.lastActivity : Date.now(),
       // Existing pre-isolation metadata must never authorize reuse of an old home.
-      isolated: raw.isolated === true
+      isolated: raw.isolated === true,
+      transition: raw.transition === 'resetting' || raw.transition === 'purging' ? raw.transition : undefined,
+      operationId: typeof raw.operationId === 'string' ? raw.operationId : undefined
     };
   } catch {
     return { generation: 0, policy: 'chat-only', lastActivity: Date.now(), isolated: false };
@@ -104,14 +152,24 @@ export class SessionRegistry {
 
     return meta;
   }
-  async advance(channelId: string): Promise<GroupMeta> {
-    const store = await redis(this.config);
+  async beginReset(channelId: string): Promise<GroupMeta> {
     const timestamp = Date.now();
-    const generation = Number(
-      await store.eval(advanceMetaScript, 2, key(channelId, 'meta.v1.json'), `${prefix}:retention.v1`, String(timestamp), groupHash(channelId))
-    );
+    const raw = await (
+      await redis(this.config)
+    ).eval(beginResetScript, 2, key(channelId, 'meta.v1.json'), `${prefix}:retention.v1`, String(timestamp), randomUUID(), groupHash(channelId));
 
-    return { generation, policy: 'chat-only', lastActivity: timestamp, isolated: true };
+    return parseMeta(String(raw));
+  }
+  async completeReset(channelId: string, operationId: string): Promise<boolean> {
+    return Number(await (await redis(this.config)).eval(completeResetScript, 1, key(channelId, 'meta.v1.json'), operationId)) === 1;
+  }
+  async beginPurge(channelId: string): Promise<GroupMeta> {
+    const timestamp = Date.now();
+    const raw = await (
+      await redis(this.config)
+    ).eval(beginPurgeScript, 2, key(channelId, 'meta.v1.json'), `${prefix}:retention.v1`, String(timestamp), randomUUID(), groupHash(channelId));
+
+    return parseMeta(String(raw));
   }
   async policy(channelId: string): Promise<GroupPolicy> {
     return (await this.meta(channelId)).policy;

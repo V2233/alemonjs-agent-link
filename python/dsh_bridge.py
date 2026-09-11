@@ -53,6 +53,8 @@ CHAT_ONLY_TOOL_IDS = (
 )
 SANDBOX_CHECK_LOCK = threading.Lock()
 SANDBOX_CHECK: tuple[bool, str, float] | None = None
+PROFILE_CHECK_LOCK = threading.Lock()
+PROFILE_CHECK: tuple[bool, str, float, tuple[str, int, int]] | None = None
 
 try:
     from deepseek_harness_runtime import bundled_runtime_path
@@ -139,26 +141,36 @@ def sandbox_self_test() -> str | None:
 
 def chat_only_profile_test() -> str | None:
     """Verify DSH itself has applied the explicit no-tools patch."""
+    global PROFILE_CHECK
     if not CHAT_ONLY_PATCH.is_file():
         return 'chat-only DSH patch is missing.'
-    check_home = HOME_ROOT / '.profile-check'
-    check_home.mkdir(parents=True, exist_ok=True)
-    try:
-        result = subprocess.run(
-            [str(RUNTIME_PATH), '--profile', PROFILE, '--patch', str(CHAT_ONLY_PATCH), '--dump-config'],
-            env={'DSH_HOME': str(check_home), 'PATH': '/usr/bin:/bin'}, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, timeout=15
-        )
-    except Exception as error:
-        return f'chat-only profile verification failed: {type(error).__name__}'
-    if result.returncode != 0:
-        return 'chat-only profile verification failed.'
-    for tool_id in CHAT_ONLY_TOOL_IDS:
-        pattern = rf'(?ms)^- id: {re.escape(tool_id)}\n.*?(?=^- id:|\Z)'
-        entry = re.search(pattern, result.stdout)
-        if not entry or not re.search(r'(?m)^  disabled: true$', entry.group(0)):
-            return f'chat-only profile does not disable {tool_id}.'
-    return None
+    fingerprint = (str(RUNTIME_PATH), CHAT_ONLY_PATCH.stat().st_mtime_ns, CHAT_ONLY_PATCH.stat().st_size)
+    with PROFILE_CHECK_LOCK:
+        now = time.monotonic()
+        if PROFILE_CHECK and now - PROFILE_CHECK[2] < 30 and PROFILE_CHECK[3] == fingerprint:
+            return None if PROFILE_CHECK[0] else PROFILE_CHECK[1]
+        check_home = HOME_ROOT / '.profile-check'
+        check_home.mkdir(parents=True, exist_ok=True)
+        try:
+            result = subprocess.run(
+                [str(RUNTIME_PATH), '--profile', PROFILE, '--patch', str(CHAT_ONLY_PATCH), '--dump-config'],
+                env={'DSH_HOME': str(check_home), 'PATH': '/usr/bin:/bin'}, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, timeout=15
+            )
+            if result.returncode != 0:
+                detail = 'chat-only profile verification failed.'
+            else:
+                detail = None
+                for tool_id in CHAT_ONLY_TOOL_IDS:
+                    pattern = rf'(?ms)^- id: {re.escape(tool_id)}\n.*?(?=^- id:|\Z)'
+                    entry = re.search(pattern, result.stdout)
+                    if not entry or not re.search(r'(?m)^  disabled: true$', entry.group(0)):
+                        detail = f'chat-only profile does not disable {tool_id}.'
+                        break
+        except Exception as error:
+            detail = f'chat-only profile verification failed: {type(error).__name__}'
+        PROFILE_CHECK = (detail is None, detail or '', now, fingerprint)
+        return detail
 
 def validate_preflight() -> str | None:
     if platform.system() != 'Darwin': return 'AgentLink sandbox workers require macOS.'

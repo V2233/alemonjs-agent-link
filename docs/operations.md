@@ -7,7 +7,7 @@
 - `alemon.config.yaml` 仅对运行账户可读，且未提交。
 - 已通过私聊绑定模型凭证。
 
-首次启动时，AgentLink 会创建 `.data/agent-link/venv` 并安装 DSH SDK；这一步需要网络和数据目录写入权限。
+首次启动时，AgentLink 会创建 `.data/agent-link/venv` 并按仓库内锁定版本安装 DSH SDK；这一步需要网络和数据目录写入权限。升级 DSH 时必须同步更新 `python/requirements.txt`，并完成 sandbox 集成验证。
 
 ## 启动与停止
 
@@ -42,6 +42,16 @@ yarn start --login qq-bot
 | 请求超时             | 模型服务、网络、`requestTimeoutMs`，以及本机容量。      |
 | 群内排队已满         | 当前群请求量；使用 `/cancel` 取消自己的等待请求。       |
 | 无可用模型           | 主人私聊执行 `/agentmodels`，必要时重新 `/agentbind`。  |
+
+## 发布验证
+
+默认测试不连接真实 Redis、模型或 macOS sandbox。完成凭证配置后，在受控环境执行下列命令，验证 Redis 过渡状态恢复和真实 sandbox 前置检查：
+
+```bash
+AGENT_LINK_INTEGRATION=1 yarn test
+```
+
+这项验证会创建并删除一个随机的测试群状态；不会发送模型对话请求。
 
 ## 数据维护
 

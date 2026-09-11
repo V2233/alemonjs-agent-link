@@ -1,8 +1,6 @@
 import { Format, logger, useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
-import { purgeSessionData } from '@src/dsh/client';
-import { cancelGroupChat } from '@src/dsh/orchestrator';
-import { SessionRegistry } from '@src/state/registry';
+import { purgeGroupSession } from '@src/dsh/orchestrator';
 
 const confirmationTtlMs = 60_000;
 const confirmations = new Map<string, { actor: string; expiresAt: number }>();
@@ -55,12 +53,8 @@ export default async (): Promise<void> => {
 
   try {
     const config = getDSHConfig();
-    const registry = new SessionRegistry(config);
 
-    await registry.ready();
-    cancelGroupChat(event.ChannelId);
-    await purgeSessionData(config, `dsh:qq:group:${event.ChannelId}`);
-    await registry.purgeHash(await registry.groupKey(event.ChannelId));
+    await purgeGroupSession(event.ChannelId, config);
     await message.send({ format: Format.create().addMarkdownOriginal('## 已删除\n当前群的 Agent 会话、工作区与近期聊天参考已彻底清除。') });
   } catch (error) {
     logger.error({ err: error }, 'Agent group data purge failed');

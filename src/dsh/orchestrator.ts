@@ -1,5 +1,5 @@
 import { logger } from 'alemonjs';
-import { clearSession, DSHError, getDSHConfig, streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '@src/dsh/client';
+import { clearSession, DSHError, getDSHConfig, purgeSessionData, streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '@src/dsh/client';
 import { SessionRegistry } from '@src/state/registry';
 
 type Job = { userId: string; run: () => Promise<void>; reject: (error: Error) => void };
@@ -117,10 +117,17 @@ export const resetGroupSession = async (channelId: string, config: DSHBridgeConf
   const registry = new SessionRegistry(config);
   const transition = (async (): Promise<void> => {
     await registry.ready();
+    const resetting = await registry.beginReset(channelId);
+
+    if (!resetting.operationId) {
+      throw new DSHError('migration', '会话重置状态无效');
+    }
     cancelGroupChat(channelId);
     await clearSession(config, `dsh:qq:group:${channelId}`);
-    await registry.advance(channelId);
     await registry.clearRecent(channelId);
+    if (!(await registry.completeReset(channelId, resetting.operationId))) {
+      throw new DSHError('migration', '会话重置被其他操作接管');
+    }
     logger.info({ group: await registry.groupKey(channelId) }, 'Reset isolated group session');
   })();
 
@@ -143,11 +150,43 @@ export const ensureIsolatedGroup = async (channelId: string, config: DSHBridgeCo
   const registry = new SessionRegistry(config);
 
   await registry.ready();
-  if ((await registry.meta(channelId)).isolated) {
+  const meta = await registry.meta(channelId);
+
+  if (meta.isolated && !meta.transition) {
     return;
   }
 
+  if (meta.transition === 'purging') {
+    await purgeGroupSession(channelId, config);
+  }
+
   await resetGroupSession(channelId, config);
+};
+
+/** Mark deletion before touching the Bridge so a failed purge can be resumed safely. */
+export const purgeGroupSession = async (channelId: string, config: DSHBridgeConfig): Promise<void> => {
+  const pending = groupResetTransitions.get(channelId);
+
+  if (pending !== undefined) {
+    await pending;
+  }
+  const registry = new SessionRegistry(config);
+  const transition = (async (): Promise<void> => {
+    await registry.ready();
+    await registry.beginPurge(channelId);
+    cancelGroupChat(channelId);
+    await purgeSessionData(config, `dsh:qq:group:${channelId}`);
+    await registry.purgeHash(await registry.groupKey(channelId));
+  })();
+
+  groupResetTransitions.set(channelId, transition);
+  try {
+    await transition;
+  } finally {
+    if (groupResetTransitions.get(channelId) === transition) {
+      groupResetTransitions.delete(channelId);
+    }
+  }
 };
 
 export type CancelChatResult = 'cancelled-running' | 'cancelled-queued' | 'empty' | 'forbidden';

@@ -7,6 +7,7 @@ import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 
 
@@ -39,6 +40,25 @@ class BridgeSafetyTests(unittest.TestCase):
         self.assertFalse(self.bridge.output_requires_final_review())
         self.bridge.OUTPUT_BLOCKED = {'secret'}
         self.assertTrue(self.bridge.output_requires_final_review())
+
+    def test_chat_only_profile_check_is_cached_until_patch_changes(self):
+        calls = 0
+        original_run = self.bridge.subprocess.run
+        config = '\n'.join(f'- id: {tool}\n  disabled: true' for tool in self.bridge.CHAT_ONLY_TOOL_IDS)
+
+        def fake_run(*_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+            return SimpleNamespace(returncode=0, stdout=config)
+
+        try:
+            self.bridge.PROFILE_CHECK = None
+            self.bridge.subprocess.run = fake_run
+            self.assertIsNone(self.bridge.chat_only_profile_test())
+            self.assertIsNone(self.bridge.chat_only_profile_test())
+            self.assertEqual(calls, 1)
+        finally:
+            self.bridge.subprocess.run = original_run
 
     def test_stale_group_cleanup_only_removes_hashed_expired_directories(self):
         self.bridge.WORKSPACE_ROOT = self.root / 'workspaces'

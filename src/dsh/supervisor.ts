@@ -21,6 +21,7 @@ export type DSHSupervisorStatus = {
 };
 
 const bridgeScript = join(dirname(fileURLToPath(import.meta.url)), '../../python/dsh_bridge.py');
+const requirementsFile = join(dirname(fileURLToPath(import.meta.url)), '../../python/requirements.txt');
 
 type SupervisorProcessState = {
   supervisor: DSHSupervisor | null;
@@ -276,7 +277,7 @@ export class DSHSupervisor {
     this.statusValue = { phase: 'installing' };
     await mkdir(venvRoot, { recursive: true });
     await this.run('python3', ['-m', 'venv', venvRoot]);
-    await this.run(this.config.pythonExecutable, ['-m', 'pip', 'install', '--upgrade', '--pre', 'pip', 'deepseek-harness-sdk']);
+    await this.run(this.config.pythonExecutable, ['-m', 'pip', 'install', '--requirement', requirementsFile]);
   }
 
   private run(command: string, args: string[]): Promise<void> {
