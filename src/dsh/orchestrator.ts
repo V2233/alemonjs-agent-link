@@ -1,6 +1,8 @@
 import { logger } from 'alemonjs';
 import { clearSession, DSHError, getDSHConfig, purgeSessionData, streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '@src/dsh/client';
 import { SessionRegistry } from '@src/state/registry';
+import { getSessionId } from '@src/response/dsh/util';
+import type { GroupPolicy } from '@src/state/registry';
 
 type Job = { userId: string; run: () => Promise<void>; reject: (error: Error) => void };
 type GroupQueue = { running: boolean; jobs: Job[]; cancel?: AbortController; activeUserId?: string };
@@ -123,7 +125,7 @@ export const resetGroupSession = async (channelId: string, config: DSHBridgeConf
       throw new DSHError('migration', '会话重置状态无效');
     }
     cancelGroupChat(channelId);
-    await clearSession(config, `dsh:qq:group:${channelId}`);
+    await clearSession(config, getSessionId(channelId));
     await registry.clearRecent(channelId);
     if (!(await registry.completeReset(channelId, resetting.operationId))) {
       throw new DSHError('migration', '会话重置被其他操作接管');
@@ -190,6 +192,12 @@ export const purgeGroupSession = async (channelId: string, config: DSHBridgeConf
 };
 
 export type CancelChatResult = 'cancelled-running' | 'cancelled-queued' | 'empty' | 'forbidden';
+export type CoordinatedChatResult = {
+  requestId: string;
+  duplicate: boolean;
+  confirmDelivery: () => Promise<void>;
+  release: () => Promise<void>;
+};
 
 export const cancelChatForUser = (channelId: string, userId: string, privileged: boolean): CancelChatResult => {
   const queue = queues.get(channelId);
@@ -228,46 +236,75 @@ export const runCoordinatedChat = async (
   message: string,
   onEvent: (event: DSHStreamEvent) => Promise<void>,
   onQueued?: (ahead: number) => Promise<void>,
-  onStarted?: (wasQueued: boolean) => Promise<void>
-): Promise<{ requestId: string; duplicate: boolean }> => {
+  onStarted?: (wasQueued: boolean) => Promise<void>,
+  capabilityOverride?: GroupPolicy
+): Promise<CoordinatedChatResult> => {
   const config = getDSHConfig();
   const registry = new SessionRegistry(config);
 
   await registry.ready();
   await ensureIsolatedGroup(event.ChannelId, config);
+  const capabilities = capabilityOverride ?? (await registry.policy(event.ChannelId));
+
+  if (!capabilities.chat) {
+    throw new DSHError('http', '当前群未开放 Agent 对话权限');
+  }
   const duplicate = await registry.deduplicate(event.ChannelId, event.MessageId);
 
   if (duplicate.duplicate) {
-    return duplicate;
+    return { ...duplicate, confirmDelivery: () => Promise.resolve(), release: () => Promise.resolve() };
   }
-  if (!(await registry.allowUser(event.ChannelId, event.UserKey || 'unknown'))) {
-    throw new DSHError('http', '请求过于频繁');
-  }
-  const meta = await registry.touch(event.ChannelId);
+  const release = async (): Promise<void> => await registry.releaseDeduplication(event.ChannelId, event.MessageId, duplicate.requestId);
 
-  await enqueue(
-    event.ChannelId,
-    config.maxQueuedPerGroup,
-    event.UserKey || 'unknown',
-    async signal => {
-      const release = acquireRequestSlot(config.maxConcurrentRequests);
+  try {
+    if (!(await registry.allowUser(event.ChannelId, event.UserKey || 'unknown'))) {
+      throw new DSHError('http', '请求过于频繁');
+    }
+    const meta = await registry.touch(event.ChannelId);
 
-      try {
-        const current = await registry.meta(event.ChannelId);
+    await enqueue(
+      event.ChannelId,
+      config.maxQueuedPerGroup,
+      event.UserKey || 'unknown',
+      async signal => {
+        const releaseRequestSlot = acquireRequestSlot(config.maxConcurrentRequests);
 
-        if (current.generation !== meta.generation) {
-          throw new DSHError('timeout', '群会话已重置');
+        try {
+          const current = await registry.meta(event.ChannelId);
+
+          if (current.generation !== meta.generation) {
+            throw new DSHError('timeout', '群会话已重置');
+          }
+          await streamChat(config, `${getSessionId(event.ChannelId)}:v${meta.generation}`, message, onEvent, event.UserKey, signal, capabilities);
+          await registry.touch(event.ChannelId);
+        } finally {
+          releaseRequestSlot();
         }
-        await streamChat(config, `dsh:qq:group:${event.ChannelId}:v${meta.generation}`, message, onEvent, event.UserKey, signal);
-        await registry.touch(event.ChannelId);
-      } finally {
-        release();
-      }
-    },
-    onQueued,
-    onStarted
-  );
-  logger.info({ requestId: duplicate.requestId, group: await registry.groupKey(event.ChannelId), status: 'completed' }, 'DSH chat completed');
+      },
+      onQueued,
+      onStarted
+    );
+  } catch (error) {
+    await release().catch(releaseError => logger.warn({ err: releaseError }, 'Unable to release failed DSH request'));
+    throw error;
+  }
+  logger.info({ requestId: duplicate.requestId, group: await registry.groupKey(event.ChannelId), status: 'model_completed' }, 'DSH chat completed');
 
-  return duplicate;
+  return {
+    ...duplicate,
+    confirmDelivery: async (): Promise<void> => {
+      const finalized = await registry.finalizeDeduplication(event.ChannelId, event.MessageId, duplicate.requestId);
+
+      if (!finalized) {
+        logger.warn(
+          { requestId: duplicate.requestId, group: await registry.groupKey(event.ChannelId) },
+          'DSH response delivery confirmation lost its request claim'
+        );
+
+        return;
+      }
+      logger.info({ requestId: duplicate.requestId, group: await registry.groupKey(event.ChannelId), status: 'delivered' }, 'DSH response delivered');
+    },
+    release
+  };
 };

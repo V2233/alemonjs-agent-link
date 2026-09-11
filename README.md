@@ -2,7 +2,7 @@
 
 在 QQ 群里提供受限的 AI 对话。群成员通过 @机器人或 `/chat` 发起提问；每个群拥有独立会话和隔离 Worker。
 
-本版本仅提供 `chat-only`：不开放文件、终端、网页、附件、子代理或工作流能力。
+默认群聊支持联网查询；主人可为指定群分别开启文件和终端。所有工具仍受群级隔离工作区限制，子代理与工作流始终关闭。
 
 ## 快速开始
 
@@ -52,6 +52,7 @@ yarn start --login qq-bot
 | 操作         | 用法                  | 影响                       |
 | ------------ | --------------------- | -------------------------- |
 | 开始新话题   | `/new`                | 清除本群正式会话和短时参考 |
+| 调整工具权限 | `/agentpolicy web     | files                      | terminal on | off` | 变更当前群的能力并开始新会话 |
 | 预览参考摘要 | `/agentcontext`       | 不修改数据                 |
 | 清除参考摘要 | `/agentcontext clear` | 保留正式会话               |
 
@@ -62,6 +63,7 @@ yarn start --login qq-bot
 | 绑定或移除模型凭证 | `/agentbind <API_KEY> [BASE_URL]`、`/agentunbind`                    |
 | 查看或切换模型     | `/agentmodels`、`/agentmodel [模型ID]`                               |
 | 查看完整状态       | `/agentstatus`                                                       |
+| 私聊使用 Agent     | `/chat 你的问题`                                                     |
 | 彻底删除指定群数据 | 在目标群中执行 `/agentpurge`，再于 60 秒内执行 `/agentpurge confirm` |
 
 ## 运行模型

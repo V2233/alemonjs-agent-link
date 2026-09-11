@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DSHError, clearSession, getDSHConfig, streamChat, toUserMessage } from '../lib/dsh/client.js';
+import { DSHError, clearSession, getDSHConfig, purgeSessionData, streamChat, toUserMessage } from '../lib/dsh/client.js';
 import { StreamOutput } from '../lib/dsh/output.js';
 import { buildRecentChatContext, clearRecentMessages, compressRecentMessages, getRecentMessages, recordRecentMessage } from '../lib/chat-context/store.js';
 import { canReset, extractPrompt, getSessionId } from '../lib/response/dsh/util.js';
+import { defaultGroupPolicy, ownerPrivatePolicy } from '../lib/state/registry.js';
 import { setDSHBridgeForTesting } from '../lib/dsh/supervisor.js';
 import { listAvailableModels } from '../lib/dsh/models.js';
+import { getDedupeTtlSeconds } from '../lib/state/registry.js';
 
 const encoder = new TextEncoder();
 
@@ -54,9 +56,23 @@ test('sends a DSH SSE request and consumes content events', async () => {
     sessionId: 'dsh:qq:group:1',
     message: 'hello',
     systemPrompt: 'test prompt',
-    stream: true
+    stream: true,
+    capabilities: { chat: true, web: true, files: false, terminal: false }
   });
   assert.deepEqual(events, [{ type: 'content', content: '你' }, { type: 'content', content: '好' }, { type: 'done' }]);
+});
+
+test('sends only the Bridge capability schema, never policy metadata', async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (_url, options) => {
+    request = options;
+    return sseResponse('data: {"type":"done"}\n\n');
+  };
+
+  await streamChat(config, 'dsh:qq:group:1', 'hello', async () => {}, 'owner', undefined, { version: 1, chat: true, web: true, files: false, terminal: false });
+  globalThis.fetch = originalFetch;
+  assert.deepEqual(JSON.parse(request.body).capabilities, { chat: true, web: true, files: false, terminal: false });
 });
 
 test('maps DSH HTTP and protocol failures to safe user messages', async () => {
@@ -91,6 +107,18 @@ test('clears an encoded group session through the DSH API', async () => {
   assert.equal(request.options.method, 'DELETE');
 });
 
+test('times out a stalled destructive bridge request', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) =>
+    await new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+
+  await assert.rejects(
+    () => purgeSessionData({ ...config, requestTimeoutMs: 10 }, 'dsh:qq:group:stalled'),
+    error => error instanceof DSHError && error.kind === 'timeout'
+  );
+  globalThis.fetch = originalFetch;
+});
+
 test('streams independently renderable Markdown units without splitting code fences', async () => {
   const sent = [];
   const output = new StreamOutput(
@@ -118,6 +146,7 @@ test('streams independently renderable Markdown units without splitting code fen
 
 test('derives shared group sessions, strips a leading bot mention, and guards reset', () => {
   assert.equal(getSessionId('group-7'), 'dsh:qq:group:group-7');
+  assert.equal(getSessionId('private:owner-7'), 'dsh:qq:private:owner-7');
   assert.equal(extractPrompt('<@bot-1> 你好', { UserId: 'bot-1' }), '你好');
   assert.equal(extractPrompt('@机器人 /new', { UserId: 'bot-1', UserName: '机器人' }), '/new');
   assert.equal(canReset({ IsMaster: true }), true);
@@ -126,6 +155,16 @@ test('derives shared group sessions, strips a leading bot mention, and guards re
   assert.throws(() => getDSHConfig({ 'alemonjs-agent-link': { maxMessageLength: 0 } }));
   assert.throws(() => getDSHConfig({ 'alemonjs-agent-link': { maxConcurrentRequests: 0 } }));
   assert.throws(() => getDSHConfig({ 'alemonjs-agent-link': { maxActiveWorkers: 201 } }));
+});
+
+test('defaults groups to web access while owner private sessions receive all tools', () => {
+  assert.deepEqual(defaultGroupPolicy, { version: 1, chat: true, web: true, files: false, terminal: false });
+  assert.deepEqual(ownerPrivatePolicy, { version: 1, chat: true, web: true, files: true, terminal: true });
+});
+
+test('keeps idempotency claims alive through the maximum group queue', () => {
+  assert.equal(getDedupeTtlSeconds({ maxQueuedPerGroup: 3, requestTimeoutMs: 120_000 }), 900);
+  assert.equal(getDedupeTtlSeconds({ maxQueuedPerGroup: 3, requestTimeoutMs: 300_000 }), 1260);
 });
 
 test('compresses recent chat before it is provided to DSH', () => {

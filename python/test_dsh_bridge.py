@@ -41,6 +41,28 @@ class BridgeSafetyTests(unittest.TestCase):
         self.bridge.OUTPUT_BLOCKED = {'secret'}
         self.assertTrue(self.bridge.output_requires_final_review())
 
+    def test_egress_redirects_and_oversized_responses_are_rejected(self):
+        self.assertIsNone(self.bridge.NoRedirect().redirect_request(None, None, 302, 'Found', {}, 'https://elsewhere.example'))
+
+        class Response:
+            headers = {'Content-Length': '9'}
+            def read(self, _size):
+                return b'123456789'
+
+        with self.assertRaisesRegex(ValueError, 'too large'):
+            self.bridge.read_bounded(Response(), 8)
+
+    def test_tool_policy_enables_only_requested_capabilities(self):
+        baseline = {'chat': True, 'web': True, 'files': False, 'terminal': False}
+        patch = self.bridge.tool_policy_patch(baseline)
+
+        self.assertIn('- id: tool-web\n  disabled: false', patch)
+        self.assertIn('- id: tool-fs\n  disabled: true', patch)
+        self.assertIn('- id: tool-bash\n  disabled: true', patch)
+        self.assertIn('- id: tool-subagent\n  disabled: true', patch)
+        self.assertEqual(self.bridge.valid_capabilities(baseline), baseline)
+        self.assertIsNone(self.bridge.valid_capabilities({'web': True}))
+
     def test_chat_only_profile_check_is_cached_until_patch_changes(self):
         calls = 0
         original_run = self.bridge.subprocess.run
@@ -84,8 +106,9 @@ class BridgeSafetyTests(unittest.TestCase):
 
     def test_worker_capacity_evicts_only_idle_worker(self):
         class FakeWorker:
-            def __init__(self, key, _port):
+            def __init__(self, key, _port, capabilities):
                 self.key = key
+                self.capabilities = capabilities
                 self.lock = threading.Lock()
                 self.last_used = 0
                 self.stopped = False
@@ -97,10 +120,11 @@ class BridgeSafetyTests(unittest.TestCase):
         try:
             self.bridge.Worker = FakeWorker
             self.bridge.MAX_ACTIVE_WORKERS = 1
-            idle = FakeWorker('a' * 64, 1)
+            capabilities = {'chat': True, 'web': True, 'files': False, 'terminal': False}
+            idle = FakeWorker('a' * 64, 1, capabilities)
             self.bridge.WORKERS = {idle.key: idle}
 
-            replacement = self.bridge.get_worker('b' * 64, 1)
+            replacement = self.bridge.get_worker('b' * 64, 1, capabilities)
 
             self.assertTrue(idle.stopped)
             self.assertEqual(replacement.key, 'b' * 64)
@@ -108,7 +132,7 @@ class BridgeSafetyTests(unittest.TestCase):
 
             replacement.lock.acquire()
             with self.assertRaises(self.bridge.WorkerCapacityError):
-                self.bridge.get_worker('c' * 64, 1)
+                self.bridge.get_worker('c' * 64, 1, capabilities)
             replacement.lock.release()
         finally:
             self.bridge.Worker = original_worker
@@ -116,7 +140,7 @@ class BridgeSafetyTests(unittest.TestCase):
     def test_worker_error_detail_is_not_exposed_to_bridge_logs(self):
         original_runtime = self.bridge.RUNTIME_PATH
         self.bridge.RUNTIME_PATH = Path('/tmp/dsh-runtime')
-        worker = self.bridge.Worker('a' * 64, 1)
+        worker = self.bridge.Worker('a' * 64, 1, {'chat': True, 'web': True, 'files': False, 'terminal': False})
 
         class Stdin:
             def write(self, _value):

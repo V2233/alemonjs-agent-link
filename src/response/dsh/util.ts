@@ -7,7 +7,8 @@ type AdminEvent = {
   IsAdmin?: boolean;
 };
 
-export const getSessionId = (channelId: string): string => `dsh:qq:group:${channelId}`;
+export const getSessionId = (channelId: string): string =>
+  channelId.startsWith('private:') ? `dsh:qq:private:${channelId.slice('private:'.length)}` : `dsh:qq:group:${channelId}`;
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

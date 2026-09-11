@@ -29,6 +29,14 @@ export type DSHBridgeConfig = {
   recentChatSummaryMaxChars: number;
 };
 
+export type AgentCapabilities = { chat: boolean; web: boolean; files: boolean; terminal: boolean };
+const toCapabilities = (value: AgentCapabilities): AgentCapabilities => ({
+  chat: value.chat,
+  web: value.web,
+  files: value.files,
+  terminal: value.terminal
+});
+
 export type DSHStreamEvent =
   { type: 'content'; content: string } | { type: 'done' } | { type: 'tool_call'; tool?: string; args?: unknown } | { type: 'error'; message?: string };
 
@@ -230,7 +238,8 @@ export const streamChat = async (
   message: string,
   onEvent: (event: DSHStreamEvent) => Promise<void>,
   userId = 'unknown',
-  externalSignal?: AbortSignal
+  externalSignal?: AbortSignal,
+  capabilities: AgentCapabilities = { chat: true, web: true, files: false, terminal: false }
 ): Promise<void> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
@@ -249,7 +258,8 @@ export const streamChat = async (
         sessionId,
         message,
         systemPrompt: config.defaultSystemPrompt,
-        stream: true
+        stream: true,
+        capabilities: toCapabilities(capabilities)
       }),
       signal: externalSignal ? AbortSignal.any([controller.signal, externalSignal]) : controller.signal
     });
@@ -291,6 +301,10 @@ export const streamChat = async (
 };
 
 export const clearSession = async (config: DSHBridgeConfig, sessionId: string): Promise<void> => {
+  await deleteBridgeResource(config, `/v1/session/${encodeURIComponent(sessionId)}`, '无法清除 DSH 会话');
+};
+
+const deleteBridgeResource = async (config: DSHBridgeConfig, path: string, failureMessage: string): Promise<void> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
 
@@ -299,7 +313,7 @@ export const clearSession = async (config: DSHBridgeConfig, sessionId: string): 
   try {
     await ensureDSHSupervisor(config);
     const bridge = await getDSHBridge();
-    const response = await fetch(`${bridge.url}/v1/session/${encodeURIComponent(sessionId)}`, {
+    const response = await fetch(`${bridge.url}${path}`, {
       method: 'DELETE',
       headers: getHeaders(bridge.token),
       signal: controller.signal
@@ -310,7 +324,7 @@ export const clearSession = async (config: DSHBridgeConfig, sessionId: string): 
     }
 
     if (!response.ok) {
-      throw new DSHError('http', `DSH 服务返回 HTTP ${response.status}`);
+      throw new DSHError('http', failureMessage);
     }
   } catch (error) {
     if (error instanceof DSHError) {
@@ -328,23 +342,11 @@ export const clearSession = async (config: DSHBridgeConfig, sessionId: string): 
 };
 
 export const purgeSessionData = async (config: DSHBridgeConfig, sessionId: string): Promise<void> => {
-  await ensureDSHSupervisor(config);
-  const bridge = await getDSHBridge();
-  const response = await fetch(`${bridge.url}/v1/group/${encodeURIComponent(sessionId)}`, { method: 'DELETE', headers: getHeaders(bridge.token) });
-
-  if (!response.ok) {
-    throw new DSHError(response.status === 401 ? 'auth' : 'http', '无法清除 DSH 群数据');
-  }
+  await deleteBridgeResource(config, `/v1/group/${encodeURIComponent(sessionId)}`, '无法清除 DSH 群数据');
 };
 
 export const purgeGroupHashData = async (config: DSHBridgeConfig, groupHash: string): Promise<void> => {
-  await ensureDSHSupervisor(config);
-  const bridge = await getDSHBridge();
-  const response = await fetch(`${bridge.url}/v1/group-hash/${encodeURIComponent(groupHash)}`, { method: 'DELETE', headers: getHeaders(bridge.token) });
-
-  if (!response.ok) {
-    throw new DSHError(response.status === 401 ? 'auth' : 'http', '无法清除 DSH 群数据');
-  }
+  await deleteBridgeResource(config, `/v1/group-hash/${encodeURIComponent(groupHash)}`, '无法清除 DSH 群数据');
 };
 
 export const toUserMessage = (error: unknown): string => {

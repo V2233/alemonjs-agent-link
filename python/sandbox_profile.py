@@ -2,7 +2,7 @@
 import sys
 from pathlib import Path
 
-def macos_profile(workspace: Path, dsh_home: Path, runtime: Path, python_root: Path, worker_script: Path, chat_only_patch: Path, proxy_port: int) -> str:
+def macos_profile(workspace: Path, dsh_home: Path, runtime: Path, python_root: Path, worker_script: Path, chat_only_patch: Path, proxy_port: int, allow_web: bool = False) -> str:
     """Return a deny-by-default profile for one worker.
 
     Keep the worker program itself explicit: it lives alongside the bridge and
@@ -25,6 +25,7 @@ def macos_profile(workspace: Path, dsh_home: Path, runtime: Path, python_root: P
 (allow file-read* (literal "{worker_script.resolve()}"))
 (allow file-read* (literal "{chat_only_patch.resolve()}"))
 (allow network-outbound (remote tcp "localhost:{proxy_port}"))
+{'(allow network-outbound)' if allow_web else ''}
 (allow file-read* file-write* (subpath "/dev"))
 {write_rules}
 {read_rules}

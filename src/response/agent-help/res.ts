@@ -18,7 +18,7 @@ const groupHelp = [
   '## 数据与服务',
   '- `/agentprivacy`：查看数据说明。',
   '- `/agentstatus`：查看服务是否可用。',
-  '- 当前版本只提供安全的群聊对话，不执行文件、终端或网页工具。',
+  '- 默认可联网查询；文件和终端是否可用由主人在本群设置。',
   '',
   '主人可私聊机器人发送 `/agenthelp` 查看管理命令。'
 ].join('\n');
@@ -38,7 +38,7 @@ const ownerPrivateHelp = [
   '',
   '## 在目标群内使用',
   '- `/agentpolicy status`：查看群策略。',
-  '- `/agentpolicy chat-only`：恢复仅对话策略。',
+  '- `/agentpolicy chat|web|files|terminal on|off`：调整本群能力；调整后会开启新会话。',
   '- `/agentpurge`：查看彻底删除本群数据的确认提示。'
 ].join('\n');
 

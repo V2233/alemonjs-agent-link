@@ -2,13 +2,16 @@ import { Format, logger, useMessage } from 'alemonjs';
 import { DSHError, getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { buildRecentChatContext, getRecentMessages } from '@src/chat-context/store';
 import { StreamOutput } from '@src/dsh/output';
-import { ensureIsolatedGroup, runCoordinatedChat } from '@src/dsh/orchestrator';
+import { ensureIsolatedGroup, runCoordinatedChat, type CoordinatedChatResult } from '@src/dsh/orchestrator';
+import { ownerPrivatePolicy } from '@src/state/registry';
 
 type ChatEvent = {
   ChannelId: string;
   MessageId?: string;
   UserId?: string;
   UserKey?: string;
+  IsPrivate?: boolean;
+  IsMaster?: boolean;
 };
 
 const buildAgentMessage = (recentContext: string, prompt: string): string => {
@@ -45,6 +48,19 @@ export const runDSHChat = async (event: ChatEvent, prompt: string): Promise<void
   };
   let config;
 
+  if (event.IsPrivate && !event.IsMaster) {
+    await reply('仅机器人主人可在私聊中使用 Agent。');
+
+    return;
+  }
+  const channelId = event.IsPrivate ? `private:${event.UserKey || 'master'}` : event.ChannelId;
+
+  if (!channelId) {
+    await reply('无法识别当前会话。');
+
+    return;
+  }
+
   try {
     config = getDSHConfig();
   } catch (error) {
@@ -57,10 +73,10 @@ export const runDSHChat = async (event: ChatEvent, prompt: string): Promise<void
   let recentContext: string;
 
   try {
-    await ensureIsolatedGroup(event.ChannelId, config);
+    await ensureIsolatedGroup(channelId, config);
     recentContext = buildRecentChatContext(
       await getRecentMessages(
-        event.ChannelId,
+        channelId,
         {
           maxMessages: config.recentChatMaxMessages,
           windowSeconds: config.recentChatWindowSeconds,
@@ -89,26 +105,39 @@ export const runDSHChat = async (event: ChatEvent, prompt: string): Promise<void
   const output = new StreamOutput(replyAgent, config.maxMessageLength, config.streamFlushIntervalMs, error => {
     logger.error({ err: error }, 'QQ message send failed');
   });
+  let coordinated: CoordinatedChatResult | undefined;
 
   try {
-    const result = await runCoordinatedChat(event, buildAgentMessage(recentContext, prompt), streamEvent => {
-      if (streamEvent.type === 'content') {
-        output.append(streamEvent.content);
-      }
+    coordinated = await runCoordinatedChat(
+      { ...event, ChannelId: channelId },
+      buildAgentMessage(recentContext, prompt),
+      streamEvent => {
+        if (streamEvent.type === 'content') {
+          output.append(streamEvent.content);
+        }
 
-      return Promise.resolve();
-    });
+        return Promise.resolve();
+      },
+      undefined,
+      undefined,
+      event.IsPrivate ? ownerPrivatePolicy : undefined
+    );
 
-    if (result.duplicate) {
+    if (coordinated.duplicate) {
       await output.close();
 
       return;
     }
 
     if (!(await output.close())) {
+      await coordinated.release().catch(error => logger.warn({ err: error }, 'Unable to release undelivered DSH response'));
       await reply('Agent 未生成可显示的回复，请先发送 /agentstatus 确认服务状态后重试。');
+
+      return;
     }
+    await coordinated.confirmDelivery().catch(error => logger.warn({ err: error }, 'Unable to finalize DSH response delivery'));
   } catch (error) {
+    await coordinated?.release().catch(releaseError => logger.warn({ err: releaseError }, 'Unable to release failed DSH response'));
     await output.close();
     if (error instanceof DSHError && error.kind === 'cancelled') {
       return;

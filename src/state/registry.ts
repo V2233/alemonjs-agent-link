@@ -1,11 +1,27 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { getIoRedis } from '@alemonjs/db';
 import type { Redis } from 'ioredis';
-import type { DSHBridgeConfig } from '@src/dsh/client';
+import type { AgentCapabilities, DSHBridgeConfig } from '@src/dsh/client';
 
 const prefix = 'data:agent-link';
 const recentTtlSeconds = 15 * 60;
-const dedupeTtlSeconds = 15 * 60;
+const minimumDedupeTtlSeconds = 15 * 60;
+const dedupeDeliveryMarginMs = 60_000;
+
+/** Cover a full group queue, its own model turn, and final QQ delivery. */
+export const getDedupeTtlSeconds = (config: Pick<DSHBridgeConfig, 'maxQueuedPerGroup' | 'requestTimeoutMs'>): number =>
+  Math.max(minimumDedupeTtlSeconds, Math.ceil(((config.maxQueuedPerGroup + 1) * config.requestTimeoutMs + dedupeDeliveryMarginMs) / 1000));
+
+const finalizeDedupeScript = `
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+return 1
+`;
+
+const releaseDedupeScript = `
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+return redis.call('DEL', KEYS[1])
+`;
 
 const beginResetScript = `
 local raw = redis.call('GET', KEYS[1])
@@ -18,7 +34,9 @@ if meta.transition == 'resetting' and type(meta.operationId) == 'string' then
   return cjson.encode(meta)
 end
 meta.generation = (tonumber(meta.generation) or 0) + 1
-meta.policy = 'chat-only'
+if type(meta.policy) ~= 'table' or meta.policy.version ~= 1 then
+  meta.policy = { version = 1, chat = true, web = true, files = false, terminal = false }
+end
 meta.lastActivity = tonumber(ARGV[1])
 meta.isolated = false
 meta.transition = 'resetting'
@@ -51,7 +69,9 @@ end
 if meta.transition == 'purging' and type(meta.operationId) == 'string' then
   return cjson.encode(meta)
 end
-meta.policy = 'chat-only'
+if type(meta.policy) ~= 'table' or meta.policy.version ~= 1 then
+  meta.policy = { version = 1, chat = true, web = true, files = false, terminal = false }
+end
 meta.lastActivity = tonumber(ARGV[1])
 meta.isolated = false
 meta.transition = 'purging'
@@ -61,7 +81,9 @@ redis.call('ZADD', KEYS[2], meta.lastActivity, ARGV[3])
 return cjson.encode(meta)
 `;
 
-export type GroupPolicy = 'chat-only';
+export type GroupPolicy = AgentCapabilities & { version: 1 };
+export const defaultGroupPolicy: GroupPolicy = { version: 1, chat: true, web: true, files: false, terminal: false };
+export const ownerPrivatePolicy: GroupPolicy = { version: 1, chat: true, web: true, files: true, terminal: true };
 export type RecentMessage = { id?: string; text: string; timestamp: number };
 export type GroupTransition = 'resetting' | 'purging';
 export type GroupMeta = {
@@ -100,14 +122,24 @@ const redis = async (config: DSHBridgeConfig): Promise<Redis> => {
 
 const parseMeta = (value: string | null): GroupMeta => {
   if (!value) {
-    return { generation: 0, policy: 'chat-only', lastActivity: Date.now(), isolated: false };
+    return { generation: 0, policy: defaultGroupPolicy, lastActivity: Date.now(), isolated: false };
   }
   try {
     const raw = JSON.parse(value) as Partial<GroupMeta>;
 
     return {
       generation: Number.isInteger(raw.generation) ? raw.generation : 0,
-      policy: 'chat-only',
+      // Legacy chat-only records upgrade to the new public default.
+      policy:
+        raw.policy && typeof raw.policy === 'object' && (raw.policy as Partial<GroupPolicy>).version === 1
+          ? {
+              version: 1,
+              chat: (raw.policy as Partial<GroupPolicy>).chat === true,
+              web: (raw.policy as Partial<GroupPolicy>).web === true,
+              files: (raw.policy as Partial<GroupPolicy>).files === true,
+              terminal: (raw.policy as Partial<GroupPolicy>).terminal === true
+            }
+          : defaultGroupPolicy,
       lastActivity: typeof raw.lastActivity === 'number' ? raw.lastActivity : Date.now(),
       // Existing pre-isolation metadata must never authorize reuse of an old home.
       isolated: raw.isolated === true,
@@ -115,7 +147,7 @@ const parseMeta = (value: string | null): GroupMeta => {
       operationId: typeof raw.operationId === 'string' ? raw.operationId : undefined
     };
   } catch {
-    return { generation: 0, policy: 'chat-only', lastActivity: Date.now(), isolated: false };
+    return { generation: 0, policy: defaultGroupPolicy, lastActivity: Date.now(), isolated: false };
   }
 };
 
@@ -181,17 +213,42 @@ export class SessionRegistry {
     await (await redis(this.config)).set(key(channelId, 'meta.v1.json'), JSON.stringify(meta));
   }
   async deduplicate(channelId: string, messageId?: string): Promise<{ duplicate: boolean; requestId: string }> {
-    const requestId = createHash('sha256')
-      .update(`${channelId}\0${messageId || randomUUID()}`)
-      .digest('hex')
-      .slice(0, 12);
+    const requestId = randomUUID();
 
     if (!messageId) {
       return { duplicate: false, requestId };
     }
-    const accepted = await (await redis(this.config)).set(`${prefix}:dedupe:${groupHash(channelId)}:${messageId}`, requestId, 'EX', dedupeTtlSeconds, 'NX');
+    const accepted = await (
+      await redis(this.config)
+    ).set(this.dedupeKey(channelId, messageId), `running:${requestId}`, 'EX', getDedupeTtlSeconds(this.config), 'NX');
 
     return { duplicate: !accepted, requestId };
+  }
+  async finalizeDeduplication(channelId: string, messageId: string | undefined, requestId: string): Promise<boolean> {
+    if (!messageId) {
+      return true;
+    }
+
+    return (
+      Number(
+        await (
+          await redis(this.config)
+        ).eval(
+          finalizeDedupeScript,
+          1,
+          this.dedupeKey(channelId, messageId),
+          `running:${requestId}`,
+          `delivered:${requestId}`,
+          String(getDedupeTtlSeconds(this.config))
+        )
+      ) === 1
+    );
+  }
+  async releaseDeduplication(channelId: string, messageId: string | undefined, requestId: string): Promise<void> {
+    if (!messageId) {
+      return;
+    }
+    await (await redis(this.config)).eval(releaseDedupeScript, 1, this.dedupeKey(channelId, messageId), `running:${requestId}`);
   }
   async allowUser(channelId: string, userId: string): Promise<boolean> {
     const store = await redis(this.config);
@@ -280,5 +337,8 @@ export class SessionRegistry {
       }
     } while (cursor !== '0');
     await store.zrem(`${prefix}:retention.v1`, hash);
+  }
+  private dedupeKey(channelId: string, messageId: string): string {
+    return `${prefix}:dedupe:${groupHash(channelId)}:${messageId}`;
   }
 }
