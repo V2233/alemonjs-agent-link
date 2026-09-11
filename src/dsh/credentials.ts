@@ -83,7 +83,8 @@ const requireKeychain = (): void => {
   }
 };
 
-const runSwiftWithSecret = (script: string, secret?: string): Promise<void> => new Promise((resolve, reject) => {
+const runSwiftWithSecret = (script: string, secret?: string): Promise<void> =>
+  new Promise((resolve, reject) => {
     const child = spawn('/usr/bin/swift', ['-e', script, service, account], {
       stdio: ['pipe', 'ignore', 'pipe']
     });

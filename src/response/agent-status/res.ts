@@ -57,8 +57,8 @@ export default async (): Promise<void> => {
         .filter(Boolean)
         .join('\n');
     } else {
-      text
-        = status.phase === 'ready'
+      text =
+        status.phase === 'ready'
           ? '# AgentLink\n\n服务正常，可以直接 @机器人 或发送 `/chat 问题`。'
           : `# AgentLink\n\n服务正在准备中：${phaseMessage[status.phase]} 请稍后再试。`;
     }

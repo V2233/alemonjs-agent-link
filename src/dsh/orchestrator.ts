@@ -43,8 +43,8 @@ const enqueue = async (
 
   return await new Promise<void>((resolve, reject) => {
     const ahead = (queue.running ? 1 : 0) + queue.jobs.length;
-    const queuedNotice
-      = ahead > 0 && onQueued ? onQueued(ahead).catch(error => logger.warn({ err: error }, 'Unable to send DSH queue notice')) : Promise.resolve();
+    const queuedNotice =
+      ahead > 0 && onQueued ? onQueued(ahead).catch(error => logger.warn({ err: error }, 'Unable to send DSH queue notice')) : Promise.resolve();
 
     queue.jobs.push({
       userId,

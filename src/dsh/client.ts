@@ -109,36 +109,36 @@ export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeCo
   ];
 
   if (
-    !integerFields.every(Number.isSafeInteger)
-    || !stringFields.every(value => typeof value === 'string' && value.trim().length > 0)
-    || config.maxMessageLength < 1
-    || config.maxMessageLength > 10_000
-    || config.streamFlushIntervalMs < 1
-    || config.streamFlushIntervalMs > 10_000
-    || config.requestTimeoutMs < 1
-    || config.requestTimeoutMs > 300_000
-    || config.recentChatMaxMessages < 0
-    || config.recentChatWindowSeconds < 0
-    || config.recentChatMaxChars < 0
-    || config.recentChatSummaryMaxChars < 0
-    || config.bridgePort < 1024
-    || config.bridgePort > 65535
-    || config.startupTimeoutMs < 1
-    || config.maxQueuedPerGroup < 0
-    || config.maxQueuedPerGroup > 3
-    || config.maxConcurrentRequests < 1
-    || config.maxConcurrentRequests > 100
-    || config.maxActiveWorkers < 1
-    || config.maxActiveWorkers > 200
-    || config.maxCallsPerUserPerMinute < 1
-    || config.maxCallsPerUserPerMinute > 60
-    || config.maxRequestBytes < 1
-    || config.maxRequestBytes > 5 * 1024 * 1024
-    || config.retentionDays !== 30
-    || !Array.isArray(config.inputBlockedKeywords)
-    || !config.inputBlockedKeywords.every(value => typeof value === 'string')
-    || !Array.isArray(config.outputBlockedKeywords)
-    || !config.outputBlockedKeywords.every(value => typeof value === 'string')
+    !integerFields.every(Number.isSafeInteger) ||
+    !stringFields.every(value => typeof value === 'string' && value.trim().length > 0) ||
+    config.maxMessageLength < 1 ||
+    config.maxMessageLength > 10_000 ||
+    config.streamFlushIntervalMs < 1 ||
+    config.streamFlushIntervalMs > 10_000 ||
+    config.requestTimeoutMs < 1 ||
+    config.requestTimeoutMs > 300_000 ||
+    config.recentChatMaxMessages < 0 ||
+    config.recentChatWindowSeconds < 0 ||
+    config.recentChatMaxChars < 0 ||
+    config.recentChatSummaryMaxChars < 0 ||
+    config.bridgePort < 1024 ||
+    config.bridgePort > 65535 ||
+    config.startupTimeoutMs < 1 ||
+    config.maxQueuedPerGroup < 0 ||
+    config.maxQueuedPerGroup > 3 ||
+    config.maxConcurrentRequests < 1 ||
+    config.maxConcurrentRequests > 100 ||
+    config.maxActiveWorkers < 1 ||
+    config.maxActiveWorkers > 200 ||
+    config.maxCallsPerUserPerMinute < 1 ||
+    config.maxCallsPerUserPerMinute > 60 ||
+    config.maxRequestBytes < 1 ||
+    config.maxRequestBytes > 5 * 1024 * 1024 ||
+    config.retentionDays !== 30 ||
+    !Array.isArray(config.inputBlockedKeywords) ||
+    !config.inputBlockedKeywords.every(value => typeof value === 'string') ||
+    !Array.isArray(config.outputBlockedKeywords) ||
+    !config.outputBlockedKeywords.every(value => typeof value === 'string')
   ) {
     throw new DSHError('protocol', 'DSH 配置的类型或安全范围无效');
   }

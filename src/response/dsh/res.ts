@@ -30,7 +30,8 @@ export default async (): Promise<void> => {
     return;
   }
 
-  const reply = async (text: string): Promise<unknown> => await message.send({
+  const reply = async (text: string): Promise<unknown> =>
+    await message.send({
       format: Format.create().addMarkdownOriginal(text)
     });
 

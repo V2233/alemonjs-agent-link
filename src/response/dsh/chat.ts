@@ -22,7 +22,8 @@ const buildAgentMessage = (recentContext: string, prompt: string): string => {
 export const runDSHChat = async (event: ChatEvent, prompt: string): Promise<void> => {
   const [message] = useMessage();
 
-  const reply = async (text: string): Promise<unknown> => await message.send({
+  const reply = async (text: string): Promise<unknown> =>
+    await message.send({
       format: Format.create().addMarkdownOriginal(text)
     });
   let firstAgentReply = true;

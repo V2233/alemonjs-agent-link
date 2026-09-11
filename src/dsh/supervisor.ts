@@ -50,13 +50,15 @@ const installShutdownHook = (): void => {
   process.once('exit', stopBridge);
 };
 
-const fingerprintConfig = (config: DSHBridgeConfig): string => JSON.stringify(
+const fingerprintConfig = (config: DSHBridgeConfig): string =>
+  JSON.stringify(
     Object.entries(config)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, value]) => [key, Array.isArray(value) ? [...value] : value])
   );
 
-const fingerprintCredentials = (credentials: DSHCredentials | null): string => credentials
+const fingerprintCredentials = (credentials: DSHCredentials | null): string =>
+  credentials
     ? createHash('sha256')
         .update(`${credentials.apiKey}\u0000${credentials.baseUrl ?? ''}\u0000${credentials.model ?? ''}`)
         .digest('hex')
@@ -236,12 +238,7 @@ export class DSHSupervisor {
       }
       const value = JSON.parse(await readFile(path, 'utf8')) as Partial<BridgeRuntimeRecord>;
 
-      if (
-        value.version !== 1
-        || !Number.isSafeInteger(value.port)
-        || typeof value.fingerprint !== 'string'
-        || !/^[a-f0-9]{64}$/.test(String(value.token))
-      ) {
+      if (value.version !== 1 || !Number.isSafeInteger(value.port) || typeof value.fingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(String(value.token))) {
         return null;
       }
 

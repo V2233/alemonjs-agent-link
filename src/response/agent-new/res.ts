@@ -12,7 +12,8 @@ export default async (): Promise<void> => {
 
   const event = eventContext.current;
   const [message] = useMessage();
-  const reply = async (text: string): Promise<unknown> => await message.send({
+  const reply = async (text: string): Promise<unknown> =>
+    await message.send({
       format: Format.create().addMarkdownOriginal(text)
     });
 

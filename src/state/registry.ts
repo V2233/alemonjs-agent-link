@@ -217,7 +217,9 @@ export class SessionRegistry {
       const [next, keys] = await store.scan(cursor, 'MATCH', `${prefix}:group:${hash}:*`, 'COUNT', 100);
 
       cursor = next;
-      if (keys.length) { await store.del(...keys); }
+      if (keys.length) {
+        await store.del(...keys);
+      }
     } while (cursor !== '0');
     await store.zrem(`${prefix}:retention.v1`, hash);
   }
