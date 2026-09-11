@@ -200,7 +200,7 @@ export class DSHSupervisor {
   private async adoptAuthenticatedBridge(): Promise<boolean> {
     const record = await this.readRuntimeRecord();
 
-    if (!record || record.port !== this.config.bridgePort || record.fingerprint !== this.fingerprint) {
+    if (record?.port !== this.config.bridgePort || record?.fingerprint !== this.fingerprint) {
       return false;
     }
 

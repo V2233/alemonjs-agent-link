@@ -29,9 +29,7 @@ export default async (): Promise<void> => {
 
     if (requested === 'status') {
       await message.send({
-        format: Format.create().addMarkdownOriginal(
-          `当前群策略：\`${await registry.policy(event.ChannelId)}\`\n该版本只提供隔离的纯对话能力。`
-        )
+        format: Format.create().addMarkdownOriginal(`当前群策略：\`${await registry.policy(event.ChannelId)}\`\n该版本只提供隔离的纯对话能力。`)
       });
 
       return;

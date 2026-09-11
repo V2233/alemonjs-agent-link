@@ -54,8 +54,8 @@ def main():
             result = session.run(command['message'], on_notification=on_notification)
             emit({'type': 'result', 'content': result.final_response or ''.join(streamed), 'finish_reason': result.finish_reason, 'events': result.events})
         except Exception as error:
-            # The bridge exposes only the stable error field; detail remains on
-            # the authenticated worker pipe for parent-side diagnostics.
+            # The bridge exposes only the stable error field. Detail is never
+            # logged or returned to a chat client because it may include input.
             emit({'type': 'error', 'error': 'DSH worker execution failed', 'detail': str(error)[-2000:]})
     harness.close(); return 0
 

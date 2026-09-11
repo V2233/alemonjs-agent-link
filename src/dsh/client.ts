@@ -135,8 +135,10 @@ export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeCo
     || config.maxRequestBytes < 1
     || config.maxRequestBytes > 5 * 1024 * 1024
     || config.retentionDays !== 30
-    || !Array.isArray(config.inputBlockedKeywords) || !config.inputBlockedKeywords.every(value => typeof value === 'string')
-    || !Array.isArray(config.outputBlockedKeywords) || !config.outputBlockedKeywords.every(value => typeof value === 'string')
+    || !Array.isArray(config.inputBlockedKeywords)
+    || !config.inputBlockedKeywords.every(value => typeof value === 'string')
+    || !Array.isArray(config.outputBlockedKeywords)
+    || !config.outputBlockedKeywords.every(value => typeof value === 'string')
   ) {
     throw new DSHError('protocol', 'DSH 配置的类型或安全范围无效');
   }

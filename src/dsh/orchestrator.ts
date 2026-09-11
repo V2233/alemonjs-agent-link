@@ -5,7 +5,7 @@ import { SessionRegistry } from '@src/state/registry';
 type Job = { userId: string; run: () => Promise<void>; reject: (error: Error) => void };
 type GroupQueue = { running: boolean; jobs: Job[]; cancel?: AbortController; activeUserId?: string };
 const queues = new Map<string, GroupQueue>();
-const isolationTransitions = new Map<string, Promise<void>>();
+const groupResetTransitions = new Map<string, Promise<void>>();
 let activeRequests = 0;
 
 const acquireRequestSlot = (limit: number): (() => void) => {
@@ -43,9 +43,8 @@ const enqueue = async (
 
   return await new Promise<void>((resolve, reject) => {
     const ahead = (queue.running ? 1 : 0) + queue.jobs.length;
-    const queuedNotice = ahead > 0 && onQueued
-      ? onQueued(ahead).catch(error => logger.warn({ err: error }, 'Unable to send DSH queue notice'))
-      : Promise.resolve();
+    const queuedNotice
+      = ahead > 0 && onQueued ? onQueued(ahead).catch(error => logger.warn({ err: error }, 'Unable to send DSH queue notice')) : Promise.resolve();
 
     queue.jobs.push({
       userId,
@@ -107,7 +106,40 @@ export const cancelGroupChat = (channelId: string): void => {
  * A missing isolation marker is not a user action item. Atomically perform
  * the same destructive boundary as /new before the first post-upgrade turn.
  */
+export const resetGroupSession = async (channelId: string, config: DSHBridgeConfig): Promise<void> => {
+  const pending = groupResetTransitions.get(channelId);
+
+  if (pending !== undefined) {
+    await pending;
+
+    return;
+  }
+  const registry = new SessionRegistry(config);
+  const transition = (async (): Promise<void> => {
+    await registry.ready();
+    cancelGroupChat(channelId);
+    await clearSession(config, `dsh:qq:group:${channelId}`);
+    await registry.advance(channelId);
+    await registry.clearRecent(channelId);
+    logger.info({ group: await registry.groupKey(channelId) }, 'Reset isolated group session');
+  })();
+
+  groupResetTransitions.set(channelId, transition);
+  try {
+    await transition;
+  } finally {
+    groupResetTransitions.delete(channelId);
+  }
+};
+
+/** Initialize old metadata behind the same serialized boundary as /new. */
 export const ensureIsolatedGroup = async (channelId: string, config: DSHBridgeConfig): Promise<void> => {
+  const pending = groupResetTransitions.get(channelId);
+
+  if (pending !== undefined) {
+    await pending;
+  }
+
   const registry = new SessionRegistry(config);
 
   await registry.ready();
@@ -115,28 +147,7 @@ export const ensureIsolatedGroup = async (channelId: string, config: DSHBridgeCo
     return;
   }
 
-  const pending = isolationTransitions.get(channelId);
-
-  if (pending !== undefined) {
-    await pending;
-
-    return;
-  }
-
-  const transition = (async (): Promise<void> => {
-    cancelGroupChat(channelId);
-    await clearSession(config, `dsh:qq:group:${channelId}`);
-    await registry.advance(channelId);
-    await registry.clearRecent(channelId);
-    logger.info({ group: await registry.groupKey(channelId) }, 'Initialized isolated group session');
-  })();
-
-  isolationTransitions.set(channelId, transition);
-  try {
-    await transition;
-  } finally {
-    isolationTransitions.delete(channelId);
-  }
+  await resetGroupSession(channelId, config);
 };
 
 export type CancelChatResult = 'cancelled-running' | 'cancelled-queued' | 'empty' | 'forbidden';
@@ -195,21 +206,28 @@ export const runCoordinatedChat = async (
   }
   const meta = await registry.touch(event.ChannelId);
 
-  await enqueue(event.ChannelId, config.maxQueuedPerGroup, event.UserKey || 'unknown', async signal => {
-    const release = acquireRequestSlot(config.maxConcurrentRequests);
+  await enqueue(
+    event.ChannelId,
+    config.maxQueuedPerGroup,
+    event.UserKey || 'unknown',
+    async signal => {
+      const release = acquireRequestSlot(config.maxConcurrentRequests);
 
-    try {
-      const current = await registry.meta(event.ChannelId);
+      try {
+        const current = await registry.meta(event.ChannelId);
 
-      if (current.generation !== meta.generation) {
-        throw new DSHError('timeout', '群会话已重置');
+        if (current.generation !== meta.generation) {
+          throw new DSHError('timeout', '群会话已重置');
+        }
+        await streamChat(config, `dsh:qq:group:${event.ChannelId}:v${meta.generation}`, message, onEvent, event.UserKey, signal);
+        await registry.touch(event.ChannelId);
+      } finally {
+        release();
       }
-      await streamChat(config, `dsh:qq:group:${event.ChannelId}:v${meta.generation}`, message, onEvent, event.UserKey, signal);
-      await registry.touch(event.ChannelId);
-    } finally {
-      release();
-    }
-  }, onQueued, onStarted);
+    },
+    onQueued,
+    onStarted
+  );
   logger.info({ requestId: duplicate.requestId, group: await registry.groupKey(event.ChannelId), status: 'completed' }, 'DSH chat completed');
 
   return duplicate;

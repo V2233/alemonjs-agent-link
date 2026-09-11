@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -91,6 +92,30 @@ class BridgeSafetyTests(unittest.TestCase):
             replacement.lock.release()
         finally:
             self.bridge.Worker = original_worker
+
+    def test_worker_error_detail_is_not_exposed_to_bridge_logs(self):
+        original_runtime = self.bridge.RUNTIME_PATH
+        self.bridge.RUNTIME_PATH = Path('/tmp/dsh-runtime')
+        worker = self.bridge.Worker('a' * 64, 1)
+
+        class Stdin:
+            def write(self, _value):
+                pass
+
+            def flush(self):
+                pass
+
+        try:
+            worker.start = lambda: None
+            worker.process = type('Process', (), {'stdin': Stdin(), 'stdout': object()})()
+            worker.stdout_queue.put(json.dumps({'type': 'error', 'error': 'DSH worker execution failed', 'detail': 'private prompt text'}))
+
+            with self.assertRaisesRegex(self.bridge.WorkerError, 'sandbox worker reported an error') as raised:
+                worker.run('private prompt text', 'dsh:qq:group:1', lambda _content: None)
+
+            self.assertNotIn('private prompt text', str(raised.exception))
+        finally:
+            self.bridge.RUNTIME_PATH = original_runtime
 
 
 if __name__ == '__main__':

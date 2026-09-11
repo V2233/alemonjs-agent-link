@@ -15,7 +15,7 @@ export default async (): Promise<void> => {
   const mentionedBot = await mention.findOne({ IsBot: true });
 
   if (!mentionedBot.data) {
-    next();
+    await Promise.resolve(next());
 
     return;
   }

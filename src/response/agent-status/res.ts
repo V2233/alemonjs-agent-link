@@ -53,11 +53,14 @@ export default async (): Promise<void> => {
         `- 模型凭证：${credentials ? '已绑定。' : '尚未绑定；发送 `/agentbind <API_KEY> [BASE_URL]` 绑定。'}`,
         '- 数据清理：启动时一次，此后每小时检查；默认保留 30 天。',
         status.detail ? `\n> 说明：${status.detail}` : ''
-      ].filter(Boolean).join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
     } else {
-      text = status.phase === 'ready'
-        ? '# AgentLink\n\n服务正常，可以直接 @机器人 或发送 `/chat 问题`。'
-        : `# AgentLink\n\n服务正在准备中：${phaseMessage[status.phase]} 请稍后再试。`;
+      text
+        = status.phase === 'ready'
+          ? '# AgentLink\n\n服务正常，可以直接 @机器人 或发送 `/chat 问题`。'
+          : `# AgentLink\n\n服务正在准备中：${phaseMessage[status.phase]} 请稍后再试。`;
     }
   } catch (error) {
     logger.error({ err: error }, 'DSH configuration invalid while reading status');

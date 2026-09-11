@@ -13,7 +13,7 @@ export default async (): Promise<void> => {
   const text = String(event.MessageText ?? '').trim();
 
   if (event.IsBot || !event.ChannelId || !text || text.startsWith('/')) {
-    next();
+    await Promise.resolve(next());
 
     return;
   }
@@ -43,5 +43,5 @@ export default async (): Promise<void> => {
     }
   }
 
-  next();
+  await Promise.resolve(next());
 };

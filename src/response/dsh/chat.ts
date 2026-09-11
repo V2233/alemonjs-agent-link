@@ -23,8 +23,8 @@ export const runDSHChat = async (event: ChatEvent, prompt: string): Promise<void
   const [message] = useMessage();
 
   const reply = async (text: string): Promise<unknown> => await message.send({
-    format: Format.create().addMarkdownOriginal(text)
-  });
+      format: Format.create().addMarkdownOriginal(text)
+    });
   let firstAgentReply = true;
   const replyAgent = async (text: string): Promise<unknown> => {
     const format = Format.create();
@@ -90,17 +90,13 @@ export const runDSHChat = async (event: ChatEvent, prompt: string): Promise<void
   });
 
   try {
-    const result = await runCoordinatedChat(
-      event,
-      buildAgentMessage(recentContext, prompt),
-      streamEvent => {
-        if (streamEvent.type === 'content') {
-          output.append(streamEvent.content);
-        }
-
-        return Promise.resolve();
+    const result = await runCoordinatedChat(event, buildAgentMessage(recentContext, prompt), streamEvent => {
+      if (streamEvent.type === 'content') {
+        output.append(streamEvent.content);
       }
-    );
+
+      return Promise.resolve();
+    });
 
     if (result.duplicate) {
       await output.close();

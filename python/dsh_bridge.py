@@ -288,8 +288,10 @@ class Worker:
                 if event.get('type') == 'content': on_content(str(event.get('content', '')))
                 elif event.get('type') == 'result': self.schedule_idle_close(); return event
                 elif event.get('type') in {'error', 'fatal'}:
-                    detail = str(event.get('detail', ''))
-                    raise WorkerError(f"{event.get('error', 'worker failed')}: {detail}".rstrip(': '))
+                    # Worker details can contain prompt or model text. Keep them
+                    # on the authenticated pipe only; neither bridge nor Node
+                    # logs may serialize them.
+                    raise WorkerError('sandbox worker reported an error')
 
 def get_worker(key: str, port: int) -> Worker:
     with WORKERS_LOCK:

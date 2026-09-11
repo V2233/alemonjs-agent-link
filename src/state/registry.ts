@@ -7,6 +7,22 @@ const prefix = 'data:agent-link';
 const recentTtlSeconds = 15 * 60;
 const dedupeTtlSeconds = 15 * 60;
 
+const advanceMetaScript = `
+local raw = redis.call('GET', KEYS[1])
+local meta = {}
+if raw then
+  local ok, decoded = pcall(cjson.decode, raw)
+  if ok and type(decoded) == 'table' then meta = decoded end
+end
+meta.generation = (tonumber(meta.generation) or 0) + 1
+meta.policy = 'chat-only'
+meta.lastActivity = tonumber(ARGV[1])
+meta.isolated = true
+redis.call('SET', KEYS[1], cjson.encode(meta))
+redis.call('ZADD', KEYS[2], meta.lastActivity, ARGV[2])
+return tostring(meta.generation)
+`;
+
 export type GroupPolicy = 'chat-only';
 export type RecentMessage = { id?: string; text: string; timestamp: number };
 type GroupMeta = { generation: number; policy: GroupPolicy; lastActivity: number; isolated: boolean };
@@ -70,7 +86,7 @@ export class SessionRegistry {
     }
   }
   async groupKey(channelId: string): Promise<string> {
-    return groupHash(channelId);
+    return await Promise.resolve(groupHash(channelId));
   }
   async meta(channelId: string): Promise<GroupMeta> {
     return parseMeta(await (await redis(this.config)).get(key(channelId, 'meta.v1.json')));
@@ -89,13 +105,13 @@ export class SessionRegistry {
     return meta;
   }
   async advance(channelId: string): Promise<GroupMeta> {
-    const meta = await this.touch(channelId);
+    const store = await redis(this.config);
+    const timestamp = Date.now();
+    const generation = Number(
+      await store.eval(advanceMetaScript, 2, key(channelId, 'meta.v1.json'), `${prefix}:retention.v1`, String(timestamp), groupHash(channelId))
+    );
 
-    meta.generation += 1;
-    meta.isolated = true;
-    await (await redis(this.config)).set(key(channelId, 'meta.v1.json'), JSON.stringify(meta));
-
-    return meta;
+    return { generation, policy: 'chat-only', lastActivity: timestamp, isolated: true };
   }
   async policy(channelId: string): Promise<GroupPolicy> {
     return (await this.meta(channelId)).policy;

@@ -1,9 +1,7 @@
 import { Format, logger, useEvent, useMessage } from 'alemonjs';
-import { clearSession, getDSHConfig, toUserMessage } from '@src/dsh/client';
-import { clearRecentMessages } from '@src/chat-context/store';
+import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { canReset, getSessionId } from '@src/response/dsh/util';
-import { cancelGroupChat } from '@src/dsh/orchestrator';
-import { SessionRegistry } from '@src/state/registry';
+import { resetGroupSession } from '@src/dsh/orchestrator';
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: ['message.create', 'private.message.create'] });
@@ -34,13 +32,8 @@ export default async (): Promise<void> => {
 
   try {
     const config = getDSHConfig();
-    const registry = new SessionRegistry(config);
 
-    await registry.ready();
-    cancelGroupChat(event.ChannelId);
-    await clearSession(config, sessionId);
-    await registry.advance(event.ChannelId);
-    await clearRecentMessages(event.ChannelId, config);
+    await resetGroupSession(event.ChannelId, config);
     await reply('## 已开始新话题\n本群共享的 Agent 会话和近期聊天参考已清空；之后的对话会从新的上下文开始。');
   } catch (error) {
     logger.error({ err: error, sessionId }, 'DSH session clear failed');
