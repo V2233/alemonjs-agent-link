@@ -5,7 +5,7 @@
 - 运行宿主为 macOS，且存在 `/usr/bin/sandbox-exec`。
 - Redis 可连接，QQ Bot 和主人账号已配置。
 - `alemon.config.yaml` 仅对运行账户可读，且未提交。
-- 已通过私聊绑定模型凭证。
+- 已在 `alemon.config.yaml` 的 `alemonjs-agent-link` 下配置 `apiKey`。
 
 首次启动时，AgentLink 会创建 `.data/agent-link/venv` 并按仓库内锁定版本安装 DSH SDK；这一步需要网络和数据目录写入权限。升级 DSH 时必须同步更新 `python/requirements.txt`，并完成 sandbox 集成验证。
 
@@ -35,13 +35,13 @@ yarn start --login qq-bot
 
 常见状态与动作：
 
-| 现象                 | 优先检查                                                |
-| -------------------- | ------------------------------------------------------- |
-| 服务准备中或启动失败 | Python 3、网络、`.data/agent-link/` 权限、Bridge 端口。 |
-| 新请求被拒绝         | Redis 连通性和 `/agentstatus`。                         |
-| 请求超时             | 模型服务、网络、`requestTimeoutMs`，以及本机容量。      |
-| 群内排队已满         | 当前群请求量；使用 `/cancel` 取消自己的等待请求。       |
-| 无可用模型           | 主人私聊执行 `/agentmodels`，必要时重新 `/agentbind`。  |
+| 现象                 | 优先检查                                                                                     |
+| -------------------- | -------------------------------------------------------------------------------------------- |
+| 服务准备中或启动失败 | Python 3、网络、`.data/agent-link/` 权限、Bridge 端口。                                      |
+| 新请求被拒绝         | Redis 连通性和 `/agentstatus`。                                                              |
+| 请求超时             | 模型服务、网络、`requestTimeoutMs`，以及本机容量。                                           |
+| 群内排队已满         | 当前群请求量；使用 `/cancel` 取消自己的等待请求。                                            |
+| 无可用模型           | 主人私聊执行 `/agentmodels`，并检查 `alemon.config.yaml` 的 `apiKey`、`baseUrl` 与 `model`。 |
 
 ## 发布验证
 

@@ -38,6 +38,18 @@ const config = {
 
 setDSHBridgeForTesting({ url: 'http://dsh.test', token: 'secret' });
 
+test('reads credentials exclusively from AgentLink configuration', async () => {
+  const { getDSHCredentials, saveDSHCredentials } = await import('../lib/dsh/credentials.js');
+  assert.deepEqual(
+    await getDSHCredentials({
+      'alemonjs-agent-link': { apiKey: 'configured-secret', baseUrl: 'https://models.example/v1' }
+    }),
+    { apiKey: 'configured-secret', baseUrl: 'https://models.example/v1' }
+  );
+  assert.equal(await getDSHCredentials({ 'alemonjs-agent-link': {} }), null);
+  await assert.rejects(() => saveDSHCredentials({ apiKey: 'replacement' }), /alemon.config.yaml/);
+});
+
 test('sends a DSH SSE request and consumes content events', async () => {
   const originalFetch = globalThis.fetch;
   let request;

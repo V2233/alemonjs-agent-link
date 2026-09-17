@@ -23,7 +23,16 @@ alemonjs-agent-link:
   model: deepseek-v4-flash
 ```
 
-模型 API Key 不在此文件中配置。机器人主人通过私聊 `/agentbind <API_KEY> [BASE_URL]` 绑定，它会存入 macOS Keychain。
+模型凭证也统一从此文件读取。在 `alemonjs-agent-link` 下设置 `apiKey`，可选设置 `baseUrl`；`model` 同样在此处配置。修改后必须重启服务：
+
+```yaml
+alemonjs-agent-link:
+  apiKey: '<MODEL_API_KEY>'
+  baseUrl: 'https://api.example.com/v1' # 可选
+  model: deepseek-v4-flash
+```
+
+`alemon.config.yaml` 已被 Git 忽略。应仅允许运行账户读取，并禁止复制到日志、镜像或公开位置。`/agentbind`、`/agentmodel` 与 `/agentunbind` 不会修改该文件。
 
 ## AgentLink 参数
 

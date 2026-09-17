@@ -41,9 +41,7 @@ const panels = [
         command('/chat ', '向 Agent 提问'),
         command('/agentstatus', '查看完整服务状态'),
         command('/agentmodels', '查看可用模型'),
-        command('/agentmodel', '查看或切换模型'),
-        command('/agentbind ', '绑定模型 API Key'),
-        command('/agentunbind', '移除模型 API Key'),
+        command('/agentmodel', '查看当前配置模型'),
         command('/agenthelp', '查看完整管理说明')
       ]
     }

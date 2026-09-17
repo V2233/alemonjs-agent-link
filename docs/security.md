@@ -27,7 +27,7 @@ QQ 消息 → AlemonJS 路由 → Redis / Node 编排 → 本机 Bridge → sand
 | 普通群聊参考     | 理解近期语境      | 15 分钟      | `/agentcontext clear`、`/new`、过期 |
 | Redis 去重与限流 | 防重放与防滥用    | 短时 TTL     | 自动过期                            |
 | 本机隔离目录     | Worker / DSH 会话 | 无活动 30 天 | `/agentpurge` 或自动清理            |
-| 模型凭证         | 调用模型          | 直到主人解绑 | `/agentunbind`                      |
+| 模型凭证         | 调用模型          | 直到配置移除 | `alemon.config.yaml` 由运维管理     |
 
 会话重置与彻底删除会先在 Redis 中写入可恢复的过渡状态，再操作本机 Worker 数据。若进程或 Redis 在中间失败，下一次访问会安全地续作该过渡，而不会把旧逻辑会话指向已删除的本地历史。
 
@@ -43,6 +43,7 @@ QQ 消息 → AlemonJS 路由 → Redis / Node 编排 → 本机 Bridge → sand
 2. API Key 绑定消息会经过 QQ；绑定后立即删除。
 3. 发现泄露时，先在服务商控制台轮换凭证，再更新本机配置或重新绑定。
 4. 日志不得记录用户请求、模型输出、API Key、Bridge token 或 Worker 异常详情。
+5. 模型 API Key 存放在 `alemon.config.yaml` 的 `alemonjs-agent-link.apiKey`。该文件必须仅对运行账户可读、保持 Git 忽略，且不能复制到日志、镜像或公开位置。
 
 ## 部署限制
 

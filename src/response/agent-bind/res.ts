@@ -1,15 +1,9 @@
-import { Format, logger, useEvent, useMessage, useRoute } from 'alemonjs';
-import { getDSHConfig } from '@src/dsh/client';
-import { getDSHCredentials, saveDSHCredentials } from '@src/dsh/credentials';
-import { configureDSHSupervisor } from '@src/dsh/supervisor';
-
-const usage = '仅机器人主人可在私聊绑定。用法：/agentbind <API_KEY> [BASE_URL]';
+import { Format, useEvent, useMessage } from 'alemonjs';
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: 'private.message.create' });
-  const [route] = useRoute();
 
-  if (!eventContext.match.selects || !route.matched) {
+  if (!eventContext.match.selects) {
     return;
   }
 
@@ -22,33 +16,9 @@ export default async (): Promise<void> => {
     return;
   }
 
-  const [apiKey, baseUrl] = route.rawArgs.map(String);
-
-  if (!apiKey) {
-    await message.send({ format: Format.create().addMarkdownOriginal(usage) });
-
-    return;
-  }
-
-  try {
-    if (baseUrl) {
-      new URL(baseUrl);
-    }
-
-    const previousCredentials = await getDSHCredentials();
-    const credentials = { apiKey, baseUrl, model: previousCredentials?.model };
-
-    await saveDSHCredentials(credentials);
-    const supervisor = configureDSHSupervisor(getDSHConfig(), credentials);
-
-    void supervisor.start().catch(error => logger.error({ err: error }, 'DSH bridge restart after credential binding failed'));
-    await message.send({
-      format: Format.create().addMarkdownOriginal(
-        '模型凭证已绑定，正在重新加载 DSH。请稍后发送 /agentstatus 查看就绪状态。为降低 QQ 聊天记录风险，请立即手动删除刚才包含 API Key 的私聊消息。'
-      )
-    });
-  } catch (error) {
-    logger.error({ err: error }, 'DSH credential binding failed');
-    await message.send({ format: Format.create().addMarkdownOriginal('绑定失败。请检查 API Key、可选 BASE_URL 以及系统密钥库是否可用。') });
-  }
+  await message.send({
+    format: Format.create().addMarkdownOriginal(
+      '模型凭证仅从 `alemon.config.yaml` 读取。请在 `alemonjs-agent-link` 下设置 `apiKey` 和可选的 `baseUrl`，然后重启服务。'
+    )
+  });
 };

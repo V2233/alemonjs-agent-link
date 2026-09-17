@@ -1,7 +1,4 @@
-import { Format, logger, useEvent, useMessage } from 'alemonjs';
-import { getDSHConfig } from '@src/dsh/client';
-import { removeDSHCredentials } from '@src/dsh/credentials';
-import { configureDSHSupervisor } from '@src/dsh/supervisor';
+import { Format, useEvent, useMessage } from 'alemonjs';
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: 'private.message.create' });
@@ -19,12 +16,7 @@ export default async (): Promise<void> => {
     return;
   }
 
-  try {
-    await removeDSHCredentials();
-    configureDSHSupervisor(getDSHConfig(), null);
-    await message.send({ format: Format.create().addMarkdownOriginal('已移除模型凭证。后续群聊不会再调用模型，直到主人重新私聊绑定。') });
-  } catch (error) {
-    logger.error({ err: error }, 'DSH credential removal failed');
-    await message.send({ format: Format.create().addMarkdownOriginal('移除失败。请检查系统密钥库是否可用。') });
-  }
+  await message.send({
+    format: Format.create().addMarkdownOriginal('请从 `alemon.config.yaml` 的 `alemonjs-agent-link.apiKey` 移除凭证后重启服务。')
+  });
 };

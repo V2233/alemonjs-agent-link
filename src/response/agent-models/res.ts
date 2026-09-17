@@ -23,7 +23,9 @@ export default async (): Promise<void> => {
     const credentials = await getDSHCredentials();
 
     if (!credentials) {
-      await message.send({ format: Format.create().addMarkdownOriginal('尚未绑定模型凭证。请先发送 /agentbind <API_KEY> [BASE_URL]。') });
+      await message.send({
+        format: Format.create().addMarkdownOriginal('尚未配置模型凭证。请在 `alemon.config.yaml` 的 `alemonjs-agent-link` 下设置 `apiKey`。')
+      });
 
       return;
     }
