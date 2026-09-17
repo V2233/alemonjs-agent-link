@@ -20,6 +20,7 @@ mysql-connector-j-9.1.0
 *.memory-card.json
 .data
 .eslintcache
+__pycache__/
 /redis-data
 /dist-desktop
 /.github/skills

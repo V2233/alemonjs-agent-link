@@ -13,15 +13,15 @@ import unittest
 
 def load_bridge():
     root = Path(tempfile.mkdtemp(prefix='agent-link-bridge-test-'))
-    module_dir = str(Path(__file__).parent)
-    if module_dir not in sys.path:
-        sys.path.insert(0, module_dir)
+    module_dir = Path(__file__).parent.parent / 'python'
+    if str(module_dir) not in sys.path:
+        sys.path.insert(0, str(module_dir))
     os.environ.update({
         'DSH_WORKSPACE_ROOT': str(root / 'workspaces'),
         'DSH_HOME_ROOT': str(root / 'homes'),
         'DSH_BRIDGE_TOKEN': 'test-token'
     })
-    spec = importlib.util.spec_from_file_location('dsh_bridge_test', Path(__file__).with_name('dsh_bridge.py'))
+    spec = importlib.util.spec_from_file_location('dsh_bridge_test', module_dir / 'dsh_bridge.py')
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(module)
