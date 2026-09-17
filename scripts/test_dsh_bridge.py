@@ -82,6 +82,32 @@ class BridgeSafetyTests(unittest.TestCase):
         finally:
             self.bridge.subprocess.run = original_run
 
+    def test_linux_requires_bubblewrap_and_builds_a_bwrap_launcher(self):
+        original_system = self.bridge.platform.system
+        original_which = self.bridge.shutil.which
+        original_runtime = self.bridge.RUNTIME_PATH
+        try:
+            self.bridge.platform.system = lambda: 'Linux'
+            self.bridge.shutil.which = lambda _name: None
+            self.assertIn('bubblewrap', self.bridge.validate_preflight())
+
+            self.bridge.shutil.which = lambda _name: '/usr/bin/bwrap'
+            self.bridge.RUNTIME_PATH = Path('/tmp/dsh-runtime')
+            command = self.bridge.sandbox_command(self.root / 'workspace', self.root / 'home', 18080, False)
+            self.assertEqual(command[0], '/usr/bin/bwrap')
+            self.assertIn('--unshare-pid', command)
+            self.assertIn('--bind', command)
+            self.assertNotIn('/usr/bin/sandbox-exec', command)
+        finally:
+            self.bridge.platform.system = original_system
+            self.bridge.shutil.which = original_which
+            self.bridge.RUNTIME_PATH = original_runtime
+
+    def test_linux_namespace_failure_has_actionable_preflight_message(self):
+        detail = self.bridge.sandbox_self_test_failure(1, 'bwrap: No permissions to create new namespace', 'Linux')
+        self.assertIn('unprivileged user namespaces', detail)
+        self.assertNotIn('bwrap:', detail)
+
     def test_stale_group_cleanup_only_removes_hashed_expired_directories(self):
         self.bridge.WORKSPACE_ROOT = self.root / 'workspaces'
         self.bridge.HOME_ROOT = self.root / 'homes'

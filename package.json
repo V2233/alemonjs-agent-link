@@ -11,7 +11,11 @@
   "main": "lib/index.js",
   "files": [
     "lib",
-    "python",
+    "python/chat_only.patch.yml",
+    "python/dsh_bridge.py",
+    "python/dsh_worker.py",
+    "python/requirements.txt",
+    "python/sandbox_profile.py",
     "README.md"
   ],
   "exports": {

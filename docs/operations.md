@@ -2,7 +2,8 @@
 
 ## 部署前检查
 
-- 运行宿主为 macOS，且存在 `/usr/bin/sandbox-exec`。
+- 运行宿主为 macOS 或 Linux：macOS 需存在 `/usr/bin/sandbox-exec`；Linux 需安装 Bubblewrap（`bwrap`）。如 `bwrap` 不在 `PATH` 中，可设置 `DSH_BWRAP_EXECUTABLE` 为其绝对路径。
+- Linux 容器还必须允许 Bubblewrap 创建用户和挂载命名空间；受限容器通常需要在镜像中安装 `bubblewrap`，并允许非特权用户命名空间或提供可用的 setuid `bwrap`。
 - Redis 可连接，QQ Bot 和主人账号已配置。
 - `alemon.config.yaml` 仅对运行账户可读，且未提交。
 - 已在 `alemon.config.yaml` 的 `alemonjs-agent-link` 下配置 `apiKey`。
@@ -45,7 +46,7 @@ yarn start --login qq-bot
 
 ## 发布验证
 
-默认测试不连接真实 Redis、模型或 macOS sandbox。完成凭证配置后，在受控环境执行下列命令，验证 Redis 过渡状态恢复和真实 sandbox 前置检查：
+默认测试不连接真实 Redis、模型或 OS sandbox。完成凭证配置后，在受控环境执行下列命令，验证 Redis 过渡状态恢复和真实 sandbox 前置检查：
 
 ```bash
 AGENT_LINK_INTEGRATION=1 yarn test
