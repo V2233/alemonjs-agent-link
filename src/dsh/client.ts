@@ -1,8 +1,9 @@
 import { getConfigValue } from 'alemonjs';
 import { join } from 'node:path';
-import { ensureDSHSupervisor, getDSHBridge } from '@src/dsh/supervisor';
+import { ensureDSHSupervisor, getDSHBridge, hasDSHBridgeOverride } from '@src/dsh/supervisor';
 
 export type DSHBridgeConfig = {
+  runtimeMode?: 'auto' | 'sandbox' | 'chat-only';
   pythonExecutable?: string;
   bridgePort: number;
   workspaceRoot: string;
@@ -45,8 +46,10 @@ type ConfigValue = {
 };
 
 const dataRoot = join(process.cwd(), '.data', 'agent-link');
+const pythonExecutable = process.platform === 'win32' ? join(dataRoot, 'venv', 'Scripts', 'python.exe') : join(dataRoot, 'venv', 'bin', 'python');
 const defaults: DSHBridgeConfig = {
-  pythonExecutable: join(dataRoot, 'venv', 'bin', 'python'),
+  runtimeMode: 'auto',
+  pythonExecutable,
   workspaceRoot: join(dataRoot, 'workspaces'),
   dshHomeRoot: join(dataRoot, 'dsh-homes'),
   bridgePort: 18080,
@@ -117,6 +120,7 @@ export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeCo
   ];
 
   if (
+    !['auto', 'sandbox', 'chat-only'].includes(config.runtimeMode) ||
     !integerFields.every(Number.isSafeInteger) ||
     !stringFields.every(value => typeof value === 'string' && value.trim().length > 0) ||
     config.maxMessageLength < 1 ||
@@ -249,7 +253,23 @@ export const streamChat = async (
   try {
     // getConfigValue() is intentionally evaluated by the caller per request.
     // Reconfigure only when those current values actually differ.
-    await ensureDSHSupervisor(config);
+    const supervisor = await ensureDSHSupervisor(config);
+
+    if (!capabilities.chat) {
+      throw new DSHError('auth', '聊天能力已关闭。');
+    }
+    const signal = externalSignal ? AbortSignal.any([controller.signal, externalSignal]) : controller.signal;
+
+    // Test bridge overrides retain their existing transport behavior.
+    if (!hasDSHBridgeOverride()) {
+      await supervisor.start();
+      signal.throwIfAborted();
+      if (supervisor.status().phase === 'degraded') {
+        await supervisor.chatDirect(message, signal, onEvent);
+
+        return;
+      }
+    }
     const bridge = await getDSHBridge();
     const response = await fetch(`${bridge.url}/v1/chat`, {
       method: 'POST',
@@ -311,7 +331,17 @@ const deleteBridgeResource = async (config: DSHBridgeConfig, path: string, failu
   timeout.unref();
 
   try {
-    await ensureDSHSupervisor(config);
+    const supervisor = await ensureDSHSupervisor(config);
+
+    if (!hasDSHBridgeOverride()) {
+      await supervisor.start();
+      if (supervisor.status().phase === 'degraded') {
+        if (path.startsWith('/v1/session/')) {
+          return;
+        } // Direct chat stores no SDK sessions.
+        throw new DSHError('http', '纯聊天模式无法删除旧沙箱数据；请恢复 Bridge 后重试清理。');
+      }
+    }
     const bridge = await getDSHBridge();
     const response = await fetch(`${bridge.url}${path}`, {
       method: 'DELETE',

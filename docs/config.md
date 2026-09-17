@@ -36,34 +36,42 @@ alemonjs-agent-link:
 
 ## AgentLink 参数
 
+`runtimeMode` 默认为 `auto`，支持三个值：
+
+- `auto`：优先沙箱；本地启动失败且已有模型凭证时降级纯聊天。
+- `sandbox`：严格要求沙箱，失败时拒绝服务。
+- `chat-only`：直接使用纯聊天，不安装 Python 或启动本地 Worker。
+
+纯聊天请求使用 `baseUrl/chat/completions`，需要兼容 Chat Completions 的 HTTPS 服务；不跟随重定向。当前整段接收回答后发送，不保存多轮模型会话，但保留调用方提供的近期群聊上下文、超时取消、输入输出关键词过滤。恢复沙箱需修复环境并重启服务。纯聊天模式无法清除此前的沙箱磁盘数据；清理操作会报告失败，而不会假报成功。
+
 未列出的参数应保留默认值。所有时长均为毫秒，除非名称以 `Seconds` 或 `Days` 结尾。
 
-| 参数                        |                             默认值 | 说明                                                     |
-| --------------------------- | ---------------------------------: | -------------------------------------------------------- |
-| `pythonExecutable`          | `.data/agent-link/venv/bin/python` | DSH Python 环境；不存在时会自动创建。                    |
-| `bridgePort`                |                            `18080` | 本机 Bridge 端口，仅监听 `127.0.0.1`。                   |
-| `workspaceRoot`             |      `.data/agent-link/workspaces` | 隔离 Worker 数据根目录。                                 |
-| `dshHomeRoot`               |       `.data/agent-link/dsh-homes` | DSH 隔离 home 根目录。                                   |
-| `profile`                   |                              `sdk` | DSH profile；生产环境不要绕过 chat-only patch。          |
-| `provider`                  |                `deepseek-official` | 模型服务提供方标识。                                     |
-| `model`                     |                `deepseek-v4-flash` | 默认模型；主人可通过 `/agentmodel` 覆盖。                |
-| `defaultSystemPrompt`       |                     友好可靠的助手 | 每轮默认系统提示。                                       |
-| `maxMessageLength`          |                             `1000` | 单条 QQ 回复的最大字符数。                               |
-| `streamFlushIntervalMs`     |                              `500` | 流式输出的刷新间隔。                                     |
-| `requestTimeoutMs`          |                           `120000` | 单轮请求总超时。                                         |
-| `startupTimeoutMs`          |                            `30000` | Bridge 启动健康检查超时。                                |
-| `maxQueuedPerGroup`         |                                `3` | 单群最多等待中的请求数。                                 |
-| `maxConcurrentRequests`     |                                `8` | 本机同时执行的 Agent 请求上限。                          |
-| `maxActiveWorkers`          |                               `16` | 本机保留的隔离 Worker 上限。                             |
-| `maxCallsPerUserPerMinute`  |                                `6` | 每个用户在同一群中的每分钟限额。                         |
-| `maxRequestBytes`           |                          `1048576` | Bridge 接受的请求体上限。                                |
-| `retentionDays`             |                               `30` | 群 Agent 数据保留期；当前固定为 30。                     |
-| `recentChatMaxMessages`     |                               `20` | 近期普通消息条数；`0` 关闭。                             |
-| `recentChatWindowSeconds`   |                              `900` | 近期普通消息的保留窗口；`0` 关闭。                       |
-| `recentChatMaxChars`        |                             `6000` | 读取近期消息时的字符上限；`0` 关闭。                     |
-| `recentChatSummaryMaxChars` |                             `1600` | 提供给模型的压缩摘要上限；`0` 关闭。                     |
-| `inputBlockedKeywords`      |                               `[]` | 命中时拒绝请求的关键词列表。                             |
-| `outputBlockedKeywords`     |                               `[]` | 命中时阻止发送的关键词列表；启用后回复会完成审核再发送。 |
+| 参数                        |                                                                                               默认值 | 说明                                                                                              |
+| --------------------------- | ---------------------------------------------------------------------------------------------------: | ------------------------------------------------------------------------------------------------- |
+| `pythonExecutable`          | macOS/Linux：`.data/agent-link/venv/bin/python`；Windows：`.data/agent-link/venv/Scripts/python.exe` | DSH Python 环境；不存在时会自动创建。Windows 原生仍会被 Bridge 拒绝，应改在 WSL2 内运行完整服务。 |
+| `bridgePort`                |                                                                                              `18080` | 本机 Bridge 端口，仅监听 `127.0.0.1`。                                                            |
+| `workspaceRoot`             |                                                                        `.data/agent-link/workspaces` | 隔离 Worker 数据根目录。                                                                          |
+| `dshHomeRoot`               |                                                                         `.data/agent-link/dsh-homes` | DSH 隔离 home 根目录。                                                                            |
+| `profile`                   |                                                                                                `sdk` | DSH profile；生产环境不要绕过 chat-only patch。                                                   |
+| `provider`                  |                                                                                  `deepseek-official` | 模型服务提供方标识。                                                                              |
+| `model`                     |                                                                                  `deepseek-v4-flash` | 默认模型；主人可通过 `/agentmodel` 覆盖。                                                         |
+| `defaultSystemPrompt`       |                                                                                       友好可靠的助手 | 每轮默认系统提示。                                                                                |
+| `maxMessageLength`          |                                                                                               `1000` | 单条 QQ 回复的最大字符数。                                                                        |
+| `streamFlushIntervalMs`     |                                                                                                `500` | 流式输出的刷新间隔。                                                                              |
+| `requestTimeoutMs`          |                                                                                             `120000` | 单轮请求总超时。                                                                                  |
+| `startupTimeoutMs`          |                                                                                              `30000` | Bridge 启动健康检查超时。                                                                         |
+| `maxQueuedPerGroup`         |                                                                                                  `3` | 单群最多等待中的请求数。                                                                          |
+| `maxConcurrentRequests`     |                                                                                                  `8` | 本机同时执行的 Agent 请求上限。                                                                   |
+| `maxActiveWorkers`          |                                                                                                 `16` | 本机保留的隔离 Worker 上限。                                                                      |
+| `maxCallsPerUserPerMinute`  |                                                                                                  `6` | 每个用户在同一群中的每分钟限额。                                                                  |
+| `maxRequestBytes`           |                                                                                            `1048576` | Bridge 接受的请求体上限。                                                                         |
+| `retentionDays`             |                                                                                                 `30` | 群 Agent 数据保留期；当前固定为 30。                                                              |
+| `recentChatMaxMessages`     |                                                                                                 `20` | 近期普通消息条数；`0` 关闭。                                                                      |
+| `recentChatWindowSeconds`   |                                                                                                `900` | 近期普通消息的保留窗口；`0` 关闭。                                                                |
+| `recentChatMaxChars`        |                                                                                               `6000` | 读取近期消息时的字符上限；`0` 关闭。                                                              |
+| `recentChatSummaryMaxChars` |                                                                                               `1600` | 提供给模型的压缩摘要上限；`0` 关闭。                                                              |
+| `inputBlockedKeywords`      |                                                                                                 `[]` | 命中时拒绝请求的关键词列表。                                                                      |
+| `outputBlockedKeywords`     |                                                                                                 `[]` | 命中时阻止发送的关键词列表；启用后回复会完成审核再发送。                                          |
 
 ## Redis
 

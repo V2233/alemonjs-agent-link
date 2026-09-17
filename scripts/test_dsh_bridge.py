@@ -108,6 +108,14 @@ class BridgeSafetyTests(unittest.TestCase):
         self.assertIn('unprivileged user namespaces', detail)
         self.assertNotIn('bwrap:', detail)
 
+    def test_native_windows_has_a_wsl2_remediation_message(self):
+        original_system = self.bridge.platform.system
+        try:
+            self.bridge.platform.system = lambda: 'Windows'
+            self.assertIn('WSL2', self.bridge.validate_preflight())
+        finally:
+            self.bridge.platform.system = original_system
+
     def test_stale_group_cleanup_only_removes_hashed_expired_directories(self):
         self.bridge.WORKSPACE_ROOT = self.root / 'workspaces'
         self.bridge.HOME_ROOT = self.root / 'homes'

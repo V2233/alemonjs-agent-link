@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '@src/dsh/client';
 import { getDSHCredentials, type DSHCredentials } from '@src/dsh/credentials';
+import { directChat } from './direct-chat';
+import type { DSHStreamEvent } from './client';
 
 type BridgeRequest = { url: string; token: string };
 type BridgeRuntimeRecord = {
@@ -16,7 +18,7 @@ type BridgeRuntimeRecord = {
   fingerprint: string;
 };
 export type DSHSupervisorStatus = {
-  phase: 'idle' | 'preparing' | 'installing' | 'starting' | 'ready' | 'failed' | 'stopped';
+  phase: 'idle' | 'preparing' | 'installing' | 'starting' | 'ready' | 'degraded' | 'failed' | 'stopped';
   detail?: string;
 };
 
@@ -81,6 +83,9 @@ export class DSHSupervisor {
   ) {}
 
   async start(): Promise<void> {
+    if (this.statusValue.phase === 'degraded') {
+      return;
+    }
     const pending = this.starting;
 
     if (pending !== null) {
@@ -95,6 +100,13 @@ export class DSHSupervisor {
       await this.starting;
       this.statusValue = { phase: 'ready' };
     } catch (error) {
+      if ((this.config.runtimeMode ?? 'auto') !== 'sandbox' && this.credentials) {
+        this.stop();
+        this.statusValue = { phase: 'degraded', detail: '纯聊天模式：本地运行环境不可用或已选择纯聊天；网页、文件、终端关闭。修复环境后重启服务恢复沙箱。' };
+        logger.warn('AgentLink 已降级为模型直连纯聊天；本地工具关闭。');
+
+        return;
+      }
       this.statusValue = { phase: 'failed', detail: this.describeStartupFailure(error) };
       throw error;
     } finally {
@@ -125,7 +137,40 @@ export class DSHSupervisor {
     return { ...this.statusValue };
   }
 
+  async chatDirect(message: string, signal: AbortSignal, onEvent: (event: DSHStreamEvent) => Promise<void>): Promise<void> {
+    await directChat(this.config, this.credentials, message, signal, onEvent);
+  }
+
   private async launch(): Promise<void> {
+    if (this.config.runtimeMode === 'chat-only') {
+      throw new Error('chat-only selected');
+    }
+    if (process.platform === 'win32') {
+      throw new Error('Native Windows sandbox unavailable');
+    }
+    if (process.platform === 'darwin') {
+      await access('/usr/bin/sandbox-exec');
+    }
+    if (process.platform === 'linux') {
+      const candidates = process.env.DSH_BWRAP_EXECUTABLE
+        ? [process.env.DSH_BWRAP_EXECUTABLE]
+        : (process.env.PATH || '')
+            .split(':')
+            .filter(Boolean)
+            .map(path => join(path, 'bwrap'));
+      const available = await Promise.all(
+        candidates.map(path =>
+          access(path).then(
+            () => true,
+            () => false
+          )
+        )
+      );
+
+      if (!available.some(Boolean)) {
+        throw new Error('bubblewrap unavailable');
+      }
+    }
     if (this.child?.exitCode === null) {
       await this.waitForHealth();
 
@@ -177,6 +222,9 @@ export class DSHSupervisor {
     });
 
     this.child = child;
+    child.on('error', () => {
+      this.child = null;
+    });
     child.stdout?.on('data', data => logger.info({ dsh: String(data).trim() }, 'DSH bridge'));
     child.stderr?.on('data', data => logger.warn({ dsh: String(data).trim() }, 'DSH bridge'));
     child.on('exit', (code, signal) => {
@@ -276,13 +324,26 @@ export class DSHSupervisor {
 
     this.statusValue = { phase: 'installing' };
     await mkdir(venvRoot, { recursive: true });
-    await this.run('python3', ['-m', 'venv', venvRoot]);
+    const bootstrapCommand = process.platform === 'win32' ? 'py' : 'python3';
+    const bootstrapArgs = process.platform === 'win32' ? ['-3', '-m', 'venv', venvRoot] : ['-m', 'venv', venvRoot];
+
+    await this.run(bootstrapCommand, bootstrapArgs);
     await this.run(this.config.pythonExecutable, ['-m', 'pip', 'install', '--requirement', requirementsFile]);
   }
 
   private run(command: string, args: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, { stdio: 'pipe' });
+
+      // Drain installation output without logging possible registry credentials.
+      child.stdout?.resume();
+      child.stderr?.resume();
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error('Python preparation timed out'));
+      }, this.config.startupTimeoutMs);
+
+      child.once('close', () => clearTimeout(timer));
 
       child.once('error', reject);
       child.once('exit', code => (code === 0 ? resolve() : reject(new Error(`${command} exited with ${code}`))));
@@ -412,6 +473,7 @@ export const getDSHBridge = async (): Promise<BridgeRequest> => {
 };
 
 export const getDSHSupervisorStatus = (): DSHSupervisorStatus => processState.supervisor?.status() ?? { phase: 'idle' };
+export const hasDSHBridgeOverride = (): boolean => processState.bridgeOverride !== null;
 
 export const setDSHBridgeForTesting = (bridge: BridgeRequest | null): void => {
   processState.bridgeOverride = bridge;
