@@ -1,3 +1,4 @@
+import { SessionRegistry, type PrivateHistoryContext } from '@src/state/registry';
 import type { DSHBridgeConfig, DSHStreamEvent } from './client';
 import type { DSHCredentials } from './credentials';
 
@@ -7,7 +8,8 @@ export const directChat = async (
   credentials: DSHCredentials | null,
   message: string,
   signal: AbortSignal,
-  onEvent: (event: DSHStreamEvent) => Promise<void>
+  onEvent: (event: DSHStreamEvent) => Promise<void>,
+  privateHistory?: PrivateHistoryContext
 ): Promise<void> => {
   if (!credentials) {
     throw new Error('纯聊天需要配置模型 API Key。');
@@ -21,11 +23,14 @@ export const directChat = async (
   if (config.inputBlockedKeywords.some(word => word && message.includes(word))) {
     throw new Error('请求被输入策略拒绝。');
   }
+  const registry = privateHistory ? new SessionRegistry(config) : undefined;
+  const history = privateHistory ? await registry.privateHistory(privateHistory) : [];
   const body = JSON.stringify({
     model: credentials.model || config.model,
     stream: false,
     messages: [
       { role: 'system', content: `${config.defaultSystemPrompt}\n当前为纯聊天降级模式，没有网页、文件或终端工具。不要声称已执行工具或读取本地文件。` },
+      ...history,
       { role: 'user', content: message }
     ]
   });
@@ -85,4 +90,8 @@ export const directChat = async (
 
   await onEvent({ type: 'content', content });
   await onEvent({ type: 'done' });
+  signal.throwIfAborted();
+  if (privateHistory) {
+    await registry.appendPrivateTurn(privateHistory, message, content);
+  }
 };

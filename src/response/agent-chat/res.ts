@@ -12,13 +12,6 @@ export default async (): Promise<void> => {
   const prompt = route.rawArgs.join(' ').trim();
   const [message] = useMessage();
 
-  if (eventContext.current.IsPrivate && !eventContext.current.IsMaster) {
-    await message.send({
-      format: Format.create().addMarkdownOriginal('仅机器人主人可在私聊中使用 `/chat`。')
-    });
-
-    return;
-  }
   if (!eventContext.current.IsPrivate && !eventContext.current.ChannelId) {
     return;
   }

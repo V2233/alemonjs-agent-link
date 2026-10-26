@@ -23,3 +23,20 @@ export const extractPrompt = (messageText: string, bot: BotMention): string => {
 };
 
 export const canReset = (event: { IsMaster: boolean }): boolean => event.IsMaster || Boolean((event as AdminEvent).IsAdmin);
+
+export type ConversationEvent = { IsPrivate?: boolean; IsMaster?: boolean; Platform?: string; UserId?: string; UserKey?: string; ChannelId?: string };
+
+export const getConversationId = (event: ConversationEvent): string => {
+  if (!event.IsPrivate) {
+    return event.ChannelId || '';
+  }
+  // Missing identities must never share a fallback owner session.
+  if (!event.Platform || !event.UserId) {
+    return '';
+  }
+
+  return `private:${JSON.stringify([event.Platform, event.UserId])}`;
+};
+
+export const canPrivateChat = (event: ConversationEvent, access: 'owner' | 'all'): boolean => Boolean(event.IsMaster) || access === 'all';
+export const isPrivateChatText = (text: string): boolean => Boolean(text.trim()) && !text.trimStart().startsWith('/');

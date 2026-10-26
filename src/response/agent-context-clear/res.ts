@@ -1,3 +1,4 @@
+import { getDSHConfig } from '@src/dsh/client';
 import { Format, useEvent, useMessage } from 'alemonjs';
 import { clearRecentMessages } from '@src/chat-context/store';
 import { canReset } from '@src/response/dsh/util';

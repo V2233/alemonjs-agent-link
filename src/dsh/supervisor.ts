@@ -1,3 +1,4 @@
+import type { PrivateHistoryContext } from '@src/state/registry';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createConnection } from 'node:net';
@@ -137,8 +138,13 @@ export class DSHSupervisor {
     return { ...this.statusValue };
   }
 
-  async chatDirect(message: string, signal: AbortSignal, onEvent: (event: DSHStreamEvent) => Promise<void>): Promise<void> {
-    await directChat(this.config, this.credentials, message, signal, onEvent);
+  async chatDirect(
+    message: string,
+    signal: AbortSignal,
+    onEvent: (event: DSHStreamEvent) => Promise<void>,
+    privateHistory?: PrivateHistoryContext
+  ): Promise<void> {
+    await directChat(this.config, this.credentials, message, signal, onEvent, privateHistory);
   }
 
   private async launch(): Promise<void> {
@@ -183,7 +189,7 @@ export class DSHSupervisor {
     }
     await this.assertPortAvailable();
     this.statusValue = { phase: 'starting' };
-    const env = {
+    const env: NodeJS.ProcessEnv = {
       ...process.env,
       DSH_BRIDGE_TOKEN: this.token,
       DSH_WORKSPACE_ROOT: this.config.workspaceRoot,

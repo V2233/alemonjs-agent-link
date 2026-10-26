@@ -127,6 +127,7 @@ export const resetGroupSession = async (channelId: string, config: DSHBridgeConf
     cancelGroupChat(channelId);
     await clearSession(config, getSessionId(channelId));
     await registry.clearRecent(channelId);
+    await registry.clearPrivateHistory(channelId);
     if (!(await registry.completeReset(channelId, resetting.operationId))) {
       throw new DSHError('migration', '会话重置被其他操作接管');
     }
@@ -275,7 +276,16 @@ export const runCoordinatedChat = async (
           if (current.generation !== meta.generation) {
             throw new DSHError('timeout', '群会话已重置');
           }
-          await streamChat(config, `${getSessionId(event.ChannelId)}:v${meta.generation}`, message, onEvent, event.UserKey, signal, capabilities);
+          await streamChat(
+            config,
+            `${getSessionId(event.ChannelId)}:v${meta.generation}`,
+            message,
+            onEvent,
+            event.UserKey,
+            signal,
+            capabilities,
+            event.ChannelId.startsWith('private:') ? { channelId: event.ChannelId, generation: meta.generation } : undefined
+          );
           await registry.touch(event.ChannelId);
         } finally {
           releaseRequestSlot();

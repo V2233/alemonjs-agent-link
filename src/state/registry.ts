@@ -83,6 +83,7 @@ return cjson.encode(meta)
 
 export type GroupPolicy = AgentCapabilities & { version: 1 };
 export const defaultGroupPolicy: GroupPolicy = { version: 1, chat: true, web: true, files: false, terminal: false };
+export const publicPrivatePolicy: GroupPolicy = { version: 1, chat: true, web: false, files: false, terminal: false };
 export const ownerPrivatePolicy: GroupPolicy = { version: 1, chat: true, web: true, files: true, terminal: true };
 export type RecentMessage = { id?: string; text: string; timestamp: number };
 export type GroupTransition = 'resetting' | 'purging';
@@ -151,8 +152,74 @@ const parseMeta = (value: string | null): GroupMeta => {
   }
 };
 
+export type PrivateHistoryContext = { channelId: string; generation: number };
+export type ChatHistoryMessage = { role: 'user' | 'assistant'; content: string };
+const appendPrivateTurnScript = `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local meta = cjson.decode(raw)
+if meta.generation ~= tonumber(ARGV[1]) or meta.isolated ~= true or (meta.transition and meta.transition ~= cjson.null) then return 0 end
+redis.call('RPUSH', KEYS[2], ARGV[2])
+redis.call('LTRIM', KEYS[2], -tonumber(ARGV[3]), -1)
+redis.call('EXPIRE', KEYS[2], ARGV[4])
+return 1
+`;
+
 export class SessionRegistry {
   constructor(private readonly config: DSHBridgeConfig) {}
+  async privateHistory(context: PrivateHistoryContext): Promise<ChatHistoryMessage[]> {
+    if (!this.config.privateHistoryMaxTurns) {
+      return [];
+    }
+    const rows = await (await redis(this.config)).lrange(key(context.channelId, 'private-history.v1'), -this.config.privateHistoryMaxTurns, -1);
+    const result: ChatHistoryMessage[] = [];
+    let chars = 0;
+
+    for (const row of rows.toReversed()) {
+      try {
+        const turn = JSON.parse(row);
+
+        if (
+          turn.generation !== context.generation ||
+          turn.timestamp < Date.now() - this.config.privateHistoryTtlSeconds * 1000 ||
+          typeof turn.user !== 'string' ||
+          typeof turn.assistant !== 'string'
+        ) {
+          continue;
+        }
+        chars += turn.user.length + turn.assistant.length;
+        if (chars > this.config.privateHistoryMaxChars) {
+          break;
+        }
+        result.unshift({ role: 'user', content: turn.user }, { role: 'assistant', content: turn.assistant });
+      } catch {
+        continue;
+      }
+    }
+
+    return result;
+  }
+  async appendPrivateTurn(context: PrivateHistoryContext, user: string, assistant: string): Promise<void> {
+    if (!this.config.privateHistoryMaxTurns) {
+      return;
+    }
+    // Preserve complete role pairs; oversized turns are omitted instead of retaining partial instructions.
+    if (user.length + assistant.length > this.config.privateHistoryMaxChars) {
+      return;
+    }
+    await (
+      await redis(this.config)
+    ).eval(
+      appendPrivateTurnScript,
+      2,
+      key(context.channelId, 'meta.v1.json'),
+      key(context.channelId, 'private-history.v1'),
+      String(context.generation),
+      JSON.stringify({ generation: context.generation, timestamp: Date.now(), user, assistant }),
+      String(this.config.privateHistoryMaxTurns),
+      String(this.config.privateHistoryTtlSeconds)
+    );
+  }
   async ready(): Promise<void> {
     await redis(this.config);
   }
@@ -312,13 +379,16 @@ export class SessionRegistry {
 
     return output;
   }
+  async clearPrivateHistory(channelId: string): Promise<void> {
+    await (await redis(this.config)).del(key(channelId, 'private-history.v1'));
+  }
   async clearRecent(channelId: string): Promise<void> {
     await (await redis(this.config)).del(key(channelId, 'recent.v1.jsonl'));
   }
   async purge(channelId: string): Promise<void> {
     const store = await redis(this.config);
 
-    await store.del(key(channelId, 'meta.v1.json'), key(channelId, 'recent.v1.jsonl'));
+    await store.del(key(channelId, 'meta.v1.json'), key(channelId, 'recent.v1.jsonl'), key(channelId, 'private-history.v1'));
     await store.zrem(`${prefix}:retention.v1`, groupHash(channelId));
   }
   async expiredGroups(): Promise<string[]> {

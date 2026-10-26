@@ -158,6 +158,42 @@
         "name": "recentChatSummaryMaxChars",
         "required": false,
         "type": "number"
+      },
+      {
+        "name": "persona",
+        "type": "string",
+        "description": "人设：dafeiyu（默认）或 assistant；自定义提示词优先",
+        "required": false
+      },
+      {
+        "name": "privateChatAccess",
+        "type": "string",
+        "description": "私聊权限：owner（默认）或 all；普通用户仅聊天",
+        "required": false
+      },
+      {
+        "name": "privateAutoReply",
+        "type": "boolean",
+        "description": "私聊普通文字自动回复，默认 true",
+        "required": false
+      },
+      {
+        "name": "privateHistoryMaxTurns",
+        "type": "number",
+        "description": "纯聊天私聊记忆轮数，默认 10，0 关闭",
+        "required": false
+      },
+      {
+        "name": "privateHistoryTtlSeconds",
+        "type": "number",
+        "description": "纯聊天私聊记忆有效秒数，默认 86400",
+        "required": false
+      },
+      {
+        "name": "privateHistoryMaxChars",
+        "type": "number",
+        "description": "纯聊天私聊历史字符预算，默认 12000",
+        "required": false
       }
     ]
   },

@@ -27,6 +27,10 @@ const groupHelp = [
 const ownerPrivateHelp = [
   '# AgentLink · 管理',
   '',
+  '## 私聊',
+  '- 直接发送文字或 `/chat 问题`：与大肥鱼对话。',
+  '- `/new`：清空自己的会话和短期记忆；`/cancel`：取消自己的请求。',
+  '',
   '## 服务与模型',
   '- `/agentstatus`：查看完整运行状态。',
   '- `/agentmodels`：查看可用模型。',
@@ -76,6 +80,12 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   await message.send({
-    format: Format.create().addMarkdownOriginal(event.IsPrivate && event.IsMaster ? ownerPrivateHelp : groupHelp)
+    format: Format.create().addMarkdownOriginal(
+      event.IsPrivate
+        ? event.IsMaster
+          ? ownerPrivateHelp
+          : '私聊：直接发送文字或 `/chat 问题`。是否开放由主人配置。\n`/new` 清空自己的会话；`/cancel` 取消自己的请求；`/agentprivacy` 查看数据说明。'
+        : groupHelp
+    )
   });
 };

@@ -52,7 +52,7 @@ commandGroup.use(
 commandGroup.use(
   {
     path: 'cancel',
-    events: ['message.create'],
+    events: ['message.create', 'private.message.create'],
     description: '取消自己正在处理或排队的请求'
   },
   () => import('@src/response/agent-cancel/res')
@@ -138,5 +138,7 @@ router.res({ events: ['message.create'] }, () => import('@src/response/chat-cont
 
 // @ 提及内容必须在平台适配器解析后才能确定，属于事件型入口而不是普通命令。
 router.res({ events: ['message.create'] }, () => import('@src/response/dsh/res'));
+
+router.res({ events: ['private.message.create'] }, () => import('@src/response/private-chat/res'));
 
 export default router.define;

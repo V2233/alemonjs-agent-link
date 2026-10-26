@@ -3,10 +3,12 @@ import { DSHError, getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { buildRecentChatContext, getRecentMessages } from '@src/chat-context/store';
 import { StreamOutput } from '@src/dsh/output';
 import { ensureIsolatedGroup, runCoordinatedChat, type CoordinatedChatResult } from '@src/dsh/orchestrator';
-import { ownerPrivatePolicy } from '@src/state/registry';
+import { canPrivateChat, getConversationId } from './util';
+import { ownerPrivatePolicy, publicPrivatePolicy } from '@src/state/registry';
 
 type ChatEvent = {
-  ChannelId: string;
+  Platform?: string;
+  ChannelId?: string;
   MessageId?: string;
   UserId?: string;
   UserKey?: string;
@@ -33,7 +35,7 @@ export const runDSHChat = async (event: ChatEvent, prompt: string): Promise<void
   const replyAgent = async (text: string): Promise<unknown> => {
     const format = Format.create();
 
-    if (firstAgentReply && event.UserId) {
+    if (firstAgentReply && event.UserId && !event.IsPrivate) {
       format.addMention(event.UserId).addText('\n');
     }
     format.addMarkdownOriginal(text);
@@ -48,24 +50,22 @@ export const runDSHChat = async (event: ChatEvent, prompt: string): Promise<void
   };
   let config;
 
-  if (event.IsPrivate && !event.IsMaster) {
+  try {
+    config = getDSHConfig();
+  } catch (error) {
+    await reply(toUserMessage(error));
+
+    return;
+  }
+  if (event.IsPrivate && !canPrivateChat(event, config.privateChatAccess)) {
     await reply('仅机器人主人可在私聊中使用 Agent。');
 
     return;
   }
-  const channelId = event.IsPrivate ? `private:${event.UserKey || 'master'}` : event.ChannelId;
+  const channelId = getConversationId(event);
 
   if (!channelId) {
     await reply('无法识别当前会话。');
-
-    return;
-  }
-
-  try {
-    config = getDSHConfig();
-  } catch (error) {
-    logger.error({ err: error }, 'DSH configuration invalid');
-    await reply(toUserMessage(error));
 
     return;
   }
@@ -120,7 +120,7 @@ export const runDSHChat = async (event: ChatEvent, prompt: string): Promise<void
       },
       undefined,
       undefined,
-      event.IsPrivate ? ownerPrivatePolicy : undefined
+      event.IsPrivate ? (event.IsMaster ? ownerPrivatePolicy : publicPrivatePolicy) : undefined
     );
 
     if (coordinated.duplicate) {

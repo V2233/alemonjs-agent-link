@@ -1,6 +1,6 @@
 # AgentLink
 
-在 QQ 群里提供受限的 AI 对话。群成员通过 @机器人或 `/chat` 发起提问；每个群拥有独立会话和隔离 Worker。
+在 QQ 群和私聊中提供受限的 AI 对话，内置大肥鱼文字人设。群成员通过 @机器人或 `/chat` 发起提问；每个群拥有独立会话和隔离 Worker。
 
 默认群聊支持联网查询；主人可为指定群分别开启文件和终端。所有工具仍受群级隔离工作区限制，子代理与工作流始终关闭。
 
@@ -56,7 +56,7 @@ Windows 请在 WSL2 内运行完整服务，不支持原生 Windows Worker。首
 | 配置模型凭证       | 修改 `alemon.config.yaml` 的 `alemonjs-agent-link.apiKey` 后重启     |
 | 查看模型           | `/agentmodels`、`/agentmodel`                                        |
 | 查看完整状态       | `/agentstatus`                                                       |
-| 私聊使用 Agent     | `/chat 你的问题`                                                     |
+| 私聊使用 Agent     | 直接发送文字，或 `/chat 你的问题`                                    |
 | 彻底删除指定群数据 | 在目标群中执行 `/agentpurge`，再于 60 秒内执行 `/agentpurge confirm` |
 
 ## 运行模型
@@ -76,3 +76,5 @@ AgentLink 仅支持**单 Node 进程**连接同一个 QQ 机器人。不要同�
 - [配置指南](docs/config.md)：配置项、默认值和示例。
 - [运维手册](docs/operations.md)：部署、状态检查和故障处理。
 - [安全与数据](docs/security.md)：沙箱边界、数据生命周期和凭证处理。
+
+主人私聊支持直接发文字、`/new` 清空会话、`/cancel` 取消请求。纯聊天模式默认保留最近 10 轮私聊历史，最多 24 小时。普通用户私聊默认关闭，可通过 `privateChatAccess: all` 开放，且只允许聊天。详见[大肥鱼与私聊配置](docs/config.md#大肥鱼与私聊)。

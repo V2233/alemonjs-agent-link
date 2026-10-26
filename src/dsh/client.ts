@@ -1,8 +1,16 @@
+import { dafeiyuPrompt } from './persona';
+import type { PrivateHistoryContext } from '@src/state/registry';
 import { getConfigValue } from 'alemonjs';
 import { join } from 'node:path';
 import { ensureDSHSupervisor, getDSHBridge, hasDSHBridgeOverride } from '@src/dsh/supervisor';
 
 export type DSHBridgeConfig = {
+  privateChatAccess: 'owner' | 'all';
+  privateAutoReply: boolean;
+  persona: 'assistant' | 'dafeiyu';
+  privateHistoryMaxTurns: number;
+  privateHistoryTtlSeconds: number;
+  privateHistoryMaxChars: number;
   runtimeMode?: 'auto' | 'sandbox' | 'chat-only';
   pythonExecutable?: string;
   bridgePort: number;
@@ -48,6 +56,12 @@ type ConfigValue = {
 const dataRoot = join(process.cwd(), '.data', 'agent-link');
 const pythonExecutable = process.platform === 'win32' ? join(dataRoot, 'venv', 'Scripts', 'python.exe') : join(dataRoot, 'venv', 'bin', 'python');
 const defaults: DSHBridgeConfig = {
+  privateChatAccess: 'owner',
+  privateAutoReply: true,
+  persona: 'dafeiyu',
+  privateHistoryMaxTurns: 10,
+  privateHistoryTtlSeconds: 86400,
+  privateHistoryMaxChars: 12000,
   runtimeMode: 'auto',
   pythonExecutable,
   workspaceRoot: join(dataRoot, 'workspaces'),
@@ -92,7 +106,14 @@ export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeCo
     ...defaults,
     ...agentLink
   };
+
+  if (config.persona === 'dafeiyu' && agentLink?.defaultSystemPrompt === undefined) {
+    config.defaultSystemPrompt = dafeiyuPrompt;
+  }
   const integerFields = [
+    config.privateHistoryMaxTurns,
+    config.privateHistoryTtlSeconds,
+    config.privateHistoryMaxChars,
     config.maxMessageLength,
     config.streamFlushIntervalMs,
     config.requestTimeoutMs,
@@ -120,6 +141,15 @@ export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeCo
   ];
 
   if (
+    !['owner', 'all'].includes(config.privateChatAccess) ||
+    typeof config.privateAutoReply !== 'boolean' ||
+    !['assistant', 'dafeiyu'].includes(config.persona) ||
+    config.privateHistoryMaxTurns < 0 ||
+    config.privateHistoryMaxTurns > 100 ||
+    config.privateHistoryTtlSeconds < 1 ||
+    config.privateHistoryTtlSeconds > 2592000 ||
+    config.privateHistoryMaxChars < 1 ||
+    config.privateHistoryMaxChars > 100000 ||
     !['auto', 'sandbox', 'chat-only'].includes(config.runtimeMode) ||
     !integerFields.every(Number.isSafeInteger) ||
     !stringFields.every(value => typeof value === 'string' && value.trim().length > 0) ||
@@ -243,7 +273,8 @@ export const streamChat = async (
   onEvent: (event: DSHStreamEvent) => Promise<void>,
   userId = 'unknown',
   externalSignal?: AbortSignal,
-  capabilities: AgentCapabilities = { chat: true, web: true, files: false, terminal: false }
+  capabilities: AgentCapabilities = { chat: true, web: true, files: false, terminal: false },
+  privateHistory?: PrivateHistoryContext
 ): Promise<void> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
@@ -265,7 +296,7 @@ export const streamChat = async (
       await supervisor.start();
       signal.throwIfAborted();
       if (supervisor.status().phase === 'degraded') {
-        await supervisor.chatDirect(message, signal, onEvent);
+        await supervisor.chatDirect(message, signal, onEvent, privateHistory);
 
         return;
       }

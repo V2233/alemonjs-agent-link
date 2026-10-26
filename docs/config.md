@@ -42,7 +42,7 @@ alemonjs-agent-link:
 - `sandbox`：严格要求沙箱，失败时拒绝服务。
 - `chat-only`：直接使用纯聊天，不安装 Python 或启动本地 Worker。
 
-纯聊天请求使用 `baseUrl/chat/completions`，需要兼容 Chat Completions 的 HTTPS 服务；不跟随重定向。当前整段接收回答后发送，不保存多轮模型会话，但保留调用方提供的近期群聊上下文、超时取消、输入输出关键词过滤。恢复沙箱需修复环境并重启服务。纯聊天模式无法清除此前的沙箱磁盘数据；清理操作会报告失败，而不会假报成功。
+纯聊天请求使用 `baseUrl/chat/completions`，需要兼容 Chat Completions 的 HTTPS 服务；不跟随重定向。当前整段接收回答后发送，私聊通过 Redis 保存有界的多轮文本历史，群聊保留调用方提供的近期群聊上下文、超时取消、输入输出关键词过滤。恢复沙箱需修复环境并重启服务。纯聊天模式无法清除此前的沙箱磁盘数据；清理操作会报告失败，而不会假报成功。
 
 未列出的参数应保留默认值。所有时长均为毫秒，除非名称以 `Seconds` 或 `Days` 结尾。
 
@@ -85,3 +85,25 @@ docker compose ps
 ```
 
 生产 Redis 应启用认证、持久化和备份。不要将 Redis 暴露到公网。
+
+## 大肥鱼与私聊
+
+默认启用内置大肥鱼人设（全局生效），主人可以直接私聊文字，也可继续使用 `/chat`。
+显式设置的 `defaultSystemPrompt` 优先于人设预设；`persona: assistant` 恢复普通助手。
+在已有配置段中合并以下字段，保留模型凭证，保存后重启：
+
+```yaml
+alemonjs-agent-link:
+  persona: dafeiyu
+  privateAutoReply: true
+  privateChatAccess: owner # all 向普通用户开放私聊；普通用户无网页、文件和终端工具
+  privateHistoryMaxTurns: 10 # 0 关闭纯聊天私聊记忆，最大 100
+  privateHistoryTtlSeconds: 86400 # 每轮历史最多保留 24 小时，范围 1–2592000
+  privateHistoryMaxChars: 12000 # 历史总字符预算，范围 1–100000
+```
+
+私聊按平台与用户 ID 隔离；缺少身份时拒绝创建会话。`/new` 清空自己的私聊会话与记忆，`/cancel` 取消自己的请求。
+`privateAutoReply: false` 只关闭普通文字触发，仍可使用 `/chat`；以 `/` 开头的文字始终交给命令路由。
+纯聊天记忆保存模型完成的问答（不代表平台已成功送达），超预算的单轮不保存，超时、取消或失败的模型回合不保存。
+历史在排队请求实际执行时读取，重置后的旧回合不能写回。沙箱模式沿用 DSH 会话，不重复注入这份纯聊天历史；Worker 重启后不保证恢复上下文。
+当前只支持文本角色对话，不包含表情包、语音或主动推送。

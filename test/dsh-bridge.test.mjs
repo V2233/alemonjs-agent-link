@@ -134,11 +134,17 @@ test('times out a stalled destructive bridge request', async () => {
   globalThis.fetch = async (_url, options) =>
     await new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
 
-  await assert.rejects(
-    () => purgeSessionData({ ...config, requestTimeoutMs: 10 }, 'dsh:qq:group:stalled'),
-    error => error instanceof DSHError && error.kind === 'timeout'
-  );
-  globalThis.fetch = originalFetch;
+  // The real socket keeps Node alive; the mocked fetch needs an equivalent handle.
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    await assert.rejects(
+      () => purgeSessionData({ ...config, requestTimeoutMs: 10 }, 'dsh:qq:group:stalled'),
+      error => error instanceof DSHError && error.kind === 'timeout'
+    );
+  } finally {
+    clearInterval(keepAlive);
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('streams independently renderable Markdown units without splitting code fences', async () => {
