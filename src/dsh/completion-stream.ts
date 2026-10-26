@@ -61,7 +61,10 @@ export const readCompletionStream = async (
   };
 
   try {
-    while (!finished) {
+    while (true) {
+      if (finished) {
+        break;
+      }
       signal.throwIfAborted();
       const { value, done } = await reader.read();
 

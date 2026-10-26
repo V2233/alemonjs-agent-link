@@ -105,7 +105,7 @@ export const resolveDSHConfig = (value: ConfigValue = {}, options: { cwd?: strin
   };
 
   for (const field of ['workspaceRoot', 'dshHomeRoot'] as const) {
-    if (typeof config[field] === 'string') {
+    if (typeof config[field] === 'string' && config[field].trim()) {
       config[field] = resolve(base, config[field]);
     }
   }

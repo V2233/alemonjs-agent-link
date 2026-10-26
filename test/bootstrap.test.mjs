@@ -205,3 +205,20 @@ test('pending session resets must succeed before optional sandbox can expose old
     supervisor.stop();
   }
 });
+
+test('rapid status transitions persist the latest phase and cancellation cannot write an old ready record', async () => {
+  const config = await configFor();
+  const supervisor = new DSHSupervisor(config, { apiKey: 'test' }, 'status-order');
+  supervisor.statusValue = { phase: 'installing' };
+  const installing = supervisor.writeStartupStatus();
+  supervisor.statusValue = { phase: 'ready' };
+  const ready = supervisor.writeStartupStatus();
+  await Promise.all([installing, ready]);
+  const path = join(config.dshHomeRoot, '..', 'startup-status.json');
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).phase, 'ready');
+  const stale = supervisor.writeStartupStatus();
+  supervisor.stop();
+  await stale;
+  await supervisor.writeStartupStatus();
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).phase, 'stopped');
+});

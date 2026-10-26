@@ -6,6 +6,7 @@ import { MemoryConsolidator } from '../../memory/consolidation';
 import { forgetMemory, synchronizeExplicitMemory } from '../../memory/management';
 import { resetGroupSession, runCoordinatedChat, type CoordinatedChatResult } from '../../dsh/orchestrator';
 import { assertMessageDelivered } from '../../dsh/output';
+const formatTime = (time: number): string => new Date(time).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 
 export default async (): Promise<void> => {
   const [context] = useEvent({ selects: ['message.create', 'private.message.create'] });
@@ -16,17 +17,20 @@ export default async (): Promise<void> => {
   }
   const event = context.current;
   const [message] = useMessage();
+  let replyLimit = 900;
   const reply = async (text: string): Promise<void> => {
     const chars = Array.from(text);
 
-    for (let index = 0; index < chars.length; index += 900) {
-      assertMessageDelivered(await message.send({ format: Format.create().addText(chars.slice(index, index + 900).join('')) }));
+    for (let index = 0; index < chars.length; index += replyLimit) {
+      assertMessageDelivered(await message.send({ format: Format.create().addText(chars.slice(index, index + replyLimit).join('')) }));
     }
   };
   let coordinated: CoordinatedChatResult | undefined;
 
   try {
     const config = getDSHConfig();
+
+    replyLimit = Math.min(900, config.maxMessageLength);
 
     if (event.IsPrivate && !canPrivateChat(event, config.privateChatAccess)) {
       await reply('当前未开放此私聊。');
@@ -84,11 +88,11 @@ export default async (): Promise<void> => {
         item
           ? [
               `${item.id} [${item.status}] ${item.text}`,
-              `资料所属：${item.subjectName || item.subjectId}；更新时间：${new Date(item.updatedAt).toISOString()}`,
+              `资料所属：${item.subjectName || item.subjectId}；更新时间：${formatTime(item.updatedAt)}`,
               item.sourceRefs.length
                 ? item.sourceRefs
                     .slice(-3)
-                    .map(source => `来源 #${source.seq} ${source.speaker} ${new Date(source.timestamp).toISOString()}\n${source.text.slice(0, 500)}`)
+                    .map(source => `来源 #${source.seq} ${source.speaker} ${formatTime(source.timestamp)}\n${source.text.slice(0, 500)}`)
                     .join('\n')
                 : '用户明确保存；没有自动提取的聊天来源。',
               item.supersedes.length ? `取代的旧条目：${item.supersedes.join('、')}` : ''

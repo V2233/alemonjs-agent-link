@@ -147,4 +147,8 @@ test('checkpoints reject concurrent extraction commits and unchanged explicit sy
     assert.equal(store.list(scope).find(item => item.id === '12345678').recallDays, 1);
     store.clear(scope, 8);
     assert.equal(store.state(scope).checkpoint, 8);
+    const beforeMissing = store.state(scope);
+    assert.equal(store.forget(scope, 'does-not-exist', 100), false);
+    assert.equal(store.state(scope).checkpoint, beforeMissing.checkpoint);
+    assert.equal(store.state(scope).revision, beforeMissing.revision);
   }));

@@ -474,3 +474,10 @@ export const getModuleRuntime = async (config: DSHBridgeConfig): Promise<ModuleR
 
   return globalState.__agentLinkModules__.runtime;
 };
+
+export const closeModuleRuntime = async (): Promise<void> => {
+  const current = globalState.__agentLinkModules__;
+
+  globalState.__agentLinkModules__ = undefined;
+  await current?.runtime.close();
+};

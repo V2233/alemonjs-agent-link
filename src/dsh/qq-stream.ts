@@ -1,4 +1,4 @@
-import { ResultCode, type StreamReceipt, type useMessage } from 'alemonjs';
+import { ResultCode, logger, useClient, type StreamReceipt, type useMessage } from 'alemonjs';
 
 type Sender = ReturnType<typeof useMessage>[0]['stream'];
 export const supportsQQStream = (
@@ -6,12 +6,28 @@ export const supportsQQStream = (
   available: boolean
 ): boolean => available && event.Platform === 'qq-bot' && Boolean(event.IsPrivate && event.MessageId) && (!event.Target || event.Target.scope === 'c2c');
 
+// Reserve through the adapter's shared counter so later ordinary replies cannot reuse it.
+export const createQQSequenceAllocator = (replyId: string): (() => Promise<number>) => {
+  const [client] = useClient<{ getMessageSeq(id: string): Promise<Array<{ code: number; data: number }>> }>();
+
+  return async () => {
+    const [result] = await client.getMessageSeq(replyId);
+
+    if (result?.code !== ResultCode.Ok || !Number.isInteger(result.data) || result.data < 1) {
+      throw new Error('QQ 消息序号分配失败');
+    }
+
+    return result.data;
+  };
+};
+
 // Coalesce while a network request is in flight; first delta is sent immediately.
 export class QQStreamOutput {
   private text = '';
   private sent = '';
   private id?: string;
   private index = 0;
+  private sequence?: number;
   private stopped = false;
   private failed = false;
   private timer?: ReturnType<typeof setTimeout>;
@@ -24,7 +40,8 @@ export class QQStreamOutput {
     private send: Sender,
     private replyId: string,
     private maxBytes: number,
-    private onDelivered: (receipt: StreamReceipt, text: string) => Promise<void>
+    private onDelivered: (receipt: StreamReceipt, text: string) => Promise<void>,
+    private allocateSequence: () => Promise<number>
   ) {}
 
   append(delta: string): void {
@@ -60,6 +77,7 @@ export class QQStreamOutput {
       this.busy = true;
       this.task = this.update(false)
         .catch(() => {
+          logger.warn({ index: this.index }, 'QQ stream update failed');
           this.failed = true;
         })
         .finally(() => {
@@ -74,12 +92,17 @@ export class QQStreamOutput {
     }
     const snapshot = this.text;
 
+    this.sequence ??= await this.allocateSequence();
+    if (this.stopped) {
+      return;
+    }
     this.lastSentAt = Date.now();
     const result = await this.send({
       text: snapshot,
       mode: 'replace',
       state: complete ? 'complete' : 'generating',
       contentType: 'markdown',
+      sequence: this.sequence,
       index: this.index,
       streamId: this.id,
       replyId: this.replyId
@@ -92,9 +115,7 @@ export class QQStreamOutput {
     this.index++;
     this.sent = snapshot;
     this.receipt = result.data;
-    if (!complete && result.data.remainingLength === 0) {
-      throw new Error('QQ 流长度已用尽');
-    }
+    // remainingLength describes queued delivery; zero is a normal successful receipt.
   }
   async close(): Promise<boolean> {
     if (this.timer) {

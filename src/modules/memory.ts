@@ -1,9 +1,10 @@
 import { SessionRegistry } from '../state/registry';
-import type { DSHBridgeConfig } from '../dsh/client';
+import { getDSHConfig, type DSHBridgeConfig } from '../dsh/client';
 import type { AgentModule } from '../agent/types';
 import { logger } from 'alemonjs';
 import { getMemoryStore } from '../memory/store';
-import { compactMemory, MemoryConsolidator, memoryOptions } from '../memory/consolidation';
+import { compactMemory, MemoryConsolidator, memoryOptions, memoryEnabled } from '../memory/consolidation';
+import { historyEnabled } from '../history/store';
 
 export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
   id: 'memory',
@@ -14,7 +15,13 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
     const registry = new SessionRegistry(config);
     const store = getMemoryStore(config);
     const settings = memoryOptions(config);
-    const consolidator = new MemoryConsolidator(config);
+    const consolidator = new MemoryConsolidator(config, {
+      canCommit: () => {
+        const current = getDSHConfig();
+
+        return current.workspaceRoot === config.workspaceRoot && memoryEnabled(current) && historyEnabled(current) && memoryOptions(current).automatic;
+      }
+    });
     const previousQueries = new Map<string, string>();
     const timer = setInterval(() => {
       void consolidator.tick().catch(() => logger.warn('Memory background consolidation failed'));

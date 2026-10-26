@@ -1,9 +1,9 @@
 import { contextEvents } from './social/event-context';
 import { Router } from 'alemonjs';
 
-const router = Router.create({
-  events: ['message.create', 'private.message.create', ...contextEvents]
-});
+// AlemonJS applies top-level defaults before each res.events. Keep event scopes
+// on individual registrations so group handlers cannot consume private messages.
+const router = Router.create();
 
 router.res({ events: [...contextEvents] }, () => import('@src/response/platform-events/res'));
 

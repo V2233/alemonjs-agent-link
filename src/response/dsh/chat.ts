@@ -1,4 +1,4 @@
-import { QQStreamOutput, supportsQQStream } from '../../dsh/qq-stream';
+import { QQStreamOutput, supportsQQStream, createQQSequenceAllocator } from '../../dsh/qq-stream';
 import { eventContexts } from '../../social/event-context';
 import { getMediaConfig, MediaError, unavailableMediaReply } from '@src/media/config';
 import { synthesizeSpeech, prepareNativeMedia, hasUnconfiguredMedia } from '@src/media/providers';
@@ -215,7 +215,8 @@ export const runDSHChat = async (
         async (receipt, text) => {
           archiveReply(config, event, text);
           await messageReferences.rememberReply(event, receipt, text).catch(() => logger.warn('Stream reference indexing failed'));
-        }
+        },
+        createQQSequenceAllocator(event.MessageId)
       )
     : new StreamOutput(replyAgent, config.maxMessageLength, config.streamFlushIntervalMs, error => {
         logger.error({ err: error }, 'QQ message send failed');

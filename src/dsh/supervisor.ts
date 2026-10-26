@@ -5,7 +5,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createConnection, createServer } from 'node:net';
 import { dirname, join } from 'node:path';
-import { access, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rename, stat, writeFile, unlink } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '@src/dsh/client';
@@ -33,6 +33,7 @@ type SupervisorProcessState = {
   supervisor: DSHSupervisor | null;
   fingerprint: string | null;
   bridgeOverride: BridgeRequest | null;
+  statusWrite?: Promise<void>;
 };
 
 // lvy hot reload can evaluate this module again without stopping its prior
@@ -159,7 +160,7 @@ export class DSHSupervisor {
   }
 
   async prepareForChat(): Promise<void> {
-    if ((this.config.runtimeMode ?? 'auto') === 'sandbox') {
+    if (this.config.runtimeMode === 'sandbox' || this.config.runtimeMode === 'chat-only') {
       await this.start();
 
       return;
@@ -531,20 +532,33 @@ export class DSHSupervisor {
     throw new Error('DSH bridge health check timed out');
   }
 
-  private async writeStartupStatus(): Promise<void> {
-    try {
-      const path = join(dirname(this.config.dshHomeRoot), 'startup-status.json');
+  private writeStartupStatus(): Promise<void> {
+    const attempt = this.attempt;
+    const record = { ...this.status(), platform: process.platform, arch: process.arch, node: process.version, updatedAt: new Date().toISOString() };
+    const write = async (): Promise<void> => {
+      try {
+        if (attempt !== this.attempt) return;
+        const path = join(dirname(this.config.dshHomeRoot), 'startup-status.json');
 
-      await mkdir(dirname(path), { recursive: true });
-      const temp = `${path}.${process.pid}.tmp`;
+        await mkdir(dirname(path), { recursive: true });
+        const temp = `${path}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
 
-      const record = { ...this.status(), platform: process.platform, arch: process.arch, node: process.version, updatedAt: new Date().toISOString() };
+        await writeFile(temp, JSON.stringify(record), { mode: 0o600 });
+        if (attempt !== this.attempt) {
+          await unlink(temp).catch(() => undefined);
 
-      await writeFile(temp, JSON.stringify(record), { mode: 0o600 });
-      await rename(temp, path);
-    } catch {
-      /* Diagnostics must not turn a working chat backend into a failure. */
-    }
+          return;
+        }
+        await rename(temp, path);
+      } catch {
+        /* Diagnostics must not turn a working chat backend into a failure. */
+      }
+    };
+    const pending = (processState.statusWrite ?? Promise.resolve()).then(write);
+
+    processState.statusWrite = pending;
+
+    return pending;
   }
 
   private describeStartupFailure(error: unknown): string {

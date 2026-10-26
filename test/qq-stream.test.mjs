@@ -23,13 +23,14 @@ test('model chunks reach the QQ stream before model completion; updates coalesce
   const output = new QQStreamOutput(
     async params => {
       sends.push({ at: Date.now(), ...params });
-      return { code: ResultCode.Ok, data: { id: 'stream-id', remainingLength: 10000 } };
+      return { code: ResultCode.Ok, data: { id: 'stream-id', remainingLength: 0 } };
     },
     'incoming',
     10000,
     async (receipt, text) => {
       delivered = { receipt, text };
-    }
+    },
+    async () => 3
   );
   const encoder = new TextEncoder();
   let controller;
@@ -55,6 +56,10 @@ test('model chunks reach the QQ stream before model completion; updates coalesce
   assert.equal(sends[1].text, '你好，世界');
   assert.equal(sends[1].streamId, 'stream-id');
   assert.equal(sends[1].index, 1);
+  assert.deepEqual(
+    sends.map(item => item.sequence),
+    [3, 3]
+  );
   assert.ok(sends[1].at - sends[0].at >= 480);
   assert.equal(delivered.text, '你好，世界');
 });
@@ -71,7 +76,8 @@ test('cancel and failed receipts cannot be treated as a completed stream', async
     1000,
     async () => {
       delivered++;
-    }
+    },
+    async () => 1
   );
   output.append('hello');
   await sleep(20);
@@ -86,7 +92,8 @@ test('cancel and failed receipts cannot be treated as a completed stream', async
     1000,
     async () => {
       delivered++;
-    }
+    },
+    async () => 1
   );
   const controller = new AbortController();
   cancelled.bindSignal(controller.signal);
@@ -131,5 +138,98 @@ test('SSE handles fragmented UTF-8 and tool arguments without leaking reasoning'
   await assert.rejects(
     readCompletionStream(new Response('data: {"choices":[]}\n\n'), 1000, new AbortController().signal, async () => {}),
     /未完整/
+  );
+});
+
+test('tool-model request enables upstream SSE and forwards deltas before completion', async () => {
+  const { requestModelMessage } = await import('../lib/agent/tool-chat.js');
+  const { getDSHConfig } = await import('../lib/dsh/client.js');
+  const original = globalThis.fetch;
+  let controller;
+  const chunks = [];
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(JSON.parse(options.body).stream, true);
+    return new Response(
+      new ReadableStream({
+        start(c) {
+          controller = c;
+        }
+      }),
+      { headers: { 'content-type': 'text/event-stream' } }
+    );
+  };
+  try {
+    const task = requestModelMessage(
+      getDSHConfig({}),
+      { apiKey: 'test', model: 'test' },
+      [{ role: 'user', content: 'hi' }],
+      [],
+      new AbortController().signal,
+      async delta => {
+        chunks.push(delta);
+      }
+    );
+    await sleep(0);
+    controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":"first"}}]}\n\n'));
+    await sleep(0);
+    assert.deepEqual(chunks, ['first']);
+    controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"content":" last"}}]}\n\ndata: [DONE]\n\n'));
+    const result = await task;
+    assert.equal(result.content, 'first last');
+    assert.deepEqual(chunks, ['first', ' last']);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('stream reserves the adapter sequence once and leaves the next sequence for ordinary replies', async () => {
+  const { withEventContext } = await import('alemonjs');
+  const { runtimeScope } = await import(new URL('./common/runtime-scope.js', import.meta.resolve('alemonjs')));
+  const { createQQSequenceAllocator } = await import('../lib/dsh/qq-stream.js');
+  let sequence = 1; // An earlier reply already used sequence 1.
+  let reservations = 0;
+  const event = { name: 'private.message.create', Platform: 'qq-bot', BotId: 'bot-a', MessageId: 'incoming', IsPrivate: true };
+  const scope = {
+    resources: new Map(),
+    cleanups: new Set(),
+    disposed: false,
+    now: Date.now,
+    api: async request => {
+      assert.equal(request.action, 'client.api');
+      assert.equal(request.payload.event.BotId, 'bot-a');
+      assert.equal(request.payload.key, 'getMessageSeq');
+      assert.deepEqual(request.payload.params, ['incoming']);
+      reservations++;
+      return [{ code: ResultCode.Ok, data: ++sequence }];
+    }
+  };
+  await runtimeScope.run(scope, () =>
+    withEventContext(
+      event,
+      async () => {},
+      async () => {
+        const sends = [];
+        const output = new QQStreamOutput(
+          async params => {
+            sends.push(params);
+            return { code: ResultCode.Ok, data: { id: 'stream', remainingLength: 0 } };
+          },
+          'incoming',
+          1000,
+          async () => {},
+          createQQSequenceAllocator('incoming')
+        );
+        output.append('在的在');
+        await sleep(20);
+        output.append('，有什么可以帮你？');
+        assert.equal(await output.close(), true);
+        assert.equal(reservations, 1);
+        assert.deepEqual(
+          sends.map(item => item.sequence),
+          [2, 2]
+        );
+        assert.equal(++sequence, 3, 'ordinary replies get a different sequence from the same adapter counter');
+      }
+    )
   );
 });

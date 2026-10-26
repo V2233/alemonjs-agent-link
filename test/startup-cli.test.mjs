@@ -142,6 +142,8 @@ test('offline validation and runtime reject the same invalid settings', async ()
   const { resolveDSHConfig } = await import('../lib/dsh/config.js');
   for (const patch of [
     { bridgePort: 80 },
+    { dshHomeRoot: '' },
+    { workspaceRoot: ' ' },
     { maxConcurrentRequests: 0 },
     { pythonPackageSources: ['http://example.invalid/simple'] },
     { groupChat: { maxPerHour: -1 } }
@@ -198,4 +200,12 @@ test('outer instance lock prevents starting a second adapter', async () => {
   } finally {
     await lock.release();
   }
+});
+
+test('the declared minimum Node boundary is checked before setup', async () => {
+  const { supportsNodeVersion } = await import('../bin/startup.mjs');
+  assert.equal(supportsNodeVersion('20.19.0'), false);
+  assert.equal(supportsNodeVersion('22.12.0'), false);
+  assert.equal(supportsNodeVersion('22.13.0'), true);
+  assert.equal(supportsNodeVersion('24.0.0'), true);
 });

@@ -81,7 +81,6 @@ export default [
     }
   },
   // 关闭与 Prettier 冲突的格式化规则
-  prettier,
   // 主要代码质量规则配置
   {
     languageOptions: {
@@ -202,5 +201,8 @@ export default [
       // 模板标签间距规则
       'template-tag-spacing': 'error'
     }
-  }
+  },
+  // Keep this last: custom style rules above must not re-enable rules that
+  // conflict with the formatter used by the pre-commit hook.
+  prettier
 ];

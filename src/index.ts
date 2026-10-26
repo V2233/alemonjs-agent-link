@@ -1,13 +1,15 @@
 import { writeFile } from 'node:fs/promises';
-import { defineChildren, logger, setCron } from 'alemonjs';
+import { defineChildren, logger, setCron, onWatchConfigValue } from 'alemonjs';
 import response from '@src/router';
 import { getDSHConfig } from '@src/dsh/client';
 import { ensureDSHSupervisor } from '@src/dsh/supervisor';
 import { SessionRegistry } from '@src/state/registry';
 import { purgeGroupHashData } from '@src/dsh/client';
 import { getChatArchive } from './history/store';
-import { getModuleRuntime } from './agent/modules';
+import { getModuleRuntime, closeModuleRuntime } from './agent/modules';
 import { getMemoryStore } from './memory/store';
+let stopModuleConfigWatch: (() => void) | undefined;
+
 export default defineChildren({
   register() {
     return {
@@ -17,6 +19,17 @@ export default defineChildren({
   onCreated() {
     try {
       const startupConfig = getDSHConfig();
+
+      stopModuleConfigWatch?.();
+      stopModuleConfigWatch = onWatchConfigValue(value => {
+        try {
+          void getModuleRuntime(getDSHConfig(value as Parameters<typeof getDSHConfig>[0]))
+            .then(runtime => runtime.refresh())
+            .catch(() => logger.warn('AgentLink module configuration reload failed'));
+        } catch {
+          logger.warn('AgentLink module configuration is invalid');
+        }
+      });
 
       void getModuleRuntime(startupConfig)
         .then(runtime => runtime.refresh())
@@ -66,5 +79,11 @@ export default defineChildren({
     } catch {
       /* configuration errors are already reported above */
     }
+  },
+  onDispose() {
+    stopModuleConfigWatch?.();
+    stopModuleConfigWatch = undefined;
+
+    return closeModuleRuntime();
   }
 });

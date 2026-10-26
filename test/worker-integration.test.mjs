@@ -2,15 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fork } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
-import { launchRuntime } from '../bin/runtime.mjs';
-import { acquireProcessLock } from '../bin/process-lock.mjs';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+const packageRoot = process.env.AGENT_LINK_INTEGRATION_PACKAGE_ROOT || fileURLToPath(new URL('../', import.meta.url));
+const { launchRuntime } = await import(pathToFileURL(join(packageRoot, 'bin/runtime.mjs')).href);
+const { acquireProcessLock } = await import(pathToFileURL(join(packageRoot, 'bin/process-lock.mjs')).href);
 
 test('real worker boots local app and an offline adapter, observes CBP readiness and reaps its child processes', async () => {
   const root = await mkdtemp(join(tmpdir(), 'agent-link-worker-'));
-  const framework = import.meta.resolve('alemonjs');
+  const frameworkPackage = createRequire(join(packageRoot, 'package.json')).resolve('alemonjs/package');
+  const metadata = JSON.parse(await readFile(frameworkPackage, 'utf8'));
+  const framework = pathToFileURL(resolve(dirname(frameworkPackage), metadata.exports['.'].import)).href;
   const adapter = join(root, 'adapter.mjs');
   await writeFile(
     adapter,

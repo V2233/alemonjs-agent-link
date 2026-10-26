@@ -10,6 +10,8 @@ export default async (): Promise<void> => {
   const [eventContext, next] = useEvent({ selects: 'message.create' });
 
   if (!eventContext.match.selects) {
+    await Promise.resolve(next());
+
     return;
   }
 

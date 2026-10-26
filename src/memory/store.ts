@@ -152,12 +152,18 @@ export class MemoryStore {
   }
 
   observe(scope: MemoryScope): void {
+    const key = scopeKey(scope);
+    const previous = this.db.prepare('SELECT active_at FROM memory_scopes WHERE scope=?').get(key);
+
+    if (previous && Number(previous.active_at) < this.now() - 30 * 86400000) {
+      this.db.prepare('DELETE FROM memory_scopes WHERE scope=?').run(key);
+    }
     this.db
       .prepare(
         `INSERT INTO memory_scopes(scope,platform,channel_id,group_hash,epoch,active_at) VALUES(?,?,?,?,?,?)
       ON CONFLICT(scope) DO UPDATE SET active_at=excluded.active_at`
       )
-      .run(scopeKey(scope), scope.platform, scope.channelId, hash(scope.channelId), randomUUID(), this.now());
+      .run(key, scope.platform, scope.channelId, hash(scope.channelId), randomUUID(), this.now());
   }
 
   state(scope: MemoryScope): (MemoryGuard & { checkpoint: number; lastRun: number; retryAfter: number }) | undefined {
@@ -246,6 +252,9 @@ export class MemoryStore {
   }
 
   syncExplicit(scope: MemoryScope, subjectId: string, notes: { id: string; text: string; createdAt: number }[]): void {
+    if (notes.length > 20) {
+      throw new Error('明确记忆超过容量限制。');
+    }
     this.observe(scope);
     this.transaction(() => {
       const key = scopeKey(scope);
@@ -444,7 +453,10 @@ export class MemoryStore {
         if (duplicate) {
           continue;
         }
-        if (Number(this.db.prepare('SELECT count(*) AS n FROM memories WHERE scope=?').get(key).n) >= 2000) {
+        const capacity = scope.channelId.startsWith('private:') ? 1980 : 2000;
+        const count = this.db.prepare("SELECT count(*) AS n FROM memories WHERE scope=? AND origin<>'explicit'").get(key);
+
+        if (Number(count.n) >= capacity) {
           throw new Error('当前会话记忆容量已满。');
         }
         if (old) {
@@ -491,8 +503,6 @@ export class MemoryStore {
       const target = all.find(item => item.id === id);
 
       if (!target) {
-        this.db.prepare('UPDATE memory_scopes SET revision=revision+1,checkpoint=max(checkpoint,?) WHERE scope=?').run(skipThrough, key);
-
         return false;
       }
       const removed = connectedMemoryIds(all, target, true);

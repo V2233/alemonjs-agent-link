@@ -7,6 +7,8 @@ export default async (): Promise<void> => {
   const [context, next] = useEvent({ selects: 'private.message.create' });
 
   if (!context.match.selects) {
+    await Promise.resolve(next());
+
     return;
   }
   const event = context.current;
