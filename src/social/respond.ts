@@ -44,7 +44,7 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
     const anchor = accepted.includes(batch.anchor)
       ? batch.anchor
       : batch.mode === 'direct'
-        ? direct.filter(message => message.explicitCommand).at(-1) || direct.at(-1)
+        ? direct.filter(message => message.explicitCommand).at(-1) || direct.filter(message => message.explicitMention).at(-1) || direct.at(-1)
         : accepted.at(-1);
 
     if (!anchor || (batch.mode === 'direct' && !direct.length)) {

@@ -79,6 +79,8 @@ export default async (): Promise<void> => {
         owner: Boolean(event.IsMaster),
         text: text || prompt || '',
         direct: prompt !== null,
+        explicitMention: Boolean(event.IsAtMe || mentionedBot.data),
+        controlText: mentionedBot.data ? prompt : undefined,
         media: references.media,
         referenceContext
       },

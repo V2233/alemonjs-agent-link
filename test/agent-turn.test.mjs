@@ -34,6 +34,7 @@ test('image turn without modules sends bytes to the model instead of DSH text pr
     requests++;
     const body = JSON.parse(init.body);
     assert.equal(body.model, 'image-model');
+    assert.match(body.messages.find(item => item.role === 'system').content, /共用执行规则：按需使用工具/);
     assert.deepEqual(body.messages.at(-1).content, [
       { type: 'text', text: '这是什么' },
       { type: 'image_url', image_url: { url: 'data:image/png;base64,cGljdHVyZQ==' } }
@@ -215,6 +216,7 @@ test('business model delegates workspace actions through the authenticated sandb
       delegated++;
       assert.deepEqual(body.capabilities, { chat: true, web: true, files: false, terminal: false });
       assert.equal(body.message, '查询天气');
+      assert.match(body.systemPrompt, /共用执行规则：按需使用工具/);
       return new Response('data: {"type":"content","content":"查询结果：晴"}\n\ndata: {"type":"done"}\n\n', {
         headers: { 'content-type': 'text/event-stream' }
       });

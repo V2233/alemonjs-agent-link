@@ -620,3 +620,58 @@ test('exhausted quota routes direct calls to a notice-only batch and keeps ambie
     h.coordinator.close();
   }
 });
+
+test('explicit mentions skip reply classification while keyword calls still use it', async () => {
+  let classified = 0;
+  const batches = [];
+  const h = harness({
+    classify: async () => {
+      classified++;
+      return { reply: false, reason: 'none' };
+    }
+  });
+  const respond = async batch => {
+    batches.push(batch);
+    return { delivered: true };
+  };
+  const mention = h.coordinator.receive(message('at-human', { explicitMention: true, text: '你好' }), policy(), respond);
+  const keyword = h.coordinator.receive(message('keyword-other', { text: 'DeepSeek 更新了' }), policy(), respond);
+  await h.coordinator.flush('group');
+  await Promise.all([mention, keyword]);
+  assert.equal(classified, 0);
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].anchor.id, 'at-human');
+  const second = h.coordinator.receive(message('keyword-only', { text: '他们说肥鱼是人机' }), policy(), respond);
+  await h.coordinator.flush('group');
+  await second;
+  assert.equal(classified, 1);
+  assert.equal(batches.length, 1);
+  h.coordinator.close();
+});
+
+test('explicit mentions retain local bot, stop, hold and loop protections', async () => {
+  let calls = 0;
+  const h = harness({
+    classify: async () => {
+      assert.fail('explicit mention must not classify');
+    }
+  });
+  const respond = async () => {
+    calls++;
+    return { delivered: true, replyText: '完整回复内容' };
+  };
+  const event = (id, overrides = {}) => message(id, { userId: 'alice', userKey: 'alice', explicitMention: true, text: '请解释这个具体问题', ...overrides });
+  assert.equal((await h.coordinator.receive(event('bot', { isBot: true }), policy(), respond)).reply, false);
+  await h.coordinator.receive(event('hold', { text: '@肥鱼 等我说完', controlText: '等我说完' }), policy(), respond);
+  await h.coordinator.receive(event('piece', { text: '这是问题背景', explicitMention: false, direct: false }), policy(), respond);
+  assert.equal(calls, 0);
+  await h.coordinator.receive(event('stop', { text: '@肥鱼 不用回复', controlText: '不用回复' }), policy(), respond);
+  assert.equal(calls, 0);
+  const first = h.coordinator.receive(event('first'), policy(), respond);
+  await h.coordinator.flush('group');
+  await first;
+  assert.equal(calls, 1);
+  assert.equal((await h.coordinator.receive(event('repeat'), policy(), respond)).reply, false);
+  assert.equal(calls, 1);
+  h.coordinator.close();
+});

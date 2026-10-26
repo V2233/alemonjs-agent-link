@@ -1,3 +1,4 @@
+import { withToolUsePolicy } from '../agent/tool-use-policy';
 import { budgetedFetch } from '../billing/budget';
 import { readCompletionStream } from './completion-stream';
 import { type ChatInput, inputText, modelContent, MAX_IMAGE_REQUEST_BYTES } from './input';
@@ -33,7 +34,10 @@ export const directChat = async (
     model: credentials.model || config.model,
     stream: !config.outputBlockedKeywords.length,
     messages: [
-      { role: 'system', content: `${config.defaultSystemPrompt}\n当前为纯聊天降级模式，没有网页、文件或终端工具。不要声称已执行工具或读取本地文件。` },
+      {
+        role: 'system',
+        content: `${withToolUsePolicy(config.defaultSystemPrompt)}\n当前为纯聊天降级模式，没有网页、文件或终端工具。不要声称已执行工具或读取本地文件。`
+      },
       ...(privateHistory?.memoryContext ? [{ role: 'user', content: privateHistory.memoryContext }] : []),
       ...history,
       { role: 'user', content: modelContent(message) }

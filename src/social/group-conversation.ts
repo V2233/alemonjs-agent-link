@@ -20,6 +20,8 @@ export type GroupMessage = {
   referenceContext?: string;
   voice?: boolean;
   explicitCommand?: boolean;
+  explicitMention?: boolean;
+  controlText?: string;
   isBot?: boolean;
 };
 export type GroupBatch = {
@@ -132,10 +134,10 @@ export class GroupConversationCoordinator {
         state.seen.delete(state.seen.keys().next().value);
       }
     }
-    const control = speechControl(message.text);
+    const control = speechControl(message.controlText ?? message.text);
     const held = state.fragments.holding(message, now);
 
-    if (!message.explicitCommand && (control === 'hold' || (held && control !== 'release'))) {
+    if (!message.explicitCommand && (control === 'hold' || control === 'stop' || (held && control !== 'release'))) {
       const sameUser = (entry: Entry): boolean => entry.message.userId === message.userId && entry.message.platform === message.platform;
       const preceding = [...(state.gatePending?.entries || []), ...(state.pending?.entries || [])].filter(sameUser);
 
@@ -171,12 +173,23 @@ export class GroupConversationCoordinator {
         }
         state.gateAbort?.abort();
       }
+      if (control === 'stop') {
+        state.fragments.clear(message.userKey);
+      }
       this.arm(message.channelId, state);
 
-      return { reply: false, mode: 'none', reason: '等待该用户说完', relevance: 0 };
+      return { reply: false, mode: 'none', reason: control === 'stop' ? '用户要求不回复' : '等待该用户说完', relevance: 0 };
     }
-    const fragments = state.fragments.take(message, now).filter(item => !speechControl(item.text));
+    const fragments = state.fragments.take(message, now).filter(item => !speechControl(item.controlText ?? item.text));
 
+    if (
+      fragments.some(item => item.explicitMention) ||
+      (state.pending?.anchor.message.explicitMention &&
+        state.pending.anchor.message.userId === message.userId &&
+        state.pending.anchor.message.platform === message.platform)
+    ) {
+      message = { ...message, explicitMention: true, direct: true };
+    }
     if (fragments.some(item => item.direct) || (held && (control === 'release' || message.explicitCommand))) {
       message = { ...message, direct: true };
     }
@@ -264,7 +277,7 @@ export class GroupConversationCoordinator {
 
       pending.entries.push(entry);
       if ((message.direct && decision.reply) || message.explicitCommand) {
-        if (!pending.anchor.message.explicitCommand || message.explicitCommand) {
+        if (message.explicitCommand || (!pending.anchor.message.explicitCommand && (message.explicitMention || !pending.anchor.message.explicitMention))) {
           pending.anchor = entry;
         }
         pending.mode = 'direct';
@@ -351,7 +364,7 @@ export class GroupConversationCoordinator {
       }
       let verdict: ReplyVerdict | undefined;
 
-      if (this.services.classify && !pending.anchor.message.explicitCommand) {
+      if (this.services.classify && !pending.anchor.message.explicitCommand && !pending.anchor.message.explicitMention) {
         state.gateTimes = state.gateTimes.filter(at => now - at < 60000);
         if (state.gateTimes.length >= 12) {
           completed = true;

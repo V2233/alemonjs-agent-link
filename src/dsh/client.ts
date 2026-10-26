@@ -1,3 +1,4 @@
+import { withToolUsePolicy } from '../agent/tool-use-policy';
 import { reserveWorkspaceText } from '../billing/budget';
 import { type ChatInput, withInputContext, inputText } from './input';
 import type { PrivateHistoryContext } from '@src/state/registry';
@@ -106,6 +107,7 @@ export const streamChat = async (
   privateHistory?: PrivateHistoryContext,
   onCompleted?: (signal: AbortSignal) => Promise<void>
 ): Promise<void> => {
+  config = { ...config, defaultSystemPrompt: withToolUsePolicy(config.defaultSystemPrompt) };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
 
