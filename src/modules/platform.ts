@@ -2,6 +2,7 @@ import type { AgentModule } from '../agent/types';
 import type { DSHBridgeConfig } from '../dsh/client';
 import { platformClient, PlatformOperationError } from '../platform/client';
 import { getPlatformLedger } from '../platform/ledger';
+import { createFrameworkTools } from '../platform/catalog';
 import { numericId } from '../onebot/config';
 import type { GroupOperation } from '../onebot/actions';
 
@@ -13,6 +14,9 @@ export const platformModule = (config: DSHBridgeConfig): AgentModule => ({
   setup(api) {
     const ledger = getPlatformLedger(config);
 
+    for (const tool of createFrameworkTools()) {
+      api.tool(tool);
+    }
     api.tool({
       name: 'platform_status',
       readOnly: true,
