@@ -1,3 +1,12 @@
+import { ResultCode } from 'alemonjs';
+
+// Framework sends resolve with receipts even when the adapter rejects a message.
+export const assertMessageDelivered = (receipts: unknown): void => {
+  if (!Array.isArray(receipts) || receipts.length === 0 || receipts.some(receipt => receipt?.code !== ResultCode.Ok)) {
+    throw new Error('消息发送未得到全部成功回执。');
+  }
+};
+
 export type SendText = (text: string) => Promise<unknown>;
 
 type Fence = { marker: '`' | '~'; length: number };
@@ -84,7 +93,11 @@ const finalMarkdown = (value: string): string => {
 
 const oversizedFallback = (value: string, limit: number): [string, string] => {
   const wrapperLength = characterLength('```text\n\n```');
-  const [part, remainder] = takeCharacters(value, Math.max(1, limit - wrapperLength));
+
+  if (limit <= wrapperLength) {
+    return takeCharacters(value, limit);
+  }
+  const [part, remainder] = takeCharacters(value, limit - wrapperLength);
 
   return [`\`\`\`text\n${part}\n\`\`\``, remainder];
 };
@@ -93,6 +106,9 @@ export class StreamOutput {
   private buffer = '';
   private readonly timer: ReturnType<typeof setInterval>;
   private sentContent = false;
+  private failed = false;
+  private stopped = false;
+  private detachAbort?: () => void;
   private queue: Promise<void> = Promise.resolve();
 
   constructor(
@@ -107,12 +123,32 @@ export class StreamOutput {
   }
 
   append(content: string): void {
-    this.buffer += content;
+    if (!this.stopped && !this.failed) {
+      this.buffer += content;
+    }
+  }
+
+  bindSignal(signal: AbortSignal): void {
+    this.detachAbort?.();
+    const stop = (): void => this.abort();
+
+    signal.addEventListener('abort', stop, { once: true });
+    this.detachAbort = () => signal.removeEventListener('abort', stop);
+    if (signal.aborted) {
+      this.abort();
+    }
+  }
+
+  abort(): void {
+    this.stopped = true;
+    this.buffer = '';
+    clearInterval(this.timer);
+    this.detachAbort?.();
   }
 
   async flush(final = false): Promise<void> {
     const run = async (): Promise<void> => {
-      while (this.buffer) {
+      while (this.buffer && !this.stopped && !this.failed) {
         const boundary = safeBoundary(this.buffer, this.maxMessageLength);
 
         if (boundary !== null) {
@@ -153,7 +189,7 @@ export class StreamOutput {
   }
 
   private async sendPart(part: string): Promise<void> {
-    if (!part.trim()) {
+    if (!part.trim() || this.stopped || this.failed) {
       return;
     }
 
@@ -161,6 +197,9 @@ export class StreamOutput {
       await this.send(part);
       this.sentContent = true;
     } catch (error) {
+      this.failed = true;
+      this.buffer = '';
+      clearInterval(this.timer);
       this.onSendError(error);
     }
   }
@@ -169,6 +208,8 @@ export class StreamOutput {
     clearInterval(this.timer);
     await this.flush(true);
 
-    return this.sentContent;
+    this.detachAbort?.();
+
+    return this.sentContent && !this.failed && !this.stopped;
   }
 }

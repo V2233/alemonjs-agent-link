@@ -9,7 +9,8 @@ export const directChat = async (
   message: string,
   signal: AbortSignal,
   onEvent: (event: DSHStreamEvent) => Promise<void>,
-  privateHistory?: PrivateHistoryContext
+  privateHistory?: PrivateHistoryContext,
+  onCompleted?: (signal: AbortSignal) => Promise<void>
 ): Promise<void> => {
   if (!credentials) {
     throw new Error('纯聊天需要配置模型 API Key。');
@@ -30,6 +31,7 @@ export const directChat = async (
     stream: false,
     messages: [
       { role: 'system', content: `${config.defaultSystemPrompt}\n当前为纯聊天降级模式，没有网页、文件或终端工具。不要声称已执行工具或读取本地文件。` },
+      ...(privateHistory?.memoryContext ? [{ role: 'user', content: privateHistory.memoryContext }] : []),
       ...history,
       { role: 'user', content: message }
     ]
@@ -90,6 +92,8 @@ export const directChat = async (
 
   await onEvent({ type: 'content', content });
   await onEvent({ type: 'done' });
+  signal.throwIfAborted();
+  await onCompleted?.(signal);
   signal.throwIfAborted();
   if (privateHistory) {
     await registry.appendPrivateTurn(privateHistory, message, content);

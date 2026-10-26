@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { ensureDSHSupervisor, getDSHBridge, hasDSHBridgeOverride } from '@src/dsh/supervisor';
 
 export type DSHBridgeConfig = {
+  groupWakeNames: string[];
   privateChatAccess: 'owner' | 'all';
   privateAutoReply: boolean;
   persona: 'assistant' | 'dafeiyu';
@@ -56,6 +57,7 @@ type ConfigValue = {
 const dataRoot = join(process.cwd(), '.data', 'agent-link');
 const pythonExecutable = process.platform === 'win32' ? join(dataRoot, 'venv', 'Scripts', 'python.exe') : join(dataRoot, 'venv', 'bin', 'python');
 const defaults: DSHBridgeConfig = {
+  groupWakeNames: ['大肥鱼'],
   privateChatAccess: 'owner',
   privateAutoReply: true,
   persona: 'dafeiyu',
@@ -91,7 +93,7 @@ const defaults: DSHBridgeConfig = {
 
 export class DSHError extends Error {
   constructor(
-    public readonly kind: 'auth' | 'http' | 'network' | 'timeout' | 'cancelled' | 'protocol' | 'agent' | 'migration',
+    public readonly kind: 'auth' | 'http' | 'network' | 'timeout' | 'cancelled' | 'protocol' | 'agent' | 'migration' | 'delivery',
     message: string
   ) {
     super(message);
@@ -141,6 +143,9 @@ export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeCo
   ];
 
   if (
+    !Array.isArray(config.groupWakeNames) ||
+    config.groupWakeNames.length > 10 ||
+    config.groupWakeNames.some(name => typeof name !== 'string' || !name.trim() || name.length > 20 || name.trim() !== name || name.startsWith('/')) ||
     !['owner', 'all'].includes(config.privateChatAccess) ||
     typeof config.privateAutoReply !== 'boolean' ||
     !['assistant', 'dafeiyu'].includes(config.persona) ||
@@ -274,7 +279,8 @@ export const streamChat = async (
   userId = 'unknown',
   externalSignal?: AbortSignal,
   capabilities: AgentCapabilities = { chat: true, web: true, files: false, terminal: false },
-  privateHistory?: PrivateHistoryContext
+  privateHistory?: PrivateHistoryContext,
+  onCompleted?: (signal: AbortSignal) => Promise<void>
 ): Promise<void> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
@@ -296,7 +302,7 @@ export const streamChat = async (
       await supervisor.start();
       signal.throwIfAborted();
       if (supervisor.status().phase === 'degraded') {
-        await supervisor.chatDirect(message, signal, onEvent, privateHistory);
+        await supervisor.chatDirect(message, signal, onEvent, privateHistory, onCompleted);
 
         return;
       }
@@ -307,7 +313,7 @@ export const streamChat = async (
       headers: { ...getHeaders(bridge.token), 'X-Agent-Link-User': userId },
       body: JSON.stringify({
         sessionId,
-        message,
+        message: privateHistory?.memoryContext ? `${privateHistory.memoryContext}\n\n当前消息：\n${message}` : message,
         systemPrompt: config.defaultSystemPrompt,
         stream: true,
         capabilities: toCapabilities(capabilities)
@@ -332,6 +338,9 @@ export const streamChat = async (
     }
 
     await consumeEvents(response.body.getReader(), onEvent);
+    signal.throwIfAborted();
+    await onCompleted?.(signal);
+    signal.throwIfAborted();
   } catch (error) {
     if (error instanceof DSHError) {
       throw error;
@@ -416,6 +425,7 @@ export const toUserMessage = (error: unknown): string => {
   }
 
   const messages: Record<DSHError['kind'], string> = {
+    delivery: '回复发送失败，请稍后重试。',
     auth: 'Agent 服务认证失败，请联系机器人管理员。',
     http: 'Agent 服务暂时不可用，请稍后再试。',
     network: '暂时无法连接 Agent 服务，请稍后再试。',

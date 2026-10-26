@@ -44,7 +44,7 @@ export default async (): Promise<void> => {
     await resetGroupSession(channelId, config);
     await reply(
       event.IsPrivate
-        ? '已开始新话题，你的私聊会话和短期记忆已清空。'
+        ? '已开始新话题，你的私聊会话和短期记忆已清空；/记住 保存的长期记忆仍保留。'
         : '## 已开始新话题\n本群共享的 Agent 会话和近期聊天参考已清空；之后的对话会从新的上下文开始。'
     );
   } catch (error) {

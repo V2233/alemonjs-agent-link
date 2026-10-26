@@ -23,6 +23,24 @@ if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
 return redis.call('DEL', KEYS[1])
 `;
 
+const touchScript = `
+local raw = redis.call('GET', KEYS[1])
+local meta = raw and cjson.decode(raw) or cjson.decode(ARGV[3])
+if ARGV[4] ~= '' and (not raw or meta.generation ~= tonumber(ARGV[4]) or meta.isolated ~= true or (meta.transition and meta.transition ~= cjson.null)) then
+  return cjson.encode(meta)
+end
+meta.lastActivity = tonumber(ARGV[1])
+redis.call('SET', KEYS[1], cjson.encode(meta))
+redis.call('ZADD', KEYS[2], meta.lastActivity, ARGV[2])
+return cjson.encode(meta)
+`;
+const setPolicyScript = `
+local raw = redis.call('GET', KEYS[1])
+local meta = raw and cjson.decode(raw) or cjson.decode(ARGV[2])
+meta.policy = cjson.decode(ARGV[1])
+redis.call('SET', KEYS[1], cjson.encode(meta))
+`;
+
 const beginResetScript = `
 local raw = redis.call('GET', KEYS[1])
 local meta = {}
@@ -109,15 +127,21 @@ export class RegistryUnavailableError extends Error {
 const redis = async (config: DSHBridgeConfig): Promise<Redis> => {
   const client = getIoRedis({ connectTimeout: Math.min(config.requestTimeoutMs, 5000) });
 
+  let healthTimeout: ReturnType<typeof setTimeout>;
+
   try {
     await Promise.race([
       client.ping(),
-      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('timeout')), Math.min(config.requestTimeoutMs, 5000)))
+      new Promise<never>((_resolve, reject) => {
+        healthTimeout = setTimeout(() => reject(new Error('timeout')), Math.min(config.requestTimeoutMs, 5000));
+      })
     ]);
 
     return client;
   } catch {
     throw new RegistryUnavailableError();
+  } finally {
+    clearTimeout(healthTimeout);
   }
 };
 
@@ -152,7 +176,7 @@ const parseMeta = (value: string | null): GroupMeta => {
   }
 };
 
-export type PrivateHistoryContext = { channelId: string; generation: number };
+export type PrivateHistoryContext = { channelId: string; generation: number; memoryContext?: string };
 export type ChatHistoryMessage = { role: 'user' | 'assistant'; content: string };
 const appendPrivateTurnScript = `
 local raw = redis.call('GET', KEYS[1])
@@ -165,8 +189,66 @@ redis.call('EXPIRE', KEYS[2], ARGV[4])
 return 1
 `;
 
+export type PrivateMemory = { id: string; text: string; createdAt: number };
+export const privateMemoryLimit = 20;
+export const privateMemoryTextLimit = 200;
+const memoryScript = `
+local raw = redis.call('GET', KEYS[1])
+local notes = raw and cjson.decode(raw) or {}
+local action = ARGV[1]
+if action == 'add' then
+  for _, note in ipairs(notes) do
+    if note.text == ARGV[2] then return cjson.encode({status='exists', notes=notes}) end
+  end
+  if #notes >= tonumber(ARGV[5]) then return cjson.encode({status='full', notes=notes}) end
+  table.insert(notes, {id=ARGV[3], text=ARGV[2], createdAt=tonumber(ARGV[4])})
+elseif action == 'remove' then
+  local found = false
+  for i=#notes,1,-1 do
+    if notes[i].id == ARGV[2] then table.remove(notes,i); found = true end
+  end
+  if not found then return cjson.encode({status='missing', notes=notes}) end
+elseif action == 'clear' then
+  redis.call('DEL', KEYS[1])
+  return cjson.encode({status='ok', notes={}})
+end
+if #notes > 0 then
+  redis.call('SET', KEYS[1], cjson.encode(notes), 'EX', ARGV[6])
+else
+  redis.call('DEL', KEYS[1])
+end
+return cjson.encode({status='ok', notes=notes})
+`;
+
 export class SessionRegistry {
   constructor(private readonly config: DSHBridgeConfig) {}
+  async privateMemories(channelId: string): Promise<PrivateMemory[]> {
+    return (await this.changePrivateMemory(channelId, 'list')).notes;
+  }
+  async changePrivateMemory(channelId: string, action: 'list' | 'add' | 'remove' | 'clear', text = ''): Promise<{ status: string; notes: PrivateMemory[] }> {
+    if (!channelId.startsWith('private:')) {
+      throw new Error('长期记忆仅限私聊。');
+    }
+    if (action === 'add' && (!text.trim() || Array.from(text.trim()).length > privateMemoryTextLimit)) {
+      throw new Error(`每条记忆需要 1–${privateMemoryTextLimit} 个字符。`);
+    }
+    const raw = await (
+      await redis(this.config)
+    ).eval(
+      memoryScript,
+      1,
+      key(channelId, 'private-memory.v1.json'),
+      action,
+      text.trim(),
+      randomUUID().slice(0, 8),
+      String(Date.now()),
+      String(privateMemoryLimit),
+      String(this.config.retentionDays * 86400)
+    );
+    const result = JSON.parse(String(raw));
+
+    return { status: result.status, notes: Array.isArray(result.notes) ? result.notes : [] };
+  }
   async privateHistory(context: PrivateHistoryContext): Promise<ChatHistoryMessage[]> {
     if (!this.config.privateHistoryMaxTurns) {
       return [];
@@ -238,18 +320,21 @@ export class SessionRegistry {
   async meta(channelId: string): Promise<GroupMeta> {
     return parseMeta(await (await redis(this.config)).get(key(channelId, 'meta.v1.json')));
   }
-  async touch(channelId: string): Promise<GroupMeta> {
-    const store = await redis(this.config);
-    const meta = await this.meta(channelId);
+  async touch(channelId: string, expectedGeneration?: number): Promise<GroupMeta> {
+    const raw = await (
+      await redis(this.config)
+    ).eval(
+      touchScript,
+      2,
+      key(channelId, 'meta.v1.json'),
+      `${prefix}:retention.v1`,
+      String(Date.now()),
+      groupHash(channelId),
+      JSON.stringify(parseMeta(null)),
+      expectedGeneration === undefined ? '' : String(expectedGeneration)
+    );
 
-    meta.lastActivity = Date.now();
-    await store
-      .multi()
-      .set(key(channelId, 'meta.v1.json'), JSON.stringify(meta))
-      .zadd(`${prefix}:retention.v1`, meta.lastActivity, groupHash(channelId))
-      .exec();
-
-    return meta;
+    return parseMeta(String(raw));
   }
   async beginReset(channelId: string): Promise<GroupMeta> {
     const timestamp = Date.now();
@@ -274,10 +359,8 @@ export class SessionRegistry {
     return (await this.meta(channelId)).policy;
   }
   async setPolicy(channelId: string, policy: GroupPolicy): Promise<void> {
-    const meta = await this.touch(channelId);
-
-    meta.policy = policy;
-    await (await redis(this.config)).set(key(channelId, 'meta.v1.json'), JSON.stringify(meta));
+    await this.touch(channelId);
+    await (await redis(this.config)).eval(setPolicyScript, 1, key(channelId, 'meta.v1.json'), JSON.stringify(policy), JSON.stringify(parseMeta(null)));
   }
   async deduplicate(channelId: string, messageId?: string): Promise<{ duplicate: boolean; requestId: string }> {
     const requestId = randomUUID();

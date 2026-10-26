@@ -133,6 +133,10 @@ commandGroup.use(
   () => import('@src/response/agent-chat/res')
 );
 
+for (const path of ['记忆', '记住', '忘记', '忘记全部']) {
+  commandGroup.use({ path, events: ['private.message.create'], description: '查看、保存或删除自己的长期记忆' }, () => import('@src/response/agent-memory/res'));
+}
+
 // 普通群消息仅保存为短时参考上下文，不会直接创建 DSH Agent 回合。
 router.res({ events: ['message.create'] }, () => import('@src/response/chat-context/capture'));
 

@@ -1,6 +1,7 @@
 import { Format, useEvent, useMention, useMessage } from 'alemonjs';
 import { runDSHChat } from '@src/response/dsh/chat';
-import { extractPrompt } from '@src/response/dsh/util';
+import { getDSHConfig, toUserMessage } from '@src/dsh/client';
+import { extractPrompt, extractWakePrompt } from '@src/response/dsh/util';
 
 export default async (): Promise<void> => {
   const [eventContext, next] = useEvent({ selects: 'message.create' });
@@ -11,16 +12,29 @@ export default async (): Promise<void> => {
 
   const event = eventContext.current;
   const [message] = useMessage();
-  const [mention] = useMention();
-  const mentionedBot = await mention.findOne({ IsBot: true });
 
-  if (!mentionedBot.data) {
+  if (event.IsBot || event.IsPrivate) {
     await Promise.resolve(next());
 
     return;
   }
+  const [mention] = useMention();
+  const mentionedBot = await mention.findOne({ IsBot: true });
 
-  const prompt = extractPrompt(event.MessageText, mentionedBot.data);
+  let prompt: string | null;
+
+  try {
+    prompt = mentionedBot.data ? extractPrompt(event.MessageText, mentionedBot.data) : extractWakePrompt(event.MessageText, getDSHConfig().groupWakeNames);
+  } catch (error) {
+    await message.send({ format: Format.create().addText(toUserMessage(error)) });
+
+    return;
+  }
+  if (prompt === null) {
+    await Promise.resolve(next());
+
+    return;
+  }
 
   if (!prompt) {
     await message.send({

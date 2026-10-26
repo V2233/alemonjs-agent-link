@@ -142,9 +142,10 @@ export class DSHSupervisor {
     message: string,
     signal: AbortSignal,
     onEvent: (event: DSHStreamEvent) => Promise<void>,
-    privateHistory?: PrivateHistoryContext
+    privateHistory?: PrivateHistoryContext,
+    onCompleted?: (signal: AbortSignal) => Promise<void>
   ): Promise<void> {
-    await directChat(this.config, this.credentials, message, signal, onEvent, privateHistory);
+    await directChat(this.config, this.credentials, message, signal, onEvent, privateHistory, onCompleted);
   }
 
   private async launch(): Promise<void> {

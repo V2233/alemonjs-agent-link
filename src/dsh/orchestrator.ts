@@ -1,3 +1,4 @@
+import { buildMemoryContext } from './memory';
 import { logger } from 'alemonjs';
 import { clearSession, DSHError, getDSHConfig, purgeSessionData, streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '@src/dsh/client';
 import { SessionRegistry } from '@src/state/registry';
@@ -28,18 +29,18 @@ const acquireRequestSlot = (limit: number): (() => void) => {
 
 export const getRequestCapacity = (): { active: number } => ({ active: activeRequests });
 
-const enqueue = async (
+export const enqueueChat = async (
   channelId: string,
   maxQueued: number,
   userId: string,
   run: (signal: AbortSignal) => Promise<void>,
   onQueued?: (ahead: number) => Promise<void>,
-  onStarted?: (wasQueued: boolean) => Promise<void>
+  onStarted?: (wasQueued: boolean, signal: AbortSignal) => Promise<void>
 ): Promise<void> => {
   const queue = queues.get(channelId) ?? { running: false, jobs: [] };
 
   queues.set(channelId, queue);
-  if (queue.jobs.length >= maxQueued) {
+  if (queue.running && queue.jobs.length >= maxQueued) {
     throw new DSHError('http', '当前群请求排队已满');
   }
 
@@ -60,7 +61,7 @@ const enqueue = async (
           await queuedNotice;
           if (onStarted) {
             try {
-              await onStarted(ahead > 0);
+              await onStarted(ahead > 0, controller.signal);
             } catch (error) {
               logger.warn({ err: error }, 'Unable to send DSH start notice');
             }
@@ -100,7 +101,7 @@ export const cancelGroupChat = (channelId: string): void => {
 
   queue?.cancel?.abort();
   while (queue?.jobs.length) {
-    queue.jobs.shift().reject(new DSHError('timeout', '群会话已重置'));
+    queue.jobs.shift().reject(new DSHError('cancelled', '会话已重置'));
   }
 };
 
@@ -108,11 +109,14 @@ export const cancelGroupChat = (channelId: string): void => {
  * A missing isolation marker is not a user action item. Atomically perform
  * the same destructive boundary as /new before the first post-upgrade turn.
  */
-export const resetGroupSession = async (channelId: string, config: DSHBridgeConfig): Promise<void> => {
+export const resetGroupSession = async (channelId: string, config: DSHBridgeConfig, updateMemory?: () => Promise<void>): Promise<void> => {
   const pending = groupResetTransitions.get(channelId);
 
   if (pending !== undefined) {
     await pending;
+    if (updateMemory) {
+      await resetGroupSession(channelId, config, updateMemory);
+    }
 
     return;
   }
@@ -126,6 +130,7 @@ export const resetGroupSession = async (channelId: string, config: DSHBridgeConf
     }
     cancelGroupChat(channelId);
     await clearSession(config, getSessionId(channelId));
+    await updateMemory?.();
     await registry.clearRecent(channelId);
     await registry.clearPrivateHistory(channelId);
     if (!(await registry.completeReset(channelId, resetting.operationId))) {
@@ -237,8 +242,9 @@ export const runCoordinatedChat = async (
   message: string,
   onEvent: (event: DSHStreamEvent) => Promise<void>,
   onQueued?: (ahead: number) => Promise<void>,
-  onStarted?: (wasQueued: boolean) => Promise<void>,
-  capabilityOverride?: GroupPolicy
+  onStarted?: (wasQueued: boolean, signal: AbortSignal) => Promise<void>,
+  capabilityOverride?: GroupPolicy,
+  onCompleted?: (signal: AbortSignal) => Promise<void>
 ): Promise<CoordinatedChatResult> => {
   const config = getDSHConfig();
   const registry = new SessionRegistry(config);
@@ -263,7 +269,7 @@ export const runCoordinatedChat = async (
     }
     const meta = await registry.touch(event.ChannelId);
 
-    await enqueue(
+    await enqueueChat(
       event.ChannelId,
       config.maxQueuedPerGroup,
       event.UserKey || 'unknown',
@@ -273,9 +279,12 @@ export const runCoordinatedChat = async (
         try {
           const current = await registry.meta(event.ChannelId);
 
-          if (current.generation !== meta.generation) {
-            throw new DSHError('timeout', '群会话已重置');
+          if (current.generation !== meta.generation || !current.isolated || current.transition) {
+            throw new DSHError('cancelled', '会话已重置');
           }
+          const memoryContext = event.ChannelId.startsWith('private:') ? buildMemoryContext(await registry.privateMemories(event.ChannelId)) : '';
+
+          signal.throwIfAborted();
           await streamChat(
             config,
             `${getSessionId(event.ChannelId)}:v${meta.generation}`,
@@ -284,9 +293,11 @@ export const runCoordinatedChat = async (
             event.UserKey,
             signal,
             capabilities,
-            event.ChannelId.startsWith('private:') ? { channelId: event.ChannelId, generation: meta.generation } : undefined
+            event.ChannelId.startsWith('private:') ? { channelId: event.ChannelId, generation: meta.generation, memoryContext } : undefined,
+            onCompleted
           );
-          await registry.touch(event.ChannelId);
+          signal.throwIfAborted();
+          await registry.touch(event.ChannelId, meta.generation);
         } finally {
           releaseRequestSlot();
         }

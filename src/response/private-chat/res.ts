@@ -1,5 +1,5 @@
-import { useEvent } from 'alemonjs';
-import { getDSHConfig } from '@src/dsh/client';
+import { Format, useEvent, useMessage } from 'alemonjs';
+import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { runDSHChat } from '@src/response/dsh/chat';
 import { isPrivateChatText } from '@src/response/dsh/util';
 
@@ -11,7 +11,23 @@ export default async (): Promise<void> => {
   }
   const event = context.current;
 
-  if (!isPrivateChatText(event.MessageText) || !getDSHConfig().privateAutoReply) {
+  if (!isPrivateChatText(event.MessageText)) {
+    await Promise.resolve(next());
+
+    return;
+  }
+  let config;
+
+  try {
+    config = getDSHConfig();
+  } catch (error) {
+    const [message] = useMessage();
+
+    await message.send({ format: Format.create().addMarkdownOriginal(toUserMessage(error)) });
+
+    return;
+  }
+  if (!config.privateAutoReply) {
     await Promise.resolve(next());
 
     return;

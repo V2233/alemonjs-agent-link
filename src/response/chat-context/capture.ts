@@ -1,3 +1,4 @@
+import { describeSpeaker, extractWakePrompt } from '@src/response/dsh/util';
 import { logger, useEvent, useMention } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { recordRecentMessage } from '@src/chat-context/store';
@@ -25,11 +26,16 @@ export default async (): Promise<void> => {
     try {
       const config = getDSHConfig();
 
+      if (extractWakePrompt(text, config.groupWakeNames) !== null) {
+        await Promise.resolve(next());
+
+        return;
+      }
       await recordRecentMessage(
         event.ChannelId,
         {
           id: event.MessageId,
-          text
+          text: `${describeSpeaker(event)}: ${text}`
         },
         {
           maxMessages: config.recentChatMaxMessages,

@@ -225,3 +225,46 @@ test('lists models through the bound provider without exposing the API key', asy
   assert.equal(request.options.headers.Authorization, 'Bearer secret');
   assert.deepEqual(models, ['deepseek-chat', 'deepseek-reasoner']);
 });
+
+test('bridge completion awaits delivery and preserves delivery failures', async () => {
+  const originalFetch = globalThis.fetch;
+  const order = [];
+  globalThis.fetch = async () => sseResponse('data: {"type":"content","content":"hi"}\n\ndata: {"type":"done"}\n\n');
+  try {
+    await streamChat(
+      config,
+      's',
+      'm',
+      async event => {
+        order.push(event.type);
+      },
+      'owner',
+      undefined,
+      undefined,
+      undefined,
+      async signal => {
+        assert.equal(signal.aborted, false);
+        order.push('delivered');
+      }
+    );
+    assert.deepEqual(order, ['content', 'done', 'delivered']);
+    await assert.rejects(
+      streamChat(
+        config,
+        's',
+        'm',
+        async () => {},
+        'owner',
+        undefined,
+        undefined,
+        undefined,
+        async () => {
+          throw new DSHError('delivery', 'failed');
+        }
+      ),
+      error => error.kind === 'delivery'
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

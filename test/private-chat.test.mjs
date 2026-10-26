@@ -70,7 +70,45 @@ test('direct private chat passes structured history and saves only completed, un
     failure = false;
     const controller = new AbortController();
     await assert.rejects(directChat(config, { apiKey: 'test' }, '我叫什么', controller.signal, async () => controller.abort(), context));
+    await assert.rejects(
+      directChat(
+        config,
+        { apiKey: 'test' },
+        '我叫什么',
+        new AbortController().signal,
+        async () => {},
+        context,
+        async () => {
+          throw new Error('delivery failed');
+        }
+      )
+    );
     assert.equal(saved.length, 1);
+    let completeDelivery;
+    const delivery = new Promise(resolve => {
+      completeDelivery = resolve;
+    });
+    let reachedDelivery;
+    const deliveryStarted = new Promise(resolve => {
+      reachedDelivery = resolve;
+    });
+    const pending = directChat(
+      config,
+      { apiKey: 'test' },
+      '我叫什么',
+      new AbortController().signal,
+      async () => {},
+      context,
+      async () => {
+        reachedDelivery();
+        await delivery;
+      }
+    );
+    await deliveryStarted;
+    assert.equal(saved.length, 1);
+    completeDelivery();
+    await pending;
+    assert.equal(saved.length, 2);
   } finally {
     globalThis.fetch = oldFetch;
     SessionRegistry.prototype.privateHistory = oldRead;

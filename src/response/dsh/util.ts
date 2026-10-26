@@ -40,3 +40,31 @@ export const getConversationId = (event: ConversationEvent): string => {
 
 export const canPrivateChat = (event: ConversationEvent, access: 'owner' | 'all'): boolean => Boolean(event.IsMaster) || access === 'all';
 export const isPrivateChatText = (text: string): boolean => Boolean(text.trim()) && !text.trimStart().startsWith('/');
+
+// Require a name boundary: mentioning a fish in the middle of a sentence is not a wake-up.
+export const extractWakePrompt = (text: string, names: string[]): string | null => {
+  const input = text.trim();
+
+  for (const name of [...names].sort((a, b) => b.length - a.length)) {
+    if (input === name) {
+      return '用户喊了你一声，请简短回应。';
+    }
+    if (input.startsWith(name) && /^[\s，,。！!？?：:、]/u.test(input.slice(name.length))) {
+      return (
+        input
+          .slice(name.length)
+          .replace(/^[\s，,。！!？?：:、]+/u, '')
+          .trim() || '用户喊了你一声，请简短回应。'
+      );
+    }
+  }
+
+  return null;
+};
+
+export const describeSpeaker = (event: { UserId?: string; UserName?: string; IsMaster?: boolean }): string =>
+  JSON.stringify({
+    id: event.UserId || 'unknown',
+    name: (event.UserName || '').slice(0, 80),
+    owner: Boolean(event.IsMaster)
+  });
