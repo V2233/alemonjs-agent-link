@@ -97,7 +97,7 @@ export default {
 
 用户问“这个群叫什么”“群里多少人”时，工具描述要求先查询，不凭聊天记录猜测。字段缺失返回 `null`，不能当成零；接口失败只能说明本次查询失败，不能推断平台永远不支持。群名称是外部数据，不授予指令权限。本工具不返回完整成员名单。
 
-这里接入的是当前 Node 回复模型的业务工具循环。Python DSH 工作区尚未注册直接回调框架的工具，不能把此能力描述为所有 DSH 原生会话都能调用。模拟测试覆盖模型请求工具、框架回执回填、当前群范围和失败处理；真实 QQ 权限与接口可用性仍需实际环境验收。
+此能力既用于 Node 回复模型的工具循环，也通过本轮 MCP 桥供 AgentLink 发起的 DSH 工作区请求发现和调用。独立启动、未连接 AgentLink 的 DSH 不会自动获得机器人权限。模拟测试覆盖模型请求工具、框架回执回填、当前群范围和失败处理；真实 QQ 权限与接口可用性仍需实际环境验收。
 
 ### 框架能力登记表
 
@@ -109,4 +109,18 @@ export default {
 
 三项均支持 qq-bot 和 OneBot；平台权限是否允许仍以真实回执为准。机器人和群 ID 从可信会话注入，模型不能传入其他群号。成员数据仅返回 ID、昵称和角色，不透传 UnionId 等原始字段。分页的未知值使用 null，不把单页长度作为总人数。QQ 平台若忽略页大小且单页超过 100 条，返回 truncated=true，不能声称名单完整；OneBot 原生接口返回全量名单，适配器按偏移量分页输出，但每页仍需要调用原生全量接口，动态名单可能发生变化。
 
-这不是自动开放框架的全部方法。平台尚未实现的动作仍需适配；新增接口需在登记表中明确 schema 和范围。群管理等写操作继续使用原有主人权限、白名单与执行账本，不经过只读查询入口。Python DSH 直接回调尚未接通，本次生成工具用于现有回复 Agent 的工具循环。
+这不是自动开放框架的全部方法。平台尚未实现的动作仍需适配；新增接口需在登记表中明确 schema 和范围。群管理等写操作继续使用原有主人权限、白名单与执行账本，不经过只读查询入口。由 AgentLink 发起的 DSH 工作区请求也可以通过 MCP 发现和调用本轮开放的工具。
+
+### DSH 能力发现与统一调用
+
+AgentLink 发起 `agent_workspace` 请求时，为本轮创建仅监听 127.0.0.1 的临时 MCP 入口，并通过已有 Python Bridge 的受控端口转发。DSH 使用内置 `@deepseek-ai/dsh-mcp-client`，获得两个稳定入口：
+
+- `mcp__framework__discover({})`：返回当前平台、会话范围及精简能力目录。
+- `mcp__framework__discover({name})`：按需读取一个能力的完整参数 schema。
+- `mcp__framework__call({name, argumentsJson})`：使用该 schema 编码参数，调用后获得真实结果。
+
+目录来自本轮模块租约中实际注册并通过 `available(context)` 的工具，包含平台查询及其他已开放业务能力，自动排除 `agent_workspace` 防止递归。新增模块工具无需另外编写 DSH 工具适配；未登记的框架底层方法不会被任意反射暴露。目录只表示本轮允许尝试，不表示平台账号权限已核验，也不是 AlemonJS 全部 API 的清单。
+
+DSH 的每次模型请求只增加两个工具定义，完整能力 schema 按需读取。Node 在原有异步运行上下文中执行，复用 `executeTool` 的参数校验、可用性检查和主动消息限制；群管理继续使用主人校验、白名单与账本。模型不能传入或覆盖可信会话身份。单轮最多执行 16 次业务调用，不允许并行重入；结束或取消后撤销入口。Python 中转仅接受当前 Worker token，转发地址必须是经过主服务鉴权提交的固定格式回环地址，不跟随重定向。
+
+验证：`node --test --test-force-exit test/framework-mcp.test.mjs test/group-info.test.mjs test/onebot.test.mjs`；Python 桥测试使用 `python3 -m unittest scripts/test_dsh_bridge.py scripts/test_dsh_worker.py`。安装本地 DSH 虚拟环境并完成构建后，可运行 `node scripts/test_framework_runtime.mjs`，使用真实 DSH Runtime、OS 沙箱、Python 中转与本地模型测试桩验证发现→schema→调用→回执→回答，不消耗在线模型额度或发送 QQ 消息。真实 QQ 账号的接口权限仍需部署环境验证。

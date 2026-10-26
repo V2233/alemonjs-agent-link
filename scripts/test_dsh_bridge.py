@@ -224,6 +224,32 @@ class BridgeSafetyTests(unittest.TestCase):
         finally:
             self.bridge.RUNTIME_PATH = original_runtime
 
+    def test_framework_endpoint_rejects_external_urls_and_bad_tokens(self):
+        valid = {'url': 'http://127.0.0.1:12345/mcp', 'token': 'a' * 64}
+        self.assertEqual(self.bridge.framework_endpoint(valid), valid)
+        for url in ['http://example.com/mcp', 'http://127.0.0.1:12345/other', 'http://127.0.0.1:0/mcp', 'http://127.0.0.1:99999/mcp']:
+            with self.assertRaises(ValueError): self.bridge.framework_endpoint({**valid, 'url': url})
+        with self.assertRaises(ValueError): self.bridge.framework_endpoint({**valid, 'token': 'bad'})
+        self.assertIsNone(self.bridge.framework_endpoint(None))
+
+    def test_framework_binding_is_cleared_on_failure_and_success(self):
+        self.bridge.RUNTIME_PATH = Path('/tmp/runtime-fixture')
+        worker = self.bridge.Worker('a' * 64, 1, {'chat': True, 'web': False, 'files': False, 'terminal': False})
+        endpoint = {'url': 'http://127.0.0.1:12345/mcp', 'token': 'a' * 64}
+        def success(*_args):
+            self.assertEqual(worker.framework, endpoint)
+            return {'type': 'result'}
+        worker._run = success
+        self.assertEqual(worker.run('hello', 'session', lambda _: None, endpoint), {'type': 'result'})
+        self.assertIsNone(worker.framework)
+        def failure(*_args): raise RuntimeError('fixture')
+        worker._run = failure
+        with self.assertRaises(RuntimeError): worker.run('hello', 'session', lambda _: None, endpoint)
+        self.assertIsNone(worker.framework)
+        patch = self.bridge.framework_patch(1234, 'a' * 64)
+        self.assertIn('@deepseek-ai/dsh-mcp-client', patch)
+        self.assertIn('serverName: framework', patch)
+
 
 if __name__ == '__main__':
     unittest.main()

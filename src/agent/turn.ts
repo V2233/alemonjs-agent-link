@@ -1,3 +1,4 @@
+import { startFrameworkMcp } from '../platform/mcp';
 import { withToolUsePolicy } from './tool-use-policy';
 import { drawingTool } from '../media/drawing';
 import { withBudgetScope } from '../billing/budget';
@@ -85,7 +86,7 @@ const runModuleTurnInner = async (options: {
       if (!context.autonomous && sandboxReady && (context.capabilities.web || context.capabilities.files || context.capabilities.terminal)) {
         const workspaceTool: AgentTool = {
           name: 'agent_workspace',
-          description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}、终端${context.capabilities.terminal ? '允许' : '禁止'}。不能管理机器人或调用未提供的业务接口。`,
+          description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}、终端${context.capabilities.terminal ? '允许' : '禁止'}。可通过 framework MCP 发现并调用本轮开放的框架和业务接口，权限以目录与真实回执为准。`,
           parameters: {
             type: 'object',
             properties: { task: { type: 'string', minLength: 1, maxLength: 12000 } },
@@ -95,24 +96,33 @@ const runModuleTurnInner = async (options: {
           execute: async ({ task }, turn) => {
             let result = '';
 
-            await streamChat(
-              config,
-              sessionId,
-              String(task),
-              event => {
-                if (event.type === 'content') {
-                  result += event.content;
-                  if (result.length > 24000) {
-                    throw new Error('工作区结果过长。');
-                  }
-                }
+            const framework = await startFrameworkMcp(tools, turn);
 
-                return Promise.resolve();
-              },
-              turn.userId,
-              turn.signal,
-              turn.capabilities
-            );
+            try {
+              await streamChat(
+                config,
+                sessionId,
+                String(task),
+                event => {
+                  if (event.type === 'content') {
+                    result += event.content;
+                    if (result.length > 24000) {
+                      throw new Error('工作区结果过长。');
+                    }
+                  }
+
+                  return Promise.resolve();
+                },
+                turn.userId,
+                turn.signal,
+                turn.capabilities,
+                undefined,
+                undefined,
+                framework.endpoint
+              );
+            } finally {
+              framework.close();
+            }
 
             return { ok: true, result };
           }

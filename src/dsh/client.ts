@@ -105,7 +105,8 @@ export const streamChat = async (
   externalSignal?: AbortSignal,
   capabilities: AgentCapabilities = { chat: true, web: true, files: false, terminal: false },
   privateHistory?: PrivateHistoryContext,
-  onCompleted?: (signal: AbortSignal) => Promise<void>
+  onCompleted?: (signal: AbortSignal) => Promise<void>,
+  framework?: { url: string; token: string }
 ): Promise<void> => {
   config = { ...config, defaultSystemPrompt: withToolUsePolicy(config.defaultSystemPrompt) };
   const controller = new AbortController();
@@ -146,7 +147,8 @@ export const streamChat = async (
         message: withInputContext(message, privateHistory?.memoryContext || ''),
         systemPrompt: config.defaultSystemPrompt,
         stream: true,
-        capabilities: toCapabilities(capabilities)
+        capabilities: toCapabilities(capabilities),
+        ...(framework ? { framework } : {})
       }),
       signal: externalSignal ? AbortSignal.any([controller.signal, externalSignal]) : controller.signal
     });
