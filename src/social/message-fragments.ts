@@ -65,16 +65,20 @@ export class MessageFragments {
 
     return value?.messages || [];
   }
-  clear(userKey?: string): void {
+  clear(userKey?: string): boolean {
+    const before = this.users.size;
+
     if (userKey === undefined) {
       this.users.clear();
 
-      return;
+      return before > 0;
     }
     for (const [key, value] of this.users) {
       if (value.messages.some(message => message.userKey === userKey)) {
         this.users.delete(key);
       }
     }
+
+    return this.users.size < before;
   }
 }

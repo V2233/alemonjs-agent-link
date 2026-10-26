@@ -23,7 +23,9 @@ export default async (): Promise<void> => {
   const privileged = event.IsMaster || Boolean(event.IsAdmin);
   let result = cancelChatForUser(channelId, userKey, privileged);
 
-  if ((result === 'empty' || result === 'forbidden') && groupConversations.cancelPending(channelId, userKey, privileged)) {
+  const cancelledPending = groupConversations.cancelPending(channelId, userKey, privileged);
+
+  if ((result === 'empty' || result === 'forbidden') && cancelledPending) {
     result = 'cancelled-queued';
   }
   const text = {

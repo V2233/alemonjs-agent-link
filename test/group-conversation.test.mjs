@@ -551,3 +551,56 @@ test('same speaker extends the quiet window but maximum wait is bounded', async 
   await Promise.all([a, b, c]);
   h.coordinator.close();
 });
+
+test('hold arriving during classification suppresses its late result and retains its text until release', async () => {
+  let finish;
+  const batches = [];
+  let calls = 0;
+  const h = harness({
+    classify: async () => {
+      if (++calls === 1)
+        return new Promise(resolve => {
+          finish = resolve;
+        });
+      return { reply: true, reason: 'direct_call', source: 'human', loopRisk: false };
+    }
+  });
+  const respond = async batch => {
+    batches.push(batch);
+    return { delivered: true };
+  };
+  const first = h.coordinator.receive(message('before-hold', { userId: 'alice', userKey: 'alice', text: '肥鱼，先看这个问题' }), policy(), respond);
+  const flush = h.coordinator.flush('group');
+  await h.coordinator.receive(message('start-hold', { userId: 'alice', userKey: 'alice', text: '等我说完', direct: false }), policy(), respond);
+  finish({ reply: true, reason: 'direct_call' });
+  await flush;
+  await first;
+  assert.equal(batches.length, 0);
+  const release = h.coordinator.receive(message('end-hold', { userId: 'alice', userKey: 'alice', text: '可以回了', direct: false }), policy(), respond);
+  await h.coordinator.flush('group');
+  await release;
+  assert.deepEqual(
+    batches[0].messages.map(item => item.text),
+    ['肥鱼，先看这个问题', '可以回了']
+  );
+  h.coordinator.close();
+});
+
+test('automated and loop-risk rejections are not replayed as unfinished human fragments', async () => {
+  const inputs = [];
+  const h = harness({
+    classify: async input => {
+      inputs.push(input);
+      return { reply: false, reason: 'none', source: 'automated', loopRisk: true };
+    }
+  });
+  for (const id of ['auto1', 'auto2']) {
+    const done = h.coordinator.receive(message(id, { userId: 'peer', text: `自动信息 ${id}` }), policy(), async () => {
+      assert.fail('must not reply');
+    });
+    await h.coordinator.flush('group');
+    await done;
+  }
+  assert.equal(inputs[1].messages.length, 1);
+  h.coordinator.close();
+});

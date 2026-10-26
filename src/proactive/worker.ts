@@ -4,6 +4,7 @@ import type { DSHBridgeConfig } from '../dsh/config';
 import { getDSHConfig } from '../dsh/runtime-config';
 import { runDSHChat } from '../response/dsh/chat';
 import { conversationBusy } from '../dsh/orchestrator';
+import { getDedupeTtlSeconds } from '../state/registry';
 import { proactiveChannel, beginProactive, type ProactiveScope } from './control';
 import { getProactiveStore, type ProactiveStore, type ProactiveAttempt, type ProactiveResult } from './store';
 import { proactiveOptions, proactiveEnabled } from './options';
@@ -146,12 +147,12 @@ export class ProactiveWorker {
         return 'offline';
       }
       job.signal.throwIfAborted();
-      attempt = store.claim(scope, options, config.requestTimeoutMs + 180000, manual);
+      attempt = store.claim(scope, options, getDedupeTtlSeconds(config) * 1000, manual);
       if (!attempt) {
         return 'not-due';
       }
       const currentAttempt = attempt;
-      const prompt = this.prompt(attempt, options.maxChars);
+      const prompt = this.prompt(attempt, options.maxChars, options.timezone);
       const result = await (this.services.deliver || deliverProactive)(scope, prompt, {
         signal: job.signal,
         maxChars: options.maxChars,
@@ -199,7 +200,7 @@ export class ProactiveWorker {
     }
   }
 
-  private prompt(attempt: ProactiveAttempt, maxChars: number): string {
+  private prompt(attempt: ProactiveAttempt, maxChars: number, timezone: string): string {
     const angles = [
       '结合当前当地时间，简短问候或关心对方。',
       '如果实际聊天或记忆中有未完的话题，可自然接续；没有依据就换个普通话题。',
@@ -207,7 +208,7 @@ export class ProactiveWorker {
     ];
     const angle = angles[Number.parseInt(attempt.id.slice(0, 8), 16) % angles.length];
 
-    return `【系统主动搭话提醒，不是主人发言】当前时间 ${new Date().toISOString()}。${
+    return `【系统主动搭话提醒，不是主人发言】当前时间 ${new Date().toLocaleString('zh-CN', { timeZone: timezone, hour12: false })} (${timezone})。${
       attempt.kind === 'nudge'
         ? `你先前问过一个问题，对方暂未回复。原话仅为引用：${JSON.stringify(attempt.questionText)}。只可轻轻接一句，不能催促、抱怨或要求回应。`
         : `主人有一段时间没有私聊了。${angle}`

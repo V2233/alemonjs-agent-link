@@ -146,9 +146,28 @@ export class GroupConversationCoordinator {
           state.pending = undefined;
         } else {
           state.pending.anchor = state.pending.entries.findLast(entry => entry.message.direct) || state.pending.entries.at(-1);
+          state.pending.mode = state.pending.anchor.message.direct ? 'direct' : 'interject';
         }
       }
       if (state.gatePending?.entries.some(sameUser)) {
+        const remaining = state.gatePending.entries.filter(entry => !sameUser(entry));
+
+        if (remaining.length && !state.pending) {
+          const anchor = remaining.findLast(entry => entry.message.direct) || remaining.at(-1);
+
+          state.pending = {
+            ...state.gatePending,
+            entries: remaining.map(entry => ({ ...entry, resolve: () => {} })),
+            anchor,
+            mode: anchor.message.direct ? 'direct' : 'interject',
+            dueAt: now + policy.batchWindowMs
+          };
+        } else if (remaining.length) {
+          state.fragments.save(
+            remaining.map(entry => entry.message),
+            now
+          );
+        }
         state.gateAbort?.abort();
       }
       this.arm(message.channelId, state);
@@ -508,7 +527,7 @@ export class GroupConversationCoordinator {
     const state = this.groups.get(channelId);
     const pending = state?.pending;
 
-    state?.fragments.clear(privileged ? undefined : userKey);
+    const clearedFragments = state?.fragments.clear(privileged ? undefined : userKey) || false;
 
     if (state?.gateAbort && (userKey === undefined || privileged || state.gateUserKey === userKey)) {
       state.gateAbort.abort();
@@ -517,7 +536,7 @@ export class GroupConversationCoordinator {
       }
     }
     if (!pending || (userKey !== undefined && pending.anchor.message.userKey !== userKey && !privileged)) {
-      return false;
+      return clearedFragments;
     }
     if (state.timer !== undefined) {
       (this.services.unschedule || clearTimeout)(state.timer);

@@ -13,6 +13,8 @@ import { observeProactiveInput, observeProactiveOutput } from '../lib/proactive/
 import { getDSHConfig } from '../lib/dsh/runtime-config.js';
 import { ModuleRuntime, getModuleRuntime, executeTool } from '../lib/agent/modules.js';
 import { getChatArchive } from '../lib/history/store.js';
+import { OneBotActions } from '../lib/onebot/actions.js';
+import { getPersonaStore } from '../lib/companion/personas.js';
 
 const scope = { platform: 'onebot', botId: '900', userId: '100' };
 const base = Date.parse('2026-10-26T10:00:00+08:00');
@@ -290,4 +292,153 @@ test('autonomous tool leases and executor reject writes even when a recipient is
       await lease.release();
       await runtime.close();
     }
+  }));
+
+const pipeline = async run =>
+  fixture(async f => {
+    const { runtimeScope } = await import(new URL('./common/runtime-scope.js', import.meta.resolve('alemonjs')));
+    const oldFetch = globalThis.fetch;
+    const nativeCalls = [];
+    const connection = {
+      config: { selfId: scope.botId },
+      status: () => ({ state: 'ready', bots: [{ BotId: scope.botId, state: 'ready' }] }),
+      call: async (action, params) => {
+        nativeCalls.push({ action, params });
+        return { message_id: nativeCalls.length };
+      }
+    };
+    const actions = new OneBotActions(connection, () => ({ owner: id => id === scope.userId, groups: ['200'], disabled: [] }));
+    const runtime = {
+      resources: new Map(),
+      cleanups: new Set(),
+      disposed: false,
+      now: Date.now,
+      action: frame => actions.action(frame),
+      api: frame => actions.api(frame)
+    };
+    let config;
+    try {
+      await runtimeScope.run(runtime, async () => {
+        getConfig().saveValue({
+          onebot: { master_id: [scope.userId] },
+          'alemonjs-agent-link': {
+            apiKey: 'test',
+            model: 'test',
+            runtimeMode: 'chat-only',
+            stateBackend: 'local',
+            workspaceRoot: f.config.workspaceRoot,
+            dshHomeRoot: f.config.dshHomeRoot,
+            modules: { settings: { memory: { automatic: false }, 'group-admin': { groups: ['200'] } } }
+          }
+        });
+        config = getDSHConfig();
+        const store = getProactiveStore(config);
+        store.subscribe(scope, true, proactiveOptions(config));
+        const worker = new ProactiveWorker(config);
+        try {
+          await run({ ...f, config, store, worker, nativeCalls });
+        } finally {
+          worker.stop();
+        }
+      });
+    } finally {
+      if (config) await (await getModuleRuntime(config)).close();
+      globalThis.fetch = oldFetch;
+    }
+  });
+
+test('real delivery pipeline uses owner persona and history readers without write tools, sends a scoped platform message, and does not archive a fake user message', () =>
+  pipeline(async f => {
+    const personas = getPersonaStore(f.config);
+    await personas.save({ id: 'companion', name: '茶友', prompt: '用自然简短的中文回应。', privateRules: '保持主人的私聊称呼。', socialRules: '公共称呼。' });
+    await personas.select({ platform: scope.platform, channelId: proactiveChannel(scope) }, 'companion');
+    let response = '今天有空喝茶吗？';
+    globalThis.fetch = async (_url, init) => {
+      const body = JSON.parse(init.body);
+      assert.match(body.messages[0].content, /系统调度的主动搭话，不是主人发来的请求/u);
+      assert.match(body.messages[0].content, /保持主人的私聊称呼/u);
+      assert.doesNotMatch(body.messages[0].content, /公共称呼/u);
+      const tools = body.tools.map(tool => tool.function.name);
+      assert.ok(tools.includes('recall_memories'));
+      assert.ok(tools.includes('search_chat_history'));
+      for (const denied of ['remember_private_fact', 'manage_group', 'poke_speaker', 'agent_workspace']) assert.equal(tools.includes(denied), false);
+      assert.match(JSON.stringify(body.messages.at(-1).content), /系统主动搭话提醒，不是主人发言/u);
+      return Response.json({ choices: [{ message: { content: response } }] });
+    };
+    assert.equal(await f.worker.run(scope, true), 'confirmed');
+    assert.equal(f.nativeCalls.length, 1);
+    assert.equal(f.nativeCalls[0].action, 'send_private_msg');
+    assert.equal(f.nativeCalls[0].params.user_id, 100);
+    assert.deepEqual(f.nativeCalls[0].params.message, [{ type: 'text', data: { text: '今天有空喝茶吗？' } }]);
+    const archive = getChatArchive(f.config);
+    const rows = archive.search({ platform: scope.platform, channelId: proactiveChannel(scope) }).items;
+    assert.equal(rows.filter(row => row.role === 'user').length, 0);
+    assert.equal(rows.filter(row => row.role === 'assistant').length, 1);
+    assert.equal(f.store.get(scope).unanswered, 1);
+    response = '[沉默]';
+    observeProactiveInput(f.config, {
+      Platform: scope.platform,
+      BotId: scope.botId,
+      UserId: scope.userId,
+      IsPrivate: true,
+      IsMaster: true,
+      MessageId: 'new-one',
+      MessageText: '你好'
+    });
+    assert.equal(await f.worker.run(scope, true), 'silent');
+    assert.equal(f.nativeCalls.length, 1);
+    response = '长'.repeat(301);
+    assert.equal(await f.worker.run(scope, true), 'silent');
+    assert.equal(f.nativeCalls.length, 1);
+  }));
+
+test('incoming owner message cancels actual model generation and direct opt-out survives a new worker', () =>
+  pipeline(async f => {
+    let started;
+    const ready = new Promise(resolve => {
+      started = resolve;
+    });
+    globalThis.fetch = async (_url, init) => {
+      started();
+      return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true }));
+    };
+    const task = f.worker.run(scope, true);
+    await ready;
+    const event = {
+      Platform: scope.platform,
+      BotId: scope.botId,
+      UserId: scope.userId,
+      IsPrivate: true,
+      IsMaster: true,
+      MessageId: 'stop',
+      MessageText: '请不要再主动找我了'
+    };
+    observeProactiveInput(f.config, event);
+    assert.equal(await task, 'cancelled');
+    assert.equal(f.nativeCalls.length, 0);
+    assert.equal(f.store.get(scope).enabled, false);
+    const worker = new ProactiveWorker(f.config);
+    try {
+      assert.equal(await worker.run(scope, true), 'not-due');
+    } finally {
+      worker.stop();
+    }
+  }));
+
+test('automatic voice remains available for proactive messages and uses the explicit recipient instead of a fabricated reply id', () =>
+  pipeline(async f => {
+    const settings = getConfig().value;
+    settings['alemonjs-agent-link'].modules.settings.expression = { automatic: true, voiceChance: 1, stickerChance: 0 };
+    settings['alemonjs-agent-link'].media = { tts: { baseUrl: 'https://speech.test', apiKey: 'test', model: 'tts', voice: 'voice' } };
+    getConfig().saveValue(settings);
+    globalThis.fetch = async url =>
+      String(url).endsWith('/audio/speech') ? new Response('ID3test') : Response.json({ choices: [{ message: { content: '要喝茶吗？' } }] });
+    assert.equal(await f.worker.run(scope, true), 'confirmed');
+    assert.equal(f.nativeCalls.length, 1);
+    assert.equal(f.nativeCalls[0].action, 'send_private_msg');
+    assert.equal(f.nativeCalls[0].params.message.at(-1).type, 'record');
+    assert.equal(
+      f.nativeCalls[0].params.message.some(segment => segment.type === 'reply'),
+      false
+    );
   }));
