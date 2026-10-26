@@ -26,24 +26,21 @@ export default async (): Promise<void> => {
     try {
       const config = getDSHConfig();
 
-      if (extractWakePrompt(text, config.groupWakeNames) !== null) {
-        await Promise.resolve(next());
-
-        return;
+      if (extractWakePrompt(text, config.groupWakeNames) === null) {
+        await recordRecentMessage(
+          event.ChannelId,
+          {
+            id: event.MessageId,
+            text: `${describeSpeaker(event)}: ${text}`
+          },
+          {
+            maxMessages: config.recentChatMaxMessages,
+            windowSeconds: config.recentChatWindowSeconds,
+            maxChars: config.recentChatMaxChars
+          },
+          config
+        );
       }
-      await recordRecentMessage(
-        event.ChannelId,
-        {
-          id: event.MessageId,
-          text: `${describeSpeaker(event)}: ${text}`
-        },
-        {
-          maxMessages: config.recentChatMaxMessages,
-          windowSeconds: config.recentChatWindowSeconds,
-          maxChars: config.recentChatMaxChars
-        },
-        config
-      );
     } catch (error) {
       logger.warn({ err: error }, 'Recent chat context disabled by invalid configuration');
     }

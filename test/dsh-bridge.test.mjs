@@ -191,8 +191,8 @@ test('defaults groups to web access while owner private sessions receive all too
 });
 
 test('keeps idempotency claims alive through the maximum group queue', () => {
-  assert.equal(getDedupeTtlSeconds({ maxQueuedPerGroup: 3, requestTimeoutMs: 120_000 }), 900);
-  assert.equal(getDedupeTtlSeconds({ maxQueuedPerGroup: 3, requestTimeoutMs: 300_000 }), 1260);
+  assert.equal(getDedupeTtlSeconds({ maxQueuedPerGroup: 3, requestTimeoutMs: 120_000 }), 1020);
+  assert.equal(getDedupeTtlSeconds({ maxQueuedPerGroup: 3, requestTimeoutMs: 300_000 }), 1740);
 });
 
 test('compresses recent chat before it is provided to DSH', () => {
@@ -264,6 +264,26 @@ test('bridge completion awaits delivery and preserves delivery failures', async 
       ),
       error => error.kind === 'delivery'
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sandbox receives current explicit memory as reference alongside the actual request', async () => {
+  const originalFetch = globalThis.fetch;
+  let body;
+  globalThis.fetch = async (_url, options) => {
+    body = JSON.parse(options.body);
+    return sseResponse('data: {"type":"done"}\n\n');
+  };
+  try {
+    await streamChat(config, 's', '今天聊什么', async () => {}, 'u', undefined, undefined, {
+      channelId: 'private:test',
+      generation: 1,
+      memoryContext: '明确保存：喜欢科幻'
+    });
+    assert.equal(body.message, '明确保存：喜欢科幻\n\n当前消息：\n今天聊什么');
+    assert.equal(body.systemPrompt, config.defaultSystemPrompt);
   } finally {
     globalThis.fetch = originalFetch;
   }

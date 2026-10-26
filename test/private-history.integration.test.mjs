@@ -52,3 +52,57 @@ test('Redis private history bounds, isolation, generation guard and deletion', {
     await registry.purgeHash(await registry.groupKey(channelId));
   }
 });
+
+test(
+  'explicit private memories are bounded, isolated, survive new topics, and are deletable',
+  { skip: process.env.AGENT_LINK_HISTORY_INTEGRATION !== '1' },
+  async () => {
+    const config = getDSHConfig({});
+    const registry = new SessionRegistry(config);
+    const channel = `private:memory-${randomUUID()}`;
+    try {
+      const first = await registry.changePrivateMemory(channel, 'add', '喜欢短回复');
+      assert.equal(first.status, 'ok');
+      assert.equal((await registry.changePrivateMemory(channel, 'add', '喜欢短回复')).status, 'exists');
+      assert.deepEqual(await registry.privateMemories(channel + '-other'), []);
+      await assert.rejects(registry.changePrivateMemory('group', 'add', '不能跨群'));
+      await assert.rejects(registry.changePrivateMemory(channel, 'add', '鲸'.repeat(201)));
+      const reset = await registry.beginReset(channel);
+      await registry.clearPrivateHistory(channel);
+      await registry.clearRecent(channel);
+      await registry.completeReset(channel, reset.operationId);
+      assert.equal((await registry.privateMemories(channel)).length, 1);
+      const changes = await Promise.all(Array.from({ length: 25 }, (_, i) => registry.changePrivateMemory(channel, 'add', `偏好 ${i}`)));
+      assert.ok(changes.some(change => change.status === 'full'));
+      assert.equal((await registry.privateMemories(channel)).length, 20);
+      assert.equal((await registry.changePrivateMemory(channel, 'remove', first.notes[0].id)).status, 'ok');
+      assert.equal((await registry.privateMemories(channel)).length, 19);
+      assert.equal((await registry.changePrivateMemory(channel, 'remove', first.notes[0].id)).status, 'missing');
+      await registry.changePrivateMemory(channel, 'clear');
+      assert.deepEqual(await registry.privateMemories(channel), []);
+      await registry.changePrivateMemory(channel, 'add', '待清理');
+      await registry.purgeHash(await registry.groupKey(channel));
+      assert.deepEqual(await registry.privateMemories(channel), []);
+    } finally {
+      await registry.purgeHash(await registry.groupKey(channel));
+    }
+  }
+);
+
+test(
+  'sticker cooldown is shared across requests and removed with conversation data',
+  { skip: process.env.AGENT_LINK_HISTORY_INTEGRATION !== '1' },
+  async () => {
+    const registry = new SessionRegistry(getDSHConfig({}));
+    const channel = `private:sticker-${randomUUID()}`;
+    try {
+      const claims = await Promise.all(Array.from({ length: 5 }, () => registry.claimSticker(channel, 30)));
+      assert.equal(claims.filter(Boolean).length, 1);
+      assert.equal(await registry.claimSticker(channel, 0), true);
+      await registry.purgeHash(await registry.groupKey(channel));
+      assert.equal(await registry.claimSticker(channel, 30), true);
+    } finally {
+      await registry.purgeHash(await registry.groupKey(channel));
+    }
+  }
+);

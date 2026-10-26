@@ -1,3 +1,4 @@
+import { getMediaConfig } from '@src/media/config';
 import { Format, logger, useEvent, useMessage } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { getDSHCredentials } from '@src/dsh/credentials';
@@ -41,10 +42,20 @@ export default async (): Promise<void> => {
 
     const status = supervisor.status();
     const capacity = getRequestCapacity();
+    let mediaStatus: string;
+
+    try {
+      const media = getMediaConfig();
+
+      mediaStatus = `- 媒体配置：识图 ${media.vision ? '已配置' : '未配置'} / 转写 ${media.asr ? '已配置' : '未配置'} / 合成语音 ${media.tts?.voice ? '已配置' : '未配置'} / 表情库 ${media.stickerRoot ? '已配置' : '未配置'}；实际可用性需收发验证。`;
+    } catch {
+      mediaStatus = '- 媒体配置无效，请检查 media 配置。';
+    }
 
     if (event.IsPrivate && event.IsMaster) {
       text = [
         '# AgentLink · 管理状态',
+        mediaStatus,
         `- 服务：${phaseMessage[status.phase]}`,
         `- 会话状态库：${redisReady ? '已连接。' : '不可用；新的 Agent 请求会被拒绝。'}`,
         `- Bridge：${status.phase === 'ready' ? '已就绪。' : '尚未就绪。'}`,

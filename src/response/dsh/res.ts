@@ -24,7 +24,9 @@ export default async (): Promise<void> => {
   let prompt: string | null;
 
   try {
-    prompt = mentionedBot.data ? extractPrompt(event.MessageText, mentionedBot.data) : extractWakePrompt(event.MessageText, getDSHConfig().groupWakeNames);
+    prompt = mentionedBot.data
+      ? extractPrompt(String(event.MessageText ?? ''), mentionedBot.data)
+      : extractWakePrompt(event.MessageText, getDSHConfig().groupWakeNames);
   } catch (error) {
     await message.send({ format: Format.create().addText(toUserMessage(error)) });
 
@@ -36,7 +38,7 @@ export default async (): Promise<void> => {
     return;
   }
 
-  if (!prompt) {
+  if (!prompt && !event.MessageMedia?.length) {
     await message.send({
       format: Format.create().addMarkdownOriginal('想聊什么？直接告诉我，或发送 `/agenthelp` 看看怎么用。')
     });

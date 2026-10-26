@@ -93,7 +93,7 @@ const defaults: DSHBridgeConfig = {
 
 export class DSHError extends Error {
   constructor(
-    public readonly kind: 'auth' | 'http' | 'network' | 'timeout' | 'cancelled' | 'protocol' | 'agent' | 'migration' | 'delivery',
+    public readonly kind: 'auth' | 'http' | 'network' | 'timeout' | 'cancelled' | 'protocol' | 'agent' | 'migration' | 'delivery' | 'media',
     message: string
   ) {
     super(message);
@@ -424,7 +424,12 @@ export const toUserMessage = (error: unknown): string => {
     return '服务暂时不可用，请稍后再试。';
   }
 
+  if (error.kind === 'media') {
+    return error.message;
+  }
+
   const messages: Record<DSHError['kind'], string> = {
+    media: '媒体处理失败，请改用文字。',
     delivery: '回复发送失败，请稍后重试。',
     auth: 'Agent 服务认证失败，请联系机器人管理员。',
     http: 'Agent 服务暂时不可用，请稍后再试。',

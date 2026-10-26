@@ -194,6 +194,12 @@
         "type": "number",
         "description": "纯聊天私聊历史字符预算，默认 12000",
         "required": false
+      },
+      {
+        "name": "groupWakeNames",
+        "type": "array",
+        "required": false,
+        "description": "群聊开头唤醒称呼，默认 [大肥鱼]，空数组关闭"
       }
     ]
   },

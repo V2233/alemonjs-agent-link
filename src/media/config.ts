@@ -1,0 +1,89 @@
+import { getConfigValue } from 'alemonjs';
+
+export type MediaProvider = { baseUrl: string; apiKey: string; model: string; voice?: string };
+export type MediaConfig = {
+  vision?: MediaProvider;
+  asr?: MediaProvider;
+  tts?: MediaProvider;
+  allowedHosts: string[];
+  timeoutMs: number;
+  maxBytes: number;
+  maxAttachments: number;
+  ttsMaxChars: number;
+  stickerRoot?: string;
+  stickerCooldownSeconds: number;
+};
+export class MediaError extends Error {}
+export const unavailableMediaReply = '看不懂，就当是夸我了';
+export class MediaUnavailableError extends MediaError {
+  constructor() {
+    super(unavailableMediaReply);
+  }
+}
+const provider = (value: unknown): MediaProvider | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== 'object') {
+    throw new MediaError('媒体服务配置无效。');
+  }
+  const input = value as MediaProvider;
+
+  if (![input.baseUrl, input.apiKey, input.model].every(item => typeof item === 'string' && item.trim())) {
+    throw new MediaError('媒体服务需要独立配置 baseUrl、apiKey 和 model。');
+  }
+  let url: URL;
+
+  try {
+    url = new URL(input.baseUrl);
+  } catch {
+    throw new MediaError('媒体服务地址无效。');
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    throw new MediaError('媒体服务地址必须是无凭证、无查询参数的 HTTPS 地址。');
+  }
+  if (input.voice !== undefined && (typeof input.voice !== 'string' || !input.voice.trim())) {
+    throw new MediaError('语音音色配置无效。');
+  }
+
+  return { baseUrl: input.baseUrl.replace(/\/+$/u, ''), apiKey: input.apiKey, model: input.model, voice: input.voice };
+};
+
+export const getMediaConfig = (value: unknown = getConfigValue()): MediaConfig => {
+  const raw = (value as { 'alemonjs-agent-link'?: { media?: Partial<MediaConfig> } })?.['alemonjs-agent-link']?.media ?? {};
+  const config: MediaConfig = {
+    allowedHosts: raw.allowedHosts ?? [],
+    timeoutMs: raw.timeoutMs ?? 60000,
+    maxBytes: raw.maxBytes ?? 10 * 1024 * 1024,
+    maxAttachments: raw.maxAttachments ?? 3,
+    ttsMaxChars: raw.ttsMaxChars ?? 800,
+    stickerRoot: raw.stickerRoot,
+    stickerCooldownSeconds: raw.stickerCooldownSeconds ?? 30,
+    vision: provider(raw.vision),
+    asr: provider(raw.asr),
+    tts: provider(raw.tts)
+  };
+
+  if (
+    !Array.isArray(config.allowedHosts) ||
+    config.allowedHosts.some(host => typeof host !== 'string' || !/^[a-z0-9.-]+$/u.test(host) || host.startsWith('.'))
+  ) {
+    throw new MediaError('media.allowedHosts 必须是精确域名列表，不支持通配符。');
+  }
+  for (const [number, min, max] of [
+    [config.timeoutMs, 1000, 120000],
+    [config.maxBytes, 1024, 25 * 1024 * 1024],
+    [config.maxAttachments, 1, 5],
+    [config.ttsMaxChars, 1, 4000],
+    [config.stickerCooldownSeconds, 0, 3600]
+  ]) {
+    if (!Number.isSafeInteger(number) || number < min || number > max) {
+      throw new MediaError('媒体大小、超时或次数配置超出范围。');
+    }
+  }
+  if (config.stickerRoot !== undefined && (typeof config.stickerRoot !== 'string' || !config.stickerRoot.trim())) {
+    throw new MediaError('表情素材目录配置无效。');
+  }
+
+  return config;
+};

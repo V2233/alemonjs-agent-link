@@ -7,10 +7,14 @@ const prefix = 'data:agent-link';
 const recentTtlSeconds = 15 * 60;
 const minimumDedupeTtlSeconds = 15 * 60;
 const dedupeDeliveryMarginMs = 60_000;
+const maximumMediaPreparationMs = 120_000;
 
-/** Cover a full group queue, its own model turn, and final QQ delivery. */
+/** Cover a full queue including bounded media preparation, model turns, and final QQ delivery. */
 export const getDedupeTtlSeconds = (config: Pick<DSHBridgeConfig, 'maxQueuedPerGroup' | 'requestTimeoutMs'>): number =>
-  Math.max(minimumDedupeTtlSeconds, Math.ceil(((config.maxQueuedPerGroup + 1) * config.requestTimeoutMs + dedupeDeliveryMarginMs) / 1000));
+  Math.max(
+    minimumDedupeTtlSeconds,
+    Math.ceil(((config.maxQueuedPerGroup + 1) * (config.requestTimeoutMs + maximumMediaPreparationMs) + dedupeDeliveryMarginMs) / 1000)
+  );
 
 const finalizeDedupeScript = `
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
@@ -222,6 +226,13 @@ return cjson.encode({status='ok', notes=notes})
 
 export class SessionRegistry {
   constructor(private readonly config: DSHBridgeConfig) {}
+  async claimSticker(channelId: string, seconds: number): Promise<boolean> {
+    if (seconds === 0) {
+      return true;
+    }
+
+    return Boolean(await (await redis(this.config)).set(key(channelId, 'sticker-cooldown'), '1', 'EX', seconds, 'NX'));
+  }
   async privateMemories(channelId: string): Promise<PrivateMemory[]> {
     return (await this.changePrivateMemory(channelId, 'list')).notes;
   }
@@ -471,7 +482,12 @@ export class SessionRegistry {
   async purge(channelId: string): Promise<void> {
     const store = await redis(this.config);
 
-    await store.del(key(channelId, 'meta.v1.json'), key(channelId, 'recent.v1.jsonl'), key(channelId, 'private-history.v1'));
+    await store.del(
+      key(channelId, 'meta.v1.json'),
+      key(channelId, 'recent.v1.jsonl'),
+      key(channelId, 'private-history.v1'),
+      key(channelId, 'private-memory.v1.json')
+    );
     await store.zrem(`${prefix}:retention.v1`, groupHash(channelId));
   }
   async expiredGroups(): Promise<string[]> {

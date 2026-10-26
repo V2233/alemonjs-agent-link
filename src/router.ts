@@ -133,6 +133,9 @@ commandGroup.use(
   () => import('@src/response/agent-chat/res')
 );
 
+commandGroup.use({ path: '语音', description: '使用 AI 合成语音回答，不可用时回退文字' }, () => import('@src/response/agent-voice/res'));
+commandGroup.use({ path: '表情', description: '列出或发送配置的表情素材' }, () => import('@src/response/agent-sticker/res'));
+
 for (const path of ['记忆', '记住', '忘记', '忘记全部']) {
   commandGroup.use({ path, events: ['private.message.create'], description: '查看、保存或删除自己的长期记忆' }, () => import('@src/response/agent-memory/res'));
 }

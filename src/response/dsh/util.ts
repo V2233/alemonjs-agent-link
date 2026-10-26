@@ -39,11 +39,11 @@ export const getConversationId = (event: ConversationEvent): string => {
 };
 
 export const canPrivateChat = (event: ConversationEvent, access: 'owner' | 'all'): boolean => Boolean(event.IsMaster) || access === 'all';
-export const isPrivateChatText = (text: string): boolean => Boolean(text.trim()) && !text.trimStart().startsWith('/');
+export const isPrivateChatText = (text: string): boolean => typeof text === 'string' && Boolean(text.trim()) && !text.trimStart().startsWith('/');
 
 // Require a name boundary: mentioning a fish in the middle of a sentence is not a wake-up.
 export const extractWakePrompt = (text: string, names: string[]): string | null => {
-  const input = text.trim();
+  const input = String(text ?? '').trim();
 
   for (const name of [...names].sort((a, b) => b.length - a.length)) {
     if (input === name) {

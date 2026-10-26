@@ -11,7 +11,14 @@ export default async (): Promise<void> => {
   }
   const event = context.current;
 
-  if (!isPrivateChatText(event.MessageText)) {
+  if (
+    event.IsBot ||
+    (!isPrivateChatText(event.MessageText) &&
+      (!event.MessageMedia?.length ||
+        String(event.MessageText ?? '')
+          .trimStart()
+          .startsWith('/')))
+  ) {
     await Promise.resolve(next());
 
     return;
@@ -32,5 +39,5 @@ export default async (): Promise<void> => {
 
     return;
   }
-  await runDSHChat(event, event.MessageText.trim());
+  await runDSHChat(event, String(event.MessageText ?? '').trim());
 };

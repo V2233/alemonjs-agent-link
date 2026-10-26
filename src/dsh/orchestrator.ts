@@ -244,7 +244,8 @@ export const runCoordinatedChat = async (
   onQueued?: (ahead: number) => Promise<void>,
   onStarted?: (wasQueued: boolean, signal: AbortSignal) => Promise<void>,
   capabilityOverride?: GroupPolicy,
-  onCompleted?: (signal: AbortSignal) => Promise<void>
+  onCompleted?: (signal: AbortSignal) => Promise<void>,
+  mediaTask?: { prepareMessage?: (text: string, signal: AbortSignal) => Promise<string>; execute?: (signal: AbortSignal) => Promise<void> }
 ): Promise<CoordinatedChatResult> => {
   const config = getDSHConfig();
   const registry = new SessionRegistry(config);
@@ -282,22 +283,31 @@ export const runCoordinatedChat = async (
           if (current.generation !== meta.generation || !current.isolated || current.transition) {
             throw new DSHError('cancelled', '会话已重置');
           }
-          const memoryContext = event.ChannelId.startsWith('private:') ? buildMemoryContext(await registry.privateMemories(event.ChannelId)) : '';
+          if (mediaTask?.execute) {
+            await mediaTask.execute(signal);
+          } else {
+            const memoryContext = event.ChannelId.startsWith('private:') ? buildMemoryContext(await registry.privateMemories(event.ChannelId)) : '';
 
-          signal.throwIfAborted();
-          await streamChat(
-            config,
-            `${getSessionId(event.ChannelId)}:v${meta.generation}`,
-            message,
-            onEvent,
-            event.UserKey,
-            signal,
-            capabilities,
-            event.ChannelId.startsWith('private:') ? { channelId: event.ChannelId, generation: meta.generation, memoryContext } : undefined,
-            onCompleted
-          );
+            signal.throwIfAborted();
+            await streamChat(
+              config,
+              `${getSessionId(event.ChannelId)}:v${meta.generation}`,
+              mediaTask?.prepareMessage ? await mediaTask.prepareMessage(message, signal) : message,
+              onEvent,
+              event.UserKey,
+              signal,
+              capabilities,
+              event.ChannelId.startsWith('private:') ? { channelId: event.ChannelId, generation: meta.generation, memoryContext } : undefined,
+              onCompleted
+            );
+          }
           signal.throwIfAborted();
           await registry.touch(event.ChannelId, meta.generation);
+        } catch (error) {
+          if (signal.aborted) {
+            throw new DSHError('cancelled', '请求已取消');
+          }
+          throw error;
         } finally {
           releaseRequestSlot();
         }
