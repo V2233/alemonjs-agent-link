@@ -23,12 +23,13 @@ export const runQuiet = (command: string, args: string[], timeout: number, signa
     };
 
     signal?.addEventListener('abort', abort, { once: true });
+    let timedOut = false;
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill('SIGKILL');
       if (diagnosticPath) {
         appendDiagnostic(diagnosticPath, 'Python 准备超时。\n' + errors);
       }
-      reject(new Error('Python preparation timed out'));
     }, timeout);
 
     child.once('error', error => {
@@ -41,6 +42,11 @@ export const runQuiet = (command: string, args: string[], timeout: number, signa
       signal?.removeEventListener('abort', abort);
       if (signal?.aborted) {
         reject(signal.reason);
+
+        return;
+      }
+      if (timedOut) {
+        reject(new Error('Python preparation timed out'));
 
         return;
       }
@@ -104,6 +110,9 @@ export const preparePython = async (
       break;
     } catch {
       signal?.throwIfAborted();
+      if (Date.now() >= deadline) {
+        throw new Error('Python preparation timed out');
+      }
       /* Try the next local interpreter. */
     }
   }
@@ -161,6 +170,9 @@ export const preparePython = async (
       await run(config.pythonExecutable, probe, Math.min(config.startupTimeoutMs, 5000));
     } catch {
       signal?.throwIfAborted();
+      if (Date.now() >= deadline) {
+        throw new Error('Python preparation timed out');
+      }
       failures[source] = Date.now();
       await saveSource();
       continue;

@@ -1,3 +1,5 @@
+import { QQStreamOutput, supportsQQStream } from '../../dsh/qq-stream';
+import { eventContexts } from '../../social/event-context';
 import { getMediaConfig, MediaError, unavailableMediaReply } from '@src/media/config';
 import { synthesizeSpeech, prepareNativeMedia, hasUnconfiguredMedia } from '@src/media/providers';
 import { Format, logger, useMessage, useMedia, type MessageMediaItem, type ReceivedMessage } from 'alemonjs';
@@ -115,6 +117,12 @@ export const runDSHChat = async (
     }
   }
 
+  const eventContext = eventContexts.context(event);
+
+  if (eventContext) {
+    prompt = `${prompt}\n\n${eventContext}`;
+  }
+
   // Unconfigured input media gets a character reply without starting a worker or calling a model.
   if (event.MessageMedia?.length) {
     let fallbackDelivered = false;
@@ -193,9 +201,25 @@ export const runDSHChat = async (
     },
     'DSH chat requested'
   );
-  const output = new StreamOutput(replyAgent, config.maxMessageLength, config.streamFlushIntervalMs, error => {
-    logger.error({ err: error }, 'QQ message send failed');
-  });
+  const nativeStream =
+    supportsQQStream(event, typeof message.stream === 'function') &&
+    !options.voice &&
+    !options.allowSilence &&
+    !options.replyReferences &&
+    !config.outputBlockedKeywords.length;
+  const output = nativeStream
+    ? new QQStreamOutput(
+        params => message.stream(params),
+        event.MessageId,
+        config.maxRequestBytes,
+        async (receipt, text) => {
+          archiveReply(config, event, text);
+          await messageReferences.rememberReply(event, receipt, text).catch(() => logger.warn('Stream reference indexing failed'));
+        }
+      )
+    : new StreamOutput(replyAgent, config.maxMessageLength, config.streamFlushIntervalMs, error => {
+        logger.error({ err: error }, 'QQ message send failed');
+      });
   let coordinated: CoordinatedChatResult | undefined;
   let answer = '';
   const buffered = options.voice || options.allowSilence || Boolean(options.replyReferences);
@@ -283,6 +307,7 @@ export const runDSHChat = async (
         }
       },
       {
+        streamContent: nativeStream,
         userText: options.userText ?? prompt,
         recordHistory: () => !silent,
         renderAnswer: text => renderedAnswer ?? text,
@@ -324,7 +349,7 @@ export const runDSHChat = async (
     if (error instanceof DSHError && error.kind === 'migration') {
       logger.info({ group: 'redacted' }, 'DSH chat awaits isolated-session migration');
     } else if (error instanceof DSHError && error.kind === 'timeout') {
-      logger.warn({ group: 'redacted' }, 'DSH chat timed out; worker was reaped');
+      logger.warn({ group: 'redacted' }, 'Agent chat exceeded its request deadline');
     } else {
       logger.error({ err: error }, 'DSH chat failed');
     }

@@ -3,7 +3,7 @@ import { getDSHCredentials } from '../dsh/credentials';
 import { requestModelMessage } from '../agent/tool-chat';
 import { validateArguments } from '../agent/schema';
 import type { ToolSchema } from '../agent/types';
-import { getChatArchive, type ChatArchive } from '../history/store';
+import { getChatArchive, historyEnabled, type ChatArchive } from '../history/store';
 import { getMemoryStore, type MemoryChange, type MemoryScope, type MemorySource, type MemoryStore } from './store';
 
 export const memoryEnabled = (config: DSHBridgeConfig): boolean => !config.modules?.disabled?.includes('memory');
@@ -115,12 +115,15 @@ export class MemoryConsolidator {
   }
 
   async tick(): Promise<void> {
-    if (this.closed || !memoryEnabled(this.config) || !memoryOptions(this.config).automatic) {
+    if (this.closed || !memoryEnabled(this.config)) {
       return;
     }
     const store = this.services.store || getMemoryStore(this.config);
 
     store.cleanup(this.config.retentionDays);
+    if (!memoryOptions(this.config).automatic || !historyEnabled(this.config)) {
+      return;
+    }
     for (const scope of store.due(memoryOptions(this.config).intervalHours * 3600000)) {
       if (this.closed || jobs.active >= 2) {
         break;
@@ -132,6 +135,9 @@ export class MemoryConsolidator {
   async consolidate(scope: MemoryScope, force = false, externalSignal?: AbortSignal): Promise<{ status: string; added: number; hasMore?: boolean }> {
     if (this.closed || !memoryEnabled(this.config)) {
       return { status: 'disabled', added: 0 };
+    }
+    if (!historyEnabled(this.config)) {
+      return { status: 'archive-disabled', added: 0 };
     }
     const key = JSON.stringify([scope.platform, scope.channelId]);
 

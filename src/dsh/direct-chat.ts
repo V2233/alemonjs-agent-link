@@ -1,3 +1,4 @@
+import { readCompletionStream } from './completion-stream';
 import { type ChatInput, inputText, modelContent, MAX_IMAGE_REQUEST_BYTES } from './input';
 import { SessionRegistry, type PrivateHistoryContext } from '@src/state/registry';
 import type { DSHBridgeConfig, DSHStreamEvent } from './client';
@@ -29,7 +30,7 @@ export const directChat = async (
   const history = privateHistory ? await registry.privateHistory(privateHistory) : [];
   const body = JSON.stringify({
     model: credentials.model || config.model,
-    stream: false,
+    stream: !config.outputBlockedKeywords.length,
     messages: [
       { role: 'system', content: `${config.defaultSystemPrompt}\n当前为纯聊天降级模式，没有网页、文件或终端工具。不要声称已执行工具或读取本地文件。` },
       ...(privateHistory?.memoryContext ? [{ role: 'user', content: privateHistory.memoryContext }] : []),
@@ -56,42 +57,54 @@ export const directChat = async (
   if (!response.body) {
     throw new Error('模型响应为空。');
   }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
+  let answer: string;
+  const streamed = !config.outputBlockedKeywords.length && response.headers.get('content-type')?.includes('text/event-stream');
 
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
+  if (streamed) {
+    const result = await readCompletionStream(response, config.maxRequestBytes, signal, async content => {
+      await onEvent({ type: 'content', content });
+    });
 
-      if (done) {
-        break;
+    answer = result.content || '';
+  } else {
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+
+        if (done) {
+          break;
+        }
+        bytes += value.byteLength;
+        if (bytes > config.maxRequestBytes) {
+          throw new Error('模型响应超过大小限制。');
+        }
+        chunks.push(value);
       }
-      bytes += value.byteLength;
-      if (bytes > config.maxRequestBytes) {
-        throw new Error('模型响应超过大小限制。');
-      }
-      chunks.push(value);
+    } finally {
+      await reader.cancel();
     }
-  } finally {
-    await reader.cancel();
-  }
-  let payload;
+    let payload;
 
-  try {
-    payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    throw new Error('模型响应不是有效 JSON。');
+    try {
+      payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      throw new Error('模型响应不是有效 JSON。');
+    }
+    answer = payload?.choices?.[0]?.message?.content;
   }
-  const answer = payload?.choices?.[0]?.message?.content;
-
   if (typeof answer !== 'string' || !answer.trim()) {
     throw new Error('模型未返回文本回复。');
   }
   signal.throwIfAborted();
   const content = config.outputBlockedKeywords.some(word => word && answer.includes(word)) ? '回复因内容安全策略未发送。' : answer;
 
-  await onEvent({ type: 'content', content });
+  if (!streamed) {
+    await onEvent({ type: 'content', content });
+  }
   await onEvent({ type: 'done' });
   signal.throwIfAborted();
   await onCompleted?.(signal);

@@ -15,6 +15,7 @@ export const runModuleTurn = async (options: {
   input: ChatInput;
   context: TurnContext;
   history?: PrivateHistoryContext;
+  streamContent?: boolean;
   onEvent: (event: DSHStreamEvent) => Promise<void>;
   onCompleted?: (signal: AbortSignal) => Promise<void>;
 }): Promise<void> => {
@@ -93,6 +94,7 @@ export const runModuleTurn = async (options: {
         tools.push(workspaceTool);
       }
       const registry = new SessionRegistry(config);
+      const incremental = options.streamContent && !lease.transformsReplies && !config.outputBlockedKeywords.length;
       const raw = await runToolChat({
         config,
         credentials,
@@ -102,6 +104,11 @@ export const runModuleTurn = async (options: {
         history: history ? await registry.privateHistory(history) : [],
         memoryContext: history?.memoryContext,
         maxRounds: getModuleConfig(config).maxToolRounds,
+        onContent: incremental
+          ? async content => {
+              await onEvent({ type: 'content', content });
+            }
+          : undefined,
         onTool: async name => {
           await onEvent({ type: 'tool_call', tool: name });
         }
@@ -113,7 +120,9 @@ export const runModuleTurn = async (options: {
         throw new Error('模块未产生可发送的回复。');
       }
       context.signal.throwIfAborted();
-      await onEvent({ type: 'content', content: answer });
+      if (!incremental) {
+        await onEvent({ type: 'content', content: answer });
+      }
       await onEvent({ type: 'done' });
       await onCompleted?.(context.signal);
       context.signal.throwIfAborted();

@@ -148,6 +148,25 @@ export class MessageReferences {
     await this.serialize(this.track(event) || '', () => this.service.capture(replyEvent));
   }
 
+  async invalidate(event: ReferenceEvent): Promise<void> {
+    const scope = this.track(event);
+    const id = event.MessageContent?.referenceId || event.MessageId;
+
+    if (!scope || !id) {
+      return;
+    }
+    await this.serialize(scope, async () => {
+      const stored = await this.service.store.get(scope);
+
+      if (!stored) {
+        return;
+      }
+      const retain = (entry: ConversationEntry): boolean => entry.id !== id && entry.referenceId !== id;
+
+      await this.service.store.set(scope, { ...stored, history: stored.history.filter(retain), references: stored.references.filter(retain) });
+    });
+  }
+
   async clear(channelId: string): Promise<void> {
     const pending: Promise<unknown>[] = [];
 

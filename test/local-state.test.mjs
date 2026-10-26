@@ -159,3 +159,23 @@ test('backend selection preserves explicit Redis deployments and validates sourc
     assert.throws(() => getConfig({ 'alemonjs-agent-link': { pythonPackageSources } }));
   }
 });
+
+test('abandoned legacy recovery marker is reclaimed and reads do not rewrite the snapshot', async () => {
+  const { getLocalStore } = await import('../lib/state/local-store.js');
+  const { stat, rm } = await import('node:fs/promises');
+  const path = join(await mkdtemp(join(tmpdir(), 'agent-link-stale-recovery-')), 'state.json');
+  const dead = spawnSync(process.execPath, ['-e', 'process.exit(0)']);
+  await writeFile(`${path}.lock`, String(dead.pid));
+  await writeFile(`${path}.lock.recovery`, String(dead.pid));
+  const store = await getLocalStore(path);
+  await store.set('key', 'value', 'EX', 1);
+  const before = await stat(path);
+  assert.equal(await store.get('key'), 'value');
+  assert.deepEqual(await store.scan('0', 'MATCH', 'k*', 'COUNT', 100), ['0', ['key']]);
+  assert.equal((await stat(path)).mtimeMs, before.mtimeMs);
+  await new Promise(resolve => setTimeout(resolve, 1050));
+  assert.equal(await store.get('key'), null);
+  assert.deepEqual(await store.scan('0', 'MATCH', 'k*', 'COUNT', 100), ['0', []]);
+  // Store owns this file until the test process exits; the marker must already be gone.
+  await assert.rejects(readFile(`${path}.lock.recovery`, 'utf8'), { code: 'ENOENT' });
+});

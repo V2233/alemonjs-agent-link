@@ -400,6 +400,15 @@ export class GroupConversationCoordinator {
     }
   }
 
+  invalidateRecent(channelId: string): void {
+    const state = this.groups.get(channelId);
+
+    if (state) {
+      state.recent = [];
+    }
+    this.cancelPending(channelId, undefined, true);
+  }
+
   cancelPending(channelId: string, userKey?: string, privileged = false): boolean {
     const state = this.groups.get(channelId);
     const pending = state?.pending;

@@ -81,7 +81,7 @@ test('custom config path, idempotent init and invalid arguments are handled', as
 test('placeholder, invalid credential types and model URLs are actionable', () => {
   const config = { 'qq-bot': { app_id: '<APP_ID>', secret: 123 }, 'alemonjs-agent-link': { apiKey: 123, baseUrl: 'http://user:password@example.com' } };
   const checks = inspectConfig(config);
-  assert.equal(checks.filter(item => item.status === 'error').length, 3);
+  assert.equal(checks.filter(item => item.status === 'error').length, 4);
   assert.doesNotMatch(JSON.stringify(checks), /password@example|<APP_ID>/);
 });
 
@@ -125,4 +125,77 @@ test('existing namespaced QQ and multi-bot configurations stay supported', () =>
     ).length,
     1
   );
+});
+
+test('QR login accepts an absent QQ account but rejects partial manually entered credentials', async () => {
+  assert.equal(
+    inspectConfig({ 'alemonjs-agent-link': { apiKey: 'configured' } }).some(item => item.status === 'error'),
+    false
+  );
+  assert.equal(
+    inspectConfig({ 'qq-bot': { app_id: '123' }, 'alemonjs-agent-link': { apiKey: 'configured' } }).some(item => item.status === 'error'),
+    true
+  );
+});
+
+test('offline validation and runtime reject the same invalid settings', async () => {
+  const { resolveDSHConfig } = await import('../lib/dsh/config.js');
+  for (const patch of [
+    { bridgePort: 80 },
+    { maxConcurrentRequests: 0 },
+    { pythonPackageSources: ['http://example.invalid/simple'] },
+    { groupChat: { maxPerHour: -1 } }
+  ]) {
+    const value = { 'alemonjs-agent-link': { apiKey: 'configured', ...patch } };
+    assert.throws(() => resolveDSHConfig(value));
+    assert.equal(
+      inspectConfig(value).some(item => item.status === 'error'),
+      true
+    );
+  }
+});
+
+test('default profile is stable across working directories and remembers a legacy profile', async () => {
+  const { launchPaths } = await import('../bin/paths.mjs');
+  const root = await temporary();
+  const homeDir = join(root, 'user-profile');
+  const left = join(root, 'left');
+  const right = join(root, 'right');
+  await mkdir(left);
+  await mkdir(right);
+  assert.equal((await launchPaths({ cwd: left, homeDir })).configPath, (await launchPaths({ cwd: right, homeDir })).configPath);
+  const legacy = join(left, 'alemon.config.yaml');
+  await writeFile(legacy, valid);
+  const starts = [];
+  assert.equal(await runCLI([], { cwd: left, homeDir, write() {}, start: value => starts.push(value) }), 0);
+  const fromElsewhere = await launchPaths({ cwd: right, homeDir });
+  assert.equal(fromElsewhere.configPath, legacy);
+  assert.equal(fromElsewhere.dataRoot, join(left, '.data', 'agent-link'));
+  assert.equal((await launchPaths({ cwd: right, homeDir, portable: true })).configPath, join(right, 'alemon.config.yaml'));
+});
+
+test('outer instance lock prevents starting a second adapter', async () => {
+  const { acquireProcessLock } = await import('../bin/process-lock.mjs');
+  const cwd = await temporary();
+  const homeDir = join(cwd, 'profile');
+  await mkdir(homeDir);
+  await writeFile(join(homeDir, 'alemon.config.yaml'), valid);
+  const lock = await acquireProcessLock(join(homeDir, 'data', 'launcher.lock'));
+  try {
+    let starts = 0;
+    const output = [];
+    const code = await runCLI([], {
+      cwd,
+      homeDir,
+      write: text => output.push(text),
+      start() {
+        starts++;
+      }
+    });
+    assert.equal(code, 1);
+    assert.equal(starts, 0);
+    assert.match(output.join(''), /已在运行/);
+  } finally {
+    await lock.release();
+  }
 });

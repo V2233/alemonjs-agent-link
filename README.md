@@ -6,19 +6,23 @@
 
 ## 快速开始
 
-只需要 **Node.js 22.12+**。运行时依赖会随安装包安装，无需自行准备 Redis、Docker、Python 或 Git。
+只需要 **Node.js 22.13+**。运行时依赖会随安装包安装，无需自行准备 Redis、Docker、Python 或 Git。
 
-在一个固定的、当前用户可写的文件夹中运行包含新启动器的发布版本：
+运行包含新启动器的发布版本：
 
 ```bash
 npx alemonjs-agent-link
 ```
 
-首次会生成 `alemon.config.yaml`。只需填写其中三项：QQ 机器人 AppID、QQ 密钥、模型 API Key（默认 DeepSeek），然后再次执行同一条命令。已有配置不会被覆盖。使用其他模型服务时再补充 `baseUrl` 和 `model`，见[配置指南](docs/config.md)。此入口随本次源码提供，需发布包含新启动器的版本后才能通过 npm 获取。
+首次会在用户配置目录生成 `alemon.config.yaml` 并显示路径。只需填写模型 API Key（默认 DeepSeek），重跑同一命令后按终端二维码完成 QQ 授权。已有 QQ AppID、密钥可直接填写并跳过扫码；扫码授权会更新该机器人的密钥。已有配置不会被覆盖。使用其他模型服务时再补充 `baseUrl` 和 `model`，见[配置指南](docs/config.md)。此入口随本次源码提供，需发布包含新启动器的版本后才能通过 npm 获取。
 
 在本仓库运行则执行 `npm install`、`npm run build`、`npm start`；后续直接 `npm start`。使用现有 AlemonJS 加载插件的方式也继续支持。
 
-默认使用本地持久化状态；已有框架 `db.redis` 配置时继续使用 Redis。系统有可用沙箱和 Python 时自动准备 Worker，否则使用 Node 普通聊天。普通聊天不提供网页、文件或终端工具；完整 Worker 的平台条件见[运维手册](docs/operations.md)。
+配置和数据默认保存在固定用户目录，换工作目录运行不会另建空库；检测到本地旧配置时继续使用并记住它。需要便携目录时使用 `--portable`，指定配置使用 `--config 路径`。
+
+默认使用本地持久化状态；已有框架 `db.redis` 配置时继续使用 Redis。Node 普通聊天先准备，沙箱和 Python 在后台准备；暂不可用时自动退避重试。普通聊天不提供网页、文件或终端工具；完整 Worker 的平台条件见[运维手册](docs/operations.md)。
+
+成功会提示 QQ 已在线和聊天运行时已准备。常规日志集中保存在数据目录下的 `startup.log`，需要扫码或处理错误时才给出操作提示。
 
 遇到问题只需运行检查命令，不会连接 QQ、模型服务或安装依赖：
 

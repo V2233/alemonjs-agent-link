@@ -72,6 +72,7 @@ test('capture excludes auth secrets, limits private access, and tools cannot cho
     archiveIncoming(config, event);
     archiveIncoming(config, event);
     archiveIncoming(config, { ...event, MessageId: '2', MessageText: '/我的主人 123456' });
+    archiveIncoming(config, { ...event, MessageId: 'secret-alias', MessageText: '/我是主人 123456' });
     archiveIncoming(config, { ...event, MessageId: '3', IsPrivate: true });
     archiveIncoming(config, { ...event, MessageId: '4', IsBot: true });
     archiveIncoming(config, { ...event, MessageId: '5', MessageText: '', MessageMedia: [{ Type: 'image', Url: 'secret-url' }] });

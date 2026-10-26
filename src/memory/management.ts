@@ -1,7 +1,7 @@
 import type { DSHBridgeConfig } from '../dsh/client';
 import { SessionRegistry } from '../state/registry';
 import { getChatArchive } from '../history/store';
-import { getMemoryStore, type MemoryScope } from './store';
+import { getMemoryStore, memoryTextKey, type MemoryScope } from './store';
 
 export const synchronizeExplicitMemory = async (config: DSHBridgeConfig, scope: MemoryScope, userId: string): Promise<void> => {
   if (!scope.channelId.startsWith('private:')) {
@@ -30,10 +30,14 @@ export const forgetMemory = async (config: DSHBridgeConfig, scope: MemoryScope, 
   const item = store.list(scope, { limit: 2000 }).find(entry => entry.id === id);
 
   if (item?.origin === 'explicit') {
-    const removed = await registry.changePrivateMemory(scope.channelId, 'remove', id);
+    const notes = await registry.privateMemories(scope.channelId);
 
-    if (removed.status !== 'ok') {
-      throw new Error('明确资料删除未完成。');
+    for (const note of notes.filter(entry => memoryTextKey(entry.text) === memoryTextKey(item.text))) {
+      const removed = await registry.changePrivateMemory(scope.channelId, 'remove', note.id);
+
+      if (removed.status !== 'ok') {
+        throw new Error('明确资料删除未完成。');
+      }
     }
   }
 

@@ -10,11 +10,13 @@ export class DSHError extends Error {
 
 export const abortFailure = (error: unknown, signal?: AbortSignal): DSHError | undefined => {
   const reason = signal?.aborted ? signal.reason : error;
+
   if (reason instanceof Error && reason.name === 'TimeoutError') {
     return new DSHError('timeout', 'Agent 请求超过本轮时限');
   }
   if (signal?.aborted || (reason instanceof Error && reason.name === 'AbortError')) {
     return new DSHError('cancelled', '请求已取消');
   }
+
   return undefined;
 };

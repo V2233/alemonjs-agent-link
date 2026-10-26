@@ -4,15 +4,19 @@
 
 ## 最小配置
 
-首次运行 `agent-link`（本仓库为 `npm start`）会创建下列配置，已有文件保持原样。只需填三项，不需要配置状态库、下载源或运行模式：
+首次运行 `agent-link`（本仓库为 `npm start`）会在固定用户目录创建配置并显示绝对路径，已有文件保持原样。首次只需填写模型 API Key：
+
+```yaml
+alemonjs-agent-link:
+  apiKey: '<MODEL_API_KEY>'
+```
+
+QQ 凭证留空时，启动器显示终端二维码，使用手机 QQ 完成授权后由适配器保存凭证并继续启动。授权会更新机器人密钥，其他实例需同步更新。已有凭证可直接配置，跳过扫码：
 
 ```yaml
 qq-bot:
   app_id: '<QQ_APP_ID>'
   secret: '<QQ_APP_SECRET>'
-
-alemonjs-agent-link:
-  apiKey: '<MODEL_API_KEY>'
 ```
 
 默认使用 DeepSeek。接入其他兼容模型服务时，在已有 `alemonjs-agent-link` 段中增加 `baseUrl` 和 `model`，不要重复创建同名 YAML 段：
@@ -24,9 +28,11 @@ alemonjs-agent-link:
   model: '<MODEL_NAME>'
 ```
 
-`agent-link doctor`（本仓库为 `npm run doctor`）离线检查 Node 版本、配置格式、必要字段和数据目录权限。`doctor --json` 提供不含密钥的结构化结果；不连接模型、QQ 或 Redis，不创建数据目录，不安装依赖。缺失字段或 YAML 重复键、缩进错误会在启动前提示；只检查格式不表示网络与凭证有效。
+`agent-link doctor`（本仓库为 `npm run doctor`）离线检查 Node 22.13+、内置 SQLite、配置格式、必要字段和数据目录权限。检查与运行时共用 AgentLink 配置规则。`doctor --json` 提供不含密钥的结构化结果；不连接模型、QQ 或 Redis，不创建数据目录，不安装依赖。缺失字段或 YAML 重复键、缩进错误会在启动前提示；只检查格式不表示网络与凭证有效。
 
-可用 `agent-link init` 单独生成最小配置，`--config 路径` 或 `CFG_PATH` 指定配置文件。启动器通过同一路径加载框架配置。数据默认仍保存在启动时所在目录，所以后续应从同一目录运行命令。
+可用 `agent-link init` 单独生成最小配置，`--config 路径` 或 `CFG_PATH` 指定配置文件。启动器通过同一路径加载框架配置。新安装默认使用固定用户目录：Windows 为 AppData/AgentLink，macOS 为 Library/Application Support/AgentLink，Linux 为 XDG_CONFIG_HOME/agent-link（未设置时 ~/.config/agent-link）；可用 AGENT_LINK_HOME 指定。默认数据放在该目录的 data 子目录。
+
+检测到工作目录已有配置或 .data/agent-link 时沿用旧目录，并记住成功启动的配置路径，之后换目录也会继续使用；不自动移动或覆盖已有数据。`--portable` 强制当前目录模式。`--config` 的相对数据路径以配置所在目录为基准；AGENT_LINK_DATA_DIR 可显式指定默认数据目录。
 
 `alemon.config.yaml` 已被 Git 忽略。应仅允许运行账户读取，并禁止复制到日志、镜像或公开位置。`/agentbind`、`/agentmodel` 与 `/agentunbind` 不会修改该文件。
 
@@ -42,18 +48,18 @@ DSH 沙箱子进程通过环境变量接收模型配置；插件检测配置/凭
 
 `runtimeMode` 默认为 `auto`，支持三个值：
 
-- `auto`：优先沙箱；本地启动失败时静默进入纯聊天；实际请求仍需配置模型凭证。
+- `auto`：普通聊天先就绪，后台准备沙箱；准备失败后自动退避重试（30 秒至 5 分钟）。实际请求仍需配置模型凭证。已开始的普通聊天会话保持原后端，`/new` 后可使用已就绪的沙箱。
 - `sandbox`：严格要求沙箱，失败时拒绝服务。
 - `chat-only`：直接使用纯聊天，不安装 Python 或启动本地 Worker。
 
-纯聊天请求使用 `baseUrl/chat/completions`，需要兼容 Chat Completions 的 HTTPS 服务；不跟随重定向。当前整段接收回答后发送，私聊通过所选状态库保存有界的多轮文本历史，群聊保留调用方提供的近期群聊上下文、超时取消、输入输出关键词过滤。未填写模型凭证时不安装 Python 或启动 Bridge，填写并保存后，后续请求自动生效。恢复沙箱需修复环境并重启服务。纯聊天模式无法清除此前的沙箱磁盘数据；清理操作会报告失败，而不会假报成功。
+纯聊天请求使用 `baseUrl/chat/completions`，需要兼容 Chat Completions 的 HTTPS 服务；不跟随重定向。当前整段接收回答后发送，私聊通过所选状态库保存有界的多轮文本历史，群聊保留调用方提供的近期群聊上下文、超时取消、输入输出关键词过滤。未填写模型凭证时不安装 Python 或启动 Bridge，填写并保存后，后续请求自动生效。环境恢复后会在后续自动重试中重新准备沙箱，无需为了网络暂时失败反复重启。纯聊天模式无法清除此前的沙箱磁盘数据；清理操作会报告失败，而不会假报成功。
 
 未列出的参数应保留默认值。所有时长均为毫秒，除非名称以 `Seconds` 或 `Days` 结尾。
 
 | 参数                        |                                                                                               默认值 | 说明                                                                                              |
 | --------------------------- | ---------------------------------------------------------------------------------------------------: | ------------------------------------------------------------------------------------------------- |
 | `pythonExecutable`          | macOS/Linux：`.data/agent-link/venv/bin/python`；Windows：`.data/agent-link/venv/Scripts/python.exe` | DSH Python 环境；不存在时会自动创建。Windows 原生仍会被 Bridge 拒绝，应改在 WSL2 内运行完整服务。 |
-| `bridgePort`                |                                                                                              `18080` | 本机 Bridge 端口，仅监听 `127.0.0.1`。                                                            |
+| `bridgePort`                |                                                                                                  `0` | 自动选择本机空闲端口，仅监听 `127.0.0.1`；显式固定端口仍严格检查占用。                            |
 | `workspaceRoot`             |                                                                        `.data/agent-link/workspaces` | 隔离 Worker 数据根目录。                                                                          |
 | `dshHomeRoot`               |                                                                         `.data/agent-link/dsh-homes` | DSH 隔离 home 根目录。                                                                            |
 | `profile`                   |                                                                                                `sdk` | DSH profile；生产环境不要绕过 chat-only patch。                                                   |
@@ -92,15 +98,15 @@ alemonjs-agent-link:
     - https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-Python 安装只管理插件自己的虚拟环境，不修改自定义 `pythonExecutable`。先验证已有 SDK，无需安装时不访问下载源；否则尝试本机 `python3`、`python` 创建虚拟环境，按来源顺序安装固定版本的预编译依赖（不调用本地编译工具链），单源失败或超时自动换源，下次优先使用上次成功的来源。每个子进程受 `startupTimeoutMs` 限制；pip 单次网络超时 10 秒、重试 1 次，保留 pip 自身缓存。未找到 Python 时直接使用 Node 纯聊天，不自动安装系统 Python。
+Python 安装只管理插件自己的虚拟环境，不修改自定义 `pythonExecutable`。先验证已有 SDK，无需安装时不访问下载源；否则尝试本机 `python3`、`python` 创建虚拟环境，按来源顺序安装固定版本的预编译依赖（不调用本地编译工具链），单源失败或超时自动换源，下次优先使用上次成功的来源；近期失败的来源在五分钟内降到后面。依赖准备另有 `preparationTimeoutMs` 总预算（默认 120000，范围 1000–600000 毫秒），每个子进程也受 `startupTimeoutMs` 限制，停止服务会取消正在执行的安装；pip 单次网络超时 10 秒、重试 1 次，保留 pip 自身缓存。未找到 Python 时直接使用 Node 纯聊天，不自动安装系统 Python。
 
 来源必须为不含账号密码的 HTTPS 地址；每次只使用一个 index，不混用 extra-index。遵循系统 HTTP(S) 代理环境变量，不修改全局 pip/npm 配置。下载由 pip 验证 HTTPS 并处理安装包；当前未提供跨镜像独立 SHA-256 清单、Python 二进制托管或断点续传承诺。
 
-运行状态与不含凭证的诊断写入 `dshHomeRoot` 同级的 `startup-status.json`，主人可用 `/agentstatus` 查看当前模式和原因。静默仅指插件自身正常准备过程，框架和 QQ 适配器可能仍输出日志。
+运行状态与不含凭证的诊断写入 `dshHomeRoot` 同级的 `startup-status.json`，主人可用 `/agentstatus` 查看当前模式和原因。使用启动器时，常规框架日志和失败信息写入同级 startup.log，按大小轮转并隐藏配置中的已知密钥、Bearer 和 URL 凭证；终端只显示扫码、就绪和可操作的失败提示。主人验证码也保存在该日志。直接由其他 AlemonJS 宿主加载插件时沿用宿主日志。
 
 插件的源切换只作用于 Python 依赖。首次安装插件时若 npm 默认源不可达，可为本次命令指定 `--registry=https://registry.npmmirror.com`，不要修改全局 registry。发布包包含构建产物，不需要用户运行仓库构建脚本。
 
-本地模式适用于单进程、小规模机器人；每次状态操作会保存快照，大规模群聊建议显式使用 Redis。
+本地模式适用于单进程、小规模机器人；读取不再写回快照，写事务仍原子保存。启动器在创建 QQ 适配器前取得实例锁，重复启动不会重复登录；异常退出的心跳锁约数秒后自动回收。旧版遗留的恢复锁也会检查持有进程后回收。
 
 本地开发可启动仓库提供的 Redis：
 
@@ -225,3 +231,22 @@ alemonjs-agent-link:
 引用上下文显式包含 `hasQuote`、引用 ID、原发言者 ID/昵称、正文和附件描述。原文不可用时传入“引用消息内容不可用，不能猜测原文”。引用中的图片若提供 URL，会与当前消息图片去重后进入 DSH 原生图片输入，继续遵守 CDN 白名单、大小、数量和格式检查；引用图片获取失败会报告媒体错误。其他引用附件只带类型和“未读取内容”标记，不宣称读过音视频。引用内容不能修改当前请求的身份与权限。
 
 引用索引在命令路由之前采集，因此私聊和命令消息也可被后续引用。机器人文字回复按原会话归档，不继承用户发送的附件。引用缓存默认保留 15 分钟、每会话最多 100 条；重启后或超出缓存范围且平台未提供原文时，只能感知存在引用，无法恢复原文。
+
+### 平台事件上下文
+
+除消息创建外，已接入本机 AlemonJS SDK 定义的以下 16 种事件：
+
+| 事件                                                                         | 处理                                                                     |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `message.update`、`private.message.update`                                   | 取消当前会话待处理回复，清理近期上下文和旧引用；平台提供新正文时重建引用 |
+| `message.delete`、`private.message.delete`                                   | 取消当前会话待处理回复，移除该条引用缓存，告知模型原文已撤回             |
+| `message.reaction.add`、`message.reaction.remove`、`message.pin`             | 记录目标消息发生表情回应或置顶事件；缺少详情时不猜测表情含义             |
+| `member.add`、`member.remove`、`member.ban`、`member.unban`、`member.update` | 记录成员进退群、禁言和资料变化，不修改成员权限                           |
+| `channel.update`、`guild.update`                                             | 记录频道或群资料变化，不猜测未提供的字段                                 |
+| `notice.create`、`private.notice.create`                                     | 记录通知存在，不直接转发原始通知载荷或猜测是戳一戳、申请等               |
+
+这些事件默认不发言、不单独调用 AI，仅在后续正式回复时提供最多 8 条参考。每个会话最多保存 20 条、保留 10 分钟，进程最多 1000 个会话；按平台、Bot 和平台会话标识隔离，不跨频道传播 guild 事件。没有足够会话标识时无法关联，必须由适配器补全。昵称和事件正文仍是不可信资料，不能授予工具权限。
+
+编辑/撤回采用保守策略，取消整个会话当前及排队回复（因为其他消息可能引用它），而非只取消同 ID 请求。已发出的消息无法撤回。此处理不等于删除持久聊天归档、模型历史或已形成的长期记忆；需要清除记录时使用相应清理命令。引用缓存重建只依据适配器提供的新正文，不主动拉取平台历史。
+
+交互按钮确认、好友/入群申请批准、登录二维码和连接控制尚未接入模型动作；它们需要各自的确认协议和权限处理，不当成普通聊天自动执行。

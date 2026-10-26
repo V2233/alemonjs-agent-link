@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import QRCode from 'qrcode';
 import { appendDiagnostic, captureLines } from './diagnostics.mjs';
 
-export const launchRuntime = async ({ cwd, configPath, dataRoot, runtimeRoot, write, ownership, spawnWorker = fork, timeoutMs = 600000 }) => {
+export const launchRuntime = async ({ cwd, configPath, dataRoot, runtimeRoot, write, ownership, spawnWorker = fork, timeoutMs = 120000 }) => {
   const diagnostics = join(runtimeRoot, 'startup.log');
   const statusPath = join(runtimeRoot, 'startup-status.json');
   // A previous run's ready record must never satisfy the new run's readiness.
@@ -49,11 +49,13 @@ export const launchRuntime = async ({ cwd, configPath, dataRoot, runtimeRoot, wr
     resolveReady = resolve;
     rejectReady = reject;
   });
-  const timeout = setTimeout(() => {
+  let qrDeadline;
+  const timedOut = () => {
     write(`尚未完成连接，请检查网络或扫码状态。诊断日志：${diagnostics}`);
     stop();
-    rejectReady(new Error('Runtime readiness timed out'));
-  }, timeoutMs);
+    rejectReady(Object.assign(new Error('Runtime readiness timed out'), { code: 'ERUNTIME_TIMEOUT', logPath: diagnostics }));
+  };
+  let timeout = setTimeout(timedOut, timeoutMs);
   const finish = () => {
     if (!completed && qqReady && moduleReady && chatReady) {
       completed = true;
@@ -70,7 +72,7 @@ export const launchRuntime = async ({ cwd, configPath, dataRoot, runtimeRoot, wr
       if (message.module === 'failed' || (message.phase === 'failed' && !message.chatReady)) {
         appendDiagnostic(diagnostics, '应用或严格沙箱启动失败，请运行 doctor 检查配置。', configPath);
         stop();
-        rejectReady(new Error('Application startup failed'));
+        rejectReady(Object.assign(new Error('Application startup failed'), { code: 'ERUNTIME', logPath: diagnostics }));
       }
       finish();
     }
@@ -81,6 +83,9 @@ export const launchRuntime = async ({ cwd, configPath, dataRoot, runtimeRoot, wr
       finish();
     }
     if (event?.name === 'login.qrcode' && typeof event.QRCode?.url === 'string') {
+      qrDeadline ??= Date.now() + 600000;
+      clearTimeout(timeout);
+      timeout = setTimeout(timedOut, Math.max(1, qrDeadline - Date.now()));
       write('请使用手机 QQ 扫码授权。授权会更新该机器人的密钥，已有其他实例需同步更新。');
       void QRCode.toString(event.QRCode.url, { type: 'terminal', small: true })
         .then(qr => {
@@ -95,14 +100,14 @@ export const launchRuntime = async ({ cwd, configPath, dataRoot, runtimeRoot, wr
     stop();
     rejectReady(error);
   });
-  child.once('close', async code => {
+  child.once('close', async (code, signal) => {
     clearTimeout(timeout);
     clearTimeout(killTimer);
     process.removeListener('SIGINT', stop);
     process.removeListener('SIGTERM', stop);
     process.removeListener('exit', disconnect);
     await ownership.release().catch(() => undefined);
-    if (!completed) rejectReady(new Error('Runtime stopped before readiness'));
+    if (!completed) rejectReady(Object.assign(new Error('Runtime stopped before readiness'), stopping ? { code: 'ABORT_ERR' } : {}));
     else if (code && !stopping) {
       write(`机器人已停止，请查看诊断日志：${diagnostics}`);
       process.exitCode = 1;

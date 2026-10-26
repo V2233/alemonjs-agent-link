@@ -84,6 +84,7 @@ export class DSHSupervisor {
   private actualPort: number;
   private nextRetryAt = 0;
   private readonly directSessions = new Set<string>();
+  private readonly pendingResets = new Set<string>();
 
   constructor(
     private readonly config: DSHBridgeConfig,
@@ -180,6 +181,31 @@ export class DSHSupervisor {
     return false;
   }
 
+  queueSessionReset(sessionId: string): void {
+    if ((this.config.runtimeMode ?? 'auto') === 'auto') {
+      this.pendingResets.add(sessionId);
+    }
+  }
+
+  private async flushSessionResets(signal: AbortSignal): Promise<void> {
+    while (this.pendingResets.size) {
+      signal.throwIfAborted();
+      const id = this.pendingResets.values().next().value;
+      const response = await fetch(`http://127.0.0.1:${this.actualPort}/v1/session/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${this.token}` },
+        signal: AbortSignal.any([signal, AbortSignal.timeout(this.config.startupTimeoutMs)])
+      });
+
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new Error('Deferred session reset failed');
+      }
+      await response.body?.cancel();
+      this.pendingResets.delete(id);
+    }
+  }
+
   resetTransport(sessionId: string): void {
     for (const id of this.directSessions) {
       if (id === sessionId || id.startsWith(`${sessionId}:v`)) {
@@ -270,6 +296,8 @@ export class DSHSupervisor {
     await this.bootstrapPython(signal);
     signal.throwIfAborted();
     if (await this.adoptAuthenticatedBridge()) {
+      await this.flushSessionResets(signal);
+
       return;
     }
     signal.throwIfAborted();
@@ -336,6 +364,7 @@ export class DSHSupervisor {
     });
 
     await this.waitForHealth(this.config.startupTimeoutMs, signal);
+    await this.flushSessionResets(signal);
     await this.writeRuntimeRecord();
   }
 

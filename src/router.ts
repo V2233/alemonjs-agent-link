@@ -1,8 +1,11 @@
+import { contextEvents } from './social/event-context';
 import { Router } from 'alemonjs';
 
 const router = Router.create({
-  events: ['message.create', 'private.message.create']
+  events: ['message.create', 'private.message.create', ...contextEvents]
 });
+
+router.res({ events: [...contextEvents] }, () => import('@src/response/platform-events/res'));
 
 // Capture before command and wake handlers consume the event.
 router.res({ events: ['message.create', 'private.message.create'] }, () => import('@src/response/history-capture/res'));

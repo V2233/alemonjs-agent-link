@@ -111,3 +111,97 @@ test('moving the data root also moves managed Python without extra configuration
     '/custom/python'
   );
 });
+
+test('stop cancels preparation and cannot be overwritten by a late successful launch', async () => {
+  const config = await configFor();
+  const supervisor = new DSHSupervisor(config, { apiKey: 'test' }, 'stop-race');
+  let complete;
+  let entered;
+  const launching = new Promise(resolve => {
+    entered = resolve;
+  });
+  const gate = new Promise(resolve => {
+    complete = resolve;
+  });
+  supervisor.launch = async signal => {
+    entered();
+    await gate;
+    assert.equal(signal.aborted, true);
+  };
+  const pending = supervisor.start();
+  await launching;
+  supervisor.stop();
+  complete();
+  await pending;
+  assert.equal(supervisor.status().phase, 'stopped');
+  assert.equal(supervisor.status().chatReady, false);
+});
+
+test('chat is available while optional preparation runs and conversations retain their backend until reset', async () => {
+  const config = await configFor();
+  const supervisor = new DSHSupervisor(config, { apiKey: 'test' }, 'nonblocking');
+  let complete;
+  const gate = new Promise(resolve => {
+    complete = resolve;
+  });
+  supervisor.launch = async () => {
+    await gate;
+  };
+  await supervisor.prepareForChat();
+  assert.equal(supervisor.status().chatReady, true);
+  assert.equal(supervisor.useSandbox('session:v1'), false);
+  complete();
+  await supervisor.start();
+  assert.equal(supervisor.status().phase, 'ready');
+  assert.equal(supervisor.useSandbox('session:v1'), false);
+  supervisor.resetTransport('session');
+  assert.equal(supervisor.useSandbox('session:v2'), true);
+  supervisor.stop();
+});
+
+test('cancellation kills a running preparation child promptly', async () => {
+  const controller = new AbortController();
+  const pending = runQuiet(process.execPath, ['-e', 'setInterval(() => {},1000)'], 10000, controller.signal);
+  setTimeout(() => controller.abort(), 50);
+  await assert.rejects(pending, error => error?.name === 'AbortError');
+});
+
+test('automatic port selection avoids an occupied fixed port', async () => {
+  const { createServer } = await import('node:net');
+  const server = createServer();
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const config = await configFor();
+  const supervisor = new DSHSupervisor(config, { apiKey: 'test' }, 'port');
+  try {
+    assert.notEqual(await supervisor.choosePort(), server.address().port);
+  } finally {
+    server.close();
+    supervisor.stop();
+  }
+});
+
+test('pending session resets must succeed before optional sandbox can expose old history', async () => {
+  const config = await configFor();
+  const supervisor = new DSHSupervisor(config, { apiKey: 'test' }, 'deferred-reset');
+  const original = globalThis.fetch;
+  let calls = 0;
+  try {
+    supervisor.queueSessionReset('session');
+    globalThis.fetch = async (_url, options) => {
+      calls++;
+      assert.equal(options.method, 'DELETE');
+      return new Response(null, { status: 503 });
+    };
+    await assert.rejects(supervisor.flushSessionResets(new AbortController().signal));
+    globalThis.fetch = async () => {
+      calls++;
+      return new Response(null, { status: 204 });
+    };
+    await supervisor.flushSessionResets(new AbortController().signal);
+    await supervisor.flushSessionResets(new AbortController().signal);
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = original;
+    supervisor.stop();
+  }
+});

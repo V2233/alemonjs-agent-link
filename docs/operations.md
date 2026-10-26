@@ -18,7 +18,7 @@ Windows Sandbox 不适合作为 Worker 后端：它是临时桌面 VM，关闭�
 - `alemon.config.yaml` 仅对运行账户可读，且未提交。
 - 已在 `alemon.config.yaml` 的 `alemonjs-agent-link` 下配置 `apiKey`。
 
-首次启动时，AgentLink 会创建 `.data/agent-link/venv` 并按仓库内锁定版本安装 DSH SDK；这一步需要网络和数据目录写入权限。升级 DSH 时必须同步更新 `python/requirements.txt`，并完成 sandbox 集成验证。
+后台增强准备时，AgentLink 会在所选数据目录创建 `venv` 并按仓库内锁定版本安装 DSH SDK；这一步需要网络和数据目录写入权限。升级 DSH 时必须同步更新 `python/requirements.txt`，并完成 sandbox 集成验证。
 
 ## 启动与停止
 
@@ -35,7 +35,7 @@ npm run build
 npm start
 ```
 
-安装包含启动器的发布包后，也可从固定目录执行 `npx alemonjs-agent-link`，无需构建。首次生成配置，填好三项后重跑同一命令。新入口需要发布后才能从 npm 获取。
+安装包含启动器的发布包后，也可从固定目录执行 `npx alemonjs-agent-link`，无需构建。首次在固定用户目录生成配置，填好模型 API Key 后重跑同一命令，按提示扫码 QQ；已有 QQ 凭证可直接填写。新入口需要发布后才能从 npm 获取。
 
 生产中只运行一个 Node 进程。热重载可能在旧 QQ Gateway 连接尚未释放时建立第二个连接，从而导致网关重置。
 

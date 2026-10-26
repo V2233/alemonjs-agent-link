@@ -254,6 +254,7 @@ export const runCoordinatedChat = async (
   capabilityOverride?: GroupPolicy,
   onCompleted?: (signal: AbortSignal) => Promise<void>,
   mediaTask?: {
+    streamContent?: boolean;
     prepareMessage?: (text: string, signal: AbortSignal) => Promise<ChatInput>;
     execute?: (signal: AbortSignal) => Promise<void>;
     userText?: string;
@@ -309,6 +310,7 @@ export const runCoordinatedChat = async (
               sessionId: `${getSessionId(event.ChannelId)}:v${meta.generation}`,
               input: mediaTask?.prepareMessage ? await mediaTask.prepareMessage(message, signal) : message,
               onEvent,
+              streamContent: mediaTask?.streamContent,
               context: {
                 requestId: duplicate.requestId,
                 channelId: event.ChannelId,

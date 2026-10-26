@@ -204,7 +204,10 @@ const deleteBridgeResource = async (config: DSHBridgeConfig, path: string, failu
       await supervisor.prepareForChat();
       if (supervisor.status().phase !== 'ready') {
         if (path.startsWith('/v1/session/')) {
-          supervisor.resetTransport(decodeURIComponent(path.slice('/v1/session/'.length)));
+          const session = decodeURIComponent(path.slice('/v1/session/'.length));
+
+          supervisor.queueSessionReset(session);
+          supervisor.resetTransport(session);
 
           return;
         } // Direct chat stores no SDK sessions.

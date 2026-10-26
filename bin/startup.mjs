@@ -1,5 +1,6 @@
 import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { acquireProcessLock } from './process-lock.mjs';
 import { launchPaths } from './paths.mjs';
@@ -82,6 +83,19 @@ export const diagnose = async (options = {}) => {
   const checks = [];
   const [major, minor] = process.versions.node.split('.').map(Number);
   checks.push(check('node', major > 22 || (major === 22 && minor >= 13) ? 'ok' : 'error', `Node.js ${process.versions.node}；需要 22.13 或更高版本。`));
+  if (checks[0].status === 'ok') {
+    const sqlite = spawnSync(process.execPath, ['--input-type=module', '-e', "try { await import('node:sqlite'); } catch { process.exit(1); }"], {
+      stdio: 'ignore',
+      timeout: 5000
+    });
+    checks.push(
+      check(
+        'sqlite',
+        sqlite.status === 0 ? 'ok' : 'error',
+        sqlite.status === 0 ? '内置 SQLite 可用。' : '当前 Node 不提供内置 SQLite，请安装支持该功能的 Node 22.13 或更高版本。'
+      )
+    );
+  }
   let config;
   try {
     const lineCounter = new LineCounter();
@@ -99,7 +113,13 @@ export const diagnose = async (options = {}) => {
     checks.push(check('config', 'error', error.code === 'ENOENT' ? '尚无配置文件；运行启动命令会自动生成。' : '无法读取配置，请检查文件权限和 YAML 格式。'));
   }
   const agent = object(config?.['alemonjs-agent-link']) ? config['alemonjs-agent-link'] : {};
-  const dataPath = typeof agent.dshHomeRoot === 'string' ? dirname(resolve(cwd, agent.dshHomeRoot)) : dataRoot;
+  let resolved;
+  try {
+    resolved = resolveDSHConfig(config, { cwd, configPath, dataRoot });
+  } catch {
+    /* Reported above. */
+  }
+  const dataPath = resolved ? dirname(resolved.dshHomeRoot) : dataRoot;
   const writable = await writableAncestor(dataPath);
   checks.push(check('data', writable ? 'ok' : 'error', writable ? '数据目录可写。' : '数据目录不可写，请把应用放到当前用户可写的目录。'));
   const backend = agent.stateBackend ?? (config?.db?.redis ? 'redis' : 'local');
@@ -169,6 +189,7 @@ export const runCLI = async (argv, { cwd = process.cwd(), write = text => proces
           : [
               report.ok ? '本地检查通过，模型和 QQ 连接需实际启动验证。' : '请先处理以下配置或环境问题：',
               `配置文件：${configPath}`,
+              `数据目录：${report.dataRoot}`,
               ...report.checks.map(item => `${item.status === 'error' ? '×' : item.status === 'ok' ? '✓' : '·'} ${item.message}`)
             ].join('\n')
       );
@@ -205,6 +226,11 @@ export const runCLI = async (argv, { cwd = process.cwd(), write = text => proces
     }
     return 0;
   } catch (error) {
+    if (error.code === 'ABORT_ERR') return 130;
+    if (error.code === 'ERUNTIME' || error.code === 'ERUNTIME_TIMEOUT') {
+      write(`启动未完成，请检查 QQ 授权、网络或严格沙箱配置。诊断日志：${error.logPath}`);
+      return 1;
+    }
     if (error.code === 'ELOCKED') {
       write('机器人已在运行或正在准备，请使用已有实例；异常退出后稍等几秒再试。');
       return 1;

@@ -166,7 +166,13 @@ test('private memory tools require current-user intent, enforce scope and write 
   const registry = new SessionRegistry(f.config);
   try {
     const lease = await runtime.acquire();
-    assert.equal(lease.tools(turn({ private: false, channelId: 'group' })).length, 0);
+    assert.deepEqual(
+      lease
+        .tools(turn({ private: false, channelId: 'group' }))
+        .map(tool => tool.name)
+        .sort(),
+      ['inspect_memory_source', 'recall_memories']
+    );
     const save = lease.tools(turn()).find(t => t.name === 'remember_private_fact');
     const recall = lease.tools(turn()).find(t => t.name === 'recall_private_memory');
     assert.equal((await executeTool(save, { text: '喜欢茶' }, turn())).ok, true);

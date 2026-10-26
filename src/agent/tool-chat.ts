@@ -1,3 +1,4 @@
+import { readCompletionStream } from '../dsh/completion-stream';
 import type { DSHBridgeConfig } from '../dsh/client';
 import type { DSHCredentials } from '../dsh/credentials';
 import { modelContent, MAX_IMAGE_REQUEST_BYTES, type ChatInput } from '../dsh/input';
@@ -15,7 +16,8 @@ export const requestModelMessage = async (
   credentials: DSHCredentials,
   messages: ModelMessage[],
   tools: AgentTool[],
-  signal: AbortSignal
+  signal: AbortSignal,
+  onContent?: (text: string) => Promise<void>
 ): Promise<{ content?: string | null; reasoning_content?: string; tool_calls?: ToolCall[] }> => {
   const base = credentials.baseUrl || (config.provider === 'deepseek-official' ? 'https://api.deepseek.com' : '');
   const url = new URL(`${base.replace(/\/+$/u, '')}/chat/completions`);
@@ -25,7 +27,7 @@ export const requestModelMessage = async (
   }
   const body = JSON.stringify({
     model: credentials.model || config.model,
-    stream: false,
+    stream: Boolean(onContent),
     messages,
     ...(tools.length
       ? {
@@ -56,6 +58,9 @@ export const requestModelMessage = async (
   if (!response.body) {
     throw new Error('模型响应为空。');
   }
+  if (onContent && response.headers.get('content-type')?.includes('text/event-stream')) {
+    return await readCompletionStream(response, config.maxRequestBytes, signal, onContent);
+  }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let bytes = 0;
@@ -83,6 +88,10 @@ export const requestModelMessage = async (
       throw new Error();
     }
 
+    if (onContent && typeof message.content === 'string') {
+      await onContent(message.content);
+    }
+
     return message;
   } catch {
     throw new Error('模型未返回有效消息。');
@@ -98,6 +107,7 @@ export const runToolChat = async (options: {
   history?: ChatHistoryMessage[];
   memoryContext?: string;
   maxRounds: number;
+  onContent?: (text: string) => Promise<void>;
   onTool?: (name: string) => Promise<void>;
 }): Promise<string> => {
   const { config, credentials, input, context, maxRounds } = options;
@@ -132,10 +142,12 @@ export const runToolChat = async (options: {
     context.signal.throwIfAborted();
     const startedAt = Date.now();
     let response: Awaited<ReturnType<typeof requestModelMessage>>;
+
     try {
-      response = await requestModelMessage(config, credentials, messages, tools, context.signal);
+      response = await requestModelMessage(config, credentials, messages, tools, context.signal, options.onContent);
     } catch (error) {
       const failure = abortFailure(error, context.signal);
+
       logger.warn(
         { requestId: context.requestId, round: round + 1, phase: 'model', elapsedMs: Date.now() - startedAt, kind: failure?.kind ?? 'request-failed' },
         'Agent model request failed'

@@ -37,7 +37,7 @@ export type MemoryChange = {
   importance: number;
   confidence: number;
 };
-export type MemoryGuard = { epoch: string; revision: number };
+export type MemoryGuard = { epoch: string; revision: number; checkpoint?: number };
 const hash = (text: string): string => createHash('sha256').update(text).digest('hex');
 const normalize = (text: string): string =>
   text
@@ -50,6 +50,58 @@ const scopeKey = (scope: MemoryScope): string => {
   }
 
   return hash(JSON.stringify([scope.platform, scope.channelId]));
+};
+
+const connectedMemoryIds = (items: MemoryItem[], target: MemoryItem, includeEvidence: boolean): Set<string> => {
+  const edges = new Map<string, Set<string>>();
+  const sourceOwners = new Map<number, string>();
+  const textOwners = new Map<string, string>();
+  const connect = (one: string, two: string): void => {
+    if (!edges.has(one)) {
+      edges.set(one, new Set());
+    }
+    if (!edges.has(two)) {
+      edges.set(two, new Set());
+    }
+    edges.get(one).add(two);
+    edges.get(two).add(one);
+  };
+
+  for (const item of items.filter(entry => entry.subjectId === target.subjectId)) {
+    item.supersedes.forEach(parent => connect(item.id, parent));
+    if (!includeEvidence) {
+      continue;
+    }
+    const normalized = normalize(item.text);
+    const sameText = textOwners.get(normalized);
+
+    if (sameText) {
+      connect(item.id, sameText);
+    }
+    textOwners.set(normalized, item.id);
+    for (const source of item.sourceRefs) {
+      const sameSource = sourceOwners.get(source.seq);
+
+      if (sameSource) {
+        connect(item.id, sameSource);
+      }
+      sourceOwners.set(source.seq, item.id);
+    }
+  }
+  const found = new Set([target.id]);
+  const queue = [target.id];
+
+  for (let index = 0; index < queue.length; index++) {
+    for (const next of edges.get(queue[index]) || []) {
+      if (found.has(next)) {
+        continue;
+      }
+      found.add(next);
+      queue.push(next);
+    }
+  }
+
+  return found;
 };
 
 export class MemoryStore {
@@ -197,8 +249,14 @@ export class MemoryStore {
     this.observe(scope);
     this.transaction(() => {
       const key = scopeKey(scope);
-      const existing = this.db.prepare("SELECT id FROM memories WHERE scope=? AND origin='explicit' AND subject_id=?").all(key, subjectId);
+      const existing = this.db.prepare("SELECT id,text FROM memories WHERE scope=? AND origin='explicit' AND subject_id=?").all(key, subjectId);
       const ids = new Set(notes.map(note => note.id));
+      const changed = existing.length !== notes.length || notes.some(note => !existing.some(row => row.id === note.id && row.text === note.text));
+
+      if (!changed) {
+        return;
+      }
+      this.db.prepare('UPDATE memory_scopes SET revision=revision+1 WHERE scope=?').run(key);
 
       for (const row of existing) {
         if (!ids.has(String(row.id))) {
@@ -229,7 +287,25 @@ export class MemoryStore {
   }
 
   recall(scope: MemoryScope, query: string, subjectId: string, limit = 8, record = true): (MemoryItem & { score: number })[] {
-    const ranked = rankMemories(this.list(scope, { status: 'active', limit: 2000 }), query, subjectId, this.now());
+    const key = scopeKey(scope);
+    const documents = this.db
+      .prepare(
+        `SELECT id,subject_id,text,tags,importance,confidence,updated_at,last_recalled_at,recall_days
+      FROM memories WHERE scope=? AND status='active'`
+      )
+      .all(key)
+      .map(row => ({
+        id: String(row.id),
+        subjectId: String(row.subject_id),
+        text: String(row.text),
+        tags: JSON.parse(String(row.tags)) as string[],
+        importance: Number(row.importance),
+        confidence: Number(row.confidence),
+        updatedAt: Number(row.updated_at),
+        lastRecalledAt: Number(row.last_recalled_at),
+        recallDays: Number(row.recall_days)
+      }));
+    const ranked = rankMemories(documents, query, subjectId, this.now());
     const unique = new Set<string>();
     const hits = ranked
       .filter(item => {
@@ -242,7 +318,8 @@ export class MemoryStore {
 
         return true;
       })
-      .slice(0, Math.max(1, Math.min(20, limit)));
+      .slice(0, Math.max(1, Math.min(20, limit)))
+      .map(hit => ({ ...this.decode(this.db.prepare('SELECT * FROM memories WHERE scope=? AND id=?').get(key, hit.id)), score: hit.score }));
 
     if (record && hits.length) {
       const now = this.now();
@@ -310,7 +387,7 @@ export class MemoryStore {
     return this.transaction(() => {
       const state = this.state(scope);
 
-      if (!state || state.epoch !== guard.epoch || state.revision !== guard.revision) {
+      if (state?.epoch !== guard.epoch || state?.revision !== guard.revision || (guard.checkpoint !== undefined && state.checkpoint !== guard.checkpoint)) {
         return { applied: false, added: 0 };
       }
       const allowed = new Map(sources.map(source => [source.seq, source]));
@@ -318,6 +395,21 @@ export class MemoryStore {
       let added = 0;
 
       for (const change of changes) {
+        if (
+          !Number.isFinite(change.confidence) ||
+          change.confidence < 0 ||
+          change.confidence > 1 ||
+          !Number.isFinite(change.importance) ||
+          change.importance < 0 ||
+          change.importance > 1 ||
+          !['add', 'merge', 'replace'].includes(change.action) ||
+          !['fact', 'insight', 'style'].includes(change.kind) ||
+          !Array.isArray(change.tags) ||
+          change.tags.length > 5 ||
+          change.tags.some(tag => typeof tag !== 'string' || tag.length > 20)
+        ) {
+          throw new Error('记忆变更属性无效。');
+        }
         if (change.confidence < 0.8) {
           continue;
         }
@@ -327,7 +419,7 @@ export class MemoryStore {
           !refs.length ||
           refs.some(ref => !ref) ||
           new Set(refs.map(ref => ref.speakerId)).size !== 1 ||
-          !refs[0].speakerId ||
+          !refs[0]?.speakerId ||
           !refs.some(ref => ref.text.includes(change.evidence)) ||
           !change.evidence.trim() ||
           /假设|假装|开玩笑|只是玩笑|如果我是/u.test(change.evidence)
@@ -337,7 +429,7 @@ export class MemoryStore {
         const subjectId = refs[0].speakerId;
         const old = change.targetId ? this.list(scope, { limit: 2000 }).find(item => item.id === change.targetId) : undefined;
 
-        if (change.action !== 'add' && (!old || old.subjectId !== subjectId || old.status !== 'active' || old.origin === 'explicit')) {
+        if (change.action !== 'add' && (old?.subjectId !== subjectId || old?.status !== 'active' || old?.origin === 'explicit')) {
           throw new Error('记忆变更目标无效，明确保存的资料需要用户手动更正。');
         }
         const text = change.action === 'merge' ? `${old.text}；${change.text}` : change.text;
@@ -380,7 +472,7 @@ export class MemoryStore {
       }
       this.db
         .prepare('UPDATE memory_scopes SET checkpoint=?,last_run=?,retry_after=? WHERE scope=?')
-        .run(checkpoint, hasMore ? state.lastRun : this.now(), hasMore ? this.now() + 300000 : 0, key);
+        .run(Math.max(state.checkpoint, checkpoint), hasMore ? state.lastRun : this.now(), hasMore ? this.now() + 300000 : 0, key);
 
       return { applied: true, added };
     });
@@ -388,8 +480,8 @@ export class MemoryStore {
 
   failed(scope: MemoryScope, guard: MemoryGuard): void {
     this.db
-      .prepare('UPDATE memory_scopes SET retry_after=? WHERE scope=? AND epoch=? AND revision=?')
-      .run(this.now() + 1800000, scopeKey(scope), guard.epoch, guard.revision);
+      .prepare('UPDATE memory_scopes SET retry_after=? WHERE scope=? AND epoch=? AND revision=? AND (?=-1 OR checkpoint=?)')
+      .run(this.now() + 1800000, scopeKey(scope), guard.epoch, guard.revision, guard.checkpoint ?? -1, guard.checkpoint ?? -1);
   }
 
   forget(scope: MemoryScope, id: string, skipThrough: number): boolean {
@@ -399,30 +491,12 @@ export class MemoryStore {
       const target = all.find(item => item.id === id);
 
       if (!target) {
+        this.db.prepare('UPDATE memory_scopes SET revision=revision+1,checkpoint=max(checkpoint,?) WHERE scope=?').run(skipThrough, key);
+
         return false;
       }
-      const removed = new Set([target.id]);
-      const sourceSeqs = new Set(target.sourceRefs.map(source => source.seq));
-      let changed = true;
+      const removed = connectedMemoryIds(all, target, true);
 
-      while (changed) {
-        changed = false;
-        for (const item of all.filter(entry => entry.subjectId === target.subjectId)) {
-          if (removed.has(item.id)) {
-            continue;
-          }
-          if (
-            item.supersedes.some(parent => removed.has(parent)) ||
-            all.some(child => removed.has(child.id) && child.supersedes.includes(item.id)) ||
-            item.sourceRefs.some(source => sourceSeqs.has(source.seq)) ||
-            normalize(item.text) === normalize(target.text)
-          ) {
-            removed.add(item.id);
-            item.sourceRefs.forEach(source => sourceSeqs.add(source.seq));
-            changed = true;
-          }
-        }
-      }
       for (const entryId of removed) {
         this.db.prepare('DELETE FROM memories WHERE scope=? AND id=?').run(key, entryId);
       }
@@ -453,21 +527,7 @@ export class MemoryStore {
       if (!item) {
         return false;
       }
-      const connected = new Set([id]);
-      let changed = true;
-
-      while (changed) {
-        changed = false;
-        for (const entry of all.filter(candidate => candidate.subjectId === item.subjectId)) {
-          if (
-            !connected.has(entry.id) &&
-            (entry.supersedes.some(parent => connected.has(parent)) || all.some(child => connected.has(child.id) && child.supersedes.includes(entry.id)))
-          ) {
-            connected.add(entry.id);
-            changed = true;
-          }
-        }
-      }
+      const connected = connectedMemoryIds(all, item, false);
       const current = all.filter(entry => entry.status === 'active' && connected.has(entry.id));
 
       for (const entry of current) {
@@ -492,8 +552,10 @@ export class MemoryStore {
 const processState = globalThis as typeof globalThis & { __agentLinkMemories__?: Map<string, MemoryStore> };
 const stores = (processState.__agentLinkMemories__ ??= new Map<string, MemoryStore>());
 
+export { normalize as memoryTextKey };
+
 export const getMemoryStore = (config: DSHBridgeConfig): MemoryStore => {
-  const path = join(dirname(config.workspaceRoot), 'memories.sqlite');
+  const path = join(config.workspaceRoot ? dirname(config.workspaceRoot) : dirname(config.dshHomeRoot), 'memories.sqlite');
   let store = stores.get(path);
 
   if (!store) {

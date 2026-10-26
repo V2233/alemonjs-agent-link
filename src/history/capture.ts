@@ -28,7 +28,7 @@ export const archiveIncoming = (config: DSHBridgeConfig, event: Event): void => 
     return;
   }
   // Authentication commands are operational secrets, not conversation history.
-  if (/^\/(?:我的主人|agentbind)(?:\s|$)/iu.test((event.MessageText || '').trimStart())) {
+  if (/^\/(?:我的主人|我是主人|agentbind)(?:\s|$)/iu.test((event.MessageText || '').trimStart())) {
     return;
   }
   const text = [event.MessageText || '', ...(event.MessageMedia || []).map(item => `[附件:${item.Type}]`)].filter(Boolean).join('\n');
@@ -44,11 +44,17 @@ export const archiveIncoming = (config: DSHBridgeConfig, event: Event): void => 
         text
       }
     );
-    if (memoryEnabled(config)) {
-      getMemoryStore(config).observe({ platform: event.Platform, channelId });
-    }
   } catch {
     logger.error('聊天历史归档写入失败；当前消息未保存，请检查磁盘和权限。');
+
+    return;
+  }
+  if (memoryEnabled(config)) {
+    try {
+      getMemoryStore(config).observe({ platform: event.Platform, channelId });
+    } catch {
+      logger.error('聊天记录已归档，但记忆整理范围登记失败。');
+    }
   }
 };
 export const archiveReply = (config: DSHBridgeConfig, event: Event, text: string): void => {

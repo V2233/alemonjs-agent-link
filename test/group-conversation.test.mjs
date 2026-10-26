@@ -405,3 +405,25 @@ test('latency separates local waiting, classification and response without dropp
   assert.deepEqual(timings, { waitMs: 150, gateMs: 40, responseMs: 60, totalMs: 250 });
   h.coordinator.close();
 });
+
+test('lifecycle invalidation cancels classification without re-enabling a late response', async () => {
+  let resolve;
+  let replies = 0;
+  const h = harness({
+    classify: () =>
+      new Promise(done => {
+        resolve = done;
+      })
+  });
+  const done = h.coordinator.receive(message('withdrawn'), policy(), async () => {
+    replies++;
+    return { delivered: true };
+  });
+  const flush = h.coordinator.flush('group');
+  h.coordinator.invalidateRecent('group');
+  resolve({ reply: true, reason: 'direct_call' });
+  await flush;
+  await done;
+  assert.equal(replies, 0);
+  h.coordinator.close();
+});
