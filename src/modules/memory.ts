@@ -1,3 +1,4 @@
+import { MemoryQueryContext } from '../memory/query-context';
 import { SessionRegistry } from '../state/registry';
 import { getDSHConfig, type DSHBridgeConfig } from '../dsh/client';
 import type { AgentModule } from '../agent/types';
@@ -22,7 +23,7 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
         return current.workspaceRoot === config.workspaceRoot && memoryEnabled(current) && historyEnabled(current) && memoryOptions(current).automatic;
       }
     });
-    const previousQueries = new Map<string, string>();
+    const previousQueries = new MemoryQueryContext();
     const timer = setInterval(() => {
       void consolidator.tick().catch(() => logger.warn('Memory background consolidation failed'));
     }, 300000);
@@ -44,16 +45,9 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
         context.signal.throwIfAborted();
         store.syncExplicit(context, context.userId, notes);
       }
-      const scopeId = JSON.stringify([context.platform, context.channelId]);
-      const query = context.userText.length < 8 ? `${previousQueries.get(scopeId) || ''} ${context.userText}` : context.userText;
+      const meta = await registry.meta(context.channelId);
+      const query = previousQueries.resolve({ ...context, generation: meta?.generation }, context.userText, !context.autonomous);
 
-      if (!context.autonomous) {
-        previousQueries.delete(scopeId);
-        previousQueries.set(scopeId, context.userText.slice(0, 500));
-      }
-      while (previousQueries.size > 1000) {
-        previousQueries.delete(previousQueries.keys().next().value);
-      }
       const profile = store.profile(context, context.userId);
       const items = store.recall(context, query, context.userId, settings.recallLimit).map(compactMemory);
       const styles = store
@@ -63,8 +57,8 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
         .map(compactMemory);
       const selected: typeof items = [];
 
-      for (const item of [...styles, ...items]) {
-        if (selected.some(previous => previous.id === item.id)) {
+      for (const item of [...items, ...styles]) {
+        if (profile.facts.some(fact => fact.id === item.id) || selected.some(previous => previous.id === item.id)) {
           continue;
         }
         if (JSON.stringify([...selected, item]).length > 2800) {
@@ -153,7 +147,7 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
       parameters: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', minLength: 8, maxLength: 12 } } },
       available: context => Boolean(context.platform && context.channelId),
       execute: ({ id }, context) => {
-        const item = store.list(context, { limit: 2000 }).find(entry => entry.id === id);
+        const item = store.get(context, String(id));
 
         return Promise.resolve(
           item

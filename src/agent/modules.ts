@@ -11,6 +11,7 @@ import { personaModule } from '../modules/persona';
 import { moodModule } from '../modules/mood';
 import { platformModule, groupAdminModule } from '../modules/platform';
 import { proactiveModule } from '../modules/proactive';
+import { voiceModule } from '../modules/voice';
 import { validateArguments } from './schema';
 import type { AgentModule, AgentTool, ModuleApi, ModuleConfig, ModuleHooks, TurnContext } from './types';
 
@@ -235,6 +236,7 @@ export class ModuleRuntime {
       platformModule(config),
       groupAdminModule(config),
       proactiveModule(config),
+      voiceModule(config),
       memoryModule(config),
       chatHistoryModule(config)
     ]

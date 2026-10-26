@@ -34,6 +34,22 @@ test('private automatic capacity reserves explicit-note slots and a full store r
     assert.throws(() => store.applyExtraction(scope, store.state(scope), [incoming.change], [incoming.source], 1981, false), /容量/);
     assert.equal(store.state(scope).checkpoint, 1980);
     assert.equal(store.list(scope, { limit: 2000 }).filter(item => item.origin === 'explicit').length, 20);
+    const old = store.list(scope, { status: 'active', subjectId: 'one', limit: 2000 }).find(item => item.origin === 'extracted');
+    const fakeAdd = { ...incoming.change, targetId: old.id };
+    assert.throws(() => store.applyExtraction(scope, store.state(scope), [fakeAdd], [incoming.source], 1981, false), /无效/);
+    assert.equal(store.get(scope, old.id).status, 'active');
+    const correction = fact(1982, '现在改为喜欢新的偏好', Date.now());
+    correction.change.action = 'replace';
+    correction.change.targetId = old.id;
+    assert.equal(store.applyExtraction(scope, store.state(scope), [correction.change], [correction.source], 1982, false).added, 1);
+    assert.equal(store.get(scope, old.id).status, 'outdated');
+    assert.equal(store.list(scope, { limit: 10000 }).length, 2001, 'old versions do not consume active capacity');
+    assert.equal(store.list(scope, { status: 'active', limit: 10000 }).length, 2000);
+    assert.equal(store.restore(scope, old.id), true);
+    assert.equal(store.get(scope, old.id).status, 'active');
+    assert.equal(store.forget(scope, old.id, 1982), true);
+    assert.equal(store.get(scope, old.id), undefined);
+    assert.ok(!store.list(scope, { limit: 10000 }).some(item => item.text === correction.change.text));
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

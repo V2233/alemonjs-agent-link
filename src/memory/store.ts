@@ -217,10 +217,16 @@ export class MemoryStore {
         options.subjectId || '',
         options.subjectId || '',
         options.before ?? Number.MAX_SAFE_INTEGER,
-        Math.max(1, Math.min(2000, options.limit ?? 100))
+        Math.max(1, Math.min(10020, options.limit ?? 100))
       );
 
     return rows.map(row => this.decode(row));
+  }
+
+  get(scope: MemoryScope, id: string): MemoryItem | undefined {
+    const row = this.db.prepare('SELECT * FROM memories WHERE scope=? AND id=?').get(scopeKey(scope), id);
+
+    return row ? this.decode(row) : undefined;
   }
 
   private insert(scope: MemoryScope, item: MemoryItem): void {
@@ -412,6 +418,7 @@ export class MemoryStore {
           change.importance < 0 ||
           change.importance > 1 ||
           !['add', 'merge', 'replace'].includes(change.action) ||
+          (change.action === 'add' && Boolean(change.targetId)) ||
           !['fact', 'insight', 'style'].includes(change.kind) ||
           !Array.isArray(change.tags) ||
           change.tags.length > 5 ||
@@ -436,7 +443,7 @@ export class MemoryStore {
           throw new Error('记忆来源或证据无效。');
         }
         const subjectId = refs[0].speakerId;
-        const old = change.targetId ? this.list(scope, { limit: 2000 }).find(item => item.id === change.targetId) : undefined;
+        const old = change.targetId ? this.get(scope, change.targetId) : undefined;
 
         if (change.action !== 'add' && (old?.subjectId !== subjectId || old?.status !== 'active' || old?.origin === 'explicit')) {
           throw new Error('记忆变更目标无效，明确保存的资料需要用户手动更正。');
@@ -454,9 +461,13 @@ export class MemoryStore {
           continue;
         }
         const capacity = scope.channelId.startsWith('private:') ? 1980 : 2000;
-        const count = this.db.prepare("SELECT count(*) AS n FROM memories WHERE scope=? AND origin<>'explicit'").get(key);
+        const count = this.db.prepare("SELECT count(*) AS n FROM memories WHERE scope=? AND origin<>'explicit' AND status='active'").get(key);
+        const total = this.db.prepare("SELECT count(*) AS n FROM memories WHERE scope=? AND origin<>'explicit'").get(key);
 
-        if (Number(count.n) >= capacity) {
+        if (Number(total.n) >= 10000) {
+          throw new Error('当前会话记忆及历史版本总容量已满，请先整理资料。');
+        }
+        if (!old && Number(count.n) >= capacity) {
           throw new Error('当前会话记忆容量已满。');
         }
         if (old) {
@@ -499,7 +510,7 @@ export class MemoryStore {
   forget(scope: MemoryScope, id: string, skipThrough: number): boolean {
     return this.transaction(() => {
       const key = scopeKey(scope);
-      const all = this.list(scope, { limit: 2000 });
+      const all = this.list(scope, { limit: 10020 });
       const target = all.find(item => item.id === id);
 
       if (!target) {
@@ -531,7 +542,7 @@ export class MemoryStore {
   restore(scope: MemoryScope, id: string): boolean {
     return this.transaction(() => {
       const key = scopeKey(scope);
-      const all = this.list(scope, { limit: 2000 });
+      const all = this.list(scope, { limit: 10020 });
       const item = all.find(entry => entry.id === id && entry.status === 'outdated');
 
       if (!item) {
@@ -540,6 +551,12 @@ export class MemoryStore {
       const connected = connectedMemoryIds(all, item, false);
       const current = all.filter(entry => entry.status === 'active' && connected.has(entry.id));
 
+      const capacity = scope.channelId.startsWith('private:') ? 1980 : 2000;
+      const active = this.db.prepare("SELECT count(*) AS n FROM memories WHERE scope=? AND origin<>'explicit' AND status='active'").get(key);
+
+      if (item.origin !== 'explicit' && !current.length && Number(active.n) >= capacity) {
+        throw new Error('有效记忆容量已满，无法恢复额外条目。');
+      }
       for (const entry of current) {
         this.db.prepare("UPDATE memories SET status='outdated' WHERE scope=? AND id=?").run(key, entry.id);
       }

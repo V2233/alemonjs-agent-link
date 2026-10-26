@@ -267,6 +267,7 @@ const runCoordinatedChatInner = async (
   mediaTask?: {
     streamContent?: boolean;
     onImage?: (png: Buffer) => Promise<void>;
+    onSpeech?: import('../agent/types').TurnContext['onSpeech'];
     prepareMessage?: (text: string, signal: AbortSignal) => Promise<ChatInput>;
     execute?: (signal: AbortSignal) => Promise<void>;
     userText?: string;
@@ -330,6 +331,7 @@ const runCoordinatedChatInner = async (
               onEvent,
               streamContent: mediaTask?.streamContent,
               onImage: mediaTask?.onImage,
+              onSpeech: mediaTask?.onSpeech,
               context: {
                 requestId: duplicate.requestId,
                 inputId: mediaTask?.inputId || event.MessageId || duplicate.requestId,

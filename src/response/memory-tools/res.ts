@@ -82,7 +82,7 @@ export default async (): Promise<void> => {
       return;
     }
     if (command === '/记忆来源') {
-      const item = store.list(scope, { limit: 2000 }).find(entry => entry.id === args);
+      const item = store.get(scope, args);
 
       await reply(
         item

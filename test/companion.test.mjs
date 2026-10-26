@@ -293,7 +293,7 @@ test('actual expression delivery sends automatic audio, falls back to text on TT
     const { ResultCode } = await import('alemonjs');
     Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
       modules: { settings: { memory: { automatic: false }, expression: { automatic: true, voiceChance: 1, stickerChance: 0 } } },
-      media: { tts: { baseUrl: 'https://speech.test', apiKey: 'test', model: 'tts', voice: 'voice' } }
+      media: { speech: { engine: 'openai', fallback: false }, tts: { baseUrl: 'https://speech.test', apiKey: 'test', model: 'tts', voice: 'voice' } }
     });
     let audioFailure = false,
       modelText = '喝茶吧';

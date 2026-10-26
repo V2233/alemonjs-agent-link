@@ -1,10 +1,12 @@
 import { getAppConfigValue } from 'alemonjs';
+import { speechOptions, type SpeechOptions } from './speech-config';
 
 export type MediaProvider = { baseUrl: string; apiKey: string; model: string; voice?: string };
 export type MediaConfig = {
   vision?: MediaProvider;
   asr?: MediaProvider;
   tts?: MediaProvider;
+  speech?: Partial<SpeechOptions>;
   // Empty means any public HTTPS host; a nonempty list restricts hosts exactly.
   allowedHosts: string[];
   timeoutMs: number;
@@ -21,7 +23,7 @@ export class MediaUnavailableError extends MediaError {
     super(unavailableMediaReply);
   }
 }
-const provider = (value: unknown): MediaProvider | undefined => {
+const provider = (value: unknown, allowLocal = false): MediaProvider | undefined => {
   if (value === undefined) {
     return undefined;
   }
@@ -30,7 +32,7 @@ const provider = (value: unknown): MediaProvider | undefined => {
   }
   const input = value as MediaProvider;
 
-  if (![input.baseUrl, input.apiKey, input.model].every(item => typeof item === 'string' && item.trim())) {
+  if (![input.baseUrl, input.model].every(item => typeof item === 'string' && item.trim())) {
     throw new MediaError('媒体服务需要独立配置 baseUrl、apiKey 和 model。');
   }
   let url: URL;
@@ -40,14 +42,19 @@ const provider = (value: unknown): MediaProvider | undefined => {
   } catch {
     throw new MediaError('媒体服务地址无效。');
   }
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+  const local = allowLocal && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+
+  if ((url.protocol !== 'https:' && !(local && url.protocol === 'http:')) || url.username || url.password || url.search || url.hash) {
     throw new MediaError('媒体服务地址必须是无凭证、无查询参数的 HTTPS 地址。');
+  }
+  if (!local && (typeof input.apiKey !== 'string' || !input.apiKey.trim())) {
+    throw new MediaError('远程媒体服务需要独立 apiKey。');
   }
   if (input.voice !== undefined && (typeof input.voice !== 'string' || !input.voice.trim())) {
     throw new MediaError('语音音色配置无效。');
   }
 
-  return { baseUrl: input.baseUrl.replace(/\/+$/u, ''), apiKey: input.apiKey, model: input.model, voice: input.voice };
+  return { baseUrl: input.baseUrl.replace(/\/+$/u, ''), apiKey: input.apiKey || '', model: input.model, voice: input.voice };
 };
 
 export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppConfigValue()): MediaConfig => {
@@ -62,7 +69,8 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
     stickerCooldownSeconds: raw.stickerCooldownSeconds ?? 30,
     vision: provider(raw.vision),
     asr: provider(raw.asr),
-    tts: provider(raw.tts)
+    tts: provider(raw.tts, true),
+    speech: speechOptions(raw.speech)
   };
 
   if (

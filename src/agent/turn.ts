@@ -21,10 +21,12 @@ const runModuleTurnInner = async (options: {
   history?: PrivateHistoryContext;
   streamContent?: boolean;
   onImage?: (png: Buffer) => Promise<void>;
+  onSpeech?: TurnContext['onSpeech'];
   onEvent: (event: DSHStreamEvent) => Promise<void>;
   onCompleted?: (signal: AbortSignal) => Promise<void>;
 }): Promise<void> => {
-  const { config, context, sessionId, history, onEvent, onCompleted } = options;
+  const { config, sessionId, history, onEvent, onCompleted } = options;
+  const context = { ...options.context, onSpeech: options.onSpeech || options.context.onSpeech };
   const lease = await (await getModuleRuntime(config)).acquire();
 
   try {

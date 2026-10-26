@@ -1,3 +1,4 @@
+import { describePlatformAction, eventTime } from './message-context';
 import { conversationIdentity, type EventKeys } from 'alemonjs';
 import type { ReferenceEvent } from './references';
 
@@ -69,6 +70,9 @@ export class EventContextStore {
       type: event.name,
       meaning: labels[event.name as (typeof contextEvents)[number]],
       at: now,
+      occurredAt: eventTime(event.OccurredAt),
+      receivedAt: eventTime(event.CreateAt),
+      action: describePlatformAction(event.PlatformAction),
       messageId: event.MessageId,
       userId: event.UserId,
       userName: event.UserName?.slice(0, 80),

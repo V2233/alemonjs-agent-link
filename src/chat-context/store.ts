@@ -38,17 +38,13 @@ export const compressRecentMessages = (messages: RecentChatMessage[], maxChars: 
     return [];
   }
 
-  const unique = messages.filter((item, index) => messages.findIndex(candidate => candidate.text === item.text) === index);
-  const selected = new Set<RecentChatMessage>();
+  // Keep the newest occurrence, allocate by importance first, then restore chronology.
+  const newest = [...messages].sort((left, right) => right.timestamp - left.timestamp);
+  const unique = newest.filter((item, index) => newest.findIndex(candidate => candidate.text === item.text) === index);
+  const selected = new Set<RecentChatMessage>(unique.slice(0, 3));
 
-  // 最新消息最能反映当前讨论方向，优先保留；再补充带有问题、结论或行动信息的内容。
-  unique.slice(-3).forEach(item => selected.add(item));
-  unique
-    .filter(item => priorityPattern.test(item.text))
-    .sort((left, right) => right.timestamp - left.timestamp)
-    .forEach(item => selected.add(item));
-
-  const candidates = [...selected].sort((left, right) => left.timestamp - right.timestamp);
+  unique.filter(item => priorityPattern.test(item.text)).forEach(item => selected.add(item));
+  const candidates = [...selected];
   const result: RecentChatMessage[] = [];
   let usedChars = 0;
 
@@ -65,7 +61,7 @@ export const compressRecentMessages = (messages: RecentChatMessage[], maxChars: 
     usedChars += text.length;
   }
 
-  return result;
+  return result.sort((left, right) => left.timestamp - right.timestamp);
 };
 
 export const buildRecentChatContext = (messages: RecentChatMessage[], maxChars: number): string => {

@@ -1,4 +1,5 @@
-import { logger } from 'alemonjs';
+import { buildMessageContext, type MessageContextEvent } from '../social/message-context';
+import { logger, type MessageReceipt, type MediaReceipt } from 'alemonjs';
 import { randomUUID } from 'node:crypto';
 import type { DSHBridgeConfig } from '../dsh/client';
 import { canPrivateChat, getConversationId } from '../response/dsh/util';
@@ -6,7 +7,7 @@ import { getChatArchive, historyEnabled } from './store';
 import { getMemoryStore } from '../memory/store';
 import { memoryEnabled } from '../memory/consolidation';
 
-type Event = {
+type Event = MessageContextEvent & {
   Platform?: string;
   ChannelId?: string;
   UserId?: string;
@@ -16,7 +17,6 @@ type Event = {
   IsPrivate?: boolean;
   IsMaster?: boolean;
   IsBot?: boolean;
-  MessageMedia?: { Type: string }[];
 };
 export const archiveIncoming = (config: DSHBridgeConfig, event: Event): void => {
   if (!historyEnabled(config) || event.IsBot || !event.Platform || !event.MessageId || (event.IsPrivate && !canPrivateChat(event, config.privateChatAccess))) {
@@ -41,7 +41,11 @@ export const archiveIncoming = (config: DSHBridgeConfig, event: Event): void => 
         role: 'user',
         speakerId: event.UserId || '',
         speaker: event.UserName || event.UserId || '未知用户',
-        text
+        text,
+        referenceId: event.MessageContent?.referenceId,
+        replyToId: event.MessageContent?.replyReferenceId || event.ReplyId,
+        platformIdKnown: true,
+        context: buildMessageContext(event, event.MessageMentions, event.IsPrivate ? 'private' : 'ambient')
       }
     );
   } catch {
@@ -57,7 +61,7 @@ export const archiveIncoming = (config: DSHBridgeConfig, event: Event): void => 
     }
   }
 };
-export const archiveReply = (config: DSHBridgeConfig, event: Event, text: string): void => {
+export const archiveReply = (config: DSHBridgeConfig, event: Event, text: string, receipt?: MessageReceipt | MediaReceipt | null, replyToId?: string): void => {
   if (!historyEnabled(config) || !event.Platform) {
     return;
   }
@@ -66,15 +70,22 @@ export const archiveReply = (config: DSHBridgeConfig, event: Event, text: string
   if (!channelId) {
     return;
   }
+  const platformId = receipt && ('id' in receipt ? receipt.id : 'messageId' in receipt ? receipt.messageId : undefined);
+  const referenceId = receipt && 'referenceId' in receipt ? receipt.referenceId : undefined;
+
   try {
     getChatArchive(config).append(
       { platform: event.Platform, channelId },
       {
-        id: randomUUID(),
+        id: platformId || `local:${randomUUID()}`,
         role: 'assistant',
-        speakerId: 'assistant',
+        speakerId: event.BotId || 'assistant',
         speaker: '大肥鱼',
-        text
+        text,
+        referenceId,
+        replyToId,
+        sourceMessageId: event.MessageId,
+        platformIdKnown: Boolean(platformId)
       }
     );
   } catch {

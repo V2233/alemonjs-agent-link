@@ -1,4 +1,5 @@
-import { Format, logger, useEvent, useMention, useMessage, useMedia } from 'alemonjs';
+import { readMessageContext } from '../../social/message-context';
+import { Format, logger, useEvent, useMessage, useMedia } from 'alemonjs';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { extractPrompt, extractWakePrompt } from '@src/response/dsh/util';
 import { groupConversations, scopedGroupPolicy } from '../../social/groups';
@@ -22,20 +23,23 @@ export default async (): Promise<void> => {
 
     return;
   }
-  const [mention] = useMention();
-  const mentionedBot = await mention.findOne({ IsBot: true });
+  const messageContext = await readMessageContext(event, 'ambient');
+  const selfMention = messageContext.mentions.find(item => item.isSelf === true);
+  const mentionedBot = selfMention ? { UserId: selfMention.id, UserName: selfMention.name || undefined } : undefined;
   const references = await messageReferences.prepare(event);
   const referenceContext = references.context;
 
   let prompt: string | null;
 
   try {
-    prompt = mentionedBot.data
-      ? extractPrompt(String(event.MessageText ?? ''), mentionedBot.data)
-      : event.IsAtMe
+    prompt = mentionedBot
+      ? extractPrompt(String(event.MessageText ?? ''), mentionedBot)
+      : messageContext.mentionedSelf
         ? String(event.MessageText || '')
         : extractWakePrompt(event.MessageText, getDSHConfig().groupWakeNames);
+    messageContext.trigger = messageContext.mentionedSelf || mentionedBot ? 'mention' : prompt !== null ? 'wake_name' : 'ambient';
     if (prompt === null && references.quotedBot) {
+      messageContext.trigger = 'quote';
       prompt = event.MessageText || '用户引用了你的消息，请结合原文回应。';
     }
   } catch (error) {
@@ -79,10 +83,11 @@ export default async (): Promise<void> => {
         owner: Boolean(event.IsMaster),
         text: text || prompt || '',
         direct: prompt !== null,
-        explicitMention: Boolean(event.IsAtMe || mentionedBot.data),
-        controlText: mentionedBot.data ? prompt : undefined,
+        explicitMention: Boolean(messageContext.mentionedSelf || mentionedBot),
+        controlText: mentionedBot ? prompt : undefined,
         media: references.media,
-        referenceContext
+        referenceContext,
+        messageContext
       },
       scopedGroupPolicy(event.ChannelId, event.Platform),
       batch => respondToGroupBatch(event, { message, media }, batch)

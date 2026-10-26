@@ -122,6 +122,7 @@ test('learned facts enter a real group turn with person attribution and cannot l
       assert.ok(!content.includes('秘密偏好'));
       if (calls === 1) {
         assert.ok(content.includes('currentPerson'));
+        assert.equal((content.match(/我喜欢杭州茶馆/g) || []).length, 1, 'profile facts should not be duplicated in recall context');
         return Response.json({
           choices: [
             {

@@ -115,7 +115,9 @@ test('real chat delivery archives successful output and omits rejected delivery'
   let success = true;
   globalThis.fetch = async () => Response.json({ choices: [{ message: { content: success ? '已成功发送的回答' : '不应归档的回答' } }] });
   const transport = {
-    message: { send: async () => [{ code: success ? ResultCode.Ok : ResultCode.Fail, data: null }] },
+    message: {
+      send: async () => [{ code: success ? ResultCode.Ok : ResultCode.Fail, data: success ? { id: 'delivered-1', referenceId: 'delivered-ref' } : null }]
+    },
     media: { send: async () => assert.fail('unexpected audio') }
   };
   const event = { Platform: 'qq', ChannelId: 'group-a', UserId: 'u1', MessageId: 'first' };
@@ -123,6 +125,10 @@ test('real chat delivery archives successful output and omits rejected delivery'
     await runDSHChat(event, '你好', { transport });
     const archive = getChatArchive(config);
     assert.ok(archive.search(scope).items.some(row => row.text === '已成功发送的回答'));
+    const delivered = archive.findMessage(scope, 'delivered-ref');
+    assert.equal(delivered.messageId, 'delivered-1');
+    assert.equal(delivered.replyToId, 'first');
+    assert.equal(delivered.platformIdKnown, true);
     success = false;
     await runDSHChat({ ...event, MessageId: 'second' }, '再聊聊', { transport });
     assert.equal(archive.search(scope, { keyword: '不应归档' }).items.length, 0);

@@ -96,7 +96,7 @@ export const normalizeOneBotEvent = (raw: Record<string, any>, selfId: string, o
   }
   const segments = notice ? [] : parseSegments(raw.message);
   const text = segments.map(item => (item.type === 'text' ? String(item.data.text || '') : item.type === 'at' ? `<@${item.data.qq}>` : '')).join('');
-  const role = ['admin', 'owner'].includes(raw.sender?.role) ? raw.sender.role : 'member';
+  const role = ['member', 'admin', 'owner'].includes(raw.sender?.role) ? raw.sender.role : undefined;
   const media = segments.flatMap(item => {
     if (!['image', 'record', 'video'].includes(item.type)) {
       return [];
@@ -135,7 +135,7 @@ export const normalizeOneBotEvent = (raw: Record<string, any>, selfId: string, o
     UserKey: createUserHashKey({ Platform: 'onebot', UserId: userId }),
     UserName: String(raw.sender?.card || raw.sender?.nickname || userId).slice(0, 80),
     IsMaster: owner(userId),
-    IsAdmin: !privateChat && role !== 'member',
+    IsAdmin: role === undefined ? undefined : !privateChat && role !== 'member',
     Role: role,
     MessageId: poke ? `poke:${eventId}` : notice ? validMessageId(raw.message_id) : eventId,
     EventId: notice ? `notice:${eventId}` : undefined,
@@ -149,10 +149,44 @@ export const normalizeOneBotEvent = (raw: Record<string, any>, selfId: string, o
         IsBot: String(item.data.qq) === selfId,
         IsMaster: owner(String(item.data.qq))
       })),
+    MessageMentionEveryone: segments.some(item => item.type === 'at' && item.data.qq === 'all'),
+    PlatformAction: notice ? normalizeNoticeAction(raw, userId, selfId) : undefined,
     IsAtMe: segments.some(item => item.type === 'at' && String(item.data.qq) === selfId),
     ReplyId: reply ? validMessageId(reply.data.id) : undefined,
     _ForwardIds: forwards,
     ...(poke ? { _Poke: { actorId: userId, targetId: selfId } } : {}),
-    OccurredAt: Number.isFinite(raw.time) ? raw.time * 1000 : Date.now()
+    OccurredAt: Number.isFinite(raw.time) ? raw.time * 1000 : undefined
   };
+};
+
+// Normalize social facts here, while the protocol is known. Raw payloads never reach the prompt.
+const normalizeNoticeAction = (raw: Record<string, any>, userId: string, selfId: string) => {
+  const actorId = /^[1-9]\d*$/u.test(String(raw.operator_id)) ? String(raw.operator_id) : undefined;
+  const common = { actorId, subjectId: userId };
+
+  switch (raw.notice_type) {
+    case 'notify':
+      return raw.sub_type === 'poke' ? { kind: 'poke', actorId: userId, subjectId: selfId } : undefined;
+    case 'group_recall':
+      return { ...common, kind: 'recall' };
+    case 'friend_recall':
+      return { kind: 'recall', actorId: userId, subjectId: userId };
+    case 'group_increase':
+      return { ...common, kind: 'member_join' };
+    case 'group_decrease':
+      return { ...common, kind: ['kick', 'kick_me'].includes(raw.sub_type) ? 'member_kick' : 'member_leave' };
+    case 'group_ban':
+      return { ...common, kind: raw.duration === 0 ? 'unban' : 'ban', durationSeconds: Number.isFinite(raw.duration) ? raw.duration : undefined };
+    case 'group_admin':
+      return ['set', 'unset'].includes(raw.sub_type) ? { ...common, kind: `admin_${raw.sub_type}` } : undefined;
+    case 'group_card':
+      return {
+        ...common,
+        kind: 'card_change',
+        oldName: typeof raw.card_old === 'string' ? raw.card_old.slice(0, 80) : undefined,
+        newName: typeof raw.card_new === 'string' ? raw.card_new.slice(0, 80) : undefined
+      };
+    default:
+      return undefined;
+  }
 };

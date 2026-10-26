@@ -41,3 +41,19 @@ test('message invalidation removes stale quote aliases only within the current s
   await references.capture({ ...event, MessageText: '新正文' });
   assert.equal((await references.capture({ ...event, MessageId: 'edit-quote', ReplyId: 'm1' })).quote.text, '新正文');
 });
+
+test('lifecycle facts distinguish an operator from the affected member and keep occurrence time', () => {
+  const store = new EventContextStore(() => 5000);
+  store.record({
+    ...event,
+    name: 'message.delete',
+    OccurredAt: 1000,
+    CreateAt: 2000,
+    PlatformAction: { kind: 'recall', actorId: 'admin', subjectId: 'user', raw: 'secret' }
+  });
+  const text = store.context(event);
+  assert.match(text, /"actorId":"admin"/);
+  assert.match(text, /"subjectId":"user"/);
+  assert.match(text, /1970-01-01T00:00:01.000Z/);
+  assert.doesNotMatch(text, /secret/);
+});

@@ -1,11 +1,13 @@
 import type { ChatInput } from '../dsh/input';
 import type { AgentCapabilities } from '../dsh/client';
+import type { SpeechAudio } from '../media/speech';
 
 export type TurnContext = {
   requestId?: string;
   inputId?: string;
   addressed?: boolean;
   autonomous?: boolean;
+  onSpeech?: (audio: SpeechAudio) => Promise<void>;
   channelId: string;
   userId: string;
   platform: string;

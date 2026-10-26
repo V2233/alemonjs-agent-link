@@ -53,7 +53,12 @@ export const planExpression = (config: DSHBridgeConfig, scope: PersonaScope, inp
   const expressiveness = value >= 75 ? 1.25 : value < 45 ? 0.5 : 1;
 
   return {
-    voice: Boolean(automatic && media?.tts?.voice && sample(inputId, 'voice') < Math.min(1, options.voiceChance * expressiveness)),
+    voice: Boolean(
+      automatic &&
+      !config.modules?.disabled?.includes('voice') &&
+      (media?.tts?.voice || media?.speech) &&
+      sample(inputId, 'voice') < Math.min(1, options.voiceChance * expressiveness)
+    ),
     sticker: Boolean(automatic && media?.stickerRoot && sample(inputId, 'sticker') < Math.min(1, options.stickerChance * expressiveness)),
     delayMs: automatic
       ? Math.min(3000, Math.round((options.delayMs[0] + sample(inputId, 'delay') * (options.delayMs[1] - options.delayMs[0])) * (value < 45 ? 1.2 : 1)))

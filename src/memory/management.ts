@@ -27,7 +27,7 @@ export const forgetMemory = async (config: DSHBridgeConfig, scope: MemoryScope, 
 
     return 'ok';
   }
-  const item = store.list(scope, { limit: 2000 }).find(entry => entry.id === id);
+  const item = store.get(scope, id);
 
   if (item?.origin === 'explicit') {
     const notes = await registry.privateMemories(scope.channelId);

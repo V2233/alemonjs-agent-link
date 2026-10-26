@@ -1,3 +1,4 @@
+import { readMessageContext } from './message-context';
 import { claimBudgetNotice, budgetExceededMessage } from '../billing/budget';
 import { messageReferences } from './references';
 import { runDSHChat, type ChatEvent } from '../response/dsh/chat';
@@ -61,6 +62,7 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
           UserName: anchor.name,
           IsMaster: anchor.owner,
           MessageId: anchor.id,
+          MessageText: anchor.text,
           MessageMedia: accepted.flatMap(item => item.media || [])
         },
         buildGroupBatchPrompt(currentBatch),
@@ -109,6 +111,8 @@ export const submitGroupChat = async (event: ChatEvent, prompt: string, transpor
   }
   const references = event.ReplyId || event.MessageContent ? await messageReferences.prepare(event) : { media: event.MessageMedia, context: undefined };
 
+  const messageContext = await readMessageContext(event, event.MessageText?.trimStart().startsWith('/') ? 'command' : 'platform_event');
+
   await groupConversations.receive(
     {
       channelId: event.ChannelId,
@@ -120,6 +124,7 @@ export const submitGroupChat = async (event: ChatEvent, prompt: string, transpor
       owner: Boolean(event.IsMaster),
       text: prompt || '请结合引用消息回应。',
       referenceContext: references.context,
+      messageContext,
       direct: true,
       media: references.media,
       voice,

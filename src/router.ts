@@ -177,6 +177,10 @@ commandGroup.use({ path: '密钥配置', events: ['private.message.create'], des
 commandGroup.use({ path: '移除密钥', events: ['private.message.create'], description: '主人查看密钥移除指引' }, () => import('@src/response/agent-unbind/res'));
 
 commandGroup.use({ path: '语音', description: '使用 AI 合成语音回答，不可用时回退文字' }, () => import('@src/response/agent-voice/res'));
+commandGroup.use(
+  { path: '语音引擎', events: ['private.message.create'], description: '主人检查、安装和试听语音引擎' },
+  () => import('@src/response/agent-speech/res')
+);
 commandGroup.use({ path: '表情', description: '列出或发送配置的表情素材' }, () => import('@src/response/agent-sticker/res'));
 
 for (const path of ['记忆', '记住', '忘记', '忘记全部']) {

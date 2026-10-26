@@ -1,3 +1,7 @@
+import { getDSHConfig } from '../dsh/client';
+import { getChatArchive, historyEnabled } from '../history/store';
+import { canPrivateChat, getConversationId } from '../response/dsh/util';
+import { eventTime, type MessageContextEvent } from './message-context';
 import {
   createConversationService,
   conversationIdentity,
@@ -8,7 +12,7 @@ import {
   type MessageMediaItem
 } from 'alemonjs';
 
-export type ReferenceEvent = {
+export type ReferenceEvent = MessageContextEvent & {
   Target?: ConversationEvent['Target'];
   OpenId?: string;
   SpaceId?: string;
@@ -25,6 +29,7 @@ export type ReferenceEvent = {
   MessageContent?: ReceivedMessage;
   IsPrivate?: boolean;
   IsBot?: boolean;
+  IsMaster?: boolean;
 };
 
 export class MessageReferences {
@@ -86,6 +91,32 @@ export class MessageReferences {
   async prepare(event: ReferenceEvent): Promise<{ context?: string; media: MessageMediaItem[]; quotedBot: boolean }> {
     const referenceId = event.MessageContent?.replyReferenceId || event.ReplyId;
     const references = await this.capture(event).catch(() => ({ quote: undefined, missingQuote: referenceId, forwarded: '' }));
+
+    if (referenceId && !references.quote && event.Platform) {
+      try {
+        const config = getDSHConfig();
+        const channelId = getConversationId(event);
+        const archived =
+          historyEnabled(config) && channelId && (!event.IsPrivate || canPrivateChat(event, config.privateChatAccess))
+            ? getChatArchive(config).findMessage({ platform: event.Platform, channelId }, referenceId)
+            : undefined;
+
+        if (archived) {
+          references.quote = {
+            id: String(archived.messageId),
+            referenceId: String(archived.referenceId || archived.messageId),
+            userId: String(archived.speakerId),
+            userName: String(archived.speaker),
+            text: String(archived.text),
+            timestamp: Number(archived.timestamp),
+            isBot: archived.role === 'assistant',
+            attachments: []
+          };
+        }
+      } catch {
+        /* Missing archive remains an explicitly unavailable quote. */
+      }
+    }
     const media = [...(event.MessageMedia || [])];
     const attachments = (references.quote?.attachments || []).map(item => {
       const image = ['image', 'sticker', 'animation'].includes(item.Type) && Boolean(item.Url);
@@ -109,6 +140,8 @@ export class MessageReferences {
             referenceId,
             quote: references.quote
               ? {
+                  messageId: references.quote.id,
+                  recordedAt: eventTime(references.quote.timestamp),
                   senderId: references.quote.userId,
                   sender: references.quote.userName || references.quote.userId,
                   isBot: references.quote.isBot,
