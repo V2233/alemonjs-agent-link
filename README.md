@@ -8,7 +8,7 @@
 
 默认 `runtimeMode: auto`：优先启用沙箱；本地环境准备失败时，自动降级为 Node 直连模型的纯聊天模式。
 
-**运行条件：** 
+**运行条件：**
 
 macOS 或 Linux、Node.js、Docker（或一个可用的 Redis）、QQ Bot 配置。
 
@@ -23,6 +23,10 @@ Windows 请在 WSL2 内运行完整服务，不支持原生 Windows Worker。首
 在 `alemon.config.yaml` 的 `alemonjs-agent-link` 中设置 `apiKey`、可选 `baseUrl` 与 `model` 后启动。发送 `/agentstatus` 确认服务已就绪。
 
 ## 使用方法
+
+### 私聊设置主人
+
+私聊机器人发送 `/我是主人`，到机器人服务端日志查看 6 位验证码，再私聊回复 `/我的主人 验证码` 或 `/我是主人 验证码`。只有不带参数的 `/我是主人` 会重新申请验证码。验证码仅保存在内存中，5 分钟有效，最多尝试 5 次；重新申请、验证成功或重启服务后旧验证码失效。验证通过后使用框架配置接口将当前用户加入 `master_key`，保存到 `alemon.config.yaml` 并立即生效，保留已有主人。
 
 ### 群成员
 

@@ -50,7 +50,7 @@ export default async (): Promise<void> => {
       displayed += 1;
     }
 
-    lines.push('\n切换：`/agentmodel <模型ID>`');
+    lines.push('\n修改模型：编辑 `alemon.config.yaml` 中的 `alemonjs-agent-link.model` 后重启服务。配置指引：`/agenthelp`。');
     await message.send({ format: Format.create().addMarkdownOriginal(lines.join('\n')) });
   } catch {
     await message.send({ format: Format.create().addMarkdownOriginal('无法读取模型列表。请确认 API Key、BASE_URL 和模型服务状态。') });

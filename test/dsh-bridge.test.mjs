@@ -38,6 +38,16 @@ const config = {
 
 setDSHBridgeForTesting({ url: 'http://dsh.test', token: 'secret' });
 
+test('accepts default and bounded request timeouts, rejecting invalid values', () => {
+  assert.equal(getDSHConfig({}).requestTimeoutMs, 120000);
+  for (const requestTimeoutMs of [1, 120000, 300000]) {
+    assert.equal(getDSHConfig({ 'alemonjs-agent-link': { requestTimeoutMs } }).requestTimeoutMs, requestTimeoutMs);
+  }
+  for (const requestTimeoutMs of [0, -1, 300001, 1.5, '120000', null]) {
+    assert.throws(() => getDSHConfig({ 'alemonjs-agent-link': { requestTimeoutMs } }), /DSH 配置/);
+  }
+});
+
 test('reads credentials exclusively from AgentLink configuration', async () => {
   const { getDSHCredentials, saveDSHCredentials } = await import('../lib/dsh/credentials.js');
   assert.deepEqual(

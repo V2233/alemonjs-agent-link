@@ -315,10 +315,14 @@ export class DSHSupervisor {
   private async bootstrapPython(): Promise<void> {
     try {
       await access(this.config.pythonExecutable);
+      await this.run(this.config.pythonExecutable, [
+        '-c',
+        'from deepseek_harness import DeepSeekHarness; from deepseek_harness_runtime import bundled_runtime_path; bundled_runtime_path()'
+      ]);
 
       return;
     } catch {
-      // First start owns an isolated SDK environment under .data.
+      // Recover incomplete installs as well as missing virtual environments.
     }
     const venvRoot = dirname(dirname(this.config.pythonExecutable));
 

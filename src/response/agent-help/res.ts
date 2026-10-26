@@ -20,7 +20,8 @@ const groupHelp = [
   '- `/agentstatus`：查看服务是否可用。',
   '- 默认可联网查询；文件和终端是否可用由主人在本群设置。',
   '',
-  '主人可私聊机器人发送 `/agenthelp` 查看管理命令。'
+  '主人可私聊机器人发送 `/agenthelp` 查看管理命令。',
+  '首次设置主人：私聊发送 `/我是主人`，从服务端日志获取验证码，再回复 `/我的主人 验证码`（也支持 `/我是主人 验证码`）。'
 ].join('\n');
 
 const ownerPrivateHelp = [
@@ -29,16 +30,39 @@ const ownerPrivateHelp = [
   '## 服务与模型',
   '- `/agentstatus`：查看完整运行状态。',
   '- `/agentmodels`：查看可用模型。',
-  '- `/agentmodel [模型ID]`：查看或切换全局模型。',
+  '- `/agentmodel`：查看当前配置的模型。',
+  '- `/agentmodel 模型ID`：查看该模型的配置修改指引。',
+  '- `/agentbind`：查看 API Key 配置指引。',
+  '- `/agentunbind`：查看 API Key 移除指引。',
   '',
   '## 模型配置',
-  '- 模型凭证、地址和模型名均从 `alemon.config.yaml` 的 `alemonjs-agent-link` 读取。',
-  '- 修改 `apiKey`、`baseUrl` 或 `model` 后重启服务生效。',
+  '在机器人运行目录打开 `alemon.config.yaml`，修改已有的 `alemonjs-agent-link` 配置段，保留其他配置：',
+  '```yaml',
+  'alemonjs-agent-link:',
+  '  apiKey: "<模型服务 API Key>"',
+  '  baseUrl: "https://api.example.com/v1"',
+  '  model: "<服务支持的模型 ID>"',
+  '```',
+  '- `apiKey`：替换为模型服务提供的密钥；移除凭证时删除此字段。',
+  '- `baseUrl`：可选，填写模型服务的 API 基础地址；示例地址需替换，不要填写完整的 `/chat/completions` 地址。',
+  '- `model`：填写服务支持的模型 ID，可用 `/agentmodels` 查询。',
+  '- 保存后重启机器人服务，再用 `/agentstatus` 检查状态、`/agentmodels` 检查模型列表。',
+  '- 配置由全群共用。以上命令只提供查询或修改指引；请在服务器编辑文件，不要把真实 API Key 发到聊天中。',
   '',
   '## 在目标群内使用',
   '- `/agentpolicy status`：查看群策略。',
   '- `/agentpolicy chat|web|files|terminal on|off`：调整本群能力；调整后会开启新会话。',
-  '- `/agentpurge`：查看彻底删除本群数据的确认提示。'
+  '- `/agentpurge`：查看彻底删除本群数据的确认提示。',
+  '- `/new`：开始新会话并清除近期聊天参考。',
+  '- `/agentcontext`：查看近期上下文摘要；`/agentcontext clear`：清除摘要。',
+  '- `@机器人 问题` 或 `/chat 问题`：发起聊天；`/cancel`：取消自己的请求。',
+  '- `/agentprivacy`：查看数据与隐私说明。',
+  '',
+  '## 主人验证',
+  '- 私聊 `/我是主人`：申请验证码，到服务端日志查看。',
+  '- `/我的主人 验证码` 或 `/我是主人 验证码`：验证并加入框架主人配置。',
+  '- 验证码 5 分钟有效、最多尝试 5 次；已是主人时无需重复验证。',
+  '- `/agent` 与 `/agenthelp` 均可查看帮助。'
 ].join('\n');
 
 export default async (): Promise<void> => {

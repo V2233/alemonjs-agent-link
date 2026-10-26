@@ -18,6 +18,9 @@ const commandGroup = router.group({
   duplicateKey: 'throw'
 });
 
+commandGroup.use({ path: '我是主人', events: ['private.message.create'], description: '申请主人验证码' }, () => import('@src/response/master/res'));
+commandGroup.use({ path: '我的主人', events: ['private.message.create'], description: '验证并加入机器人主人' }, () => import('@src/response/master/res'));
+
 commandGroup.use(
   {
     path: 'agenthelp',
@@ -59,7 +62,7 @@ commandGroup.use(
   {
     path: 'agentmodel',
     events: ['private.message.create'],
-    description: '主人私聊查看或切换全局模型'
+    description: '主人私聊查看模型及配置修改指引'
   },
   () => import('@src/response/agent-model/res')
 );
@@ -92,7 +95,7 @@ commandGroup.use(
   {
     path: 'agentbind',
     events: ['private.message.create'],
-    description: '主人私聊绑定全群共用的模型 API Key'
+    description: '主人私聊查看模型 API Key 配置指引'
   },
   () => import('@src/response/agent-bind/res')
 );
@@ -101,7 +104,7 @@ commandGroup.use(
   {
     path: 'agentunbind',
     events: ['private.message.create'],
-    description: '主人私聊移除全群共用的模型 API Key'
+    description: '主人私聊查看模型 API Key 移除指引'
   },
   () => import('@src/response/agent-unbind/res')
 );

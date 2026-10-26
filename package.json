@@ -39,14 +39,14 @@
     "prepare": "husky"
   },
   "devDependencies": {
-    "@alemonjs/discord": "^2.1.25",
+    "@alemonjs/discord": "^2.1.27",
     "@alemonjs/process": "^0.0.8",
-    "@alemonjs/qq-bot": "^2.1.35",
+    "@alemonjs/qq-bot": "^2.1.41",
     "@eslint/js": "^9.14.0",
-    "@types/node": "22",
+    "@types/node": "^26.6.5",
     "@types/uuid": "^10.0.0",
     "@types/ws": "8.18.1",
-    "alemonjs": "^2.1.103",
+    "alemonjs": "^2.1.114",
     "cssnano": "^7.0.6",
     "eslint": "^9.14.0",
     "eslint-config-prettier": "^9.1.0",
@@ -172,6 +172,6 @@
   },
   "packageManager": "yarn@1.22.22",
   "dependencies": {
-    "@alemonjs/db": "^0.0.20"
+    "@alemonjs/db": "^0.0.21"
   }
 }
