@@ -4,9 +4,12 @@ import { DSHError } from './errors';
 import type { ModuleConfig } from '../agent/types';
 import { getGroupChatPolicy, type GroupChatConfig } from '../social/group-policy';
 
-type ConfigValue = { 'alemonjs-agent-link'?: Partial<DSHBridgeConfig> & { baseUrl?: string; apiKey?: string }; db?: { redis?: unknown } };
+export type AgentConfig = Partial<DSHBridgeConfig> & { baseUrl?: string; apiKey?: string };
+export type ConfigContext = { cwd?: string; configPath?: string; dataRoot?: string; hasRedis?: boolean };
 
 export type DSHBridgeConfig = {
+  transport?: 'qq-bot' | 'onebot';
+  replyGate?: { model?: string; baseUrl?: string; apiKey?: string };
   groupChat?: GroupChatConfig;
   modules?: ModuleConfig;
   groupWakeNames: string[];
@@ -47,13 +50,14 @@ export type DSHBridgeConfig = {
 };
 
 export type AgentCapabilities = { chat: boolean; web: boolean; files: boolean; terminal: boolean };
-export const resolveDSHConfig = (value: ConfigValue = {}, options: { cwd?: string; configPath?: string; dataRoot?: string } = {}): DSHBridgeConfig => {
+export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigContext = {}): DSHBridgeConfig => {
   const cwd = options.cwd ?? process.cwd();
   const configPath = options.configPath ?? process.env.CFG_PATH;
   const base = configPath ? dirname(resolve(cwd, configPath)) : cwd;
   const dataRoot = options.dataRoot ?? process.env.AGENT_LINK_DATA_DIR ?? join(base, '.data', 'agent-link');
   const pythonExecutable = process.platform === 'win32' ? join(dataRoot, 'venv', 'Scripts', 'python.exe') : join(dataRoot, 'venv', 'bin', 'python');
   const defaults: DSHBridgeConfig = {
+    transport: 'qq-bot',
     groupWakeNames: ['帮我', '肥鱼', '大肥鱼'],
     privateChatAccess: 'owner',
     privateAutoReply: true,
@@ -91,17 +95,15 @@ export const resolveDSHConfig = (value: ConfigValue = {}, options: { cwd?: strin
     recentChatSummaryMaxChars: 1600
   };
 
-  const agentLink = value?.['alemonjs-agent-link'];
-
-  if (agentLink !== undefined && (!agentLink || typeof agentLink !== 'object' || Array.isArray(agentLink))) {
-    throw new DSHError('protocol', 'DSH 配置 alemonjs-agent-link 需要为对象');
+  if (!agentLink || typeof agentLink !== 'object' || Array.isArray(agentLink)) {
+    throw new DSHError('protocol', 'DSH 应用配置需要为对象');
   }
 
   const config = {
     ...defaults,
     ...agentLink,
     // Preserve existing deployments with explicit framework Redis configuration.
-    stateBackend: agentLink?.stateBackend ?? ((value as { db?: { redis?: unknown } })?.db?.redis ? 'redis' : 'local')
+    stateBackend: agentLink?.stateBackend ?? (options.hasRedis ? 'redis' : 'local')
   };
 
   for (const field of ['workspaceRoot', 'dshHomeRoot'] as const) {
@@ -165,6 +167,29 @@ export const resolveDSHConfig = (value: ConfigValue = {}, options: { cwd?: strin
       throw new DSHError('protocol', 'DSH 配置 baseUrl 需要不含凭证、查询参数的 HTTPS 基础地址。');
     }
   }
+  if (config.replyGate !== undefined) {
+    const gate = config.replyGate;
+
+    if (!gate || typeof gate !== 'object' || Array.isArray(gate)) {
+      throw new DSHError('protocol', 'replyGate 需要为配置对象。');
+    }
+    for (const field of ['model', 'baseUrl', 'apiKey'] as const) {
+      if (gate[field] !== undefined && typeof gate[field] !== 'string') {
+        throw new DSHError('protocol', `replyGate.${field} 需要为字符串。`);
+      }
+    }
+    if (gate.baseUrl?.trim()) {
+      try {
+        const url = new URL(gate.baseUrl.trim());
+
+        if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+          throw new Error();
+        }
+      } catch {
+        throw new DSHError('protocol', 'replyGate.baseUrl 需要不含凭证、查询参数的 HTTPS 基础地址。');
+      }
+    }
+  }
   if (typeof agentLink?.apiKey === 'string' && !agentLink.apiKey.trim()) {
     /* Unconfigured, handled by the setup flow. */
   }
@@ -225,6 +250,7 @@ export const resolveDSHConfig = (value: ConfigValue = {}, options: { cwd?: strin
     config.privateHistoryMaxChars < 1 ||
     config.privateHistoryMaxChars > 100000 ||
     !['auto', 'sandbox', 'chat-only'].includes(config.runtimeMode) ||
+    !['qq-bot', 'onebot'].includes(config.transport) ||
     !integerFields.every(Number.isSafeInteger) ||
     !stringFields.every(value => typeof value === 'string' && value.trim().length > 0) ||
     config.maxMessageLength < 1 ||

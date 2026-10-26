@@ -1,12 +1,11 @@
 import { type ChatInput, withInputContext } from './input';
 import type { PrivateHistoryContext } from '@src/state/registry';
-import { getConfigValue } from 'alemonjs';
-import { resolveDSHConfig, type DSHBridgeConfig, type AgentCapabilities } from './config';
+import { type DSHBridgeConfig, type AgentCapabilities } from './config';
 import { DSHError, abortFailure } from './errors';
 import { ensureDSHSupervisor, getDSHBridge, hasDSHBridgeOverride } from '@src/dsh/supervisor';
 export { DSHError } from './errors';
 export type { DSHBridgeConfig, AgentCapabilities } from './config';
-export const getDSHConfig = (value: Parameters<typeof resolveDSHConfig>[0] = getConfigValue()): DSHBridgeConfig => resolveDSHConfig(value);
+export { getDSHConfig } from './runtime-config';
 const toCapabilities = (value: AgentCapabilities): AgentCapabilities => ({
   chat: value.chat,
   web: value.web,
@@ -112,7 +111,7 @@ export const streamChat = async (
   timeout.unref();
 
   try {
-    // getConfigValue() is intentionally evaluated by the caller per request.
+    // Application configuration is intentionally evaluated by the caller per request.
     // Reconfigure only when those current values actually differ.
     const supervisor = await ensureDSHSupervisor(config);
 

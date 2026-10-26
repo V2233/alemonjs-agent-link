@@ -23,6 +23,7 @@ export const runModuleTurn = async (options: {
   const lease = await (await getModuleRuntime(config)).acquire();
 
   try {
+    const systemPrompt = await lease.system(config.defaultSystemPrompt, context);
     const moduleContext = await lease.context(context);
     const input = await lease.prompt(withInputContext(options.input, moduleContext), context);
     const tools = lease.tools(context);
@@ -39,7 +40,7 @@ export const runModuleTurn = async (options: {
     // Send current-turn image bytes directly through the multimodal tool loop.
     const hasImages = Array.isArray(input) && input.some(block => block.type === 'image');
 
-    if (tools.length || lease.transformsReplies || hasImages) {
+    if (tools.length || lease.transformsReplies || (lease.transformsSystem && systemPrompt !== config.defaultSystemPrompt) || hasImages) {
       const credentials = await getDSHCredentials();
 
       if (!credentials) {
@@ -96,7 +97,7 @@ export const runModuleTurn = async (options: {
       const registry = new SessionRegistry(config);
       const incremental = options.streamContent && !lease.transformsReplies && !config.outputBlockedKeywords.length;
       const raw = await runToolChat({
-        config,
+        config: { ...config, defaultSystemPrompt: systemPrompt },
         credentials,
         input,
         context,
@@ -133,7 +134,9 @@ export const runModuleTurn = async (options: {
       await streamChat(config, sessionId, input, observe, context.userId, context.signal, context.capabilities, history, onCompleted);
     }
     context.signal.throwIfAborted();
-    await lease.activity(context.userText, answer, context).catch(() => logger.warn('AgentLink module activity hook failed'));
+    if (history?.record?.() !== false) {
+      await lease.activity(context.userText, answer, context).catch(() => logger.warn('AgentLink module activity hook failed'));
+    }
   } catch (error) {
     throw abortFailure(error, context.signal) ?? error;
   } finally {

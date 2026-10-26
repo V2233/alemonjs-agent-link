@@ -25,12 +25,10 @@ const plan = (source, extra = {}) => ({
 const fixture = async run => {
   const root = await mkdtemp(join(tmpdir(), 'memory-consolidation-'));
   const config = getDSHConfig({
-    'alemonjs-agent-link': {
-      stateBackend: 'local',
-      workspaceRoot: join(root, 'workspaces'),
-      dshHomeRoot: join(root, 'homes'),
-      modules: { settings: { memory: { automatic: false } } }
-    }
+    stateBackend: 'local',
+    workspaceRoot: join(root, 'workspaces'),
+    dshHomeRoot: join(root, 'homes'),
+    modules: { settings: { memory: { automatic: false } } }
   });
   const store = new MemoryStore(join(root, 'test-memory.sqlite'));
   const archive = new ChatArchive(join(root, 'test-history.sqlite'));

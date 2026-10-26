@@ -1,9 +1,8 @@
 import { Format, logger, useEvent, useMention, useMessage, useMedia } from 'alemonjs';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { extractPrompt, extractWakePrompt } from '@src/response/dsh/util';
-import { groupConversations } from '../../social/groups';
+import { groupConversations, scopedGroupPolicy } from '../../social/groups';
 import { respondToGroupBatch } from '../../social/respond';
-import { getGroupChatPolicy } from '../../social/group-policy';
 import { messageReferences } from '../../social/references';
 
 export default async (): Promise<void> => {
@@ -72,6 +71,7 @@ export default async (): Promise<void> => {
     const decision = await groupConversations.receive(
       {
         channelId: event.ChannelId,
+        platform: event.Platform,
         id: event.MessageId,
         userId: event.UserId,
         userKey: event.UserKey || event.UserId,
@@ -82,7 +82,7 @@ export default async (): Promise<void> => {
         media: references.media,
         referenceContext
       },
-      getGroupChatPolicy(getDSHConfig().groupChat, event.ChannelId),
+      scopedGroupPolicy(event.ChannelId, event.Platform),
       batch => respondToGroupBatch(event, { message, media }, batch)
     );
 

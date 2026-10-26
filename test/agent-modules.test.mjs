@@ -21,7 +21,7 @@ const turn = (overrides = {}) => ({
 });
 const fixture = async () => {
   const root = await mkdtemp(join(tmpdir(), 'agent-modules-'));
-  const config = getDSHConfig({ 'alemonjs-agent-link': { workspaceRoot: join(root, 'workspaces'), stateBackend: 'local' } });
+  const config = getDSHConfig({ workspaceRoot: join(root, 'workspaces'), stateBackend: 'local' });
 
   return { root, config, modules: join(root, 'modules') };
 };

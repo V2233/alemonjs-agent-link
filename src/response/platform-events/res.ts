@@ -6,6 +6,10 @@ import { cancelGroupChat } from '../../dsh/orchestrator';
 import { getConversationId } from '../dsh/util';
 import { getDSHConfig } from '../../dsh/client';
 import { SessionRegistry } from '../../state/registry';
+import { claimPoke } from '../../social/poke';
+import { runDSHChat } from '../dsh/chat';
+import { submitGroupChat } from '../../social/respond';
+import { useMedia, useMessage } from 'alemonjs';
 
 export default async (): Promise<void> => {
   const [context, next] = useEvent({ selects: [...contextEvents] });
@@ -18,6 +22,18 @@ export default async (): Promise<void> => {
 
     if (!eventContexts.record(event)) {
       return;
+    }
+    const config = getDSHConfig();
+
+    if (['notice.create', 'private.notice.create'].includes(event.name) && claimPoke(config, event)) {
+      const transport = { message: useMessage()[0], media: useMedia()[0] };
+      const prompt = '当前发言人刚刚戳了戳你。请自然地回应，可以适度使用 poke_speaker 回戳，不要每次都回戳。';
+
+      if (event.IsPrivate) {
+        await runDSHChat(event, prompt, { transport, userText: '[戳了戳你]' });
+      } else {
+        await submitGroupChat(event, prompt, transport);
+      }
     }
     if (['message.update', 'message.delete', 'private.message.update', 'private.message.delete'].includes(event.name)) {
       const channelId = getConversationId(event);

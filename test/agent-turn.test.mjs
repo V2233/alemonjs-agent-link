@@ -22,7 +22,7 @@ test('image turn without modules sends bytes to the model instead of DSH text pr
         stateBackend: 'local',
         workspaceRoot: join(root, 'work'),
         dshHomeRoot: join(root, 'home'),
-        modules: { disabled: ['memory', 'chat-history'] }
+        modules: { disabled: ['memory', 'chat-history', 'persona', 'mood'] }
       }
     }
   };

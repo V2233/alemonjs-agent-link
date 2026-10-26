@@ -24,6 +24,9 @@ const commandGroup = router.group({
   duplicateKey: 'throw'
 });
 
+commandGroup.use({ path: '人格', description: '查看及切换当前会话人格' }, () => import('@src/response/agent-persona/res'));
+commandGroup.use({ path: '心情', description: '查看当前会话心情及变化' }, () => import('@src/response/agent-mood/res'));
+
 commandGroup.use({ path: '清除聊天记录', description: '清除当前会话的持久化聊天归档' }, () => import('@src/response/history-clear/res'));
 
 commandGroup.use({ path: '我是主人', events: ['private.message.create'], description: '申请主人验证码' }, () => import('@src/response/master/res'));

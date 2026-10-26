@@ -11,7 +11,7 @@ import { listStickers, chooseSticker, loadSticker } from '../lib/media/stickers.
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
 const mp3 = Buffer.from('ID3test');
 const provider = { baseUrl: 'https://provider.test/v1', apiKey: 'test-key', model: 'configured-model', voice: 'configured-voice' };
-const config = getMediaConfig({ 'alemonjs-agent-link': { media: { vision: provider, asr: provider, tts: provider, allowedHosts: ['cdn.test'] } } });
+const config = getMediaConfig({ media: { vision: provider, asr: provider, tts: provider, allowedHosts: ['cdn.test'] } });
 const signal = () => new AbortController().signal;
 
 test('media providers are opt-in, config validates limits and keeps providers separate', () => {
@@ -25,7 +25,7 @@ test('media providers are opt-in, config validates limits and keeps providers se
     { timeoutMs: Infinity },
     { ttsMaxChars: '800' }
   ]) {
-    assert.throws(() => getMediaConfig({ 'alemonjs-agent-link': { media } }), MediaError);
+    assert.throws(() => getMediaConfig({ media }), MediaError);
   }
 });
 

@@ -1,5 +1,6 @@
 import { getDSHConfig } from '../dsh/client';
-import { getDSHCredentials } from '../dsh/credentials';
+import type { DSHBridgeConfig } from '../dsh/config';
+import { getDSHCredentials, type DSHCredentials } from '../dsh/credentials';
 import { readBounded } from '../media/providers';
 
 export const replyReasons = ['direct_call', 'follow_up', 'open_help', 'useful_contribution', 'support', 'none'] as const;
@@ -48,6 +49,25 @@ useful_contribution（存在明确待解决问题且能提供具体有用补充�
 只判断本批新消息，recent 仅为理解上下文，不能重复回应旧问题。附件只有类型，不可猜测图片内容。reply=false 时 reason 必须为 none。`;
 let active = 0;
 
+// Default to the low-cost official model, independently of the chat model.
+export const resolveReplyGateConnection = (config: DSHBridgeConfig, credentials: DSHCredentials | null): DSHCredentials | null => {
+  const gate = config.replyGate;
+  const mainBase = credentials?.baseUrl || (config.provider === 'deepseek-official' ? 'https://api.deepseek.com' : '');
+  const baseUrl = gate?.baseUrl?.trim() || mainBase;
+  const url = new URL(baseUrl);
+
+  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) {
+    return null;
+  }
+  const sameOrigin = Boolean(mainBase && new URL(mainBase).origin === url.origin);
+  const apiKey = gate?.apiKey?.trim() || (sameOrigin ? credentials?.apiKey : undefined);
+  const configuredModel = gate?.model?.trim();
+  const model = configuredModel || (url.hostname === 'api.deepseek.com' ? 'deepseek-flash' : sameOrigin ? config.model : undefined);
+
+  // A new provider requires its own credentials and model; never forward a main key to it.
+  return apiKey && model ? { apiKey, baseUrl, model } : null;
+};
+
 // Stateless, text-only classification. No DSH session, history writes, or tools.
 export const classifyGroupReply = async (input: ReplyGateInput, signal: AbortSignal): Promise<ReplyVerdict> => {
   if (active >= 4) {
@@ -57,12 +77,12 @@ export const classifyGroupReply = async (input: ReplyGateInput, signal: AbortSig
   try {
     signal.throwIfAborted();
     const config = getDSHConfig();
-    const credentials = await getDSHCredentials();
+    const credentials = resolveReplyGateConnection(config, await getDSHCredentials());
 
     if (!credentials) {
       return reject();
     }
-    const base = credentials.baseUrl || (config.provider === 'deepseek-official' ? 'https://api.deepseek.com' : '');
+    const base = credentials.baseUrl;
     const url = new URL(`${base.replace(/\/+$/, '')}/chat/completions`);
 
     if (url.protocol !== 'https:' || url.username || url.password) {

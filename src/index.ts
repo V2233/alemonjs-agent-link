@@ -1,13 +1,15 @@
 import { writeFile } from 'node:fs/promises';
-import { defineChildren, logger, setCron, onWatchConfigValue } from 'alemonjs';
+import { defineChildren, logger, setCron } from 'alemonjs';
 import response from '@src/router';
-import { getDSHConfig } from '@src/dsh/client';
+import { getDSHConfig, watchDSHConfig } from '@src/dsh/runtime-config';
 import { ensureDSHSupervisor } from '@src/dsh/supervisor';
 import { SessionRegistry } from '@src/state/registry';
 import { purgeGroupHashData } from '@src/dsh/client';
 import { getChatArchive } from './history/store';
 import { getModuleRuntime, closeModuleRuntime } from './agent/modules';
 import { getMemoryStore } from './memory/store';
+import { getMoodStore } from './companion/mood';
+import { getPlatformLedger } from './platform/ledger';
 let stopModuleConfigWatch: (() => void) | undefined;
 
 export default defineChildren({
@@ -21,9 +23,9 @@ export default defineChildren({
       const startupConfig = getDSHConfig();
 
       stopModuleConfigWatch?.();
-      stopModuleConfigWatch = onWatchConfigValue(value => {
+      stopModuleConfigWatch = watchDSHConfig(() => {
         try {
-          void getModuleRuntime(getDSHConfig(value as Parameters<typeof getDSHConfig>[0]))
+          void getModuleRuntime(getDSHConfig())
             .then(runtime => runtime.refresh())
             .catch(() => logger.warn('AgentLink module configuration reload failed'));
         } catch {
@@ -56,6 +58,8 @@ export default defineChildren({
 
         getChatArchive(config).cleanup();
         getMemoryStore(config).cleanup(config.retentionDays);
+        getMoodStore(config).cleanup(config.retentionDays);
+        getPlatformLedger(config).cleanup(config.retentionDays);
         const registry = new SessionRegistry(config);
 
         let groups = await registry.expiredGroups();

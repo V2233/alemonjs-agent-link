@@ -35,7 +35,7 @@ test('one-shot classifier uses main credentials, bounded context, no tools, and 
   try {
     globalThis.fetch = async (_url, options) => {
       const body = JSON.parse(options.body);
-      assert.equal(body.model, 'test-gate-model');
+      assert.equal(body.model, 'deepseek-flash');
       assert.deepEqual(body.thinking, { type: 'disabled' });
       assert.equal(body.tools, undefined);
       assert.equal(body.messages.length, 2);
@@ -85,5 +85,61 @@ test('classifier does not send DeepSeek-specific thinking parameters to other co
   } finally {
     globalThis.__config = oldConfig;
     globalThis.fetch = oldFetch;
+  }
+});
+
+test('gate model overrides are hot-read, independent, and never leak keys across providers', async () => {
+  const { classifyGroupReply } = await import('../lib/social/reply-gate.js');
+  const previousConfig = globalThis.__config,
+    previousFetch = globalThis.fetch;
+  const scenarios = [
+    { settings: { apiKey: 'main', model: 'deepseek-v4-pro' }, model: 'deepseek-flash', key: 'main', host: 'api.deepseek.com' },
+    { settings: { apiKey: 'main', model: 'expensive', replyGate: { model: 'custom-cheap' } }, model: 'custom-cheap', key: 'main', host: 'api.deepseek.com' },
+    { settings: { apiKey: 'main', baseUrl: 'https://other.test/v1', model: 'existing' }, model: 'existing', key: 'main', host: 'other.test' },
+    {
+      settings: { apiKey: 'main', replyGate: { baseUrl: 'https://other.test/v1', model: 'cheap', apiKey: 'separate' } },
+      model: 'cheap',
+      key: 'separate',
+      host: 'other.test'
+    },
+    { settings: { replyGate: { apiKey: 'standalone' } }, model: 'deepseek-flash', key: 'standalone', host: 'api.deepseek.com' },
+    { settings: { apiKey: 'main', replyGate: { model: '', baseUrl: '', apiKey: '' } }, model: 'deepseek-flash', key: 'main', host: 'api.deepseek.com' },
+    { settings: { apiKey: 'main', replyGate: { baseUrl: 'https://other.test/v1', model: 'cheap' } }, skip: true },
+    { settings: { apiKey: 'main', replyGate: { baseUrl: 'https://other.test/v1', apiKey: 'separate' } }, skip: true },
+    { settings: { replyGate: {} }, skip: true }
+  ];
+  try {
+    for (const scenario of scenarios) {
+      globalThis.__config = { value: { 'alemonjs-agent-link': scenario.settings } };
+      let called = false;
+      globalThis.fetch = async (url, options) => {
+        called = true;
+        assert.equal(scenario.skip, undefined);
+        assert.equal(url.hostname, scenario.host);
+        assert.equal(options.headers.Authorization, `Bearer ${scenario.key}`);
+        const body = JSON.parse(options.body);
+        assert.equal(body.model, scenario.model);
+        assert.equal(body.max_tokens, 120);
+        assert.equal(body.tools, undefined);
+        assert.equal(body.thinking?.type, scenario.host === 'api.deepseek.com' ? 'disabled' : undefined);
+        return Response.json({ choices: [{ message: { content: '{"reply":true,"reason":"support","source":"human","loopRisk":false}' } }] });
+      };
+      const result = await classifyGroupReply({ recent: [], messages: [] }, new AbortController().signal);
+      assert.equal(called, !scenario.skip);
+      assert.equal(result.reply, !scenario.skip);
+    }
+  } finally {
+    globalThis.__config = previousConfig;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('gate configuration rejects malformed fields without echoing credentials', async () => {
+  const { resolveDSHConfig } = await import('../lib/dsh/config.js');
+  for (const replyGate of [null, [], 'bad', { model: 1 }, { apiKey: true }, { baseUrl: 'http://bad.test' }, { baseUrl: 'https://secret@bad.test' }]) {
+    assert.throws(
+      () => resolveDSHConfig({ replyGate }),
+      error => error.message.includes('replyGate') && !error.message.includes('secret')
+    );
   }
 });

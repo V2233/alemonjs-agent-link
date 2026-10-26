@@ -48,22 +48,20 @@ test('startup diagnostics are specific and do not claim a session was reset', ()
 test('accepts default and bounded request timeouts, rejecting invalid values', () => {
   assert.equal(getDSHConfig({}).requestTimeoutMs, 120000);
   for (const requestTimeoutMs of [1, 120000, 300000]) {
-    assert.equal(getDSHConfig({ 'alemonjs-agent-link': { requestTimeoutMs } }).requestTimeoutMs, requestTimeoutMs);
+    assert.equal(getDSHConfig({ requestTimeoutMs }).requestTimeoutMs, requestTimeoutMs);
   }
   for (const requestTimeoutMs of [0, -1, 300001, 1.5, '120000', null]) {
-    assert.throws(() => getDSHConfig({ 'alemonjs-agent-link': { requestTimeoutMs } }), /DSH 配置/);
+    assert.throws(() => getDSHConfig({ requestTimeoutMs }), /DSH 配置/);
   }
 });
 
 test('reads credentials exclusively from AgentLink configuration', async () => {
   const { getDSHCredentials, saveDSHCredentials } = await import('../lib/dsh/credentials.js');
-  assert.deepEqual(
-    await getDSHCredentials({
-      'alemonjs-agent-link': { apiKey: 'configured-secret', baseUrl: 'https://models.example/v1' }
-    }),
-    { apiKey: 'configured-secret', baseUrl: 'https://models.example/v1' }
-  );
-  assert.equal(await getDSHCredentials({ 'alemonjs-agent-link': {} }), null);
+  assert.deepEqual(await getDSHCredentials({ apiKey: 'configured-secret', baseUrl: 'https://models.example/v1' }), {
+    apiKey: 'configured-secret',
+    baseUrl: 'https://models.example/v1'
+  });
+  assert.equal(await getDSHCredentials({}), null);
   await assert.rejects(() => saveDSHCredentials({ apiKey: 'replacement' }), /alemon.config.yaml/);
 });
 
@@ -187,9 +185,9 @@ test('derives shared group sessions, strips a leading bot mention, and guards re
   assert.equal(canReset({ IsMaster: true }), true);
   assert.equal(canReset({ IsMaster: false, IsAdmin: true }), true);
   assert.equal(canReset({ IsMaster: false }), false);
-  assert.throws(() => getDSHConfig({ 'alemonjs-agent-link': { maxMessageLength: 0 } }));
-  assert.throws(() => getDSHConfig({ 'alemonjs-agent-link': { maxConcurrentRequests: 0 } }));
-  assert.throws(() => getDSHConfig({ 'alemonjs-agent-link': { maxActiveWorkers: 201 } }));
+  assert.throws(() => getDSHConfig({ maxMessageLength: 0 }));
+  assert.throws(() => getDSHConfig({ maxConcurrentRequests: 0 }));
+  assert.throws(() => getDSHConfig({ maxActiveWorkers: 201 }));
 });
 
 test('defaults groups to web access while owner private sessions receive all tools', () => {

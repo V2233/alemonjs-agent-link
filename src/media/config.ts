@@ -1,4 +1,4 @@
-import { getConfigValue } from 'alemonjs';
+import { getAppConfigValue } from 'alemonjs';
 
 export type MediaProvider = { baseUrl: string; apiKey: string; model: string; voice?: string };
 export type MediaConfig = {
@@ -50,8 +50,8 @@ const provider = (value: unknown): MediaProvider | undefined => {
   return { baseUrl: input.baseUrl.replace(/\/+$/u, ''), apiKey: input.apiKey, model: input.model, voice: input.voice };
 };
 
-export const getMediaConfig = (value: unknown = getConfigValue()): MediaConfig => {
-  const raw = (value as { 'alemonjs-agent-link'?: { media?: Partial<MediaConfig> } })?.['alemonjs-agent-link']?.media ?? {};
+export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppConfigValue()): MediaConfig => {
+  const raw = value?.media ?? {};
   const config: MediaConfig = {
     allowedHosts: raw.allowedHosts ?? [],
     timeoutMs: raw.timeoutMs ?? 60000,

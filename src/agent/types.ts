@@ -3,9 +3,12 @@ import type { AgentCapabilities } from '../dsh/client';
 
 export type TurnContext = {
   requestId?: string;
+  inputId?: string;
+  addressed?: boolean;
   channelId: string;
   userId: string;
   platform: string;
+  botId?: string;
   private: boolean;
   owner: boolean;
   userText: string;
@@ -37,6 +40,7 @@ export type AgentTool = {
 };
 
 export type ModuleHooks = {
+  system: (prompt: string, context: TurnContext) => string | Promise<string>;
   context: (context: TurnContext) => string | Promise<string>;
   prompt: (input: ChatInput, context: TurnContext) => ChatInput | Promise<ChatInput>;
   reply: (text: string, context: TurnContext) => string | Promise<string>;

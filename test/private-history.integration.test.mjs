@@ -5,7 +5,7 @@ import { getDSHConfig } from '../lib/dsh/client.js';
 import { SessionRegistry } from '../lib/state/registry.js';
 
 test('Redis private history bounds, isolation, generation guard and deletion', { skip: process.env.AGENT_LINK_HISTORY_INTEGRATION !== '1' }, async () => {
-  const config = getDSHConfig({ 'alemonjs-agent-link': { privateHistoryMaxTurns: 2, privateHistoryMaxChars: 12, privateHistoryTtlSeconds: 60 } });
+  const config = getDSHConfig({ privateHistoryMaxTurns: 2, privateHistoryMaxChars: 12, privateHistoryTtlSeconds: 60 });
   const registry = new SessionRegistry(config);
   const channelId = `private:test-${randomUUID()}`;
   const reset = await registry.beginReset(channelId);

@@ -7,6 +7,7 @@ import { decideGroupReply, groupTopicRelevance, type GroupChatPolicy, type Group
 
 export type GroupMessage = {
   channelId: string;
+  platform?: string;
   id?: string;
   userId: string;
   userKey: string;
@@ -59,7 +60,7 @@ export class GroupConversationCoordinator {
       onTiming?: (timing: { waitMs: number; gateMs: number; responseMs: number; totalMs: number }) => void;
       onError?: (error: unknown) => void;
       classify?: (input: ReplyGateInput, signal: AbortSignal) => Promise<ReplyVerdict>;
-      getPolicy?: (channelId: string) => GroupChatPolicy;
+      getPolicy?: (channelId: string, platform?: string) => GroupChatPolicy;
     } = {}
   ) {}
 
@@ -248,7 +249,7 @@ export class GroupConversationCoordinator {
     let responseMs = 0;
 
     try {
-      const policy = this.services.getPolicy?.(channelId) || pending.policy;
+      const policy = this.services.getPolicy?.(channelId, pending.anchor.message.platform) || pending.policy;
       const now = this.now();
       const decision = decideGroupReply({
         policy,

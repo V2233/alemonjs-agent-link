@@ -9,11 +9,10 @@ import { getDSHConfig as getConfig } from '../lib/dsh/client.js';
 import { SessionRegistry } from '../lib/state/registry.js';
 
 const root = await mkdtemp(join(tmpdir(), 'agent-link-local-'));
-const getDSHConfig = (value = {}) =>
-  getConfig({ 'alemonjs-agent-link': { ...value['alemonjs-agent-link'], stateBackend: 'local', dshHomeRoot: join(root, 'homes') } });
+const getDSHConfig = (value = {}) => getConfig({ ...value, stateBackend: 'local', dshHomeRoot: join(root, 'homes') });
 
 test('Local private history bounds, isolation, generation guard and deletion', {}, async () => {
-  const config = getDSHConfig({ 'alemonjs-agent-link': { privateHistoryMaxTurns: 2, privateHistoryMaxChars: 12, privateHistoryTtlSeconds: 60 } });
+  const config = getDSHConfig({ privateHistoryMaxTurns: 2, privateHistoryMaxChars: 12, privateHistoryTtlSeconds: 60 });
   const registry = new SessionRegistry(config);
   const channelId = `private:test-${randomUUID()}`;
   const reset = await registry.beginReset(channelId);
@@ -153,10 +152,10 @@ test('local state survives process restart and rejects simultaneous owners', asy
 
 test('backend selection preserves explicit Redis deployments and validates sources', () => {
   assert.equal(getConfig({}).stateBackend, 'local');
-  assert.equal(getConfig({ db: { redis: { host: 'localhost' } } }).stateBackend, 'redis');
-  assert.equal(getConfig({ db: { redis: {} }, 'alemonjs-agent-link': { stateBackend: 'local' } }).stateBackend, 'local');
+  assert.equal(getConfig({}, { hasRedis: true }).stateBackend, 'redis');
+  assert.equal(getConfig({ stateBackend: 'local' }, { hasRedis: true }).stateBackend, 'local');
   for (const pythonPackageSources of [[], ['http://unsafe/simple'], ['https://user:password@example.com/simple']]) {
-    assert.throws(() => getConfig({ 'alemonjs-agent-link': { pythonPackageSources } }));
+    assert.throws(() => getConfig({ pythonPackageSources }));
   }
 });
 
@@ -178,4 +177,17 @@ test('abandoned legacy recovery marker is reclaimed and reads do not rewrite the
   assert.deepEqual(await store.scan('0', 'MATCH', 'k*', 'COUNT', 100), ['0', []]);
   // Store owns this file until the test process exits; the marker must already be gone.
   await assert.rejects(readFile(`${path}.lock.recovery`, 'utf8'), { code: 'ENOENT' });
+});
+
+test('a removed lock fails closed on reads and writes instead of throwing from a heartbeat callback', async () => {
+  const { getLocalStore } = await import('../lib/state/local-store.js');
+  const { rm } = await import('node:fs/promises');
+  const path = join(await mkdtemp(join(tmpdir(), 'agent-link-lost-lock-')), 'state.json');
+  const store = await getLocalStore(path);
+  await store.set('key', 'original');
+  await rm(`${path}.lock.owner`, { recursive: true });
+  await assert.rejects(store.get('key'), { code: 'ELOCKLOST' });
+  await assert.rejects(store.set('key', 'changed'), { code: 'ELOCKLOST' });
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  await assert.rejects(getLocalStore(path), { code: 'ELOCKLOST' });
 });

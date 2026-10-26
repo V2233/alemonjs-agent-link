@@ -68,19 +68,20 @@ export default {
 | `api.settings`                                           | 本模块设置的独立副本，不含其他模块配置或模型凭证 |
 | `api.dataDirectory`                                      | 本模块持久数据目录                               |
 | `api.tool(tool)`                                         | 注册业务工具，参数在执行前重新校验               |
+| `api.on('system', (prompt, context) => string)`          | 转换本轮系统提示词；非空且最多32000字符          |
 | `api.on('context', context => string)`                   | 追加本轮参考资料                                 |
 | `api.on('prompt', (input, context) => input)`            | 转换文字或原生图片输入块                         |
 | `api.on('reply', (text, context) => string)`             | 完整回答生成后、发送前转换回复                   |
 | `api.on('activity', ({input, output}, context) => void)` | 回复完整发送后的活动处理                         |
 | `api.onDispose(cleanup)`                                 | 模块卸载或替换后的资源清理                       |
 
-`context` 包含 `channelId`、`userId`、`platform`、`private`、`owner`、当前原始 `userText`、本轮 `capabilities` 和 `signal`。`owner` 来自事件的主人身份，不能根据昵称或模型参数判断。工具使用 `available(context)` 决定是否在当前回合开放，执行时还会复核。
+`context` 包含 `channelId`、`userId`、`platform`、`private`、`owner`、当前原始 `userText`、本轮 `capabilities` 和 `signal`，以及可选的 `requestId`、原始输入 `inputId`、是否直接呼唤的 `addressed`。`owner` 来自事件的主人身份，不能根据昵称或模型参数判断。工具使用 `available(context)` 决定是否在当前回合开放，执行时还会复核。`activity` 只在完整送达后执行，主动沉默不触发。
 
 工具参数支持 object、array、string、boolean、number、integer，以及必填、枚举、长度和数值范围。object 默认拒绝未声明的参数，除非显式设置 `additionalProperties: true`。工具返回可 JSON 序列化的业务结果；推荐 `{ok, message, ...data}`，不要返回凭证。异常给模型的结果统一为失败，不包含异常堆栈。
 
 ## 模型与历史
 
-存在可用业务工具或回复转换模块时，主模型通过兼容 Chat Completions 的 function tools 完成调用循环。配置的模型服务必须支持工具调用；服务不支持时本轮报错，不假装执行成功。
+存在可用业务工具、回复转换模块或本轮系统提示词变化时，主模型通过兼容 Chat Completions 的 function tools 完成调用循环。存在工具时配置的模型服务必须支持工具调用；服务不支持时本轮报错，不假装执行成功。内置人格和心情见[人格、心情与自动表达](companion.md)。
 
 网页、文件和终端任务仍在已有隔离 DSH 会话中执行，主模型通过 `agent_workspace` 获取真实执行结果。该工具仅在沙箱已就绪且当前策略允许相应能力时提供。Node 降级模式只开放已注册的业务工具，不会通过模块工具获得宿主机终端权限。
 

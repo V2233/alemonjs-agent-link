@@ -1,8 +1,7 @@
 import { messageReferences } from './references';
 import { runDSHChat, type ChatEvent } from '../response/dsh/chat';
 import { buildGroupBatchPrompt, type GroupBatch, type GroupBatchResult } from './group-conversation';
-import { groupConversations } from './groups';
-import { getGroupChatPolicy } from './group-policy';
+import { groupConversations, scopedGroupPolicy } from './groups';
 import { getDSHConfig } from '../dsh/client';
 import { SessionRegistry } from '../state/registry';
 import { Format, logger } from 'alemonjs';
@@ -103,6 +102,7 @@ export const submitGroupChat = async (event: ChatEvent, prompt: string, transpor
   await groupConversations.receive(
     {
       channelId: event.ChannelId,
+      platform: event.Platform,
       id: event.MessageId,
       userId: event.UserId || 'unknown',
       userKey: event.UserKey || event.UserId || 'unknown',
@@ -115,7 +115,7 @@ export const submitGroupChat = async (event: ChatEvent, prompt: string, transpor
       voice,
       explicitCommand: true
     },
-    getGroupChatPolicy(getDSHConfig().groupChat, event.ChannelId),
+    scopedGroupPolicy(event.ChannelId, event.Platform),
     batch => respondToGroupBatch(event, transport, batch)
   );
 };

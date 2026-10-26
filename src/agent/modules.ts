@@ -7,6 +7,9 @@ import type { DSHBridgeConfig } from '../dsh/client';
 import type { ChatInput } from '../dsh/input';
 import { memoryModule } from '../modules/memory';
 import { chatHistoryModule } from '../modules/chat-history';
+import { personaModule } from '../modules/persona';
+import { moodModule } from '../modules/mood';
+import { platformModule, groupAdminModule } from '../modules/platform';
 import { validateArguments } from './schema';
 import type { AgentModule, AgentTool, ModuleApi, ModuleConfig, ModuleHooks, TurnContext } from './types';
 
@@ -119,6 +122,24 @@ export class ModuleLease {
     return this.modules.flatMap(module => module.tools).filter(tool => !tool.available || tool.available(context));
   }
 
+  get transformsSystem(): boolean {
+    return this.modules.some(module => module.hooks.system.length > 0);
+  }
+
+  async system(prompt: string, context: TurnContext): Promise<string> {
+    for (const module of this.modules) {
+      for (const handler of module.hooks.system) {
+        context.signal.throwIfAborted();
+        prompt = await handler(prompt, context);
+        if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 32000) {
+          throw new Error('模块系统提示词无效或过长。');
+        }
+      }
+    }
+
+    return prompt;
+  }
+
   async context(context: TurnContext): Promise<string> {
     const parts: string[] = [];
 
@@ -205,7 +226,14 @@ export class ModuleRuntime {
 
   constructor(
     private readonly config: DSHBridgeConfig,
-    private readonly builtins: AgentModule[] = [memoryModule(config), chatHistoryModule(config)]
+    private readonly builtins: AgentModule[] = [
+      personaModule(config),
+      moodModule(config),
+      platformModule(config),
+      groupAdminModule(config),
+      memoryModule(config),
+      chatHistoryModule(config)
+    ]
   ) {}
 
   status(): ModuleStatus[] {
@@ -279,7 +307,7 @@ export class ModuleRuntime {
       revision,
       source,
       tools: [],
-      hooks: { context: [], prompt: [], reply: [], activity: [] },
+      hooks: { system: [], context: [], prompt: [], reply: [], activity: [] },
       cleanups: [],
       users: 0,
       retired: false

@@ -149,7 +149,7 @@ test('offline validation and runtime reject the same invalid settings', async ()
     { groupChat: { maxPerHour: -1 } }
   ]) {
     const value = { 'alemonjs-agent-link': { apiKey: 'configured', ...patch } };
-    assert.throws(() => resolveDSHConfig(value));
+    assert.throws(() => resolveDSHConfig(value['alemonjs-agent-link']));
     assert.equal(
       inspectConfig(value).some(item => item.status === 'error'),
       true

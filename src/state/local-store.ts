@@ -23,19 +23,30 @@ export const getLocalStore = (path: string): Promise<LocalStore> => {
     stores.set(path, pending);
   }
 
-  return pending;
+  return pending.then(store => {
+    store.assertOwnership();
+
+    return store;
+  });
 };
 
 export class LocalStore {
   private entries: Record<string, Entry> = Object.create(null);
   private queue: Promise<unknown> = Promise.resolve();
 
-  private constructor(private readonly path: string) {}
+  private constructor(
+    private readonly path: string,
+    private readonly ownership: { assertOwned(): void }
+  ) {}
+
+  assertOwnership(): void {
+    this.ownership.assertOwned();
+  }
 
   static async open(path: string): Promise<LocalStore> {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     const ownership = await acquireProcessLock(`${path}.lock`);
-    const store = new LocalStore(path);
+    const store = new LocalStore(path, ownership);
 
     try {
       try {
@@ -66,6 +77,7 @@ export class LocalStore {
 
   private transaction<T>(action: () => T): Promise<T> {
     const result = this.queue.then(async () => {
+      this.assertOwnership();
       const previous = structuredClone(this.entries);
       const temp = `${this.path}.${randomUUID()}.tmp`;
 
@@ -78,6 +90,7 @@ export class LocalStore {
         const value = action();
 
         await writeFile(temp, JSON.stringify({ version: 1, entries: this.entries }), { mode: 0o600, flush: true });
+        this.assertOwnership();
         await rename(temp, this.path);
 
         return value;
@@ -94,7 +107,11 @@ export class LocalStore {
   }
 
   private read<T>(action: () => T): Promise<T> {
-    const result = this.queue.then(action);
+    const result = this.queue.then(() => {
+      this.assertOwnership();
+
+      return action();
+    });
 
     this.queue = result.catch(() => undefined);
 

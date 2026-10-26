@@ -23,6 +23,9 @@
     ".": {
       "import": "./lib/index.js"
     },
+    "./onebot": {
+      "import": "./lib/onebot/index.js"
+    },
     "./package": "./package.json"
   },
   "scripts": {
@@ -43,8 +46,9 @@
     "prepack": "npm run build"
   },
   "devDependencies": {
-    "@alemonjs/discord": "^2.1.27",
-    "@alemonjs/process": "^0.0.8",
+    "@alemonjs/db": "^0.0.21",
+    "@alemonjs/qq-bot": "^2.1.41",
+    "alemonjs": "^2.1.116",
     "@eslint/js": "^9.14.0",
     "@types/node": "^26.6.5",
     "@types/uuid": "^10.0.0",
@@ -63,8 +67,7 @@
     "sass": "^1.83.0",
     "tailwindcss": "^3",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-eslint": "^8.19.1",
-    "ws": "8.18.1"
+    "typescript-eslint": "^8.19.1"
   },
   "keywords": [
     "alemonjs"
@@ -234,9 +237,7 @@
   },
   "packageManager": "yarn@1.22.22",
   "dependencies": {
-    "@alemonjs/db": "^0.0.21",
-    "@alemonjs/qq-bot": "^2.1.41",
-    "alemonjs": "^2.1.114",
+    "ws": "8.18.1",
     "proper-lockfile": "^4.1.2",
     "qrcode": "^1.5.4",
     "yaml": "^2.9.1"

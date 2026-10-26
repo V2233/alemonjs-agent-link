@@ -246,7 +246,16 @@ export const cancelChatForUser = (channelId: string, userId: string, privileged:
 };
 
 export const runCoordinatedChat = async (
-  event: { ChannelId: string; MessageId?: string; UserKey?: string; UserId?: string; Platform?: string; IsPrivate?: boolean; IsMaster?: boolean },
+  event: {
+    ChannelId: string;
+    MessageId?: string;
+    UserKey?: string;
+    UserId?: string;
+    Platform?: string;
+    BotId?: string;
+    IsPrivate?: boolean;
+    IsMaster?: boolean;
+  },
   message: string,
   onEvent: (event: DSHStreamEvent) => Promise<void>,
   onQueued?: (ahead: number) => Promise<void>,
@@ -259,6 +268,8 @@ export const runCoordinatedChat = async (
     execute?: (signal: AbortSignal) => Promise<void>;
     userText?: string;
     recordHistory?: () => boolean;
+    inputId?: string;
+    addressed?: boolean;
     renderAnswer?: (text: string) => string;
   }
 ): Promise<CoordinatedChatResult> => {
@@ -313,9 +324,12 @@ export const runCoordinatedChat = async (
               streamContent: mediaTask?.streamContent,
               context: {
                 requestId: duplicate.requestId,
+                inputId: mediaTask?.inputId || event.MessageId || duplicate.requestId,
+                addressed: mediaTask?.addressed,
                 channelId: event.ChannelId,
                 userId: event.UserId || event.UserKey || 'unknown',
                 platform: event.Platform || '',
+                botId: event.BotId,
                 private: event.ChannelId.startsWith('private:'),
                 owner: Boolean(event.IsMaster),
                 userText: mediaTask?.userText ?? message,

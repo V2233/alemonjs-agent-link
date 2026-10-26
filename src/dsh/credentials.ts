@@ -1,4 +1,4 @@
-import { getConfigValue } from 'alemonjs';
+import { getAppConfigValue } from 'alemonjs';
 
 export type DSHCredentials = {
   apiKey: string;
@@ -7,16 +7,13 @@ export type DSHCredentials = {
 };
 
 type CredentialConfig = {
-  'alemonjs-agent-link'?: {
-    apiKey?: unknown;
-    baseUrl?: unknown;
-  };
+  apiKey?: unknown;
+  baseUrl?: unknown;
 };
 
 const managedByConfigMessage = '模型凭证由 alemon.config.yaml 管理，保存配置后，后续请求自动使用新配置，无需重启机器人。';
 
-export const getDSHCredentials = (value: CredentialConfig = getConfigValue()): Promise<DSHCredentials | null> => {
-  const config = value?.['alemonjs-agent-link'];
+export const getDSHCredentials = (config: CredentialConfig = getAppConfigValue<CredentialConfig>()): Promise<DSHCredentials | null> => {
   const apiKey = typeof config?.apiKey === 'string' ? config.apiKey.trim() : '';
 
   if (!apiKey) {

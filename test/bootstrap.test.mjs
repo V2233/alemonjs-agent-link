@@ -10,11 +10,9 @@ import { getDSHConfig } from '../lib/dsh/client.js';
 const configFor = async () => {
   const root = await mkdtemp(join(tmpdir(), 'agent-link-bootstrap-'));
   return getDSHConfig({
-    'alemonjs-agent-link': {
-      dshHomeRoot: join(root, 'homes'),
-      pythonExecutable: join(root, 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'),
-      pythonPackageSources: ['https://first.example/simple', 'https://second.example/simple']
-    }
+    dshHomeRoot: join(root, 'homes'),
+    pythonExecutable: join(root, 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'),
+    pythonPackageSources: ['https://first.example/simple', 'https://second.example/simple']
   });
 };
 
@@ -104,12 +102,9 @@ test('auto mode remains usable with no Python or sandbox commands on PATH', asyn
 
 test('moving the data root also moves managed Python without extra configuration', () => {
   const root = join(tmpdir(), 'agent-link-relocated');
-  const config = getDSHConfig({ 'alemonjs-agent-link': { dshHomeRoot: join(root, 'homes') } });
+  const config = getDSHConfig({ dshHomeRoot: join(root, 'homes') });
   assert.equal(config.pythonExecutable, join(root, 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'));
-  assert.equal(
-    getDSHConfig({ 'alemonjs-agent-link': { dshHomeRoot: join(root, 'homes'), pythonExecutable: '/custom/python' } }).pythonExecutable,
-    '/custom/python'
-  );
+  assert.equal(getDSHConfig({ dshHomeRoot: join(root, 'homes'), pythonExecutable: '/custom/python' }).pythonExecutable, '/custom/python');
 });
 
 test('stop cancels preparation and cannot be overwritten by a late successful launch', async () => {
