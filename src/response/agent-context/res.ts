@@ -13,7 +13,7 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   if (event.IsPrivate || !event.ChannelId) {
-    await message.send({ format: Format.create().addMarkdownOriginal('/agentcontext 仅可在群聊中使用。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('/聊天参考 仅可在群聊中使用。') });
 
     return;
   }

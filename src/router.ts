@@ -29,6 +29,8 @@ commandGroup.use(
   () => import('@src/response/agent-proactive/res')
 );
 
+commandGroup.use({ path: '额度', description: '查询今日额度；主人可手动增加、设置、查看调整记录' }, () => import('@src/response/agent-budget/res'));
+
 commandGroup.use({ path: '人格', description: '查看及切换当前会话人格' }, () => import('@src/response/agent-persona/res'));
 commandGroup.use({ path: '心情', description: '查看当前会话心情及变化' }, () => import('@src/response/agent-mood/res'));
 
@@ -152,6 +154,27 @@ commandGroup.use(
   },
   () => import('@src/response/agent-chat/res')
 );
+
+// QQ 常驻指令面板使用中文入口，英文命令继续兼容。
+commandGroup.use({ path: '提问', description: '向 Agent 发送消息' }, () => import('@src/response/agent-chat/res'));
+commandGroup.use({ path: '取消', description: '取消自己的请求' }, () => import('@src/response/agent-cancel/res'));
+commandGroup.use({ path: '新会话', description: '开始新的会话' }, () => import('@src/response/agent-new/res'));
+commandGroup.use({ path: '聊天参考', description: '查看近期聊天参考' }, () => import('@src/response/agent-context/res'));
+commandGroup.use({ path: '工具策略', description: '主人管理当前群 Agent 工具策略' }, () => import('@src/response/agent-policy/res'));
+commandGroup.use({ path: '状态', description: '查看服务状态' }, () => import('@src/response/agent-status/res'));
+commandGroup.use({ path: '隐私说明', description: '查看聊天数据与隐私说明' }, () => import('@src/response/agent-privacy/res'));
+commandGroup.use({ path: '帮助', description: '查看使用说明' }, () => import('@src/response/agent-help/res'));
+commandGroup.use({ path: '模型列表', events: ['private.message.create'], description: '主人私聊查看可用模型' }, () => import('@src/response/agent-models/res'));
+commandGroup.use(
+  { path: '当前模型', events: ['private.message.create'], description: '主人私聊查看当前配置模型' },
+  () => import('@src/response/agent-model/res')
+);
+
+commandGroup.use({ path: '聊天参考 清除', description: '清除近期聊天参考' }, () => import('@src/response/agent-context-clear/res'));
+commandGroup.use({ path: '清除群数据', description: '主人清除当前群 Agent 数据' }, () => import('@src/response/agent-purge/res'));
+commandGroup.use({ path: '模块状态', events: ['private.message.create'], description: '主人查看模块状态' }, () => import('@src/response/agent-modules/res'));
+commandGroup.use({ path: '密钥配置', events: ['private.message.create'], description: '主人查看密钥配置指引' }, () => import('@src/response/agent-bind/res'));
+commandGroup.use({ path: '移除密钥', events: ['private.message.create'], description: '主人查看密钥移除指引' }, () => import('@src/response/agent-unbind/res'));
 
 commandGroup.use({ path: '语音', description: '使用 AI 合成语音回答，不可用时回退文字' }, () => import('@src/response/agent-voice/res'));
 commandGroup.use({ path: '表情', description: '列出或发送配置的表情素材' }, () => import('@src/response/agent-sticker/res'));

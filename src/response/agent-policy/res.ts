@@ -14,7 +14,7 @@ export default async (): Promise<void> => {
   const event = eventContext.current;
 
   if (event.IsPrivate) {
-    await message.send({ format: Format.create().addMarkdownOriginal('请到需要管理的目标群里使用 `/agentpolicy`。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('请到需要管理的目标群里使用 `/工具策略`。') });
 
     return;
   }
@@ -26,7 +26,10 @@ export default async (): Promise<void> => {
   }
   try {
     const registry = new SessionRegistry(getDSHConfig());
-    const requested = String(route.rawArgs[0] || 'status').toLowerCase();
+    const capabilityNames: Record<string, string> = { chat: '聊天', web: '网页', files: '文件', terminal: '终端' };
+    const aliases: Record<string, string> = { 状态: 'status', 聊天: 'chat', 网页: 'web', 文件: 'files', 终端: 'terminal' };
+    const rawRequested = String(route.rawArgs[0] || 'status').toLowerCase();
+    const requested = aliases[rawRequested] || rawRequested;
 
     if (requested === 'status') {
       await message.send({
@@ -37,10 +40,11 @@ export default async (): Promise<void> => {
 
       return;
     }
-    const enabled = String(route.rawArgs[1] || '').toLowerCase();
+    const rawEnabled = String(route.rawArgs[1] || '').toLowerCase();
+    const enabled = rawEnabled === '开启' ? 'on' : rawEnabled === '关闭' ? 'off' : rawEnabled;
 
     if (!['chat', 'web', 'files', 'terminal'].includes(requested) || !['on', 'off'].includes(enabled)) {
-      await message.send({ format: Format.create().addMarkdownOriginal('用法：/agentpolicy status | chat|web|files|terminal on|off') });
+      await message.send({ format: Format.create().addMarkdownOriginal('用法：/工具策略 状态，或 /工具策略 聊天|网页|文件|终端 开启|关闭') });
 
       return;
     }
@@ -49,7 +53,7 @@ export default async (): Promise<void> => {
     await registry.setPolicy(event.ChannelId, { ...policy, [requested]: enabled === 'on' });
     await resetGroupSession(event.ChannelId, getDSHConfig());
     await message.send({
-      format: Format.create().addMarkdownOriginal(`已${enabled === 'on' ? '开启' : '关闭'}当前群的 ${requested} 权限，并开始新的隔离会话。`)
+      format: Format.create().addMarkdownOriginal(`已${enabled === 'on' ? '开启' : '关闭'}当前群的 ${capabilityNames[requested]}权限，并开始新的隔离会话。`)
     });
   } catch {
     await message.send({ format: Format.create().addMarkdownOriginal('策略暂时无法读取，请稍后再试。') });

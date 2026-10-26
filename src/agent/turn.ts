@@ -1,3 +1,4 @@
+import { withBudgetScope } from '../billing/budget';
 import { modelContext } from '../dsh/model-context';
 import { logger } from 'alemonjs';
 import { abortFailure } from '../dsh/errors';
@@ -10,7 +11,7 @@ import { getModuleConfig, getModuleRuntime } from './modules';
 import { runToolChat } from './tool-chat';
 import type { AgentTool, TurnContext } from './types';
 
-export const runModuleTurn = async (options: {
+const runModuleTurnInner = async (options: {
   config: DSHBridgeConfig;
   sessionId: string;
   input: ChatInput;
@@ -165,3 +166,6 @@ export const runModuleTurn = async (options: {
     await lease.release();
   }
 };
+
+export const runModuleTurn = (options: Parameters<typeof runModuleTurnInner>[0]): Promise<void> =>
+  withBudgetScope(options.context, () => runModuleTurnInner(options));

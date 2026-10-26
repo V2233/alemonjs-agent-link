@@ -16,7 +16,7 @@ export default async (): Promise<void> => {
   const event = eventContext.current;
 
   if (event.IsPrivate) {
-    await message.send({ format: Format.create().addMarkdownOriginal('请到需要清理的目标群里使用 `/agentpurge`。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('请到需要清理的目标群里使用 `/清除群数据`。') });
 
     return;
   }
@@ -29,13 +29,13 @@ export default async (): Promise<void> => {
 
   const actor = event.UserKey || 'master';
   const confirmation = confirmations.get(event.ChannelId);
-  const confirmed = String(route.rawArgs[0] ?? '').toLowerCase() === 'confirm';
+  const confirmed = ['confirm', '确认'].includes(String(route.rawArgs[0] ?? '').toLowerCase());
 
   if (!confirmed) {
     confirmations.set(event.ChannelId, { actor, expiresAt: Date.now() + confirmationTtlMs });
     await message.send({
       format: Format.create().addMarkdownOriginal(
-        '## 即将彻底删除本群数据\n会删除 Agent 会话、工作区、聊天归档和近期聊天参考，且无法恢复。\n\n请由你本人在 **60 秒内** 发送：`/agentpurge confirm`'
+        '## 即将彻底删除本群数据\n会删除 Agent 会话、工作区、聊天归档和近期聊天参考，且无法恢复。\n\n请由你本人在 **60 秒内** 发送：`/清除群数据 确认`'
       )
     });
 
@@ -44,7 +44,7 @@ export default async (): Promise<void> => {
 
   if (confirmation?.actor !== actor || (confirmation?.expiresAt ?? 0) < Date.now()) {
     confirmations.delete(event.ChannelId);
-    await message.send({ format: Format.create().addMarkdownOriginal('确认已过期或不匹配。请先重新发送 `/agentpurge`。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('确认已过期或不匹配。请先重新发送 `/清除群数据`。') });
 
     return;
   }

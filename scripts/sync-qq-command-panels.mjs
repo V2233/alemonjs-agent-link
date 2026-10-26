@@ -21,14 +21,14 @@ const panels = [
     panel: {
       remark: `${MANAGED_REMARK_PREFIX} group`,
       items: [
-        command('/chat ', '向 Agent 提问'),
-        command('/cancel', '取消自己的请求'),
-        command('/new', '开始新的群会话', true),
-        command('/agentcontext', '查看近期聊天参考'),
-        command('/agentpolicy', '查看本群工具策略', true),
-        command('/agentstatus', '查看服务状态'),
-        command('/agentprivacy', '查看数据与隐私说明'),
-        command('/agenthelp', '查看完整使用说明')
+        command('/提问 ', '向 Agent 提问'),
+        command('/取消', '取消自己的请求'),
+        command('/新会话', '开始新的群会话', true),
+        command('/聊天参考', '查看近期聊天参考'),
+        command('/工具策略', '查看本群工具策略', true),
+        command('/状态', '查看服务状态'),
+        command('/隐私说明', '查看数据与隐私说明'),
+        command('/帮助', '查看完整使用说明')
       ]
     }
   },
@@ -38,11 +38,11 @@ const panels = [
     panel: {
       remark: `${MANAGED_REMARK_PREFIX} owner-c2c`,
       items: [
-        command('/chat ', '向 Agent 提问'),
-        command('/agentstatus', '查看完整服务状态'),
-        command('/agentmodels', '查看可用模型'),
-        command('/agentmodel', '查看当前配置模型'),
-        command('/agenthelp', '查看完整管理说明')
+        command('/提问 ', '向 Agent 提问'),
+        command('/状态', '查看完整服务状态'),
+        command('/模型列表', '查看可用模型'),
+        command('/当前模型', '查看当前配置模型'),
+        command('/帮助', '查看完整管理说明')
       ]
     }
   }

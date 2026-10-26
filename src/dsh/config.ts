@@ -1,3 +1,4 @@
+import type { BudgetConfig } from '../billing/budget';
 import { dirname, join, resolve } from 'node:path';
 import { dafeiyuPrompt } from './persona';
 import { DSHError } from './errors';
@@ -8,6 +9,7 @@ export type AgentConfig = Partial<DSHBridgeConfig> & { baseUrl?: string; apiKey?
 export type ConfigContext = { cwd?: string; configPath?: string; dataRoot?: string; hasRedis?: boolean };
 
 export type DSHBridgeConfig = {
+  budget?: BudgetConfig;
   transport?: 'qq-bot' | 'onebot';
   replyGate?: { model?: string; baseUrl?: string; apiKey?: string };
   groupChat?: GroupChatConfig;
@@ -219,6 +221,21 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
   }
   if (typeof agentLink?.apiKey === 'string' && !agentLink.apiKey.trim()) {
     /* Unconfigured, handled by the setup flow. */
+  }
+  if (config.budget !== undefined) {
+    const b = config.budget;
+
+    if (!b || typeof b !== 'object' || Array.isArray(b) || (b.enabled !== undefined && typeof b.enabled !== 'boolean')) {
+      throw new DSHError('protocol', 'budget 配置无效');
+    }
+    for (const field of ['groupDailyYuan', 'privateDailyYuan', 'globalDailyYuan'] as const) {
+      if (b[field] !== undefined && (!Number.isFinite(b[field]) || b[field] < 0 || b[field] > 10000)) {
+        throw new DSHError('protocol', `budget.${field} 需要为 0–10000 元`);
+      }
+    }
+    if (b.maxOutputTokens !== undefined && (!Number.isSafeInteger(b.maxOutputTokens) || b.maxOutputTokens < 1 || b.maxOutputTokens > 8192)) {
+      throw new DSHError('protocol', 'budget.maxOutputTokens 需要为 1–8192 的整数');
+    }
   }
   const integerFields = [
     config.privateHistoryMaxTurns,

@@ -1,11 +1,19 @@
+import { budgetEnabled, budgetStatus, type BudgetScope } from '../billing/budget';
 import { getDSHConfig } from '../dsh/client';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { getDSHCredentials, type DSHCredentials } from '../dsh/credentials';
 import { readBounded } from '../media/providers';
 
 export const replyReasons = ['direct_call', 'follow_up', 'open_help', 'useful_contribution', 'support', 'none'] as const;
-export type ReplyVerdict = { reply: boolean; reason: (typeof replyReasons)[number]; source?: 'human' | 'automated' | 'unknown'; loopRisk?: boolean };
+export type ReplyVerdict = {
+  budgetBlocked?: boolean;
+  reply: boolean;
+  reason: (typeof replyReasons)[number];
+  source?: 'human' | 'automated' | 'unknown';
+  loopRisk?: boolean;
+};
 export type ReplyGateInput = {
+  scope?: BudgetScope;
   recent: { speaker: string; text: string }[];
   messages: { speaker: string; text: string; called: boolean; references?: string; media: string[] }[];
 };
@@ -71,7 +79,7 @@ export const resolveReplyGateConnection = (config: DSHBridgeConfig, credentials:
 };
 
 // Stateless, text-only classification. No DSH session, history writes, or tools.
-export const classifyGroupReply = async (input: ReplyGateInput, signal: AbortSignal): Promise<ReplyVerdict> => {
+const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSignal): Promise<ReplyVerdict> => {
   if (active >= 4) {
     return reject();
   }
@@ -114,6 +122,13 @@ export const classifyGroupReply = async (input: ReplyGateInput, signal: AbortSig
     if (Buffer.byteLength(body) > 20000 || config.inputBlockedKeywords.some(word => word && JSON.stringify(compact).includes(word))) {
       return reject();
     }
+    // The classifier does not spend the chat allowance. Once a chat request
+    // cannot reserve its allowance, stop classification before any provider call.
+    if (budgetEnabled(config)) {
+      if (!input.scope?.platform || !input.scope.channelId) return reject();
+      if ((await budgetStatus(config, input.scope)).blocked) return { ...reject(), budgetBlocked: true };
+    }
+    signal.throwIfAborted();
     const response = await fetch(url, {
       method: 'POST',
       redirect: 'error',
@@ -131,3 +146,5 @@ export const classifyGroupReply = async (input: ReplyGateInput, signal: AbortSig
     active--;
   }
 };
+
+export const classifyGroupReply = (input: ReplyGateInput, signal: AbortSignal): Promise<ReplyVerdict> => classifyGroupReplyInner(input, signal);

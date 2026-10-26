@@ -1,3 +1,4 @@
+import { budgetEnabled } from '../../billing/budget';
 import { getMediaConfig } from '@src/media/config';
 import { Format, logger, useEvent, useMessage, useConnection, ResultCode } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
@@ -77,6 +78,9 @@ export default async (): Promise<void> => {
       }
       text = [
         '# AgentLink · 管理状态',
+        budgetEnabled(config)
+          ? '- 额度保护：已开启，使用 Redis；发送 /额度 查看。文字和图片聊天可用，图片输入仅按文字估算额度；工作区和独立语音调用暂停。'
+          : '- 额度保护：未开启。',
         `- 平台连接：${transport}。`,
         mediaStatus,
         `- 聊天归档：${archiveStatus}。`,
@@ -101,8 +105,11 @@ export default async (): Promise<void> => {
           : status.chatReady || status.phase === 'degraded'
             ? '# AgentLink\n\n当前为纯聊天模式，可发送问题；网页、文件和终端工具暂不可用。'
             : status.phase === 'ready'
-              ? '# AgentLink\n\n服务正常，可以直接 @机器人 或发送 `/chat 问题`。'
+              ? '# AgentLink\n\n服务正常，可以直接 @机器人 或发送 `/提问 问题`。'
               : `# AgentLink\n\n服务正在准备中：${phaseMessage[status.phase]} 请稍后再试。`;
+    }
+    if (budgetEnabled(config) && !(event.IsPrivate && event.IsMaster)) {
+      text += '\n\n额度保护已开启，发送 /额度 查询；图片聊天可用，图片输入仅按文字估算额度；当前暂停工作区和独立语音调用。';
     }
   } catch (error) {
     logger.error({ err: error }, 'DSH configuration invalid while reading status');

@@ -1,3 +1,4 @@
+import { budgetEnabled, budgetRedis } from './billing/budget';
 import { writeFile } from 'node:fs/promises';
 import { defineChildren, logger, setCron } from 'alemonjs';
 import response from '@src/router';
@@ -23,6 +24,17 @@ export default defineChildren({
   onCreated() {
     try {
       const startupConfig = getDSHConfig();
+
+      if (budgetEnabled(startupConfig)) {
+        void budgetRedis()
+          .then(() =>
+            logger.info(
+              { groupDailyYuan: startupConfig.budget?.groupDailyYuan ?? 2, privateDailyYuan: startupConfig.budget?.privateDailyYuan ?? 1 },
+              'AgentLink Redis budget protection enabled'
+            )
+          )
+          .catch(() => logger.error('AgentLink budget Redis unavailable; paid calls are blocked'));
+      }
 
       stopModuleConfigWatch?.();
       stopModuleConfigWatch = watchDSHConfig(() => {

@@ -1,3 +1,4 @@
+import { budgetedFetch } from '../billing/budget';
 import { readCompletionStream } from './completion-stream';
 import { type ChatInput, inputText, modelContent, MAX_IMAGE_REQUEST_BYTES } from './input';
 import { SessionRegistry, type PrivateHistoryContext } from '@src/state/registry';
@@ -42,7 +43,7 @@ export const directChat = async (
   if (Buffer.byteLength(body) > (typeof message === 'string' ? config.maxRequestBytes : MAX_IMAGE_REQUEST_BYTES)) {
     throw new Error('请求超过大小限制。');
   }
-  const response = await fetch(url, {
+  const response = await budgetedFetch(config, url, {
     method: 'POST',
     redirect: 'error',
     signal,

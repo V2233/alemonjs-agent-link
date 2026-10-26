@@ -1,4 +1,5 @@
-import { type ChatInput, withInputContext } from './input';
+import { reserveWorkspaceText } from '../billing/budget';
+import { type ChatInput, withInputContext, inputText } from './input';
 import type { PrivateHistoryContext } from '@src/state/registry';
 import { type DSHBridgeConfig, type AgentCapabilities } from './config';
 import { DSHError, abortFailure } from './errors';
@@ -131,6 +132,9 @@ export const streamChat = async (
       }
     }
     const bridge = await getDSHBridge();
+    const settleText = await reserveWorkspaceText(config, `${config.defaultSystemPrompt}\n${inputText(message)}\n${privateHistory?.memoryContext || ''}`);
+    let budgetText = '';
+    signal.throwIfAborted();
     const response = await fetch(`${bridge.url}/v1/chat`, {
       method: 'POST',
       headers: { ...getHeaders(bridge.token), 'X-Agent-Link-User': userId },
@@ -160,7 +164,12 @@ export const streamChat = async (
       throw new DSHError('protocol', 'DSH 未返回流式响应');
     }
 
-    await consumeEvents(response.body.getReader(), onEvent);
+    await consumeEvents(response.body.getReader(), async event => {
+      if (event.type === 'content') budgetText += event.content;
+      if (Buffer.byteLength(budgetText) > config.maxRequestBytes) throw new DSHError('protocol', '工作区回复超过大小限制。');
+      await onEvent(event);
+    });
+    await settleText(budgetText);
     signal.throwIfAborted();
     await onCompleted?.(signal);
     signal.throwIfAborted();
@@ -259,6 +268,7 @@ export const toUserMessage = (error: unknown): string => {
   }
 
   if (
+    error.kind === 'budget' ||
     error.kind === 'media' ||
     (error.kind === 'agent' &&
       [
@@ -271,6 +281,7 @@ export const toUserMessage = (error: unknown): string => {
   }
 
   const messages: Record<DSHError['kind'], string> = {
+    budget: '今日额度不足，请联系机器人主人充值或增加今日额度，也可等待北京时间零点刷新。',
     media: '媒体处理失败，请改用文字。',
     delivery: '回复发送失败，请稍后重试。',
     auth: 'Agent 服务认证失败，请联系机器人管理员。',

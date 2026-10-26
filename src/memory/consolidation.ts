@@ -1,3 +1,4 @@
+import { withBudgetScope } from '../billing/budget';
 import type { DSHBridgeConfig } from '../dsh/client';
 import { getDSHCredentials } from '../dsh/credentials';
 import { requestModelMessage } from '../agent/tool-chat';
@@ -195,15 +196,17 @@ export class MemoryConsolidator {
           if (!credentials) {
             throw new Error('记忆整理缺少模型凭证。');
           }
-          const response = await requestModelMessage(
-            this.config,
-            credentials,
-            [
-              { role: 'system', content: instruction },
-              { role: 'user', content: JSON.stringify({ sources: batch.sources, previous: old }) }
-            ],
-            [],
-            signal
+          const response = await withBudgetScope(scope, () =>
+            requestModelMessage(
+              this.config,
+              credentials,
+              [
+                { role: 'system', content: instruction },
+                { role: 'user', content: JSON.stringify({ sources: batch.sources, previous: old }) }
+              ],
+              [],
+              signal
+            )
           );
 
           changes = parseMemoryChanges(response.content || '');

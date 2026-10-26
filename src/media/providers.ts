@@ -1,3 +1,5 @@
+import { assertBudgetAvailable } from '../billing/budget';
+import { getDSHConfig } from '../dsh/runtime-config';
 import { type ChatInput, MAX_IMAGE_REQUEST_BYTES } from '../dsh/input';
 import type { MessageMediaItem } from 'alemonjs';
 import { MediaError, MediaUnavailableError, type MediaConfig, type MediaProvider } from './config';
@@ -35,6 +37,7 @@ export const readBounded = async (response: Response, maxBytes: number): Promise
   return Buffer.concat(chunks);
 };
 const request = async (provider: MediaProvider, path: string, body: FormData | string, signal: AbortSignal, maxBytes: number): Promise<Buffer> => {
+  await assertBudgetAvailable(getDSHConfig());
   try {
     return await readBounded(
       await fetch(`${provider.baseUrl}/${path}`, {

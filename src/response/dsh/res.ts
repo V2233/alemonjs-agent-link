@@ -52,8 +52,8 @@ export default async (): Promise<void> => {
       format: Format.create().addMarkdownOriginal(text)
     });
 
-  if (prompt === '/new') {
-    await reply('请直接发送 /new 开始新的群会话。');
+  if (prompt === '/new' || prompt === '/新会话') {
+    await reply('请直接发送 /新会话 开始新的群会话。');
 
     return;
   }

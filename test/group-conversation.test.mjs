@@ -604,3 +604,19 @@ test('automated and loop-risk rejections are not replayed as unfinished human fr
   assert.equal(inputs[1].messages.length, 1);
   h.coordinator.close();
 });
+
+test('exhausted quota routes direct calls to a notice-only batch and keeps ambient chat silent', async () => {
+  for (const direct of [true, false]) {
+    const h = harness({ classify: async () => ({ reply: false, reason: 'none', budgetBlocked: true }) });
+    const batches = [];
+    const done = h.coordinator.receive(message(`blocked-${direct}`, { direct, text: '这个报错怎么处理' }), policy(), async batch => {
+      batches.push(batch);
+      return { delivered: false, completed: true };
+    });
+    await h.coordinator.flush('group');
+    await done;
+    assert.equal(batches.length, direct ? 1 : 0);
+    if (direct) assert.equal(batches[0].budgetBlocked, true);
+    h.coordinator.close();
+  }
+});

@@ -23,6 +23,7 @@ export type GroupMessage = {
   isBot?: boolean;
 };
 export type GroupBatch = {
+  budgetBlocked?: boolean;
   id: string;
   mode: Exclude<GroupReplyMode, 'none'>;
   messages: GroupMessage[];
@@ -379,6 +380,7 @@ export class GroupConversationCoordinator {
         try {
           verdict = await this.services.classify(
             {
+              scope: { channelId, platform: pending.anchor.message.platform || '' },
               recent: state.recent
                 .filter(item => !currentTexts.has(item.text))
                 .slice(-3)
@@ -397,6 +399,20 @@ export class GroupConversationCoordinator {
           verdict = { reply: false, reason: 'none' };
         } finally {
           gateMs = this.now() - gateStarted;
+        }
+        if (verdict.budgetBlocked) {
+          if (!state.retired && !state.gateAbort.signal.aborted && pending.mode === 'direct') {
+            await pending.anchor.respond({
+              id: `group-batch:${pending.anchor.message.id || randomUUID()}`,
+              mode: 'direct',
+              budgetBlocked: true,
+              anchor: pending.anchor.message,
+              messages: pending.entries.map(item => item.message)
+            });
+          }
+          completed = true;
+
+          return;
         }
         // A second fragment arrived while the first was being classified: decide the combined turn next.
         const continued = state.pending?.entries.some(entry =>

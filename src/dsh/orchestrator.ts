@@ -1,3 +1,4 @@
+import { withBudgetScope } from '../billing/budget';
 import type { ChatInput } from './input';
 import { buildMemoryContext } from './memory';
 import { logger } from 'alemonjs';
@@ -246,7 +247,7 @@ export const cancelChatForUser = (channelId: string, userId: string, privileged:
   return queue.running || queue.jobs.length ? 'forbidden' : 'empty';
 };
 
-export const runCoordinatedChat = async (
+const runCoordinatedChatInner = async (
   event: {
     ChannelId: string;
     MessageId?: string;
@@ -394,3 +395,6 @@ export const runCoordinatedChat = async (
     release
   };
 };
+
+export const runCoordinatedChat = (...args: Parameters<typeof runCoordinatedChatInner>): ReturnType<typeof runCoordinatedChatInner> =>
+  withBudgetScope({ platform: args[0].Platform || '', channelId: args[0].ChannelId }, () => runCoordinatedChatInner(...args));

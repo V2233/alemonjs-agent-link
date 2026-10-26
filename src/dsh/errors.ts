@@ -1,6 +1,6 @@
 export class DSHError extends Error {
   constructor(
-    public readonly kind: 'auth' | 'http' | 'network' | 'timeout' | 'cancelled' | 'protocol' | 'agent' | 'migration' | 'delivery' | 'media',
+    public readonly kind: 'budget' | 'auth' | 'http' | 'network' | 'timeout' | 'cancelled' | 'protocol' | 'agent' | 'migration' | 'delivery' | 'media',
     message: string
   ) {
     super(message);

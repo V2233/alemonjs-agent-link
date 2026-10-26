@@ -1,3 +1,4 @@
+import { BudgetExceededError, claimBudgetNotice } from '../../billing/budget';
 import { QQStreamOutput, supportsQQStream, createQQSequenceAllocator } from '../../dsh/qq-stream';
 import { eventContexts } from '../../social/event-context';
 import { getMediaConfig, MediaError, unavailableMediaReply } from '@src/media/config';
@@ -114,6 +115,10 @@ export const runDSHChat = async (
   try {
     config = getDSHConfig();
   } catch (error) {
+    if (error instanceof BudgetExceededError) {
+      if (options.autonomous || options.allowSilence) return;
+      if (!(await claimBudgetNotice({ platform: event.Platform || '', channelId: getConversationId(event) }, event.MessageId))) return;
+    }
     await reply(toUserMessage(error));
 
     return;
@@ -445,6 +450,10 @@ export const runDSHChat = async (
       logger.warn({ group: 'redacted' }, 'Agent chat exceeded its request deadline');
     } else {
       logger.error({ err: error }, 'DSH chat failed');
+    }
+    if (error instanceof BudgetExceededError) {
+      if (options.autonomous || options.allowSilence) return;
+      if (!(await claimBudgetNotice({ platform: event.Platform || '', channelId: getConversationId(event) }, event.MessageId))) return;
     }
     await reply(toUserMessage(error));
   }

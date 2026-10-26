@@ -1,3 +1,4 @@
+import { claimBudgetNotice, budgetExceededMessage } from '../billing/budget';
 import { messageReferences } from './references';
 import { runDSHChat, type ChatEvent } from '../response/dsh/chat';
 import { buildGroupBatchPrompt, type GroupBatch, type GroupBatchResult } from './group-conversation';
@@ -11,6 +12,15 @@ import { randomUUID } from 'node:crypto';
 type Transport = NonNullable<Parameters<typeof runDSHChat>[2]>['transport'];
 
 export const respondToGroupBatch = async (event: ChatEvent, transport: Transport, batch: GroupBatch): Promise<GroupBatchResult> => {
+  if (batch.budgetBlocked) {
+    if (batch.mode === 'direct' && (await claimBudgetNotice({ platform: event.Platform || '', channelId: event.ChannelId || '' }, batch.anchor.id))) {
+      await transport.message.send({ format: Format.create().addText(budgetExceededMessage) });
+
+      return { delivered: true, completed: true };
+    }
+
+    return { delivered: false, completed: true };
+  }
   let result: GroupBatchResult = { delivered: false, completed: false };
   const registry = new SessionRegistry(getDSHConfig());
   const claims: { id: string; requestId: string }[] = [];

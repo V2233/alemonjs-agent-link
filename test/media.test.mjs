@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, mkdir, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,16 @@ import { getMediaConfig, MediaError } from '../lib/media/config.js';
 import { attachmentUrl, isPublicAddress, imageMime, audioFormat, downloadAttachment } from '../lib/media/download.js';
 import { prepareNativeMedia, understandMedia, synthesizeSpeech, readBounded, hasUnconfiguredMedia } from '../lib/media/providers.js';
 import { listStickers, chooseSticker, loadSticker } from '../lib/media/stickers.js';
+
+// Unit tests must not inherit the operator's live billing configuration.
+let previousConfig;
+beforeEach(() => {
+  previousConfig = globalThis.__config;
+  globalThis.__config = { value: { 'alemonjs-agent-link': { budget: { enabled: false } } } };
+});
+afterEach(() => {
+  globalThis.__config = previousConfig;
+});
 
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
 const mp3 = Buffer.from('ID3test');
@@ -189,4 +199,15 @@ test('native images use DSH content blocks without a separate vision provider', 
   const { modelContent, withInputContext } = await import('../lib/dsh/input.js');
   assert.equal(modelContent(input)[1].image_url.url, `data:image/png;base64,${png.toString('base64')}`);
   assert.deepEqual(withInputContext(input, '主人记忆').slice(1), input);
+});
+
+test('budget protection blocks unmetered speech before contacting the provider', async () => {
+  globalThis.__config.value['alemonjs-agent-link'].budget.enabled = true;
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = () => assert.fail('unmetered provider must not be called');
+  try {
+    await assert.rejects(synthesizeSpeech('hello', config, signal()), /额度保护/);
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
 });

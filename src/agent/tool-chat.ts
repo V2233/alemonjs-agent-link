@@ -1,3 +1,4 @@
+import { budgetedFetch } from '../billing/budget';
 import { readCompletionStream } from '../dsh/completion-stream';
 import type { DSHBridgeConfig } from '../dsh/client';
 import type { DSHCredentials } from '../dsh/credentials';
@@ -43,7 +44,7 @@ export const requestModelMessage = async (
     throw new Error('请求超过大小限制。');
   }
   signal.throwIfAborted();
-  const response = await fetch(url, {
+  const response = await budgetedFetch(config, url, {
     method: 'POST',
     redirect: 'error',
     signal,
