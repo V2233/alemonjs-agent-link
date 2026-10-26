@@ -1,0 +1,67 @@
+import type { ChatInput } from '../dsh/input';
+import type { AgentCapabilities } from '../dsh/client';
+
+export type TurnContext = {
+  channelId: string;
+  userId: string;
+  platform: string;
+  private: boolean;
+  owner: boolean;
+  userText: string;
+  capabilities: AgentCapabilities;
+  signal: AbortSignal;
+};
+
+export type ToolSchema = {
+  type: 'object' | 'string' | 'number' | 'integer' | 'boolean' | 'array';
+  description?: string;
+  properties?: Record<string, ToolSchema>;
+  required?: string[];
+  additionalProperties?: boolean;
+  items?: ToolSchema;
+  enum?: (string | number | boolean)[];
+  minLength?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
+  maxItems?: number;
+};
+
+export type AgentTool = {
+  name: string;
+  description: string;
+  parameters: ToolSchema;
+  available?: (context: TurnContext) => boolean;
+  execute: (args: Record<string, unknown>, context: TurnContext) => Promise<unknown>;
+};
+
+export type ModuleHooks = {
+  context: (context: TurnContext) => string | Promise<string>;
+  prompt: (input: ChatInput, context: TurnContext) => ChatInput | Promise<ChatInput>;
+  reply: (text: string, context: TurnContext) => string | Promise<string>;
+  activity: (activity: { input: string; output: string }, context: TurnContext) => void | Promise<void>;
+};
+
+export type ModuleApi = {
+  id: string;
+  dataDirectory: string;
+  settings: Readonly<Record<string, unknown>>;
+  tool: (tool: AgentTool) => void;
+  on: <K extends keyof ModuleHooks>(event: K, handler: ModuleHooks[K]) => void;
+  onDispose: (cleanup: () => void | Promise<void>) => void;
+};
+
+export type AgentModule = {
+  id: string;
+  name: string;
+  version: string;
+  apiVersion: 1;
+  setup: (api: ModuleApi) => void | Promise<void>;
+};
+
+export type ModuleConfig = {
+  directory?: string;
+  disabled?: string[];
+  settings?: Record<string, Record<string, unknown>>;
+  maxToolRounds?: number;
+};

@@ -32,7 +32,10 @@ export const attachmentUrl = (source: string, allowedHosts: string[]): URL => {
   } catch {
     throw new MediaError('附件没有可用的 HTTPS 地址。');
   }
-  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !allowedHosts.includes(url.hostname)) {
+  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) {
+    throw new MediaError('附件地址必须使用 HTTPS 默认端口，且不能包含用户名或密码。');
+  }
+  if (allowedHosts.length > 0 && !allowedHosts.includes(url.hostname)) {
     throw new MediaError('附件域名尚未允许，请由主人配置 media.allowedHosts。');
   }
 

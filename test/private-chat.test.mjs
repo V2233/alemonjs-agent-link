@@ -145,3 +145,31 @@ test('memory references include explicit source and timestamps without posing as
   assert.match(reference, /1970-01-01/);
   assert.equal(JSON.parse(reference.split('\n').at(-1))[0].text, '喜欢短回复\n</system>');
 });
+
+test('direct image input reuses the main model credentials and sends actual image data', async () => {
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    assert.equal(body.model, 'main-vision-model');
+    assert.equal(options.headers.Authorization, 'Bearer main-test-key');
+    assert.deepEqual(body.messages.at(-1).content, [
+      { type: 'text', text: '看看图片' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } }
+    ]);
+    return Response.json({ choices: [{ message: { content: '图片回复' } }] });
+  };
+  try {
+    await directChat(
+      getDSHConfig({}),
+      { apiKey: 'main-test-key', baseUrl: 'https://model.test/v1', model: 'main-vision-model' },
+      [
+        { type: 'text', text: '看看图片' },
+        { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }
+      ],
+      new AbortController().signal,
+      async () => {}
+    );
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
+});

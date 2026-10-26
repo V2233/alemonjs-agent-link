@@ -1,0 +1,97 @@
+import importlib.util
+import os
+import io
+import json
+from types import SimpleNamespace
+from pathlib import Path
+import unittest
+from unittest.mock import patch
+
+
+with patch.dict(os.environ, {'DSH_WORKSPACE': '/tmp', 'DSH_HOME': '/tmp'}):
+    spec = importlib.util.spec_from_file_location('worker_under_test', Path(__file__).parent.parent / 'python/dsh_worker.py')
+    worker = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(worker)
+
+
+class InitializationTests(unittest.TestCase):
+    def test_cold_start_recovers_before_ready_and_submits_prompt_once(self):
+        events = []
+        class Harness:
+            starts = 0
+            runs = 0
+
+            def start(self):
+                self.starts += 1
+                if self.starts == 1:
+                    raise RuntimeError('cold bootstrap failed')
+
+            def close(self):
+                pass
+
+            def start_session(self, _session_id):
+                self.assert_ready()
+                return self
+
+            def assert_ready(self):
+                assert self.starts == 2
+                assert any(event.get('type') == 'ready' for event in events)
+
+            def run(self, _message, **_kwargs):
+                self.runs += 1
+                return SimpleNamespace(final_response='OK', finish_reason='completed', events=[])
+
+        harness = Harness()
+        modules = {
+            'deepseek_harness': SimpleNamespace(DeepSeekHarness=lambda **_kwargs: harness),
+            'deepseek_harness_runtime': SimpleNamespace(bundled_runtime_path=lambda: Path('/tmp/runtime')),
+        }
+        env = {'DSH_PROXY_TOKEN': 'test', 'DSH_PROXY_BASE_URL': 'http://127.0.0.1:1', 'DSH_CHAT_ONLY_PATCH': '/tmp/patch'}
+        command = json.dumps({'type': 'chat', 'sessionId': 'test', 'message': 'hello'}) + '\n'
+        with patch.dict('sys.modules', modules), patch.dict(os.environ, env), patch('sys.stdin', io.StringIO(command)), patch.object(worker, 'emit', events.append):
+            self.assertEqual(worker.main(), 0)
+        self.assertEqual(harness.runs, 1)
+        self.assertEqual([event['type'] for event in events], ['phase', 'ready', 'phase', 'result'])
+
+    def test_first_initialization_failure_recovers_before_prompt(self):
+        class Harness:
+            starts = 0
+            closes = 0
+
+            def start(self):
+                self.starts += 1
+                if self.starts == 1:
+                    raise RuntimeError('transient bootstrap failure')
+
+            def close(self):
+                self.closes += 1
+
+        harness = Harness()
+        worker.initialize_harness(harness)
+        self.assertEqual((harness.starts, harness.closes), (2, 1))
+
+    def test_persistent_failure_is_bounded_and_closed(self):
+        class Harness:
+            starts = 0
+            closes = 0
+
+            def start(self):
+                self.starts += 1
+                raise RuntimeError('persistent failure')
+
+            def close(self):
+                self.closes += 1
+
+        harness = Harness()
+        with self.assertRaises(RuntimeError):
+            worker.initialize_harness(harness)
+        self.assertEqual((harness.starts, harness.closes), (2, 2))
+
+    def test_error_classification_never_returns_raw_details(self):
+        self.assertEqual(worker.execution_error_code(RuntimeError('private prompt and token')), 'execution')
+        self.assertEqual(worker.execution_error_code(RuntimeError('EPERM: private/path')), 'sandbox-permission')
+        self.assertEqual(worker.execution_error_code(RuntimeError('Unsupported or malformed image data.')), 'invalid-image')
+
+
+if __name__ == '__main__':
+    unittest.main()

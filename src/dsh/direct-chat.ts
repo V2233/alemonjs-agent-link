@@ -1,3 +1,4 @@
+import { type ChatInput, inputText, modelContent, MAX_IMAGE_REQUEST_BYTES } from './input';
 import { SessionRegistry, type PrivateHistoryContext } from '@src/state/registry';
 import type { DSHBridgeConfig, DSHStreamEvent } from './client';
 import type { DSHCredentials } from './credentials';
@@ -6,7 +7,7 @@ import type { DSHCredentials } from './credentials';
 export const directChat = async (
   config: DSHBridgeConfig,
   credentials: DSHCredentials | null,
-  message: string,
+  message: ChatInput,
   signal: AbortSignal,
   onEvent: (event: DSHStreamEvent) => Promise<void>,
   privateHistory?: PrivateHistoryContext,
@@ -21,7 +22,7 @@ export const directChat = async (
   if (url.protocol !== 'https:' || url.username || url.password) {
     throw new Error('模型服务需要有效的 HTTPS 地址。');
   }
-  if (config.inputBlockedKeywords.some(word => word && message.includes(word))) {
+  if (config.inputBlockedKeywords.some(word => word && inputText(message).includes(word))) {
     throw new Error('请求被输入策略拒绝。');
   }
   const registry = privateHistory ? new SessionRegistry(config) : undefined;
@@ -33,11 +34,11 @@ export const directChat = async (
       { role: 'system', content: `${config.defaultSystemPrompt}\n当前为纯聊天降级模式，没有网页、文件或终端工具。不要声称已执行工具或读取本地文件。` },
       ...(privateHistory?.memoryContext ? [{ role: 'user', content: privateHistory.memoryContext }] : []),
       ...history,
-      { role: 'user', content: message }
+      { role: 'user', content: modelContent(message) }
     ]
   });
 
-  if (Buffer.byteLength(body) > config.maxRequestBytes) {
+  if (Buffer.byteLength(body) > (typeof message === 'string' ? config.maxRequestBytes : MAX_IMAGE_REQUEST_BYTES)) {
     throw new Error('请求超过大小限制。');
   }
   const response = await fetch(url, {
@@ -96,6 +97,6 @@ export const directChat = async (
   await onCompleted?.(signal);
   signal.throwIfAborted();
   if (privateHistory) {
-    await registry.appendPrivateTurn(privateHistory, message, content);
+    await registry.appendPrivateTurn(privateHistory, inputText(message) + (typeof message === 'string' ? '' : '\n[本轮包含图片]'), content);
   }
 };

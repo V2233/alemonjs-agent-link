@@ -38,6 +38,13 @@ const config = {
 
 setDSHBridgeForTesting({ url: 'http://dsh.test', token: 'secret' });
 
+test('startup diagnostics are specific and do not claim a session was reset', () => {
+  const detail = 'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。';
+  assert.equal(toUserMessage(new DSHError('agent', detail)), detail);
+  const generic = toUserMessage(new DSHError('agent', 'private provider detail'));
+  assert.doesNotMatch(generic, /private provider detail|已自动开始/);
+});
+
 test('accepts default and bounded request timeouts, rejecting invalid values', () => {
   assert.equal(getDSHConfig({}).requestTimeoutMs, 120000);
   for (const requestTimeoutMs of [1, 120000, 300000]) {
@@ -284,6 +291,29 @@ test('sandbox receives current explicit memory as reference alongside the actual
     });
     assert.equal(body.message, '明确保存：喜欢科幻\n\n当前消息：\n今天聊什么');
     assert.equal(body.systemPrompt, config.defaultSystemPrompt);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('sandbox bridge forwards image bytes as ACP blocks with memory intact', async () => {
+  const originalFetch = globalThis.fetch;
+  const blocks = [
+    { type: 'text', text: '这是什么' },
+    { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }
+  ];
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    assert.deepEqual(body.message.slice(1), blocks);
+    assert.equal(body.message[0].text, '明确保存的记忆');
+    return sseResponse('data: {"type":"done"}\n\n');
+  };
+  try {
+    await streamChat(config, 's', blocks, async () => {}, 'u', undefined, undefined, {
+      channelId: 'private:test',
+      generation: 1,
+      memoryContext: '明确保存的记忆'
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

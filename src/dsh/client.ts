@@ -1,10 +1,13 @@
+import { type ChatInput, withInputContext } from './input';
 import { dafeiyuPrompt } from './persona';
 import type { PrivateHistoryContext } from '@src/state/registry';
+import type { ModuleConfig } from '../agent/types';
 import { getConfigValue } from 'alemonjs';
 import { join } from 'node:path';
 import { ensureDSHSupervisor, getDSHBridge, hasDSHBridgeOverride } from '@src/dsh/supervisor';
 
 export type DSHBridgeConfig = {
+  modules?: ModuleConfig;
   groupWakeNames: string[];
   privateChatAccess: 'owner' | 'all';
   privateAutoReply: boolean;
@@ -12,6 +15,8 @@ export type DSHBridgeConfig = {
   privateHistoryMaxTurns: number;
   privateHistoryTtlSeconds: number;
   privateHistoryMaxChars: number;
+  stateBackend?: 'local' | 'redis';
+  pythonPackageSources?: string[];
   runtimeMode?: 'auto' | 'sandbox' | 'chat-only';
   pythonExecutable?: string;
   bridgePort: number;
@@ -64,6 +69,8 @@ const defaults: DSHBridgeConfig = {
   privateHistoryMaxTurns: 10,
   privateHistoryTtlSeconds: 86400,
   privateHistoryMaxChars: 12000,
+  stateBackend: 'local',
+  pythonPackageSources: ['https://pypi.org/simple', 'https://pypi.tuna.tsinghua.edu.cn/simple'],
   runtimeMode: 'auto',
   pythonExecutable,
   workspaceRoot: join(dataRoot, 'workspaces'),
@@ -106,7 +113,9 @@ export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeCo
 
   const config = {
     ...defaults,
-    ...agentLink
+    ...agentLink,
+    // Preserve existing deployments with explicit framework Redis configuration.
+    stateBackend: agentLink?.stateBackend ?? ((value as { db?: { redis?: unknown } })?.db?.redis ? 'redis' : 'local')
   };
 
   if (config.persona === 'dafeiyu' && agentLink?.defaultSystemPrompt === undefined) {
@@ -143,6 +152,19 @@ export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeCo
   ];
 
   if (
+    !['local', 'redis'].includes(config.stateBackend) ||
+    !Array.isArray(config.pythonPackageSources) ||
+    config.pythonPackageSources.length < 1 ||
+    config.pythonPackageSources.length > 5 ||
+    config.pythonPackageSources.some(source => {
+      try {
+        const url = new URL(source);
+
+        return url.protocol !== 'https:' || Boolean(url.username || url.password);
+      } catch {
+        return true;
+      }
+    }) ||
     !Array.isArray(config.groupWakeNames) ||
     config.groupWakeNames.length > 10 ||
     config.groupWakeNames.some(name => typeof name !== 'string' || !name.trim() || name.length > 20 || name.trim() !== name || name.startsWith('/')) ||
@@ -274,7 +296,7 @@ const consumeEvents = async (reader: ReadableStreamDefaultReader<Uint8Array>, on
 export const streamChat = async (
   config: DSHBridgeConfig,
   sessionId: string,
-  message: string,
+  message: ChatInput,
   onEvent: (event: DSHStreamEvent) => Promise<void>,
   userId = 'unknown',
   externalSignal?: AbortSignal,
@@ -313,7 +335,7 @@ export const streamChat = async (
       headers: { ...getHeaders(bridge.token), 'X-Agent-Link-User': userId },
       body: JSON.stringify({
         sessionId,
-        message: privateHistory?.memoryContext ? `${privateHistory.memoryContext}\n\n当前消息：\n${message}` : message,
+        message: withInputContext(message, privateHistory?.memoryContext || ''),
         systemPrompt: config.defaultSystemPrompt,
         stream: true,
         capabilities: toCapabilities(capabilities)
@@ -424,7 +446,15 @@ export const toUserMessage = (error: unknown): string => {
     return '服务暂时不可用，请稍后再试。';
   }
 
-  if (error.kind === 'media') {
+  if (
+    error.kind === 'media' ||
+    (error.kind === 'agent' &&
+      [
+        'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。',
+        '图片无法解码，请重新发送 PNG、JPEG、WebP 或 GIF 图片。',
+        'DSH 沙箱目录访问失败，请重启服务并检查运行环境。'
+      ].includes(error.message))
+  ) {
     return error.message;
   }
 
@@ -437,7 +467,7 @@ export const toUserMessage = (error: unknown): string => {
     timeout: 'Agent 响应超时，请稍后重试。',
     cancelled: '本次回复已取消。',
     protocol: 'Agent 服务响应异常，请联系机器人管理员。',
-    agent: 'Agent 本轮执行失败，已自动开始新的群会话。请原样重试；若持续失败，请由主人私聊使用 /agentmodels 确认模型，并检查 alemon.config.yaml 中的模型配置。',
+    agent: 'Agent 本轮执行失败。请稍后重试；若持续失败，请由主人检查模型配置和运行环境。',
     migration: '会话正在初始化，请稍后重试。'
   };
 

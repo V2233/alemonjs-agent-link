@@ -1,5 +1,5 @@
 import { getMediaConfig, MediaError, unavailableMediaReply } from '@src/media/config';
-import { synthesizeSpeech, understandMedia, hasUnconfiguredMedia } from '@src/media/providers';
+import { synthesizeSpeech, prepareNativeMedia, hasUnconfiguredMedia } from '@src/media/providers';
 import { Format, logger, useMessage, useMedia, type MessageMediaItem } from 'alemonjs';
 import { DSHError, getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { buildRecentChatContext, getRecentMessages } from '@src/chat-context/store';
@@ -214,6 +214,7 @@ export const runDSHChat = async (event: ChatEvent, prompt: string, options: { vo
         }
       },
       {
+        userText: prompt,
         prepareMessage: async (text, signal) => {
           if (!event.MessageMedia?.length) {
             return text;
@@ -224,7 +225,7 @@ export const runDSHChat = async (event: ChatEvent, prompt: string, options: { vo
           try {
             const settings = getMediaConfig();
 
-            return await understandMedia(event.MessageMedia, text, settings, AbortSignal.any([signal, AbortSignal.timeout(settings.timeoutMs)]));
+            return await prepareNativeMedia(event.MessageMedia, text, settings, AbortSignal.any([signal, AbortSignal.timeout(settings.timeoutMs)]));
           } catch (error) {
             signal.throwIfAborted();
             throw new DSHError('media', error instanceof MediaError ? error.message : '附件处理超时或失败，请稍后重试或改用文字。');

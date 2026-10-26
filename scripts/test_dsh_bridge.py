@@ -1,6 +1,8 @@
 import importlib.util
 import json
 import os
+import platform
+import subprocess
 from pathlib import Path
 import shutil
 import sys
@@ -29,11 +31,38 @@ def load_bridge():
 
 
 class BridgeSafetyTests(unittest.TestCase):
+    @unittest.skipUnless(platform.system() == 'Darwin', 'macOS sandbox required')
+    def test_attachment_ancestor_open_does_not_allow_sibling_files(self):
+        from sandbox_profile import macos_profile
+        home = self.root / 'group' / 'home'
+        workspace = self.root / 'workspace'
+        home.mkdir(parents=True)
+        workspace.mkdir()
+        outside = self.root / 'outside.txt'
+        outside.write_text('private fixture')
+        script = Path(__file__).resolve()
+        profile = macos_profile(workspace, home, Path(sys.executable), Path(sys.prefix), script, script, 19879)
+        code = (
+            f'import os\nfd = os.open({str(home.parent.resolve())!r}, os.O_RDONLY)\nos.close(fd)\n'
+            f'try: open({str(outside.resolve())!r}).read()\n'
+            'except PermissionError: pass\n'
+            'else: raise AssertionError("sibling file was readable")\n'
+        )
+        result = subprocess.run(['/usr/bin/sandbox-exec', '-p', profile, sys.executable, '-c', code], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def setUp(self):
         self.bridge, self.root = load_bridge()
 
     def tearDown(self):
         shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_native_image_input(self):
+        parts = [{'type': 'text', 'text': '看看图片'}, {'type': 'image', 'mimeType': 'image/png', 'data': 'aGVsbG8='}]
+        self.assertEqual(self.bridge.normalize_chat_input(parts), parts)
+        self.assertEqual(self.bridge.chat_input_text(parts), '看看图片')
+        for invalid in ([{'type': 'image', 'mimeType': 'text/html', 'data': 'eA=='}], [{'type': 'image', 'mimeType': 'image/png', 'data': '???'}], []):
+            with self.assertRaises(ValueError): self.bridge.normalize_chat_input(invalid)
 
     def test_output_keyword_filter_requires_final_review(self):
         self.bridge.OUTPUT_BLOCKED = set()

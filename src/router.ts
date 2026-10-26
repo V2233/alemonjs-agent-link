@@ -38,6 +38,10 @@ commandGroup.use(
 );
 
 commandGroup.use({ path: 'agentpolicy', description: '主人管理当前群 Agent 工具策略' }, () => import('@src/response/agent-policy/res'));
+commandGroup.use(
+  { path: 'agentmodules', events: ['private.message.create'], description: '主人查看模块加载状态并检查更新' },
+  () => import('@src/response/agent-modules/res')
+);
 commandGroup.use({ path: 'agentpurge', description: '主人清除当前群 Agent 数据' }, () => import('@src/response/agent-purge/res'));
 
 commandGroup.use(

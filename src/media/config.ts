@@ -5,6 +5,7 @@ export type MediaConfig = {
   vision?: MediaProvider;
   asr?: MediaProvider;
   tts?: MediaProvider;
+  // Empty means any public HTTPS host; a nonempty list restricts hosts exactly.
   allowedHosts: string[];
   timeoutMs: number;
   maxBytes: number;

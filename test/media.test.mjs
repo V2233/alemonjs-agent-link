@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getMediaConfig, MediaError } from '../lib/media/config.js';
 import { attachmentUrl, isPublicAddress, imageMime, audioFormat, downloadAttachment } from '../lib/media/download.js';
-import { understandMedia, synthesizeSpeech, readBounded, hasUnconfiguredMedia } from '../lib/media/providers.js';
+import { prepareNativeMedia, understandMedia, synthesizeSpeech, readBounded, hasUnconfiguredMedia } from '../lib/media/providers.js';
 import { listStickers, chooseSticker, loadSticker } from '../lib/media/stickers.js';
 
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
@@ -14,7 +14,7 @@ const provider = { baseUrl: 'https://provider.test/v1', apiKey: 'test-key', mode
 const config = getMediaConfig({ 'alemonjs-agent-link': { media: { vision: provider, asr: provider, tts: provider, allowedHosts: ['cdn.test'] } } });
 const signal = () => new AbortController().signal;
 
-test('media config is opt-in, validates limits and keeps providers separate', () => {
+test('media providers are opt-in, config validates limits and keeps providers separate', () => {
   assert.equal(getMediaConfig({}).vision, undefined);
   assert.deepEqual(getMediaConfig({}).allowedHosts, []);
   for (const media of [
@@ -27,6 +27,17 @@ test('media config is opt-in, validates limits and keeps providers separate', ()
   ]) {
     assert.throws(() => getMediaConfig({ 'alemonjs-agent-link': { media } }), MediaError);
   }
+});
+
+test('default attachment hosts are unrestricted while URL and private address checks remain enforced', async () => {
+  const defaults = getMediaConfig({});
+  for (const host of ['cdn.test', 'another-cdn.test']) {
+    assert.equal(attachmentUrl(`https://${host}/image`, defaults.allowedHosts).hostname, host);
+  }
+  for (const url of ['http://cdn.test/a', 'file:///etc/passwd', 'https://user:secret@cdn.test/a', 'https://cdn.test:123/a']) {
+    assert.throws(() => attachmentUrl(url, defaults.allowedHosts), /HTTPS/);
+  }
+  await assert.rejects(downloadAttachment('https://127.0.0.1/a', defaults, signal()), /不是公开网络地址/);
 });
 
 test('attachment URLs reject credentials, unapproved hosts, private addresses and unsafe schemes', async () => {
@@ -155,8 +166,27 @@ test('sticker manifest matches exact IDs or tags, enforces local boundaries and 
 
 test('unconfigured input gets the character fallback; platform transcript remains usable', () => {
   const empty = getMediaConfig({});
-  assert.equal(hasUnconfiguredMedia([{ Type: 'image', Url: 'x' }], empty), true);
+  assert.equal(hasUnconfiguredMedia([{ Type: 'image', Url: 'x' }], empty), false);
   assert.equal(hasUnconfiguredMedia([{ Type: 'audio', Url: 'x' }], empty), true);
   assert.equal(hasUnconfiguredMedia([{ Type: 'audio', Transcript: '已经转写' }], empty), false);
   assert.equal(hasUnconfiguredMedia([{ Type: 'image', Url: 'x' }], config), false);
+});
+
+test('native images use DSH content blocks without a separate vision provider', async () => {
+  const input = await prepareNativeMedia(
+    [
+      { Type: 'image', Url: 'https://cdn.test/a' },
+      { Type: 'audio', Transcript: '看看这个' }
+    ],
+    '是什么',
+    getMediaConfig({}),
+    signal(),
+    async () => png
+  );
+  assert.equal(input[0].type, 'text');
+  assert.match(input[0].text, /看看这个/);
+  assert.deepEqual(input[1], { type: 'image', mimeType: 'image/png', data: png.toString('base64') });
+  const { modelContent, withInputContext } = await import('../lib/dsh/input.js');
+  assert.equal(modelContent(input)[1].image_url.url, `data:image/png;base64,${png.toString('base64')}`);
+  assert.deepEqual(withInputContext(input, '主人记忆').slice(1), input);
 });

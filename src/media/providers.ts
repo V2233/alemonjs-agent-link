@@ -1,3 +1,4 @@
+import { type ChatInput, MAX_IMAGE_REQUEST_BYTES } from '../dsh/input';
 import type { MessageMediaItem } from 'alemonjs';
 import { MediaError, MediaUnavailableError, type MediaConfig, type MediaProvider } from './config';
 import { audioFormat, downloadAttachment, imageMime } from './download';
@@ -66,12 +67,7 @@ const parseText = (buffer: Buffer, vision: boolean): string => {
 };
 
 export const hasUnconfiguredMedia = (items: MessageMediaItem[], config: MediaConfig): boolean =>
-  items.some(
-    item =>
-      (['image', 'sticker', 'animation'].includes(item.Type) && !config.vision) ||
-      (item.Type === 'audio' && !item.Transcript?.trim() && !config.asr) ||
-      !['image', 'sticker', 'animation', 'audio'].includes(item.Type)
-  );
+  items.some(item => (item.Type === 'audio' && !item.Transcript?.trim() && !config.asr) || !['image', 'sticker', 'animation', 'audio'].includes(item.Type));
 
 export const understandMedia = async (
   items: MessageMediaItem[],
@@ -180,4 +176,52 @@ export const synthesizeSpeech = async (text: string, config: MediaConfig, signal
   }
 
   return data;
+};
+
+// DSH's ACP session accepts images directly; reuse the main model and credentials.
+export const prepareNativeMedia = async (
+  items: MessageMediaItem[],
+  prompt: string,
+  config: MediaConfig,
+  signal: AbortSignal,
+  download = downloadAttachment
+): Promise<ChatInput> => {
+  if (items.length > config.maxAttachments) {
+    throw new MediaError(`每次最多处理 ${config.maxAttachments} 个附件。`);
+  }
+  const images = items.filter(item => ['image', 'sticker', 'animation'].includes(item.Type));
+  const text = await understandMedia(
+    items.filter(item => !images.includes(item)),
+    prompt,
+    config,
+    signal,
+    download
+  );
+
+  if (!images.length) {
+    return text;
+  }
+  const blocks: Exclude<ChatInput, string> = [{ type: 'text', text: text || '请看看这些图片。' }];
+
+  for (const item of images) {
+    signal.throwIfAborted();
+    if (item.FileSize && item.FileSize > config.maxBytes) {
+      throw new MediaError('附件超过大小限制。');
+    }
+    if (!item.Url) {
+      throw new MediaError('平台未提供图片地址，暂时无法识图。');
+    }
+    const data = await download(item.Url, config, signal);
+    const mimeType = imageMime(data);
+
+    if (!mimeType) {
+      throw new MediaError('图片格式不支持。');
+    }
+    blocks.push({ type: 'image', mimeType, data: data.toString('base64') });
+  }
+  if (Buffer.byteLength(JSON.stringify(blocks)) > MAX_IMAGE_REQUEST_BYTES - 1024 * 1024) {
+    throw new MediaError('图片总量过大，请减少图片或压缩后重试。');
+  }
+
+  return blocks;
 };

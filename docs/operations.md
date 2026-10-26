@@ -2,7 +2,7 @@
 
 ## 平台支持与部署前检查
 
-以下沙箱依赖仅针对工具执行。默认 `auto` 模式缺少依赖时可降级为纯聊天；Windows 原生也可以使用纯聊天。`/agentstatus` 显示降级状态，网页、文件、终端关闭。模型地址与 API Key、Redis 仍为必需；降级状态本身不表示模型连接已验证。
+以下沙箱依赖仅针对工具执行。默认 `auto` 模式缺少依赖时可降级为纯聊天；Windows 原生也可以使用纯聊天。`/agentstatus` 显示降级状态，网页、文件、终端关闭。模型地址与 API Key 仍为必需，Redis 可选；降级状态本身不表示模型连接已验证。
 
 | 宿主环境 | 状态           | 运行方式                                                                                                               |
 | -------- | -------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -14,7 +14,7 @@ Windows Sandbox 不适合作为 Worker 后端：它是临时桌面 VM，关闭�
 
 - 运行宿主为 macOS 或 Linux：macOS 需存在 `/usr/bin/sandbox-exec`；Linux 需安装 Bubblewrap（`bwrap`）。如 `bwrap` 不在 `PATH` 中，可设置 `DSH_BWRAP_EXECUTABLE` 为其绝对路径。
 - Linux 容器还必须允许 Bubblewrap 创建用户和挂载命名空间；受限容器通常需要在镜像中安装 `bubblewrap`，并允许非特权用户命名空间或提供可用的 setuid `bwrap`。
-- Redis 可连接，QQ Bot 和主人账号已配置。
+- 本地状态目录可写，或所选 Redis 可连接；QQ Bot 和主人账号已配置。
 - `alemon.config.yaml` 仅对运行账户可读，且未提交。
 - 已在 `alemon.config.yaml` 的 `alemonjs-agent-link` 下配置 `apiKey`。
 
@@ -42,14 +42,14 @@ yarn start --login qq-bot
 在 QQ 中发送 `/agentstatus`：
 
 - 所有用户可看到服务是否就绪。
-- 机器人主人在私聊中可看到 Bridge、Redis、Sandbox、并发容量和模型凭证状态。
+- 机器人主人在私聊中可看到 Bridge、状态库、Sandbox、并发容量和模型凭证状态。
 
 常见状态与动作：
 
 | 现象                 | 优先检查                                                                                     |
 | -------------------- | -------------------------------------------------------------------------------------------- |
 | 服务准备中或启动失败 | Python 3、网络、`.data/agent-link/` 权限、Bridge 端口。                                      |
-| 新请求被拒绝         | Redis 连通性和 `/agentstatus`。                                                              |
+| 新请求被拒绝         | 状态库目录权限或 Redis 连通性，以及 `/agentstatus`。                                         |
 | 请求超时             | 模型服务、网络、`requestTimeoutMs`，以及本机容量。                                           |
 | 群内排队已满         | 当前群请求量；使用 `/cancel` 取消自己的等待请求。                                            |
 | 无可用模型           | 主人私聊执行 `/agentmodels`，并检查 `alemon.config.yaml` 的 `apiKey`、`baseUrl` 与 `model`。 |
@@ -78,6 +78,6 @@ AGENT_LINK_INTEGRATION=1 yarn test
 2. 更新代码与依赖。
 3. 执行 `yarn test`。
 4. 执行 `yarn build` 后重新启动。
-5. 在 QQ 私聊中运行 `/agentstatus` 验证 Bridge、Redis 和 Sandbox。
+5. 在 QQ 私聊中运行 `/agentstatus` 验证 Bridge、状态库和 Sandbox。
 
 不要通过删除 `.data/agent-link/` 解决常规故障；这会丢失本机 Bridge 与隔离会话数据。优先使用群级清理命令。

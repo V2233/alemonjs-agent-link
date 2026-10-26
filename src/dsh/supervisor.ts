@@ -1,3 +1,5 @@
+import { preparePython } from './python-bootstrap';
+import { type ChatInput } from './input';
 import type { PrivateHistoryContext } from '@src/state/registry';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -100,15 +102,24 @@ export class DSHSupervisor {
     try {
       await this.starting;
       this.statusValue = { phase: 'ready' };
+      await this.writeStartupStatus();
     } catch (error) {
-      if ((this.config.runtimeMode ?? 'auto') !== 'sandbox' && this.credentials) {
+      if ((this.config.runtimeMode ?? 'auto') !== 'sandbox') {
         this.stop();
-        this.statusValue = { phase: 'degraded', detail: '纯聊天模式：本地运行环境不可用或已选择纯聊天；网页、文件、终端关闭。修复环境后重启服务恢复沙箱。' };
-        logger.warn('AgentLink 已降级为模型直连纯聊天；本地工具关闭。');
+        this.statusValue = {
+          phase: 'degraded',
+          detail:
+            this.config.runtimeMode === 'chat-only'
+              ? '纯聊天模式；网页、文件、终端关闭。'
+              : `纯聊天模式：${this.describeStartupFailure(error)} 网页、文件、终端关闭。`
+        };
+        await this.writeStartupStatus();
 
         return;
       }
+      this.stop();
       this.statusValue = { phase: 'failed', detail: this.describeStartupFailure(error) };
+      await this.writeStartupStatus();
       throw error;
     } finally {
       this.starting = null;
@@ -139,7 +150,7 @@ export class DSHSupervisor {
   }
 
   async chatDirect(
-    message: string,
+    message: ChatInput,
     signal: AbortSignal,
     onEvent: (event: DSHStreamEvent) => Promise<void>,
     privateHistory?: PrivateHistoryContext,
@@ -152,7 +163,7 @@ export class DSHSupervisor {
     if (this.config.runtimeMode === 'chat-only') {
       throw new Error('chat-only selected');
     }
-    if (process.platform === 'win32') {
+    if (!['darwin', 'linux'].includes(process.platform)) {
       throw new Error('Native Windows sandbox unavailable');
     }
     if (process.platform === 'darwin') {
@@ -232,8 +243,9 @@ export class DSHSupervisor {
     child.on('error', () => {
       this.child = null;
     });
-    child.stdout?.on('data', data => logger.info({ dsh: String(data).trim() }, 'DSH bridge'));
-    child.stderr?.on('data', data => logger.warn({ dsh: String(data).trim() }, 'DSH bridge'));
+    // Keep routine child output quiet; never expose provider credentials from stderr.
+    child.stdout?.resume();
+    child.stderr?.resume();
     child.on('exit', (code, signal) => {
       logger.warn({ code, signal }, 'DSH bridge exited');
       if (this.child?.pid === child.pid) {
@@ -267,7 +279,6 @@ export class DSHSupervisor {
     this.token = record.token;
     try {
       await this.waitForHealth(1_500);
-      logger.info({ port: this.config.bridgePort }, 'Reused authenticated DSH bridge');
 
       return true;
     } catch {
@@ -320,44 +331,8 @@ export class DSHSupervisor {
   }
 
   private async bootstrapPython(): Promise<void> {
-    try {
-      await access(this.config.pythonExecutable);
-      await this.run(this.config.pythonExecutable, [
-        '-c',
-        'from deepseek_harness import DeepSeekHarness; from deepseek_harness_runtime import bundled_runtime_path; bundled_runtime_path()'
-      ]);
-
-      return;
-    } catch {
-      // Recover incomplete installs as well as missing virtual environments.
-    }
-    const venvRoot = dirname(dirname(this.config.pythonExecutable));
-
-    this.statusValue = { phase: 'installing' };
-    await mkdir(venvRoot, { recursive: true });
-    const bootstrapCommand = process.platform === 'win32' ? 'py' : 'python3';
-    const bootstrapArgs = process.platform === 'win32' ? ['-3', '-m', 'venv', venvRoot] : ['-m', 'venv', venvRoot];
-
-    await this.run(bootstrapCommand, bootstrapArgs);
-    await this.run(this.config.pythonExecutable, ['-m', 'pip', 'install', '--requirement', requirementsFile]);
-  }
-
-  private run(command: string, args: string[]): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const child = spawn(command, args, { stdio: 'pipe' });
-
-      // Drain installation output without logging possible registry credentials.
-      child.stdout?.resume();
-      child.stderr?.resume();
-      const timer = setTimeout(() => {
-        child.kill('SIGTERM');
-        reject(new Error('Python preparation timed out'));
-      }, this.config.startupTimeoutMs);
-
-      child.once('close', () => clearTimeout(timer));
-
-      child.once('error', reject);
-      child.once('exit', code => (code === 0 ? resolve() : reject(new Error(`${command} exited with ${code}`))));
+    await preparePython(this.config, requirementsFile, () => {
+      this.statusValue = { phase: 'installing' };
     });
   }
 
@@ -402,7 +377,8 @@ export class DSHSupervisor {
 
       try {
         response = await fetch(`http://127.0.0.1:${this.config.bridgePort}/health`, {
-          headers: { Authorization: `Bearer ${this.token}` }
+          headers: { Authorization: `Bearer ${this.token}` },
+          signal: AbortSignal.timeout(Math.max(1, Math.min(1500, deadline - Date.now())))
         });
       } catch {
         // Bridge is still starting.
@@ -421,11 +397,42 @@ export class DSHSupervisor {
     throw new Error('DSH bridge health check timed out');
   }
 
+  private async writeStartupStatus(): Promise<void> {
+    try {
+      const path = join(dirname(this.config.dshHomeRoot), 'startup-status.json');
+
+      await mkdir(dirname(path), { recursive: true });
+      const temp = `${path}.${process.pid}.tmp`;
+
+      const record = { ...this.statusValue, platform: process.platform, arch: process.arch, node: process.version, updatedAt: new Date().toISOString() };
+
+      await writeFile(temp, JSON.stringify(record), { mode: 0o600 });
+      await rename(temp, path);
+    } catch {
+      /* Diagnostics must not turn a working chat backend into a failure. */
+    }
+  }
+
   private describeStartupFailure(error: unknown): string {
     const message = error instanceof Error ? error.message : '';
 
+    if (message.includes('Windows sandbox')) {
+      return '当前系统不提供受支持的本地沙箱。';
+    }
+    if (message.includes('bubblewrap')) {
+      return '未找到 Linux Bubblewrap 沙箱。';
+    }
+    if (message.includes('No usable Python')) {
+      return '未找到可用的 Python/venv。';
+    }
+    if (message.includes('sources unavailable')) {
+      return '依赖下载源不可用；联网后重启可重试。';
+    }
+    if (message.includes('Configured Python')) {
+      return '自定义 Python 环境不可用，请检查 pythonExecutable。';
+    }
     if (message.includes('preflight failed')) {
-      return '安全前置检查失败：请确认 macOS、sandbox-exec、Python 运行时和模型服务配置均有效。';
+      return '安全前置检查失败：请确认系统沙箱、Python 运行时和模型服务配置均有效。';
     }
 
     if (message.includes('port') && message.includes('already in use')) {

@@ -1,6 +1,8 @@
+import type { ChatInput } from './input';
 import { buildMemoryContext } from './memory';
 import { logger } from 'alemonjs';
-import { clearSession, DSHError, getDSHConfig, purgeSessionData, streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '@src/dsh/client';
+import { clearSession, DSHError, getDSHConfig, purgeSessionData, type DSHBridgeConfig, type DSHStreamEvent } from '@src/dsh/client';
+import { runModuleTurn } from '../agent/turn';
 import { SessionRegistry } from '@src/state/registry';
 import { getSessionId } from '@src/response/dsh/util';
 import type { GroupPolicy } from '@src/state/registry';
@@ -238,14 +240,18 @@ export const cancelChatForUser = (channelId: string, userId: string, privileged:
 };
 
 export const runCoordinatedChat = async (
-  event: { ChannelId: string; MessageId?: string; UserKey?: string },
+  event: { ChannelId: string; MessageId?: string; UserKey?: string; UserId?: string; Platform?: string; IsPrivate?: boolean; IsMaster?: boolean },
   message: string,
   onEvent: (event: DSHStreamEvent) => Promise<void>,
   onQueued?: (ahead: number) => Promise<void>,
   onStarted?: (wasQueued: boolean, signal: AbortSignal) => Promise<void>,
   capabilityOverride?: GroupPolicy,
   onCompleted?: (signal: AbortSignal) => Promise<void>,
-  mediaTask?: { prepareMessage?: (text: string, signal: AbortSignal) => Promise<string>; execute?: (signal: AbortSignal) => Promise<void> }
+  mediaTask?: {
+    prepareMessage?: (text: string, signal: AbortSignal) => Promise<ChatInput>;
+    execute?: (signal: AbortSignal) => Promise<void>;
+    userText?: string;
+  }
 ): Promise<CoordinatedChatResult> => {
   const config = getDSHConfig();
   const registry = new SessionRegistry(config);
@@ -289,17 +295,24 @@ export const runCoordinatedChat = async (
             const memoryContext = event.ChannelId.startsWith('private:') ? buildMemoryContext(await registry.privateMemories(event.ChannelId)) : '';
 
             signal.throwIfAborted();
-            await streamChat(
+            await runModuleTurn({
               config,
-              `${getSessionId(event.ChannelId)}:v${meta.generation}`,
-              mediaTask?.prepareMessage ? await mediaTask.prepareMessage(message, signal) : message,
+              sessionId: `${getSessionId(event.ChannelId)}:v${meta.generation}`,
+              input: mediaTask?.prepareMessage ? await mediaTask.prepareMessage(message, signal) : message,
               onEvent,
-              event.UserKey,
-              signal,
-              capabilities,
-              event.ChannelId.startsWith('private:') ? { channelId: event.ChannelId, generation: meta.generation, memoryContext } : undefined,
+              context: {
+                channelId: event.ChannelId,
+                userId: event.UserId || event.UserKey || 'unknown',
+                platform: event.Platform || '',
+                private: event.ChannelId.startsWith('private:'),
+                owner: Boolean(event.IsMaster),
+                userText: mediaTask?.userText ?? message,
+                capabilities,
+                signal: AbortSignal.any([signal, AbortSignal.timeout(config.requestTimeoutMs)])
+              },
+              history: { channelId: event.ChannelId, generation: meta.generation, memoryContext },
               onCompleted
-            );
+            });
           }
           signal.throwIfAborted();
           await registry.touch(event.ChannelId, meta.generation);

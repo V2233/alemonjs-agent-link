@@ -12,7 +12,11 @@ export default defineChildren({
   },
   onCreated() {
     try {
-      void ensureDSHSupervisor(getDSHConfig())
+      const startupConfig = getDSHConfig();
+
+      void new SessionRegistry(startupConfig)
+        .ready()
+        .then(() => ensureDSHSupervisor(startupConfig))
         .then(supervisor => supervisor.start())
         .catch(error => {
           logger.error({ err: error }, 'DSH bridge failed to start');

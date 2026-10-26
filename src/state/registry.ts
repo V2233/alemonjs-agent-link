@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { getIoRedis } from '@alemonjs/db';
 import type { Redis } from 'ioredis';
+import { getLocalStore } from './local-store';
+import { join, dirname } from 'node:path';
 import type { AgentCapabilities, DSHBridgeConfig } from '@src/dsh/client';
 
 const prefix = 'data:agent-link';
@@ -16,18 +17,18 @@ export const getDedupeTtlSeconds = (config: Pick<DSHBridgeConfig, 'maxQueuedPerG
     Math.ceil(((config.maxQueuedPerGroup + 1) * (config.requestTimeoutMs + maximumMediaPreparationMs) + dedupeDeliveryMarginMs) / 1000)
   );
 
-const finalizeDedupeScript = `
+const finalizeDedupeScript = `-- agent-link:finalizeDedupe
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
 return 1
 `;
 
-const releaseDedupeScript = `
+const releaseDedupeScript = `-- agent-link:releaseDedupe
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
 return redis.call('DEL', KEYS[1])
 `;
 
-const touchScript = `
+const touchScript = `-- agent-link:touch
 local raw = redis.call('GET', KEYS[1])
 local meta = raw and cjson.decode(raw) or cjson.decode(ARGV[3])
 if ARGV[4] ~= '' and (not raw or meta.generation ~= tonumber(ARGV[4]) or meta.isolated ~= true or (meta.transition and meta.transition ~= cjson.null)) then
@@ -38,14 +39,14 @@ redis.call('SET', KEYS[1], cjson.encode(meta))
 redis.call('ZADD', KEYS[2], meta.lastActivity, ARGV[2])
 return cjson.encode(meta)
 `;
-const setPolicyScript = `
+const setPolicyScript = `-- agent-link:setPolicy
 local raw = redis.call('GET', KEYS[1])
 local meta = raw and cjson.decode(raw) or cjson.decode(ARGV[2])
 meta.policy = cjson.decode(ARGV[1])
 redis.call('SET', KEYS[1], cjson.encode(meta))
 `;
 
-const beginResetScript = `
+const beginResetScript = `-- agent-link:beginReset
 local raw = redis.call('GET', KEYS[1])
 local meta = {}
 if raw then
@@ -68,7 +69,7 @@ redis.call('ZADD', KEYS[2], meta.lastActivity, ARGV[3])
 return cjson.encode(meta)
 `;
 
-const completeResetScript = `
+const completeResetScript = `-- agent-link:completeReset
 local raw = redis.call('GET', KEYS[1])
 if not raw then return 0 end
 local ok, meta = pcall(cjson.decode, raw)
@@ -81,7 +82,7 @@ redis.call('SET', KEYS[1], cjson.encode(meta))
 return 1
 `;
 
-const beginPurgeScript = `
+const beginPurgeScript = `-- agent-link:beginPurge
 local raw = redis.call('GET', KEYS[1])
 local meta = {}
 if raw then
@@ -122,13 +123,17 @@ const groupHash = (channelId: string): string => createHash('sha256').update(cha
 const key = (channelId: string, name: string): string => `${prefix}:group:${groupHash(channelId)}:${name}`;
 
 export class RegistryUnavailableError extends Error {
-  constructor(message = 'Redis 不可用') {
+  constructor(message = '会话状态库不可用') {
     super(message);
     this.name = 'RegistryUnavailableError';
   }
 }
 
 const redis = async (config: DSHBridgeConfig): Promise<Redis> => {
+  if (config.stateBackend === 'local') {
+    return (await getLocalStore(join(dirname(config.dshHomeRoot), 'state.json'))) as unknown as Redis;
+  }
+  const { getIoRedis } = await import('@alemonjs/db');
   const client = getIoRedis({ connectTimeout: Math.min(config.requestTimeoutMs, 5000) });
 
   let healthTimeout: ReturnType<typeof setTimeout>;
@@ -182,7 +187,7 @@ const parseMeta = (value: string | null): GroupMeta => {
 
 export type PrivateHistoryContext = { channelId: string; generation: number; memoryContext?: string };
 export type ChatHistoryMessage = { role: 'user' | 'assistant'; content: string };
-const appendPrivateTurnScript = `
+const appendPrivateTurnScript = `-- agent-link:appendPrivateTurn
 local raw = redis.call('GET', KEYS[1])
 if not raw then return 0 end
 local meta = cjson.decode(raw)
@@ -196,7 +201,7 @@ return 1
 export type PrivateMemory = { id: string; text: string; createdAt: number };
 export const privateMemoryLimit = 20;
 export const privateMemoryTextLimit = 200;
-const memoryScript = `
+const memoryScript = `-- agent-link:memory
 local raw = redis.call('GET', KEYS[1])
 local notes = raw and cjson.decode(raw) or {}
 local action = ARGV[1]
