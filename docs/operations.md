@@ -31,13 +31,17 @@ yarn dev --login qq-bot
 生产环境：
 
 ```bash
-yarn build
-yarn start --login qq-bot
+npm run build
+npm start
 ```
+
+安装包含启动器的发布包后，也可从固定目录执行 `npx alemonjs-agent-link`，无需构建。首次生成配置，填好三项后重跑同一命令。新入口需要发布后才能从 npm 获取。
 
 生产中只运行一个 Node 进程。热重载可能在旧 QQ Gateway 连接尚未释放时建立第二个连接，从而导致网关重置。
 
 ## 健康检查
+
+启动前可执行 `npm run doctor`（发布包为 `agent-link doctor`）离线检查配置；检查不会验证外部服务连通性。
 
 在 QQ 中发送 `/agentstatus`：
 
@@ -81,3 +85,26 @@ AGENT_LINK_INTEGRATION=1 yarn test
 5. 在 QQ 私聊中运行 `/agentstatus` 验证 Bridge、状态库和 Sandbox。
 
 不要通过删除 `.data/agent-link/` 解决常规故障；这会丢失本机 Bridge 与隔离会话数据。优先使用群级清理命令。
+
+## 持久化聊天归档与查询
+
+默认启用内置 `chat-history` 模块。归档位于 `dshHomeRoot` 同级目录的 `chat-history.sqlite`（默认 `.data/agent-link/chat-history.sqlite`），独立于本地状态库或 Redis，使用 Node.js 22 的内置 SQLite。备份时停止机器人并复制该文件。
+
+从启用时开始记录平台实际投递的群聊、允许访问的私聊及成功发送的 Agent 回复；不补采旧消息，不导入日志。平台重复投递按会话和消息 ID 去重。主人验证码命令不归档；附件仅保留类型占位，不保存下载地址或原始媒体。消息时间是服务器接收时间。单条最多保存 8000 字符，截断会标记。
+
+大肥鱼可使用 `search_chat_history` 按连续关键词、发言人 ID、时间范围查询，并用 `get_chat_context` 展开命中记录前后各最多 3 条消息。默认每页 10 条，最多 20 条；结果明确标记截断。时间参数使用包含时区的 ISO 格式。每次查询限定当前平台和当前会话，工具不接受目标群/用户参数。历史资料作为引用，不作为指令。
+
+可以直接问：“昨天我们讨论了什么配置？”“查一下小明之前提到的部署问题”。按姓名搜索正文不一定命中，需要模型先查询记录找到发言人 ID 后再筛选。图片占位不能用于再次识图。
+
+归档按每条消息时间保留 30 天，启动时及每小时清理，读取时也过滤过期记录；不以最近活动刷新旧消息的期限。`/new` 保留归档。`/清除聊天记录` 后在 60 秒内发送 `/清除聊天记录 confirm`，可删除当前会话归档；私聊本人可操作，群聊仅机器人主人可操作。该命令不清除模型上下文或长期记忆。群 `/agentpurge` 同时清理归档。
+
+若不需要此功能，在现有配置中合并：
+
+```yaml
+alemonjs-agent-link:
+  modules:
+    disabled:
+      - chat-history
+```
+
+关闭后停止采集和查询，已有记录仍按期限清理；需要立即删除可使用清理命令。`/agentstatus` 的主人私聊视图显示归档可用状态，写入失败记录固定错误日志，不输出聊天内容。归档查询工具启用后，聊天使用业务工具调用链，工作区操作通过 `agent_workspace` 委托沙箱。

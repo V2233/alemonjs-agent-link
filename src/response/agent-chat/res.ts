@@ -1,11 +1,12 @@
-import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { Format, useEvent, useMessage, useRoute, useMedia } from 'alemonjs';
 import { runDSHChat } from '@src/response/dsh/chat';
+import { submitGroupChat } from '../../social/respond';
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: ['message.create', 'private.message.create'] });
   const [route] = useRoute();
 
-  if (!eventContext.match.selects || !route.matched) {
+  if (!eventContext.match.selects || !route.matched || eventContext.current.IsBot) {
     return;
   }
 
@@ -24,5 +25,15 @@ export default async (): Promise<void> => {
     return;
   }
 
-  await runDSHChat(eventContext.current, prompt);
+  if (eventContext.current.IsPrivate) {
+    await runDSHChat(eventContext.current, prompt);
+  } else {
+    const [media] = useMedia();
+
+    try {
+      await submitGroupChat(eventContext.current, prompt, { message, media });
+    } catch {
+      await message.send({ format: Format.create().addText('群聊消息暂时无法处理，请稍后重试。') });
+    }
+  }
 };

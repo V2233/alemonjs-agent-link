@@ -1,6 +1,7 @@
 import { Format, useEvent, useMessage } from 'alemonjs';
 import { getConversationId } from '@src/response/dsh/util';
 import { cancelChatForUser } from '@src/dsh/orchestrator';
+import { groupConversations } from '../../social/groups';
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: ['message.create', 'private.message.create'] });
@@ -18,7 +19,13 @@ export default async (): Promise<void> => {
     return;
   }
 
-  const result = cancelChatForUser(channelId, event.UserKey || 'unknown', event.IsMaster || Boolean(event.IsAdmin));
+  const userKey = event.UserKey || event.UserId || 'unknown';
+  const privileged = event.IsMaster || Boolean(event.IsAdmin);
+  let result = cancelChatForUser(channelId, userKey, privileged);
+
+  if ((result === 'empty' || result === 'forbidden') && groupConversations.cancelPending(channelId, userKey, privileged)) {
+    result = 'cancelled-queued';
+  }
   const text = {
     'cancelled-running': '已取消正在生成的回复。',
     'cancelled-queued': '已取消你最后一条排队请求。',

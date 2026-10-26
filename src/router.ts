@@ -4,6 +4,9 @@ const router = Router.create({
   events: ['message.create', 'private.message.create']
 });
 
+// Capture before command and wake handlers consume the event.
+router.res({ events: ['message.create', 'private.message.create'] }, () => import('@src/response/history-capture/res'));
+
 const commandGroup = router.group({
   events: ['message.create', 'private.message.create'],
   routeText: {
@@ -17,6 +20,8 @@ const commandGroup = router.group({
   },
   duplicateKey: 'throw'
 });
+
+commandGroup.use({ path: '清除聊天记录', description: '清除当前会话的持久化聊天归档' }, () => import('@src/response/history-clear/res'));
 
 commandGroup.use({ path: '我是主人', events: ['private.message.create'], description: '申请主人验证码' }, () => import('@src/response/master/res'));
 commandGroup.use({ path: '我的主人', events: ['private.message.create'], description: '验证并加入机器人主人' }, () => import('@src/response/master/res'));
@@ -144,7 +149,7 @@ for (const path of ['记忆', '记住', '忘记', '忘记全部']) {
   commandGroup.use({ path, events: ['private.message.create'], description: '查看、保存或删除自己的长期记忆' }, () => import('@src/response/agent-memory/res'));
 }
 
-// 普通群消息仅保存为短时参考上下文，不会直接创建 DSH Agent 回合。
+// 保存近期群聊参考；后续群聊协调器按参与策略决定是否创建回合。
 router.res({ events: ['message.create'] }, () => import('@src/response/chat-context/capture'));
 
 // @ 提及内容必须在平台适配器解析后才能确定，属于事件型入口而不是普通命令。

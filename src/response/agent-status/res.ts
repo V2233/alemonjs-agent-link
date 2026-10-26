@@ -5,6 +5,7 @@ import { getDSHCredentials } from '@src/dsh/credentials';
 import { ensureDSHSupervisor, type DSHSupervisorStatus } from '@src/dsh/supervisor';
 import { getRequestCapacity } from '@src/dsh/orchestrator';
 import { SessionRegistry } from '@src/state/registry';
+import { getChatArchive, historyEnabled } from '../../history/store';
 
 const phaseMessage: Record<DSHSupervisorStatus['phase'], string> = {
   idle: '尚未启动；正在请求自动准备。',
@@ -42,6 +43,16 @@ export default async (): Promise<void> => {
 
     const status = supervisor.status();
     const capacity = getRequestCapacity();
+    let archiveStatus = '已关闭';
+
+    if (historyEnabled(config)) {
+      try {
+        getChatArchive(config);
+        archiveStatus = `本地 SQLite 可用，保留 ${config.retentionDays} 天，可查询当前会话`;
+      } catch {
+        archiveStatus = '不可用，请检查磁盘和权限';
+      }
+    }
     let mediaStatus: string;
 
     try {
@@ -56,7 +67,8 @@ export default async (): Promise<void> => {
       text = [
         '# AgentLink · 管理状态',
         mediaStatus,
-        `- 服务：${phaseMessage[status.phase]}`,
+        `- 聊天归档：${archiveStatus}。`,
+        `- 服务：${!credentials ? '需要填写模型 API Key。' : !storeReady ? '会话数据暂时不可用。' : phaseMessage[status.phase]}`,
         `- 会话状态库（${config.stateBackend === 'local' ? '本地持久化' : 'Redis'}）：${storeReady ? '已连接。' : '不可用；新的 Agent 请求会被拒绝。'}`,
         `- Bridge：${status.phase === 'ready' ? '已就绪。' : '尚未就绪。'}`,
         `- Sandbox：${status.phase === 'ready' ? '前置检查已通过。' : '尚未通过前置检查。'}`,
@@ -70,12 +82,15 @@ export default async (): Promise<void> => {
         .filter(Boolean)
         .join('\n');
     } else {
-      text =
-        status.phase === 'degraded'
-          ? '# AgentLink\n\n当前为纯聊天模式，可发送问题；网页、文件和终端工具暂不可用。'
-          : status.phase === 'ready'
-            ? '# AgentLink\n\n服务正常，可以直接 @机器人 或发送 `/chat 问题`。'
-            : `# AgentLink\n\n服务正在准备中：${phaseMessage[status.phase]} 请稍后再试。`;
+      text = !credentials
+        ? '# AgentLink\n\n还差模型配置，请让机器人主人填写模型 API Key 后重新启动。'
+        : !storeReady
+          ? '# AgentLink\n\n会话数据暂时不可用，请让机器人主人查看服务状态后重试。'
+          : status.phase === 'degraded'
+            ? '# AgentLink\n\n当前为纯聊天模式，可发送问题；网页、文件和终端工具暂不可用。'
+            : status.phase === 'ready'
+              ? '# AgentLink\n\n服务正常，可以直接 @机器人 或发送 `/chat 问题`。'
+              : `# AgentLink\n\n服务正在准备中：${phaseMessage[status.phase]} 请稍后再试。`;
     }
   } catch (error) {
     logger.error({ err: error }, 'DSH configuration invalid while reading status');

@@ -6,6 +6,7 @@ import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '../dsh/client';
 import type { ChatInput } from '../dsh/input';
 import { memoryModule } from '../modules/memory';
+import { chatHistoryModule } from '../modules/chat-history';
 import { validateArguments } from './schema';
 import type { AgentModule, AgentTool, ModuleApi, ModuleConfig, ModuleHooks, TurnContext } from './types';
 
@@ -204,7 +205,7 @@ export class ModuleRuntime {
 
   constructor(
     private readonly config: DSHBridgeConfig,
-    private readonly builtins: AgentModule[] = [memoryModule(config)]
+    private readonly builtins: AgentModule[] = [memoryModule(config), chatHistoryModule(config)]
   ) {}
 
   status(): ModuleStatus[] {

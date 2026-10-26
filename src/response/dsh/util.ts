@@ -41,15 +41,22 @@ export const getConversationId = (event: ConversationEvent): string => {
 export const canPrivateChat = (event: ConversationEvent, access: 'owner' | 'all'): boolean => Boolean(event.IsMaster) || access === 'all';
 export const isPrivateChatText = (text: string): boolean => typeof text === 'string' && Boolean(text.trim()) && !text.trimStart().startsWith('/');
 
-// Require a name boundary: mentioning a fish in the middle of a sentence is not a wake-up.
+// Commands belong to the command router. Wake words may occur anywhere in a message.
 export const extractWakePrompt = (text: string, names: string[]): string | null => {
   const input = String(text ?? '').trim();
 
+  if (!input || input.startsWith('/')) {
+    return null;
+  }
   for (const name of [...names].sort((a, b) => b.length - a.length)) {
-    if (input === name) {
+    if (!name || !input.includes(name)) {
+      continue;
+    }
+    if (input === name && name !== '帮我') {
       return '用户喊了你一声，请简短回应。';
     }
-    if (input.startsWith(name) && /^[\s，,。！!？?：:、]/u.test(input.slice(name.length))) {
+    // Keep help requests complete: removing “帮我” can change the user's meaning.
+    if (name !== '帮我' && input.startsWith(name) && /^[\s，,。！!？?：:、]/u.test(input.slice(name.length))) {
       return (
         input
           .slice(name.length)
@@ -57,6 +64,8 @@ export const extractWakePrompt = (text: string, names: string[]): string | null 
           .trim() || '用户喊了你一声，请简短回应。'
       );
     }
+
+    return input;
   }
 
   return null;

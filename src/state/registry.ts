@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { getLocalStore } from './local-store';
+import { getChatArchive } from '../history/store';
 import { join, dirname } from 'node:path';
 import type { AgentCapabilities, DSHBridgeConfig } from '@src/dsh/client';
 
@@ -185,7 +186,13 @@ const parseMeta = (value: string | null): GroupMeta => {
   }
 };
 
-export type PrivateHistoryContext = { channelId: string; generation: number; memoryContext?: string };
+export type PrivateHistoryContext = {
+  channelId: string;
+  generation: number;
+  memoryContext?: string;
+  record?: () => boolean;
+  render?: (text: string) => string;
+};
 export type ChatHistoryMessage = { role: 'user' | 'assistant'; content: string };
 const appendPrivateTurnScript = `-- agent-link:appendPrivateTurn
 local raw = redis.call('GET', KEYS[1])
@@ -298,9 +305,10 @@ export class SessionRegistry {
     return result;
   }
   async appendPrivateTurn(context: PrivateHistoryContext, user: string, assistant: string): Promise<void> {
-    if (!this.config.privateHistoryMaxTurns) {
+    if (!this.config.privateHistoryMaxTurns || context.record?.() === false) {
       return;
     }
+    assistant = context.render ? context.render(assistant) : assistant;
     // Preserve complete role pairs; oversized turns are omitted instead of retaining partial instructions.
     if (user.length + assistant.length > this.config.privateHistoryMaxChars) {
       return;
@@ -485,6 +493,7 @@ export class SessionRegistry {
     await (await redis(this.config)).del(key(channelId, 'recent.v1.jsonl'));
   }
   async purge(channelId: string): Promise<void> {
+    getChatArchive(this.config).purgeHash(groupHash(channelId));
     const store = await redis(this.config);
 
     await store.del(
@@ -498,7 +507,10 @@ export class SessionRegistry {
   async expiredGroups(): Promise<string[]> {
     return await (await redis(this.config)).zrangebyscore(`${prefix}:retention.v1`, 0, Date.now() - this.config.retentionDays * 86400_000, 'LIMIT', 0, 100);
   }
-  async purgeHash(hash: string): Promise<void> {
+  async purgeHash(hash: string, includeArchive = true): Promise<void> {
+    if (includeArchive) {
+      getChatArchive(this.config).purgeHash(hash);
+    }
     const store = await redis(this.config);
     let cursor = '0';
 

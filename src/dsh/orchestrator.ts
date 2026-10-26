@@ -3,6 +3,8 @@ import { buildMemoryContext } from './memory';
 import { logger } from 'alemonjs';
 import { clearSession, DSHError, getDSHConfig, purgeSessionData, type DSHBridgeConfig, type DSHStreamEvent } from '@src/dsh/client';
 import { runModuleTurn } from '../agent/turn';
+import { groupConversations } from '../social/groups';
+import { messageReferences } from '../social/references';
 import { SessionRegistry } from '@src/state/registry';
 import { getSessionId } from '@src/response/dsh/util';
 import type { GroupPolicy } from '@src/state/registry';
@@ -98,7 +100,11 @@ export const enqueueChat = async (
   });
 };
 
-export const cancelGroupChat = (channelId: string): void => {
+export const cancelGroupChat = (channelId: string, clearPending = true): void => {
+  if (clearPending) {
+    groupConversations.clear(channelId);
+    void messageReferences.clear(channelId).catch(() => logger.warn('Message reference cleanup failed'));
+  }
   const queue = queues.get(channelId);
 
   queue?.cancel?.abort();
@@ -111,13 +117,13 @@ export const cancelGroupChat = (channelId: string): void => {
  * A missing isolation marker is not a user action item. Atomically perform
  * the same destructive boundary as /new before the first post-upgrade turn.
  */
-export const resetGroupSession = async (channelId: string, config: DSHBridgeConfig, updateMemory?: () => Promise<void>): Promise<void> => {
+export const resetGroupSession = async (channelId: string, config: DSHBridgeConfig, updateMemory?: () => Promise<void>, clearPending = true): Promise<void> => {
   const pending = groupResetTransitions.get(channelId);
 
   if (pending !== undefined) {
     await pending;
     if (updateMemory) {
-      await resetGroupSession(channelId, config, updateMemory);
+      await resetGroupSession(channelId, config, updateMemory, clearPending);
     }
 
     return;
@@ -130,7 +136,7 @@ export const resetGroupSession = async (channelId: string, config: DSHBridgeConf
     if (!resetting.operationId) {
       throw new DSHError('migration', '会话重置状态无效');
     }
-    cancelGroupChat(channelId);
+    cancelGroupChat(channelId, clearPending);
     await clearSession(config, getSessionId(channelId));
     await updateMemory?.();
     await registry.clearRecent(channelId);
@@ -170,7 +176,7 @@ export const ensureIsolatedGroup = async (channelId: string, config: DSHBridgeCo
     await purgeGroupSession(channelId, config);
   }
 
-  await resetGroupSession(channelId, config);
+  await resetGroupSession(channelId, config, undefined, false);
 };
 
 /** Mark deletion before touching the Bridge so a failed purge can be resumed safely. */
@@ -251,6 +257,8 @@ export const runCoordinatedChat = async (
     prepareMessage?: (text: string, signal: AbortSignal) => Promise<ChatInput>;
     execute?: (signal: AbortSignal) => Promise<void>;
     userText?: string;
+    recordHistory?: () => boolean;
+    renderAnswer?: (text: string) => string;
   }
 ): Promise<CoordinatedChatResult> => {
   const config = getDSHConfig();
@@ -310,7 +318,13 @@ export const runCoordinatedChat = async (
                 capabilities,
                 signal: AbortSignal.any([signal, AbortSignal.timeout(config.requestTimeoutMs)])
               },
-              history: { channelId: event.ChannelId, generation: meta.generation, memoryContext },
+              history: {
+                channelId: event.ChannelId,
+                generation: meta.generation,
+                memoryContext,
+                record: mediaTask?.recordHistory,
+                render: mediaTask?.renderAnswer
+              },
               onCompleted
             });
           }

@@ -83,6 +83,7 @@ test('chat-only starts without Python or credentials and records a safe status',
   assert.equal(supervisor.status().phase, 'degraded');
   const status = JSON.parse(await readFile(join(config.dshHomeRoot, '..', 'startup-status.json'), 'utf8'));
   assert.equal(status.phase, 'degraded');
+  assert.match(status.detail, /apiKey/);
   assert.equal(status.arch, process.arch);
   supervisor.stop();
 });
@@ -90,7 +91,7 @@ test('chat-only starts without Python or credentials and records a safe status',
 test('auto mode remains usable with no Python or sandbox commands on PATH', async () => {
   const config = await configFor();
   const previous = process.env.PATH;
-  const supervisor = new DSHSupervisor(config, null, 'no-dependencies');
+  const supervisor = new DSHSupervisor(config, { apiKey: 'local-test-only' }, 'no-dependencies');
   try {
     process.env.PATH = '';
     await supervisor.start();
@@ -99,4 +100,14 @@ test('auto mode remains usable with no Python or sandbox commands on PATH', asyn
     process.env.PATH = previous;
     supervisor.stop();
   }
+});
+
+test('moving the data root also moves managed Python without extra configuration', () => {
+  const root = join(tmpdir(), 'agent-link-relocated');
+  const config = getDSHConfig({ 'alemonjs-agent-link': { dshHomeRoot: join(root, 'homes') } });
+  assert.equal(config.pythonExecutable, join(root, 'venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python'));
+  assert.equal(
+    getDSHConfig({ 'alemonjs-agent-link': { dshHomeRoot: join(root, 'homes'), pythonExecutable: '/custom/python' } }).pythonExecutable,
+    '/custom/python'
+  );
 });

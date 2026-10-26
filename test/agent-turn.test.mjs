@@ -8,6 +8,72 @@ import { getModuleRuntime } from '../lib/agent/modules.js';
 import { runCoordinatedChat } from '../lib/dsh/orchestrator.js';
 import { SessionRegistry } from '../lib/state/registry.js';
 import { setDSHBridgeForTesting } from '../lib/dsh/supervisor.js';
+import { runModuleTurn } from '../lib/agent/turn.js';
+
+test('image turn without modules sends bytes to the model instead of DSH text projection', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'agent-image-turn-'));
+  const originalConfig = globalThis.__config;
+  const originalFetch = globalThis.fetch;
+  globalThis.__config = {
+    value: {
+      'alemonjs-agent-link': {
+        apiKey: 'test',
+        model: 'image-model',
+        stateBackend: 'local',
+        workspaceRoot: join(root, 'work'),
+        dshHomeRoot: join(root, 'home'),
+        modules: { disabled: ['memory', 'chat-history'] }
+      }
+    }
+  };
+  const config = getDSHConfig();
+  setDSHBridgeForTesting({ url: 'http://sandbox.test', token: 'test' });
+  let requests = 0;
+  globalThis.fetch = async (url, init) => {
+    assert.equal(String(url), 'https://api.deepseek.com/chat/completions');
+    requests++;
+    const body = JSON.parse(init.body);
+    assert.equal(body.model, 'image-model');
+    assert.deepEqual(body.messages.at(-1).content, [
+      { type: 'text', text: '这是什么' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,cGljdHVyZQ==' } }
+    ]);
+    assert.ok(body.tools.some(tool => tool.function.name === 'agent_workspace'));
+    return Response.json({ choices: [{ message: { content: '图片回复' } }] });
+  };
+  try {
+    const events = [];
+    await runModuleTurn({
+      config,
+      sessionId: 'image-test',
+      input: [
+        { type: 'text', text: '这是什么' },
+        { type: 'image', mimeType: 'image/png', data: 'cGljdHVyZQ==' }
+      ],
+      context: {
+        channelId: 'test',
+        userId: 'one',
+        platform: 'qq',
+        private: false,
+        owner: false,
+        userText: '这是什么',
+        capabilities: { chat: true, web: true, files: false, terminal: false },
+        signal: new AbortController().signal
+      },
+      onEvent: async event => {
+        events.push(event);
+      }
+    });
+    assert.equal(requests, 1);
+    assert.equal(events[0].content, '图片回复');
+  } finally {
+    await (await getModuleRuntime(config)).close();
+    setDSHBridgeForTesting(null);
+    globalThis.fetch = originalFetch;
+    globalThis.__config = originalConfig;
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('coordinated turn executes memory tools and stores the transformed reply only after delivery', async () => {
   const root = await mkdtemp(join(tmpdir(), 'agent-turn-'));

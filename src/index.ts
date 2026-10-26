@@ -4,6 +4,7 @@ import { getDSHConfig } from '@src/dsh/client';
 import { ensureDSHSupervisor } from '@src/dsh/supervisor';
 import { SessionRegistry } from '@src/state/registry';
 import { purgeGroupHashData } from '@src/dsh/client';
+import { getChatArchive } from './history/store';
 export default defineChildren({
   register() {
     return {
@@ -27,6 +28,7 @@ export default defineChildren({
     try {
       const config = getDSHConfig();
       const cleanup = async (): Promise<void> => {
+        getChatArchive(config).cleanup();
         const registry = new SessionRegistry(config);
 
         let groups = await registry.expiredGroups();
@@ -34,7 +36,7 @@ export default defineChildren({
         while (groups.length > 0) {
           for (const group of groups) {
             await purgeGroupHashData(config, group);
-            await registry.purgeHash(group);
+            await registry.purgeHash(group, false);
           }
           if (groups.length < 100) {
             break;

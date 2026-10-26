@@ -1,0 +1,116 @@
+import { runDSHChat, type ChatEvent } from '../response/dsh/chat';
+import { buildGroupBatchPrompt, type GroupBatch, type GroupBatchResult } from './group-conversation';
+import { groupConversations } from './groups';
+import { getGroupChatPolicy } from './group-policy';
+import { getDSHConfig } from '../dsh/client';
+import { SessionRegistry } from '../state/registry';
+import { Format, logger } from 'alemonjs';
+import { ensureIsolatedGroup } from '../dsh/orchestrator';
+import { randomUUID } from 'node:crypto';
+
+type Transport = NonNullable<Parameters<typeof runDSHChat>[2]>['transport'];
+
+export const respondToGroupBatch = async (event: ChatEvent, transport: Transport, batch: GroupBatch): Promise<GroupBatchResult> => {
+  let result: GroupBatchResult = { delivered: false, completed: false };
+  const registry = new SessionRegistry(getDSHConfig());
+  const claims: { id: string; requestId: string }[] = [];
+  const accepted: GroupBatch['messages'] = [];
+
+  try {
+    await ensureIsolatedGroup(event.ChannelId, getDSHConfig());
+    for (const message of batch.messages) {
+      if (message.id) {
+        const id = `group-message:${message.id}`;
+        const claim = await registry.deduplicate(message.channelId, id);
+
+        if (claim.duplicate) {
+          continue;
+        }
+        claims.push({ id, requestId: claim.requestId });
+      }
+      accepted.push(message);
+    }
+    const direct = accepted.filter(message => message.direct || message.explicitCommand);
+    const anchor = accepted.includes(batch.anchor)
+      ? batch.anchor
+      : batch.mode === 'direct'
+        ? direct.filter(message => message.explicitCommand).at(-1) || direct.at(-1)
+        : accepted.at(-1);
+
+    if (!anchor || (batch.mode === 'direct' && !direct.length)) {
+      result = { delivered: false, completed: true };
+    } else {
+      const requestId = anchor === batch.anchor ? batch.id : `group-batch:${anchor.id || randomUUID()}`;
+      const currentBatch = { ...batch, id: requestId, messages: accepted, anchor };
+
+      await runDSHChat(
+        {
+          ...event,
+          UserId: anchor.userId,
+          UserKey: anchor.userKey,
+          UserName: anchor.name,
+          IsMaster: anchor.owner,
+          MessageId: anchor.id,
+          MessageMedia: accepted.flatMap(item => item.media || [])
+        },
+        buildGroupBatchPrompt(currentBatch),
+        {
+          requestId,
+          voice: anchor.voice,
+          userText: anchor.text,
+          allowSilence: batch.mode !== 'direct',
+          replyReferences: Object.fromEntries(
+            accepted.flatMap((message, index) => (message.id ? [[`m${index + 1}`, { messageId: message.id, userId: message.userId }]] : []))
+          ),
+          transport,
+          onOutcome: outcome => {
+            result = outcome;
+          }
+        }
+      );
+    }
+    if (result.completed) {
+      for (const claim of claims) {
+        await registry.finalizeDeduplication(event.ChannelId, claim.id, claim.requestId).catch(() => logger.warn('Group source message confirmation failed'));
+      }
+    }
+  } catch {
+    logger.warn('Group batch preparation failed');
+    if (batch.mode === 'direct') {
+      await transport?.message
+        .send({ format: Format.create().addText('群聊消息暂时无法处理，请稍后重试。') })
+        .catch(() => logger.warn('Group preparation failure could not be reported'));
+    }
+  } finally {
+    if (!result.completed) {
+      for (const claim of claims) {
+        await registry.releaseDeduplication(event.ChannelId, claim.id, claim.requestId).catch(() => logger.warn('Group source message claim release failed'));
+      }
+    }
+  }
+
+  return result;
+};
+
+export const submitGroupChat = async (event: ChatEvent, prompt: string, transport: Transport, voice = false): Promise<void> => {
+  if (!event.ChannelId || event.IsPrivate || event.IsBot) {
+    return;
+  }
+  await groupConversations.receive(
+    {
+      channelId: event.ChannelId,
+      id: event.MessageId,
+      userId: event.UserId || 'unknown',
+      userKey: event.UserKey || event.UserId || 'unknown',
+      name: (event.UserName || '').slice(0, 80),
+      owner: Boolean(event.IsMaster),
+      text: prompt,
+      direct: true,
+      media: event.MessageMedia,
+      voice,
+      explicitCommand: true
+    },
+    getGroupChatPolicy(getDSHConfig().groupChat, event.ChannelId),
+    batch => respondToGroupBatch(event, transport, batch)
+  );
+};

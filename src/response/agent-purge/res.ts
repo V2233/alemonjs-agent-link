@@ -35,7 +35,7 @@ export default async (): Promise<void> => {
     confirmations.set(event.ChannelId, { actor, expiresAt: Date.now() + confirmationTtlMs });
     await message.send({
       format: Format.create().addMarkdownOriginal(
-        '## 即将彻底删除本群数据\n会删除 Agent 会话、工作区和近期聊天参考，且无法恢复。\n\n请由你本人在 **60 秒内** 发送：`/agentpurge confirm`'
+        '## 即将彻底删除本群数据\n会删除 Agent 会话、工作区、聊天归档和近期聊天参考，且无法恢复。\n\n请由你本人在 **60 秒内** 发送：`/agentpurge confirm`'
       )
     });
 
@@ -55,7 +55,7 @@ export default async (): Promise<void> => {
     const config = getDSHConfig();
 
     await purgeGroupSession(event.ChannelId, config);
-    await message.send({ format: Format.create().addMarkdownOriginal('## 已删除\n当前群的 Agent 会话、工作区与近期聊天参考已彻底清除。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('## 已删除\n当前群的 Agent 会话、工作区、聊天归档与近期聊天参考已彻底清除。') });
   } catch (error) {
     logger.error({ err: error }, 'Agent group data purge failed');
     await message.send({ format: Format.create().addMarkdownOriginal('操作暂时未完成，请稍后再试。') });

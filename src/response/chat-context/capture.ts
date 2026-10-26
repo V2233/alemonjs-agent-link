@@ -22,7 +22,7 @@ export default async (): Promise<void> => {
   const [mention] = useMention();
   const mentionedBot = await mention.findOne({ IsBot: true });
 
-  if (!mentionedBot.data) {
+  if (!mentionedBot.data && !event.IsAtMe) {
     try {
       const config = getDSHConfig();
 

@@ -1,2 +1,2 @@
-import { start } from 'alemonjs';
-start('lib/index.js');
+import { runCLI } from './bin/startup.mjs';
+process.exitCode = await runCLI(process.argv.slice(2));

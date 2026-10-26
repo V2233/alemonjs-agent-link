@@ -2,11 +2,13 @@ import { type ChatInput, withInputContext } from './input';
 import { dafeiyuPrompt } from './persona';
 import type { PrivateHistoryContext } from '@src/state/registry';
 import type { ModuleConfig } from '../agent/types';
+import { getGroupChatPolicy, type GroupChatConfig } from '../social/group-policy';
 import { getConfigValue } from 'alemonjs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { ensureDSHSupervisor, getDSHBridge, hasDSHBridgeOverride } from '@src/dsh/supervisor';
 
 export type DSHBridgeConfig = {
+  groupChat?: GroupChatConfig;
   modules?: ModuleConfig;
   groupWakeNames: string[];
   privateChatAccess: 'owner' | 'all';
@@ -62,7 +64,7 @@ type ConfigValue = {
 const dataRoot = join(process.cwd(), '.data', 'agent-link');
 const pythonExecutable = process.platform === 'win32' ? join(dataRoot, 'venv', 'Scripts', 'python.exe') : join(dataRoot, 'venv', 'bin', 'python');
 const defaults: DSHBridgeConfig = {
-  groupWakeNames: ['大肥鱼'],
+  groupWakeNames: ['帮我', '肥鱼', '大肥鱼'],
   privateChatAccess: 'owner',
   privateAutoReply: true,
   persona: 'dafeiyu',
@@ -117,6 +119,12 @@ export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeCo
     // Preserve existing deployments with explicit framework Redis configuration.
     stateBackend: agentLink?.stateBackend ?? ((value as { db?: { redis?: unknown } })?.db?.redis ? 'redis' : 'local')
   };
+
+  if (typeof agentLink?.dshHomeRoot === 'string' && agentLink.pythonExecutable === undefined) {
+    const root = dirname(config.dshHomeRoot);
+
+    config.pythonExecutable = process.platform === 'win32' ? join(root, 'venv', 'Scripts', 'python.exe') : join(root, 'venv', 'bin', 'python');
+  }
 
   if (config.persona === 'dafeiyu' && agentLink?.defaultSystemPrompt === undefined) {
     config.defaultSystemPrompt = dafeiyuPrompt;
@@ -211,6 +219,8 @@ export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeCo
   ) {
     throw new DSHError('protocol', 'DSH 配置的类型或安全范围无效');
   }
+
+  getGroupChatPolicy(config.groupChat);
 
   return config;
 };

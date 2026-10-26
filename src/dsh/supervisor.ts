@@ -109,7 +109,7 @@ export class DSHSupervisor {
         this.statusValue = {
           phase: 'degraded',
           detail:
-            this.config.runtimeMode === 'chat-only'
+            this.config.runtimeMode === 'chat-only' && this.credentials
               ? '纯聊天模式；网页、文件、终端关闭。'
               : `纯聊天模式：${this.describeStartupFailure(error)} 网页、文件、终端关闭。`
         };
@@ -160,6 +160,9 @@ export class DSHSupervisor {
   }
 
   private async launch(): Promise<void> {
+    if (!this.credentials) {
+      throw new Error('Model credentials missing');
+    }
     if (this.config.runtimeMode === 'chat-only') {
       throw new Error('chat-only selected');
     }
@@ -416,6 +419,9 @@ export class DSHSupervisor {
   private describeStartupFailure(error: unknown): string {
     const message = error instanceof Error ? error.message : '';
 
+    if (message.includes('Model credentials missing')) {
+      return '请填写 alemon.config.yaml 中的 alemonjs-agent-link.apiKey 后重新启动。';
+    }
     if (message.includes('Windows sandbox')) {
       return '当前系统不提供受支持的本地沙箱。';
     }

@@ -1,0 +1,61 @@
+import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { getDSHConfig } from '../../dsh/client';
+import { canPrivateChat, getConversationId } from '../dsh/util';
+import { getChatArchive } from '../../history/store';
+const confirmations = new Map<string, number>();
+
+export default async (): Promise<void> => {
+  const [context] = useEvent({ selects: ['message.create', 'private.message.create'] });
+  const [route] = useRoute();
+  const [message] = useMessage();
+
+  if (!context.match.selects || !route.matched) {
+    return;
+  }
+  const event = context.current;
+  const reply = (text: string) => message.send({ format: Format.create().addText(text) });
+  const config = getDSHConfig();
+
+  if (event.IsPrivate ? !canPrivateChat(event, config.privateChatAccess) : !event.IsMaster) {
+    await reply('仅可清除自己的私聊记录；群归档需由机器人主人清除。');
+
+    return;
+  }
+  const channelId = getConversationId(event);
+
+  if (!channelId || !event.Platform || !event.UserId) {
+    await reply('无法识别当前会话。');
+
+    return;
+  }
+  const key = JSON.stringify([event.Platform, channelId, event.UserId]);
+
+  for (const [id, expires] of confirmations) {
+    if (expires <= Date.now()) {
+      confirmations.delete(id);
+    }
+  }
+  if (route.rawArgs[0] !== 'confirm') {
+    if (confirmations.size >= 1000) {
+      await reply('请求过多，请稍后重试。');
+
+      return;
+    }
+    confirmations.set(key, Date.now() + 60000);
+    await reply('将永久删除当前会话的聊天归档。请在60秒内发送 /清除聊天记录 confirm 确认。此操作不会删除长期记忆或当前模型会话。');
+
+    return;
+  }
+  if ((confirmations.get(key) ?? 0) <= Date.now()) {
+    await reply('请先发送 /清除聊天记录，再于60秒内确认。');
+
+    return;
+  }
+  confirmations.delete(key);
+  try {
+    getChatArchive(config).purge({ platform: event.Platform, channelId });
+    await reply('当前会话聊天归档已清除。之后收到的新消息仍会归档。');
+  } catch {
+    await reply('归档删除失败，请稍后重试。');
+  }
+};
