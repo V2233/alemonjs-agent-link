@@ -107,6 +107,10 @@ test('real WebSocket verifies account before accepting events and correlates suc
         const frame = JSON.parse(bytes.toString());
         requests.push(frame);
         if (frame.action === 'hang') return;
+        if (frame.action === 'async') {
+          socket.send(JSON.stringify({ echo: frame.echo, status: 'async', retcode: 1 }));
+          return;
+        }
         if (frame.action === 'reject') socket.send(JSON.stringify({ echo: frame.echo, status: 'failed', retcode: 1403, wording: 'sensitive detail' }));
         else
           socket.send(
@@ -124,6 +128,7 @@ test('real WebSocket verifies account before accepting events and correlates suc
     assert.deepEqual(await connection.call('send_group_msg', { group_id: 200, message: [] }), { message_id: 55 });
     await assert.rejects(connection.call('reject'), error => error.kind === 'rejected' && error.retcode === 1403 && !error.message.includes('sensitive'));
     await assert.rejects(connection.call('hang'), error => error.kind === 'timeout');
+    await assert.rejects(connection.call('async'), error => error.kind === 'protocol');
     assert.equal(requests.filter(frame => frame.action === 'hang').length, 1, 'writes are never automatically retried');
     assert.equal(connection.config.timeoutMs, config.timeoutMs);
   }));
@@ -251,6 +256,12 @@ test('group actions recheck owner, whitelist, current scope, bot and target role
   f.setRole('owner');
   assert.equal((await f.api('manageGroup', { action: 'title', groupId: '200', userId: '300', text: '茶友' }))[0].code, ResultCode.Ok);
   assert.equal(f.calls.at(-1).action, 'set_group_special_title');
+  assert.equal((await f.api('manageGroup', { action: 'unmute', groupId: '200', userId: '300' }))[0].code, ResultCode.Ok);
+  assert.equal(f.calls.at(-1).params.duration, 0);
+  assert.equal((await f.api('manageGroup', { action: 'kick', groupId: '200', userId: '300' }))[0].code, ResultCode.Ok);
+  assert.deepEqual(f.calls.at(-1), { action: 'set_group_kick', params: { group_id: 200, user_id: 300, reject_add_request: false } });
+  assert.equal((await f.api('manageGroup', { action: 'notice', groupId: '200', text: '群公告' }))[0].code, ResultCode.Ok);
+  assert.deepEqual(f.calls.at(-1), { action: '_send_group_notice', params: { group_id: 200, content: '群公告' } });
   f.revoke();
   assert.notEqual((await f.api('manageGroup', mute))[0].code, ResultCode.Ok);
 });

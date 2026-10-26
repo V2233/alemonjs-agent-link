@@ -23,7 +23,7 @@ export const moodModule = (config: DSHBridgeConfig): AgentModule => ({
       if (!context.platform || !context.channelId || context.signal.aborted) {
         return '';
       }
-      const inputId = context.inputId || context.requestId;
+      const inputId = context.autonomous ? undefined : context.inputId || context.requestId;
       const snapshot = inputId
         ? store.observe(context, inputId, context.addressed === false ? 0 : keywordMoodDelta(context.userText), options, config.retentionDays)
         : store.snapshot(context, options, config.retentionDays);
@@ -43,6 +43,7 @@ export const moodModule = (config: DSHBridgeConfig): AgentModule => ({
       inputs.delete(context.requestId);
       if (
         !options.modelJudge ||
+        context.autonomous ||
         !token ||
         jobs.active >= 2 ||
         context.signal.aborted ||

@@ -24,8 +24,8 @@ export type GroupReplyDecision = { reply: boolean; mode: GroupReplyMode; reason:
 
 export const defaultGroupChatPolicy: GroupChatPolicy = {
   enabled: true,
-  batchWindowMs: 500,
-  maxBatchWaitMs: 1500,
+  batchWindowMs: 1200,
+  maxBatchWaitMs: 4000,
   maxBatchMessages: 24,
   maxBatchChars: 12000,
   interjectChance: 0.15,

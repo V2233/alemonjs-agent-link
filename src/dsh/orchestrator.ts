@@ -32,6 +32,7 @@ const acquireRequestSlot = (limit: number): (() => void) => {
 };
 
 export const getRequestCapacity = (): { active: number } => ({ active: activeRequests });
+export const conversationBusy = (channelId: string): boolean => Boolean(queues.get(channelId)?.running || queues.get(channelId)?.jobs.length);
 
 export const enqueueChat = async (
   channelId: string,
@@ -270,6 +271,8 @@ export const runCoordinatedChat = async (
     recordHistory?: () => boolean;
     inputId?: string;
     addressed?: boolean;
+    autonomous?: boolean;
+    signal?: AbortSignal;
     renderAnswer?: (text: string) => string;
   }
 ): Promise<CoordinatedChatResult> => {
@@ -301,6 +304,8 @@ export const runCoordinatedChat = async (
       config.maxQueuedPerGroup,
       event.UserKey || 'unknown',
       async signal => {
+        signal = mediaTask?.signal ? AbortSignal.any([signal, mediaTask.signal]) : signal;
+        signal.throwIfAborted();
         const startedAt = Date.now();
         const releaseRequestSlot = acquireRequestSlot(config.maxConcurrentRequests);
 
@@ -326,6 +331,7 @@ export const runCoordinatedChat = async (
                 requestId: duplicate.requestId,
                 inputId: mediaTask?.inputId || event.MessageId || duplicate.requestId,
                 addressed: mediaTask?.addressed,
+                autonomous: mediaTask?.autonomous,
                 channelId: event.ChannelId,
                 userId: event.UserId || event.UserKey || 'unknown',
                 platform: event.Platform || '',

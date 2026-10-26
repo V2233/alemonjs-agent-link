@@ -95,7 +95,7 @@ test('debounce combines participants and preserves the last actual direct sender
     const second = h.coordinator.receive(message('member', { owner: false }), policy(), respond);
     const third = h.coordinator.receive(message('background', { direct: false, text: '补充一点' }), policy(), respond);
     assert.equal(h.timers.size, 1);
-    assert.equal([...h.timers.values()][0].ms, 50);
+    assert.equal([...h.timers.values()][0].ms, 1100);
     await h.coordinator.flush('group');
     await Promise.all([first, second, third]);
     assert.equal(batches.length, 1);
@@ -126,7 +126,7 @@ test('continuous input is bounded by the maximum wait and active replies buffer 
   };
   try {
     const first = h.coordinator.receive(message('one', { direct: false }), policy({ minRecentMessages: 1 }), respond);
-    h.advance(1400);
+    h.advance(3900);
     const more = h.coordinator.receive(message('two', { direct: false }), policy({ minRecentMessages: 1 }), respond);
     assert.equal([...h.timers.values()][0].ms, 100);
     const flushing = h.coordinator.flush('group');
@@ -398,11 +398,11 @@ test('latency separates local waiting, classification and response without dropp
     h.advance(60);
     return { delivered: true };
   });
-  assert.equal([...h.timers.values()][0].ms, 150);
-  h.advance(150);
+  assert.equal([...h.timers.values()][0].ms, 1200);
+  h.advance(1200);
   await h.coordinator.flush('group');
   await a;
-  assert.deepEqual(timings, { waitMs: 150, gateMs: 40, responseMs: 60, totalMs: 250 });
+  assert.deepEqual(timings, { waitMs: 1200, gateMs: 40, responseMs: 60, totalMs: 1300 });
   h.coordinator.close();
 });
 
@@ -425,5 +425,129 @@ test('lifecycle invalidation cancels classification without re-enabling a late r
   await flush;
   await done;
   assert.equal(replies, 0);
+  h.coordinator.close();
+});
+
+test('rejected partial speech is reconsidered with the same speaker continuation', async () => {
+  const inputs = [],
+    replies = [];
+  const h = harness({
+    classify: async input => {
+      inputs.push(input);
+      return { reply: input.messages.length > 1, reason: input.messages.length > 1 ? 'direct_call' : 'none', source: 'human', loopRisk: false };
+    }
+  });
+  const respond = async batch => {
+    replies.push(batch);
+    return { delivered: true };
+  };
+  const first = h.coordinator.receive(message('partial1', { userId: 'alice', text: '肥鱼，那个接口' }), policy(), respond);
+  await h.coordinator.flush('group');
+  await first;
+  assert.equal(replies.length, 0);
+  h.advance(3000);
+  const second = h.coordinator.receive(message('partial2', { userId: 'alice', text: '一直返回403，帮忙看看权限', direct: false }), policy(), respond);
+  await h.coordinator.flush('group');
+  await second;
+  assert.deepEqual(
+    inputs[1].messages.map(item => item.text),
+    ['肥鱼，那个接口', '一直返回403，帮忙看看权限']
+  );
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].anchor.id, 'partial2');
+  assert.equal(replies[0].messages.length, 2);
+  h.coordinator.close();
+});
+
+test('continuation arriving during classification prevents a stale answer and is classified together', async () => {
+  let resolveFirst;
+  const inputs = [],
+    replies = [];
+  const h = harness({
+    classify: async input => {
+      inputs.push(input);
+      if (inputs.length === 1)
+        return new Promise(resolve => {
+          resolveFirst = resolve;
+        });
+      return { reply: true, reason: 'direct_call', source: 'human', loopRisk: false };
+    }
+  });
+  const respond = async batch => {
+    replies.push(batch);
+    return { delivered: true };
+  };
+  const first = h.coordinator.receive(message('race1', { userId: 'alice', text: '肥鱼帮我看看' }), policy(), respond);
+  const flushing = h.coordinator.flush('group');
+  const second = h.coordinator.receive(message('race2', { userId: 'alice', text: '还有这个条件', direct: false }), policy(), respond);
+  resolveFirst({ reply: true, reason: 'direct_call', source: 'human', loopRisk: false });
+  await flushing;
+  await first;
+  assert.equal(replies.length, 0);
+  await h.coordinator.flush('group');
+  await second;
+  assert.deepEqual(
+    inputs[1].messages.map(item => item.text),
+    ['肥鱼帮我看看', '还有这个条件']
+  );
+  assert.equal(replies.length, 1);
+  h.coordinator.close();
+});
+
+test('wait-until-finished buffers one speaker, only that speaker releases it, and cancellation clears it', async () => {
+  const batches = [],
+    inputs = [];
+  const h = harness({
+    classify: async input => {
+      inputs.push(input);
+      return { reply: true, reason: 'direct_call', source: 'human', loopRisk: false };
+    }
+  });
+  const respond = async batch => {
+    batches.push(batch);
+    return { delivered: true };
+  };
+  const alice = (id, text) => message(id, { userId: 'alice', userKey: 'alice', text, direct: false });
+  await h.coordinator.receive(alice('hold1', '肥鱼，等我说完'), policy(), respond);
+  await h.coordinator.receive(alice('hold2', '第一段背景'), policy(), respond);
+  const other = h.coordinator.receive(message('other', { text: '说完了' }), policy(), respond);
+  await h.coordinator.flush('group');
+  await other;
+  assert.equal(inputs.length, 1);
+  assert.ok(!batches[0].messages.some(item => item.userId === 'alice'));
+  await h.coordinator.receive(alice('hold3', '第二段问题'), policy(), respond);
+  const release = h.coordinator.receive(alice('hold4', '可以回了'), policy(), respond);
+  await h.coordinator.flush('group');
+  await release;
+  assert.deepEqual(
+    batches[1].messages.map(item => item.text),
+    ['第一段背景', '第二段问题', '可以回了']
+  );
+  assert.equal(batches[1].anchor.userId, 'alice');
+  await h.coordinator.receive(alice('hold5', '先别回'), policy(), respond);
+  await h.coordinator.receive(alice('hold6', '不要留下这段'), policy(), respond);
+  h.coordinator.cancelPending('group', 'alice');
+  const fresh = h.coordinator.receive(alice('hold7', '新的问题'), policy(), respond);
+  await h.coordinator.flush('group');
+  await fresh;
+  assert.deepEqual(
+    batches[2].messages.map(item => item.text),
+    ['新的问题']
+  );
+  h.coordinator.close();
+});
+
+test('same speaker extends the quiet window but maximum wait is bounded', async () => {
+  const h = harness();
+  const respond = async () => ({ delivered: true });
+  const a = h.coordinator.receive(message('debounce1', { userId: 'alice' }), policy(), respond);
+  h.advance(1000);
+  const b = h.coordinator.receive(message('debounce2', { userId: 'alice', direct: false }), policy(), respond);
+  assert.equal([...h.timers.values()][0].ms, 1200);
+  h.advance(2800);
+  const c = h.coordinator.receive(message('debounce3', { userId: 'alice', direct: false }), policy(), respond);
+  assert.equal([...h.timers.values()][0].ms, 200);
+  await h.coordinator.flush('group');
+  await Promise.all([a, b, c]);
   h.coordinator.close();
 });

@@ -15,6 +15,7 @@ export const platformModule = (config: DSHBridgeConfig): AgentModule => ({
 
     api.tool({
       name: 'platform_status',
+      readOnly: true,
       description: '查询当前 OneBot 连接与接口能力。支持某接口不等于已执行或拥有群管理权限。',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       available: context => context.platform === 'onebot',

@@ -10,6 +10,8 @@ import { getModuleRuntime, closeModuleRuntime } from './agent/modules';
 import { getMemoryStore } from './memory/store';
 import { getMoodStore } from './companion/mood';
 import { getPlatformLedger } from './platform/ledger';
+import { getProactiveStore } from './proactive/store';
+import { interruptAllProactive } from './proactive/control';
 let stopModuleConfigWatch: (() => void) | undefined;
 
 export default defineChildren({
@@ -24,6 +26,7 @@ export default defineChildren({
 
       stopModuleConfigWatch?.();
       stopModuleConfigWatch = watchDSHConfig(() => {
+        interruptAllProactive();
         try {
           void getModuleRuntime(getDSHConfig())
             .then(runtime => runtime.refresh())
@@ -60,6 +63,7 @@ export default defineChildren({
         getMemoryStore(config).cleanup(config.retentionDays);
         getMoodStore(config).cleanup(config.retentionDays);
         getPlatformLedger(config).cleanup(config.retentionDays);
+        getProactiveStore(config).cleanup(config.retentionDays);
         const registry = new SessionRegistry(config);
 
         let groups = await registry.expiredGroups();
@@ -85,6 +89,7 @@ export default defineChildren({
     }
   },
   onDispose() {
+    interruptAllProactive();
     stopModuleConfigWatch?.();
     stopModuleConfigWatch = undefined;
 

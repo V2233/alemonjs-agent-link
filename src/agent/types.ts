@@ -5,6 +5,7 @@ export type TurnContext = {
   requestId?: string;
   inputId?: string;
   addressed?: boolean;
+  autonomous?: boolean;
   channelId: string;
   userId: string;
   platform: string;
@@ -32,6 +33,7 @@ export type ToolSchema = {
 };
 
 export type AgentTool = {
+  readOnly?: boolean;
   name: string;
   description: string;
   parameters: ToolSchema;

@@ -24,6 +24,11 @@ const commandGroup = router.group({
   duplicateKey: 'throw'
 });
 
+commandGroup.use(
+  { path: '主动搭话', events: ['private.message.create'], description: '主人管理自己的主动搭话订阅' },
+  () => import('@src/response/agent-proactive/res')
+);
+
 commandGroup.use({ path: '人格', description: '查看及切换当前会话人格' }, () => import('@src/response/agent-persona/res'));
 commandGroup.use({ path: '心情', description: '查看当前会话心情及变化' }, () => import('@src/response/agent-mood/res'));
 

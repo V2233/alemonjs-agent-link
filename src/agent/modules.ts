@@ -10,6 +10,7 @@ import { chatHistoryModule } from '../modules/chat-history';
 import { personaModule } from '../modules/persona';
 import { moodModule } from '../modules/mood';
 import { platformModule, groupAdminModule } from '../modules/platform';
+import { proactiveModule } from '../modules/proactive';
 import { validateArguments } from './schema';
 import type { AgentModule, AgentTool, ModuleApi, ModuleConfig, ModuleHooks, TurnContext } from './types';
 
@@ -119,7 +120,9 @@ export class ModuleLease {
   }
 
   tools(context: TurnContext): AgentTool[] {
-    return this.modules.flatMap(module => module.tools).filter(tool => !tool.available || tool.available(context));
+    return this.modules
+      .flatMap(module => module.tools)
+      .filter(tool => (!context.autonomous || tool.readOnly === true) && (!tool.available || tool.available(context)));
   }
 
   get transformsSystem(): boolean {
@@ -231,6 +234,7 @@ export class ModuleRuntime {
       moodModule(config),
       platformModule(config),
       groupAdminModule(config),
+      proactiveModule(config),
       memoryModule(config),
       chatHistoryModule(config)
     ]
@@ -325,6 +329,7 @@ export class ModuleRuntime {
           !toolName.test(tool.name) ||
           typeof tool.description !== 'string' ||
           typeof tool.execute !== 'function' ||
+          (tool.readOnly !== undefined && typeof tool.readOnly !== 'boolean') ||
           tool.parameters?.type !== 'object' ||
           tool.name === 'agent_workspace' ||
           record.tools.some(existing => existing.name === tool.name)
@@ -474,6 +479,9 @@ export class ModuleRuntime {
 
 export const executeTool = async (tool: AgentTool, args: unknown, context: TurnContext): Promise<unknown> => {
   context.signal.throwIfAborted();
+  if (context.autonomous && tool.readOnly !== true) {
+    throw new Error('主动消息不能使用写入或管理工具。');
+  }
   if (tool.available && !tool.available(context)) {
     throw new Error('当前会话没有这个工具的权限。');
   }

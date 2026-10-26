@@ -47,8 +47,10 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
       const scopeId = JSON.stringify([context.platform, context.channelId]);
       const query = context.userText.length < 8 ? `${previousQueries.get(scopeId) || ''} ${context.userText}` : context.userText;
 
-      previousQueries.delete(scopeId);
-      previousQueries.set(scopeId, context.userText.slice(0, 500));
+      if (!context.autonomous) {
+        previousQueries.delete(scopeId);
+        previousQueries.set(scopeId, context.userText.slice(0, 500));
+      }
       while (previousQueries.size > 1000) {
         previousQueries.delete(previousQueries.keys().next().value);
       }
@@ -83,6 +85,7 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
 
     api.tool({
       name: 'recall_private_memory',
+      readOnly: true,
       description: '查看当前私聊用户明确保存的长期资料。仅返回当前用户的资料，编号可用于 /忘记。',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       available: context => context.private,
@@ -122,6 +125,7 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
     });
     api.tool({
       name: 'recall_memories',
+      readOnly: true,
       description: '检索当前群或当前私聊的长期事实、经历和表达偏好。返回所属人物、时间、置信度与来源编号，不跨会话。',
       parameters: {
         type: 'object',
@@ -144,6 +148,7 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
     });
     api.tool({
       name: 'inspect_memory_source',
+      readOnly: true,
       description: '查看当前会话某条长期记忆的来源证据与变更关系。自动整理可能有误，应以真实原文和用户纠正为准。',
       parameters: { type: 'object', additionalProperties: false, required: ['id'], properties: { id: { type: 'string', minLength: 8, maxLength: 12 } } },
       available: context => Boolean(context.platform && context.channelId),

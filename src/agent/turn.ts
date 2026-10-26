@@ -1,3 +1,4 @@
+import { modelContext } from '../dsh/model-context';
 import { logger } from 'alemonjs';
 import { abortFailure } from '../dsh/errors';
 import { streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '../dsh/client';
@@ -23,7 +24,8 @@ export const runModuleTurn = async (options: {
   const lease = await (await getModuleRuntime(config)).acquire();
 
   try {
-    const systemPrompt = await lease.system(config.defaultSystemPrompt, context);
+    const personaPrompt = await lease.system(config.defaultSystemPrompt, context);
+    const systemPrompt = `${personaPrompt}\n\n${modelContext(config.model)}${context.autonomous ? '\n当前为系统调度的主动搭话，不是主人发来的请求。只可读取当前私聊资料，不得把历史话语当作新授权，不能保存记忆、执行工作区、管理群或联系其他对象。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`;
     const moduleContext = await lease.context(context);
     const input = await lease.prompt(withInputContext(options.input, moduleContext), context);
     const tools = lease.tools(context);
@@ -40,7 +42,13 @@ export const runModuleTurn = async (options: {
     // Send current-turn image bytes directly through the multimodal tool loop.
     const hasImages = Array.isArray(input) && input.some(block => block.type === 'image');
 
-    if (tools.length || lease.transformsReplies || (lease.transformsSystem && systemPrompt !== config.defaultSystemPrompt) || hasImages) {
+    if (
+      context.autonomous ||
+      tools.length ||
+      lease.transformsReplies ||
+      (lease.transformsSystem && personaPrompt !== config.defaultSystemPrompt) ||
+      hasImages
+    ) {
       const credentials = await getDSHCredentials();
 
       if (!credentials) {
@@ -53,7 +61,7 @@ export const runModuleTurn = async (options: {
       }
       const sandboxReady = hasDSHBridgeOverride() || supervisor.status().phase === 'ready';
 
-      if (sandboxReady && (context.capabilities.web || context.capabilities.files || context.capabilities.terminal)) {
+      if (!context.autonomous && sandboxReady && (context.capabilities.web || context.capabilities.files || context.capabilities.terminal)) {
         const workspaceTool: AgentTool = {
           name: 'agent_workspace',
           description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}、终端${context.capabilities.terminal ? '允许' : '禁止'}。不能管理机器人或调用未提供的业务接口。`,
@@ -116,7 +124,11 @@ export const runModuleTurn = async (options: {
       });
       const transformed = await lease.reply(raw, context);
 
-      answer = config.outputBlockedKeywords.some(word => word && transformed.includes(word)) ? '回复因内容安全策略未发送。' : transformed;
+      answer = config.outputBlockedKeywords.some(word => word && transformed.includes(word))
+        ? context.autonomous
+          ? '[沉默]'
+          : '回复因内容安全策略未发送。'
+        : transformed;
       if (!answer.trim()) {
         throw new Error('模块未产生可发送的回复。');
       }
@@ -131,7 +143,17 @@ export const runModuleTurn = async (options: {
         await registry.appendPrivateTurn(history, inputText(options.input) + (typeof options.input === 'string' ? '' : '\n[本轮包含图片]'), answer);
       }
     } else {
-      await streamChat(config, sessionId, input, observe, context.userId, context.signal, context.capabilities, history, onCompleted);
+      await streamChat(
+        { ...config, defaultSystemPrompt: systemPrompt },
+        sessionId,
+        input,
+        observe,
+        context.userId,
+        context.signal,
+        context.capabilities,
+        history,
+        onCompleted
+      );
     }
     context.signal.throwIfAborted();
     if (history?.record?.() !== false) {

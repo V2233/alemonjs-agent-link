@@ -4,6 +4,7 @@ import { open, mkdir, readdir, lstat, rename, writeFile, rm } from 'node:fs/prom
 import { dirname, join } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import type { DSHBridgeConfig } from '../dsh/client';
+import { personaModes, personaModePrompt, type PersonaMode } from './persona-modes';
 import { dafeiyuPrompt } from '../dsh/persona';
 
 export type PersonaScope = { platform: string; channelId: string };
@@ -69,7 +70,8 @@ export class PersonaStore {
       CREATE TABLE IF NOT EXISTS persona_choices (
         scope TEXT PRIMARY KEY, platform TEXT NOT NULL, channel_id TEXT NOT NULL, persona_id TEXT NOT NULL, updated_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS persona_ids ON persona_choices(persona_id);
-      CREATE TABLE IF NOT EXISTS persona_additions (persona_id TEXT PRIMARY KEY, content TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS persona_additions (persona_id TEXT PRIMARY KEY, content TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS persona_modes (scope TEXT PRIMARY KEY, channel_id TEXT NOT NULL, mode TEXT NOT NULL);`);
   }
 
   close(): void {
@@ -212,6 +214,35 @@ export class PersonaStore {
     this.db.prepare('DELETE FROM persona_additions WHERE persona_id=?').run(id);
   }
 
+  expressionMode(scope?: PersonaScope): PersonaMode {
+    const local = scope ? this.db.prepare('SELECT mode FROM persona_modes WHERE scope=?').get(scopeKey(scope)) : undefined;
+    const global = this.db.prepare("SELECT mode FROM persona_modes WHERE scope='global'").get();
+    const mode = String(local?.mode || global?.mode || '个性') as PersonaMode;
+
+    return personaModes.includes(mode) ? mode : '个性';
+  }
+
+  setExpressionMode(scope: PersonaScope | undefined, mode: PersonaMode | undefined, owner: boolean): void {
+    if (!owner) {
+      throw new Error('只有机器人主人能修改表达程度。');
+    }
+    if (mode !== undefined && !personaModes.includes(mode)) {
+      throw new Error('表达程度必须为个性、工作或专业。');
+    }
+    const key = scope ? scopeKey(scope) : 'global';
+
+    if (mode === undefined) {
+      this.db.prepare('DELETE FROM persona_modes WHERE scope=?').run(key);
+    } else {
+      this.db
+        .prepare(
+          `INSERT INTO persona_modes(scope,channel_id,mode) VALUES(?,?,?)
+        ON CONFLICT(scope) DO UPDATE SET mode=excluded.mode`
+        )
+        .run(key, scope?.channelId || '', mode);
+    }
+  }
+
   selected(scope: PersonaScope): string | undefined {
     const row = this.db.prepare('SELECT persona_id FROM persona_choices WHERE scope=?').get(scopeKey(scope));
 
@@ -250,6 +281,11 @@ export class PersonaStore {
   }
 
   purgeHash(groupHash: string): void {
+    for (const row of this.db.prepare('SELECT scope,channel_id FROM persona_modes').all()) {
+      if (row.scope !== 'global' && createHash('sha256').update(String(row.channel_id)).digest('hex') === groupHash) {
+        this.db.prepare('DELETE FROM persona_modes WHERE scope=?').run(row.scope);
+      }
+    }
     const rows = this.db.prepare('SELECT scope,channel_id FROM persona_choices').all();
 
     for (const row of rows) {
@@ -277,7 +313,9 @@ export class PersonaStore {
     const additions = this.additions(id ? String(id) : config.persona);
     const extra = additions ? `【主人追加的人设】\n以下补充仅调整性格、称呼和表达习惯，不改变实际能力、身份验证、权限、隐私及工具执行规则。\n${additions}` : '';
 
-    return [definition?.prompt || config.defaultSystemPrompt, rules, common || '', extra].filter(Boolean).join('\n\n');
+    return [definition?.prompt || config.defaultSystemPrompt, rules, common || '', extra, personaModePrompt(this.expressionMode(context))]
+      .filter(Boolean)
+      .join('\n\n');
   }
 }
 

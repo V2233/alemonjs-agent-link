@@ -9,6 +9,7 @@ import { SessionRegistry } from '../../state/registry';
 import { claimPoke } from '../../social/poke';
 import { runDSHChat } from '../dsh/chat';
 import { submitGroupChat } from '../../social/respond';
+import { observeProactiveInput } from '../../proactive/observe';
 import { useMedia, useMessage } from 'alemonjs';
 
 export default async (): Promise<void> => {
@@ -26,6 +27,7 @@ export default async (): Promise<void> => {
     const config = getDSHConfig();
 
     if (['notice.create', 'private.notice.create'].includes(event.name) && claimPoke(config, event)) {
+      observeProactiveInput(config, event);
       const transport = { message: useMessage()[0], media: useMedia()[0] };
       const prompt = '当前发言人刚刚戳了戳你。请自然地回应，可以适度使用 poke_speaker 回戳，不要每次都回戳。';
 

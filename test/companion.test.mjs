@@ -76,7 +76,9 @@ test('persona files persist choices, preserve configured defaults and layer owne
       ]) {
         assert.match(await store.systemPrompt(config, { ...scope, ...flags }), /社交规则/u);
       }
-      assert.equal(await store.systemPrompt({ ...config, defaultSystemPrompt: '配置自定义' }, { ...other, private: true, owner: true }), '配置自定义');
+      assert.ok(
+        (await store.systemPrompt({ ...config, defaultSystemPrompt: '配置自定义' }, { ...other, private: true, owner: true })).startsWith('配置自定义')
+      );
       await assert.rejects(store.remove('tea'), /先将/u);
       store.close();
       store = new PersonaStore(join(root, 'store'));

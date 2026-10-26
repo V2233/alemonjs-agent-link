@@ -58,7 +58,34 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
   const pythonExecutable = process.platform === 'win32' ? join(dataRoot, 'venv', 'Scripts', 'python.exe') : join(dataRoot, 'venv', 'bin', 'python');
   const defaults: DSHBridgeConfig = {
     transport: 'qq-bot',
-    groupWakeNames: ['帮我', '肥鱼', '大肥鱼'],
+    groupWakeNames: [
+      '帮我',
+      '帮忙',
+      '帮一下',
+      '帮个忙',
+      '求助',
+      '求解',
+      '请教',
+      '肥鱼',
+      '大肥鱼',
+      '小肥鱼',
+      '肥鱼儿',
+      '肥鱼酱',
+      '鱼宝',
+      '鱼鱼',
+      '小鲸鱼',
+      '鲸鱼',
+      'deepseek',
+      'deep seek',
+      'deep-seek',
+      '深度求索',
+      '深求',
+      'dsh',
+      'ds harness',
+      'deepseek harness',
+      'agentlink',
+      'agent link'
+    ],
     privateChatAccess: 'owner',
     privateAutoReply: true,
     persona: 'dafeiyu',
@@ -238,7 +265,7 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
       }
     }) ||
     !Array.isArray(config.groupWakeNames) ||
-    config.groupWakeNames.length > 10 ||
+    config.groupWakeNames.length > 64 ||
     config.groupWakeNames.some(name => typeof name !== 'string' || !name.trim() || name.length > 20 || name.trim() !== name || name.startsWith('/')) ||
     !['owner', 'all'].includes(config.privateChatAccess) ||
     typeof config.privateAutoReply !== 'boolean' ||

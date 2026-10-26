@@ -6,6 +6,7 @@ import { getMemoryStore } from '../memory/store';
 import { getPersonaStore } from '../companion/personas';
 import { getMoodStore } from '../companion/mood';
 import { getPlatformLedger } from '../platform/ledger';
+import { getProactiveStore } from '../proactive/store';
 import { join, dirname } from 'node:path';
 import type { AgentCapabilities, DSHBridgeConfig } from '@src/dsh/client';
 
@@ -497,6 +498,7 @@ export class SessionRegistry {
     await (await redis(this.config)).del(key(channelId, 'recent.v1.jsonl'));
   }
   async purge(channelId: string): Promise<void> {
+    getProactiveStore(this.config).purgeHash(groupHash(channelId));
     getPlatformLedger(this.config).purgeHash(groupHash(channelId));
     getPersonaStore(this.config).purgeHash(groupHash(channelId));
     getMoodStore(this.config).purgeHash(groupHash(channelId));
@@ -516,6 +518,7 @@ export class SessionRegistry {
     return await (await redis(this.config)).zrangebyscore(`${prefix}:retention.v1`, 0, Date.now() - this.config.retentionDays * 86400_000, 'LIMIT', 0, 100);
   }
   async purgeHash(hash: string, includeArchive = true): Promise<void> {
+    getProactiveStore(this.config).purgeHash(hash);
     getPlatformLedger(this.config).purgeHash(hash);
     getPersonaStore(this.config).purgeHash(hash);
     getMoodStore(this.config).purgeHash(hash);

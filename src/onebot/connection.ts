@@ -123,8 +123,10 @@ export class OneBotConnection {
           clearTimeout(job.timer);
           if (value.status === 'ok' && value.retcode === 0) {
             job.resolve(value.data);
+          } else if (value.status === 'failed' && Number.isSafeInteger(value.retcode) && value.retcode !== 0) {
+            job.reject(new OneBotError('rejected', value.retcode));
           } else {
-            job.reject(new OneBotError('rejected', Number.isSafeInteger(value.retcode) ? value.retcode : undefined));
+            job.reject(new OneBotError('protocol'));
           }
         } else if (this.phase === 'ready' && String(value.self_id) === this.config.selfId) {
           this.handlers.event(value);

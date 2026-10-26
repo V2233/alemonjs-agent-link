@@ -1,5 +1,6 @@
 import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
+import { personaModes, type PersonaMode } from '../../companion/persona-modes';
 import { getPersonaStore, validPersonaId } from '../../companion/personas';
 import { canPrivateChat, canReset, getConversationId } from '../dsh/util';
 import { assertMessageDelivered } from '../../dsh/output';
@@ -48,16 +49,45 @@ export default async (): Promise<void> => {
     const scope = { platform: event.Platform, channelId };
     const args = route.rawArgs.join(' ').trim();
 
+    if (/^(?:程度|全局程度)(?:\s|$)/u.test(args)) {
+      const [action, value, ...rest] = args.split(/\s+/u);
+      const global = action === '全局程度';
+
+      if (!value) {
+        await reply(
+          `当前${global ? '全局默认' : '会话'}表达程度：${store.expressionMode(global ? undefined : scope)}。主人可用 /人格 ${action} 个性|工作|专业；设为“默认”可恢复继承。`
+        );
+
+        return;
+      }
+      if (!event.IsMaster || (global && !event.IsPrivate)) {
+        await reply(global ? '全局程度只能由主人在私聊修改。' : '只有机器人主人能修改当前会话的表达程度。');
+
+        return;
+      }
+      if (rest.length || (!personaModes.includes(value as PersonaMode) && value !== '默认')) {
+        await reply('可选程度：个性、工作、专业；“默认”用于恢复继承。');
+
+        return;
+      }
+      store.setExpressionMode(global ? undefined : scope, value === '默认' ? undefined : (value as PersonaMode), true);
+      await reply(
+        `${global ? '全局默认' : '当前会话'}表达程度已设为${store.expressionMode(global ? undefined : scope)}，下一轮生效。原人设、追加设定和聊天记录保留。${global ? '单独设置过程度的会话不变。' : ''}`
+      );
+
+      return;
+    }
+
     if (!args || args === '列表') {
       const selected = store.selected(scope) || config.modules?.settings?.persona?.defaultId || '配置默认';
       const rows = await store.list();
 
       await reply(
-        `当前人格：${selected}\n${rows.map(row => `${row.id}：${row.name}${row.error ? '（文件无效）' : ''}`).join('\n')}\n使用：/人格 使用 编号；/人格 使用 默认。切换会开始新话题。`
+        `当前人格：${selected}；表达程度：${store.expressionMode(scope)}\n${rows.map(row => `${row.id}：${row.name}${row.error ? '（文件无效）' : ''}`).join('\n')}\n使用：/人格 使用 编号；/人格 使用 默认。切换会开始新话题。`
       );
       if (event.IsPrivate && event.IsMaster) {
         await reply(
-          '主人管理：/人格 追加 编号 内容；/人格 查看追加 编号；/人格 清空追加 编号；/人格 查看 编号；/人格 保存 编号 名称|提示词；/人格 删除 编号。完整规则可编辑本地 personas/*.json，下一轮读取。'
+          '主人管理：/人格 程度 个性|工作|专业；/人格 全局程度 个性|工作|专业；/人格 追加 编号 内容；/人格 查看追加 编号；/人格 清空追加 编号；/人格 查看 编号；/人格 保存 编号 名称|提示词；/人格 删除 编号。完整规则可编辑本地 personas/*.json，下一轮读取。'
         );
       }
 

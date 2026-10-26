@@ -1,5 +1,5 @@
 import { getMediaConfig } from '@src/media/config';
-import { Format, logger, useEvent, useMessage } from 'alemonjs';
+import { Format, logger, useEvent, useMessage, useConnection, ResultCode } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { getDSHCredentials } from '@src/dsh/credentials';
 import { ensureDSHSupervisor, type DSHSupervisorStatus } from '@src/dsh/supervisor';
@@ -65,8 +65,19 @@ export default async (): Promise<void> => {
     }
 
     if (event.IsPrivate && event.IsMaster) {
+      let transport = config.transport === 'onebot' ? 'OneBot（连接状态暂未核实）' : 'QQ Bot';
+
+      if (event.Platform === 'onebot') {
+        const [connection] = useConnection(event);
+        const result = await connection.getStatus({ BotId: event.BotId });
+
+        if (result.code === ResultCode.Ok && result.data) {
+          transport = `OneBot / ${result.data.state}；协议扩展与群权限需实际核实`;
+        }
+      }
       text = [
         '# AgentLink · 管理状态',
+        `- 平台连接：${transport}。`,
         mediaStatus,
         `- 聊天归档：${archiveStatus}。`,
         `- 服务：${!credentials ? '需要填写模型 API Key。' : !storeReady ? '会话数据暂时不可用。' : serviceMessage}`,

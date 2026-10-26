@@ -181,3 +181,28 @@ test('direct image input reuses the main model credentials and sends actual imag
     globalThis.fetch = oldFetch;
   }
 });
+
+test('wake aliases match throughout messages and ignore Latin case without matching inside identifiers', async () => {
+  const { extractWakePrompt } = await import('../lib/response/dsh/util.js');
+  const names = getDSHConfig({}).groupWakeNames;
+  for (const text of ['他们说肥鱼你是人机', '你在吗大肥鱼', '请DeepSeek看看', '你好DSH', 'dSh你在吗', 'Deep Seek帮忙看看', '小肥鱼在吗', '深度求索你怎么看']) {
+    assert.equal(extractWakePrompt(text, names), text);
+  }
+  for (const text of ['DSH', 'DeepSeek', 'DEEP SEEK']) assert.match(extractWakePrompt(text, names), /喊了你/);
+  assert.equal(extractWakePrompt('DeepSeek，你在吗', names), '你在吗');
+  for (const text of ['adshx', 'deepseeker', 'my_dsh_bot', '/chat DeepSeek', '/new dsh']) assert.equal(extractWakePrompt(text, names), null);
+  assert.equal(extractWakePrompt('DeepSeek你好', []), null);
+  assert.deepEqual(getDSHConfig({ groupWakeNames: ['小鲸'] }).groupWakeNames, ['小鲸']);
+});
+
+test('expanded wake vocabulary supports help requests and 64 custom entries', async () => {
+  const { extractWakePrompt } = await import('../lib/response/dsh/util.js');
+  const names = getDSHConfig({}).groupWakeNames;
+  assert.equal(names.length, 26);
+  for (const text of ['鱼宝你在吗', '大家帮个忙', '请教一下', '小鲸鱼看看', '你好AgentLink', '你好Deep-Seek', '你好DS Harness']) {
+    assert.equal(extractWakePrompt(text, names), text);
+  }
+  const custom = Array.from({ length: 64 }, (_, i) => `昵称${i}`);
+  assert.deepEqual(getDSHConfig({ groupWakeNames: custom }).groupWakeNames, custom);
+  assert.throws(() => getDSHConfig({ groupWakeNames: [...custom, '更多'] }));
+});

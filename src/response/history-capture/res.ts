@@ -2,12 +2,14 @@ import { messageReferences } from '../../social/references';
 import { logger, useEvent } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
 import { archiveIncoming } from '../../history/capture';
+import { observeProactiveInput } from '../../proactive/observe';
 
 export default async (): Promise<void> => {
   const [context, next] = useEvent({ selects: ['message.create', 'private.message.create'] });
 
   try {
     if (context.match.selects) {
+      observeProactiveInput(getDSHConfig(), context.current);
       await messageReferences.capture(context.current).catch(() => logger.warn('Message reference capture failed'));
       archiveIncoming(getDSHConfig(), context.current);
     }

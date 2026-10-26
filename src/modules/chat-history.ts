@@ -31,6 +31,7 @@ export const chatHistoryModule = (config: DSHBridgeConfig): AgentModule => ({
     );
     api.tool({
       name: 'search_chat_history',
+      readOnly: true,
       description: '查询当前群或当前私聊的历史消息。关键词按连续文本匹配；可指定发言人ID及时间范围。结果按新到旧排列，使用 nextCursor 翻页。不支持跨会话查询。',
       parameters: {
         type: 'object',
@@ -68,6 +69,7 @@ export const chatHistoryModule = (config: DSHBridgeConfig): AgentModule => ({
     });
     api.tool({
       name: 'get_chat_context',
+      readOnly: true,
       description: '展开当前会话某条历史记录前后各最多3条消息。seq 来自 search_chat_history。',
       parameters: { type: 'object', additionalProperties: false, required: ['seq'], properties: { seq: { type: 'integer', minimum: 1 } } },
       available: context => Boolean(context.platform && context.channelId),

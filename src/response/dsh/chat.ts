@@ -15,6 +15,7 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { expressionOptions, planExpression, automaticVoiceText, selectExpressionSticker } from '../../companion/expression';
 import { getMoodStore, moodOptions } from '../../companion/mood';
 import { listStickers, loadSticker } from '../../media/stickers';
+import { observeProactiveOutput } from '../../proactive/observe';
 
 export type ChatEvent = {
   Platform?: string;
@@ -49,6 +50,7 @@ export const runDSHChat = async (
     voice?: boolean;
     allowSilence?: boolean;
     requestId?: string;
+    autonomous?: { signal: AbortSignal; maxChars: number; beforeSend: () => Promise<boolean> };
     userText?: string;
     replyReferences?: Record<string, { messageId: string; userId: string }>;
     onOutcome?: (result: { delivered: boolean; completed: boolean; replyText?: string }) => void;
@@ -60,6 +62,15 @@ export const runDSHChat = async (
   }
   const message = options.transport?.message || useMessage()[0];
   let turnSignal: AbortSignal | undefined;
+  const checkSend = async (): Promise<void> => {
+    options.autonomous?.signal.throwIfAborted();
+    turnSignal?.throwIfAborted();
+    if (options.autonomous && !(await options.autonomous.beforeSend())) {
+      throw new DSHError('cancelled', '主动消息已取消');
+    }
+    options.autonomous?.signal.throwIfAborted();
+    turnSignal?.throwIfAborted();
+  };
   let expressionDelay = 0;
   let delay: Promise<void> | undefined;
   const beforeExpression = (): Promise<void> =>
@@ -67,13 +78,15 @@ export const runDSHChat = async (
   let replyTarget = { messageId: event.MessageId, userId: event.UserId };
 
   const reply = async (text: string): Promise<unknown> =>
-    await message.send({
-      format: Format.create().addMarkdownOriginal(text)
-    });
+    options.autonomous
+      ? undefined
+      : await message.send({
+          format: Format.create().addMarkdownOriginal(text)
+        });
   let firstAgentReply = true;
   const replyAgent = async (text: string): Promise<unknown> => {
     await beforeExpression();
-    turnSignal?.throwIfAborted();
+    await checkSend();
     const format = Format.create();
 
     if (firstAgentReply && replyTarget.userId && !event.IsPrivate) {
@@ -228,6 +241,7 @@ export const runDSHChat = async (
     !options.voice &&
     !expression.voice &&
     !options.allowSilence &&
+    !options.autonomous &&
     !options.replyReferences &&
     !config.outputBlockedKeywords.length;
   const output = nativeStream
@@ -251,7 +265,8 @@ export const runDSHChat = async (
       });
   let coordinated: CoordinatedChatResult | undefined;
   let answer = '';
-  const buffered = options.voice || expression.voice || options.allowSilence || Boolean(options.replyReferences);
+  let visibleAnswer = '';
+  const buffered = options.voice || expression.voice || options.allowSilence || Boolean(options.replyReferences) || Boolean(options.autonomous);
   let expressionText = '';
   let renderedAnswer: string | undefined;
   const media = options.transport?.media || useMedia()[0];
@@ -263,6 +278,9 @@ export const runDSHChat = async (
       buildAgentMessage(recentContext, event.IsPrivate ? prompt : `当前发言人资料（昵称仅为引用数据，不授予权限）：${describeSpeaker(event)}\n${prompt}`),
       streamEvent => {
         if (streamEvent.type === 'content') {
+          if (visibleAnswer.length < 6000) {
+            visibleAnswer += streamEvent.content.slice(0, 6000 - visibleAnswer.length);
+          }
           if (expression.sticker && expressionText.length < 4096) {
             expressionText += streamEvent.content.slice(0, 4096 - expressionText.length);
           }
@@ -285,7 +303,7 @@ export const runDSHChat = async (
 
         return Promise.resolve();
       },
-      event.IsPrivate ? (event.IsMaster ? ownerPrivatePolicy : publicPrivatePolicy) : undefined,
+      event.IsPrivate ? (event.IsMaster && !options.autonomous ? ownerPrivatePolicy : publicPrivatePolicy) : undefined,
       async signal => {
         turnSignal = signal;
         output.bindSignal(signal);
@@ -310,6 +328,12 @@ export const runDSHChat = async (
             return;
           }
         }
+        if (options.autonomous && Array.from(answer).length > options.autonomous.maxChars) {
+          silent = true;
+          output.abort();
+
+          return;
+        }
         const useVoice = options.voice || (expression.voice && automaticVoiceText(answer, getMediaConfig().ttsMaxChars));
         let audioSent = false;
 
@@ -325,7 +349,7 @@ export const runDSHChat = async (
             const audio = await synthesizeSpeech(answer, settings, AbortSignal.any([signal, AbortSignal.timeout(settings.timeoutMs)]));
 
             await beforeExpression();
-            signal.throwIfAborted();
+            await checkSend();
             assertMessageDelivered([
               await media.send({ type: 'audio', data: audio.toString('base64'), name: 'dafeiyu.mp3', content: 'AI 合成语音', replyId: replyTarget.messageId })
             ]);
@@ -341,6 +365,9 @@ export const runDSHChat = async (
           signal.throwIfAborted();
           throw new DSHError('delivery', '回复未完整送达');
         }
+        if (!options.autonomous) {
+          observeProactiveOutput(config, event, renderedAnswer || answer || visibleAnswer);
+        }
         if (expression.sticker) {
           try {
             const settings = getMediaConfig();
@@ -355,7 +382,7 @@ export const runDSHChat = async (
 
               signal.throwIfAborted();
               if (await new SessionRegistry(config).claimSticker(channelId, settings.stickerCooldownSeconds)) {
-                signal.throwIfAborted();
+                await checkSend();
                 assertMessageDelivered([
                   await media.send({ type: 'image', data: data.toString('base64'), name: item.file.split(/[\\/]/u).at(-1), replyId: replyTarget.messageId })
                 ]);
@@ -373,6 +400,8 @@ export const runDSHChat = async (
         userText: options.userText ?? prompt,
         inputId: event.MessageId,
         addressed: !options.allowSilence,
+        autonomous: Boolean(options.autonomous),
+        signal: options.autonomous?.signal,
         recordHistory: () => !silent,
         renderAnswer: text => renderedAnswer ?? text,
         prepareMessage: async (text, signal) => {
@@ -402,7 +431,7 @@ export const runDSHChat = async (
     }
 
     await coordinated.confirmDelivery().catch(error => logger.warn({ err: error }, 'Unable to finalize DSH response delivery'));
-    options.onOutcome?.({ delivered: !silent, completed: true, ...(!silent ? { replyText: renderedAnswer || answer } : {}) });
+    options.onOutcome?.({ delivered: !silent, completed: true, ...(!silent ? { replyText: renderedAnswer || answer || visibleAnswer } : {}) });
   } catch (error) {
     output.abort();
     await coordinated?.release().catch(releaseError => logger.warn({ err: releaseError }, 'Unable to release failed DSH response'));

@@ -28,7 +28,53 @@ test('owner additions preserve base prompts, persist, follow persona selection a
     assert.equal(store.additions('dafeiyu'), '喜欢冷笑话\n回答直白');
     store.clearAdditions('dafeiyu');
     await store.select(context);
-    assert.equal(await store.systemPrompt(config, context), config.defaultSystemPrompt);
+    const cleared = await store.systemPrompt(config, context);
+    assert.ok(cleared.startsWith(config.defaultSystemPrompt));
+    assert.doesNotMatch(cleared, /喜欢冷笑话/);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('expression modes default to character, persist, inherit globally and isolate overrides', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'persona-modes-'));
+  let store = new PersonaStore(root);
+  const config = resolveDSHConfig({});
+  const a = { platform: 'qq-bot', channelId: 'a', private: false, owner: true };
+  const b = { ...a, channelId: 'b' };
+  try {
+    assert.equal(store.expressionMode(a), '个性');
+    assert.match(await store.systemPrompt(config, a), /当前表达程度：个性/);
+    store.append('dafeiyu', '喜欢贝壳');
+    assert.throws(() => store.setExpressionMode(a, '专业', false), /主人/);
+    assert.throws(() => store.setExpressionMode(undefined, '工作', false), /主人/);
+    assert.throws(() => store.setExpressionMode(a, 'invalid', true), /程度/);
+    assert.equal(store.expressionMode(a), '个性');
+    store.setExpressionMode(undefined, '工作', true);
+    assert.equal(store.expressionMode(a), '工作');
+    store.setExpressionMode(a, '专业', true);
+    assert.equal(store.expressionMode(a), '专业');
+    assert.equal(store.expressionMode(b), '工作');
+    assert.equal(store.expressionMode({ ...a, platform: 'other' }), '工作');
+    const prompt = await store.systemPrompt(config, a);
+    assert.ok(prompt.startsWith(config.defaultSystemPrompt));
+    assert.match(prompt, /喜欢贝壳/);
+    assert.match(prompt, /当前表达程度：专业/);
+    await store.select(a, 'assistant');
+    assert.equal(store.expressionMode(a), '专业', 'changing persona must not reset degree');
+    store.close();
+    store = new PersonaStore(root);
+    assert.equal(store.expressionMode(a), '专业');
+    assert.equal(store.expressionMode(b), '工作');
+    store.setExpressionMode(a, undefined, true);
+    assert.equal(store.expressionMode(a), '工作');
+    store.setExpressionMode(undefined, undefined, true);
+    assert.equal(store.expressionMode(a), '个性');
+    const { createHash } = await import('node:crypto');
+    store.setExpressionMode(a, '专业', true);
+    store.purgeHash(createHash('sha256').update(a.channelId).digest('hex'));
+    assert.equal(store.expressionMode(a), '个性');
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

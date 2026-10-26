@@ -70,6 +70,14 @@ export class OneBotActions {
   async action(frame: Frame) {
     try {
       const payload = frame.payload || {};
+
+      if (
+        (payload.BotId && payload.BotId !== this.connection.config.selfId) ||
+        (payload.event?.BotId && payload.event.BotId !== this.connection.config.selfId) ||
+        (payload.event?.Platform && payload.event.Platform !== 'onebot')
+      ) {
+        throw new Error('平台账号不匹配。');
+      }
       const action = frame.action;
       const p = payload.params || {};
       let data: unknown;

@@ -48,15 +48,23 @@ export const extractWakePrompt = (text: string, names: string[]): string | null 
   if (!input || input.startsWith('/')) {
     return null;
   }
+  const normalized = input.toLowerCase();
+
   for (const name of [...names].sort((a, b) => b.length - a.length)) {
-    if (!name || !input.includes(name)) {
+    const keyword = name.toLowerCase();
+    // Latin aliases must not accidentally match inside unrelated identifiers.
+    const found = /^[a-z0-9 -]+$/iu.test(name)
+      ? new RegExp(`(?<![a-z0-9_])${escapeRegExp(keyword)}(?![a-z0-9_])`, 'u').test(normalized)
+      : normalized.includes(keyword);
+
+    if (!name || !found) {
       continue;
     }
-    if (input === name && name !== '帮我') {
+    if (normalized === keyword && name !== '帮我') {
       return '用户喊了你一声，请简短回应。';
     }
     // Keep help requests complete: removing “帮我” can change the user's meaning.
-    if (name !== '帮我' && input.startsWith(name) && /^[\s，,。！!？?：:、]/u.test(input.slice(name.length))) {
+    if (name !== '帮我' && normalized.startsWith(keyword) && /^[\s，,。！!？?：:、]/u.test(input.slice(name.length))) {
       return (
         input
           .slice(name.length)
