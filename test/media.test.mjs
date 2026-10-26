@@ -201,12 +201,12 @@ test('native images use DSH content blocks without a separate vision provider', 
   assert.deepEqual(withInputContext(input, '主人记忆').slice(1), input);
 });
 
-test('budget protection blocks unmetered speech before contacting the provider', async () => {
+test('media refuses paid requests without a valid budget scope', async () => {
   globalThis.__config.value['alemonjs-agent-link'].budget.enabled = true;
   const oldFetch = globalThis.fetch;
   globalThis.fetch = () => assert.fail('unmetered provider must not be called');
   try {
-    await assert.rejects(synthesizeSpeech('hello', config, signal()), /额度保护/);
+    await assert.rejects(synthesizeSpeech('hello', config, signal()), /所属会话/);
   } finally {
     globalThis.fetch = oldFetch;
   }

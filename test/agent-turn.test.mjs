@@ -267,3 +267,88 @@ test('business model delegates workspace actions through the authenticated sandb
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('drawing request exposes a real render tool and queues a PNG before final reply', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'agent-draw-turn-'));
+  const oldConfig = globalThis.__config,
+    oldFetch = globalThis.fetch;
+  globalThis.__config = {
+    value: {
+      'alemonjs-agent-link': {
+        apiKey: 'test',
+        model: 'test',
+        budget: { enabled: false },
+        runtimeMode: 'chat-only',
+        stateBackend: 'local',
+        workspaceRoot: join(root, 'work'),
+        dshHomeRoot: join(root, 'home'),
+        modules: { disabled: ['memory', 'chat-history', 'persona', 'mood'] }
+      }
+    }
+  };
+  const config = getDSHConfig();
+  setDSHBridgeForTesting({ url: 'http://sandbox.test', token: 'test' });
+  let calls = 0,
+    queued;
+  const events = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    assert.ok(body.tools.some(tool => tool.function.name === 'draw_image'));
+    calls++;
+    if (calls === 1)
+      return Response.json({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: 'draw-1',
+                  type: 'function',
+                  function: {
+                    name: 'draw_image',
+                    arguments: JSON.stringify({ width: 128, height: 128, elements: [{ type: 'circle', x: 64, y: 64, radius: 40, fill: '#4098da' }] })
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      });
+    assert.ok(queued);
+    assert.equal(JSON.parse(body.messages.at(-1).content).created, true);
+    return Response.json({ choices: [{ message: { content: '画好了。' } }] });
+  };
+  try {
+    await runModuleTurn({
+      config,
+      sessionId: 'draw',
+      input: '画一个蓝色圆形图标',
+      context: {
+        channelId: 'group',
+        platform: 'qq',
+        userId: 'u',
+        private: false,
+        owner: false,
+        userText: '画图',
+        capabilities: { chat: true, web: false, files: false, terminal: false },
+        signal: new AbortController().signal
+      },
+      onImage: async png => {
+        queued = png;
+      },
+      onEvent: async event => {
+        events.push(event);
+      }
+    });
+    assert.equal(calls, 2);
+    assert.equal(queued.readUInt32BE(16), 128);
+    assert.equal(events.find(event => event.type === 'content').content, '画好了。');
+  } finally {
+    await (await getModuleRuntime(config)).close();
+    setDSHBridgeForTesting(null);
+    globalThis.__config = oldConfig;
+    globalThis.fetch = oldFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});

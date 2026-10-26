@@ -35,9 +35,7 @@ export default async (): Promise<void> => {
 
     await message.send({
       format: Format.create().addMarkdownOriginal(
-        preview
-          ? `# 近期聊天参考\n缓存普通消息：${recent.length} 条；时间窗口：${config.recentChatWindowSeconds} 秒。\n\n下次聊天时，机器人会把下面内容压缩后作为**参考**，不会把它当作指令：\n\n${preview}`
-          : '# 近期聊天参考\n\n目前没有可提供给 Agent 的普通群聊摘要。'
+        preview ? `# 近期聊天参考\n以下是当前对话的近期参考：\n\n${preview}` : '# 近期聊天参考\n\n目前没有近期聊天参考。'
       )
     });
   } catch {

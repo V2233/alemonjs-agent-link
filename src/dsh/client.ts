@@ -134,6 +134,7 @@ export const streamChat = async (
     const bridge = await getDSHBridge();
     const settleText = await reserveWorkspaceText(config, `${config.defaultSystemPrompt}\n${inputText(message)}\n${privateHistory?.memoryContext || ''}`);
     let budgetText = '';
+
     signal.throwIfAborted();
     const response = await fetch(`${bridge.url}/v1/chat`, {
       method: 'POST',
@@ -266,6 +267,17 @@ export const toUserMessage = (error: unknown): string => {
   if (!(error instanceof DSHError)) {
     return '服务暂时不可用，请稍后再试。';
   }
+
+  // 服务诊断保留在错误和日志中，气泡只给出可操作的提示。
+  const publicErrors: Record<string, string> = {
+    '额度统计暂时不可用，已暂停付费调用，请联系主人检查 Redis。': '额度暂时不可用，请稍后重试或联系机器人主人。',
+    '当前服务商尚未配置可核验的价格，已暂停付费调用。': '当前服务暂不可用，请联系机器人主人检查配置。',
+    '当前模型尚未配置可核验的价格，已暂停付费调用。': '当前模型暂不可用，请联系机器人主人检查配置。',
+    'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。': '服务暂时不可用，请联系机器人主人。',
+    'DSH 沙箱目录访问失败，请重启服务并检查运行环境。': '服务暂时不可用，请联系机器人主人。'
+  };
+
+  if (Object.hasOwn(publicErrors, error.message)) return publicErrors[error.message];
 
   if (
     error.kind === 'budget' ||

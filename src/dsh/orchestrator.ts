@@ -266,6 +266,7 @@ const runCoordinatedChatInner = async (
   onCompleted?: (signal: AbortSignal) => Promise<void>,
   mediaTask?: {
     streamContent?: boolean;
+    onImage?: (png: Buffer) => Promise<void>;
     prepareMessage?: (text: string, signal: AbortSignal) => Promise<ChatInput>;
     execute?: (signal: AbortSignal) => Promise<void>;
     userText?: string;
@@ -328,6 +329,7 @@ const runCoordinatedChatInner = async (
               input: mediaTask?.prepareMessage ? await mediaTask.prepareMessage(message, signal) : message,
               onEvent,
               streamContent: mediaTask?.streamContent,
+              onImage: mediaTask?.onImage,
               context: {
                 requestId: duplicate.requestId,
                 inputId: mediaTask?.inputId || event.MessageId || duplicate.requestId,

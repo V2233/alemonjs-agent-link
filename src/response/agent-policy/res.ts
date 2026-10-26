@@ -53,7 +53,7 @@ export default async (): Promise<void> => {
     await registry.setPolicy(event.ChannelId, { ...policy, [requested]: enabled === 'on' });
     await resetGroupSession(event.ChannelId, getDSHConfig());
     await message.send({
-      format: Format.create().addMarkdownOriginal(`已${enabled === 'on' ? '开启' : '关闭'}当前群的 ${capabilityNames[requested]}权限，并开始新的隔离会话。`)
+      format: Format.create().addMarkdownOriginal(`已${enabled === 'on' ? '开启' : '关闭'}当前群的 ${capabilityNames[requested]}权限，并开始新会话。`)
     });
   } catch {
     await message.send({ format: Format.create().addMarkdownOriginal('策略暂时无法读取，请稍后再试。') });

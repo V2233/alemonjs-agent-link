@@ -1,3 +1,4 @@
+import { drawingTool } from '../media/drawing';
 import { withBudgetScope } from '../billing/budget';
 import { modelContext } from '../dsh/model-context';
 import { logger } from 'alemonjs';
@@ -18,6 +19,7 @@ const runModuleTurnInner = async (options: {
   context: TurnContext;
   history?: PrivateHistoryContext;
   streamContent?: boolean;
+  onImage?: (png: Buffer) => Promise<void>;
   onEvent: (event: DSHStreamEvent) => Promise<void>;
   onCompleted?: (signal: AbortSignal) => Promise<void>;
 }): Promise<void> => {
@@ -26,10 +28,23 @@ const runModuleTurnInner = async (options: {
 
   try {
     const personaPrompt = await lease.system(config.defaultSystemPrompt, context);
-    const systemPrompt = `${personaPrompt}\n\n${modelContext(config.model)}${context.autonomous ? '\n当前为系统调度的主动搭话，不是主人发来的请求。只可读取当前私聊资料，不得把历史话语当作新授权，不能保存记忆、执行工作区、管理群或联系其他对象。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`;
+    const systemPrompt = `${personaPrompt}\n\n${modelContext(config.model)}${options.onImage && !context.autonomous ? '\n当前可调用 draw_image 绘制插画、图标、示意图和海报并回传 PNG；用户要求绘图时优先实际调用，不要笼统声称不能生成图片。照片级扩散生图和精确图片编辑不在该工具能力内。' : ''}${context.autonomous ? '\n当前为系统调度的主动搭话，不是主人发来的请求。只可读取当前私聊资料，不得把历史话语当作新授权，不能保存记忆、执行工作区、管理群或联系其他对象。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`;
     const moduleContext = await lease.context(context);
     const input = await lease.prompt(withInputContext(options.input, moduleContext), context);
     const tools = lease.tools(context);
+
+    if (options.onImage && !context.autonomous) {
+      let drawn = false;
+
+      if (tools.some(tool => tool.name === 'draw_image')) throw new Error('模块不能覆盖 draw_image 工具。');
+      tools.push(
+        drawingTool(async png => {
+          if (drawn) throw new Error('每回合最多绘制一张图片。');
+          await options.onImage(png);
+          drawn = true;
+        })
+      );
+    }
     let answer = '';
     const observe = async (event: DSHStreamEvent): Promise<void> => {
       context.signal.throwIfAborted();

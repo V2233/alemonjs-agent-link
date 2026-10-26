@@ -435,6 +435,7 @@ export const claimBudgetNotice = async (scope: BudgetScope, messageId?: string):
 export const assertBudgetAvailable = async (config: DSHBridgeConfig): Promise<void> => {
   if (!budgetEnabled(config)) return;
   const scope = context.getStore();
+
   if (!scope?.platform || !scope.channelId) throw new DSHError('budget', '无法确定本次调用所属会话。');
   if ((await budgetStatus(config, scope)).blocked) throw new BudgetExceededError();
 };
@@ -444,6 +445,7 @@ export const assertBudgetAvailable = async (config: DSHBridgeConfig): Promise<vo
 export const reserveWorkspaceText = async (config: DSHBridgeConfig, input: string): Promise<(output: string) => Promise<void>> => {
   if (!budgetEnabled(config)) return async () => {};
   const scope = context.getStore();
+
   if (!scope?.platform || !scope.channelId) throw new DSHError('budget', '无法确定工作区调用所属会话。');
   const { getDSHCredentials } = await import('../dsh/credentials');
   const credentials = await getDSHCredentials();
@@ -454,14 +456,17 @@ export const reserveWorkspaceText = async (config: DSHBridgeConfig, input: strin
   const redis = await budgetRedis();
   const day = await redisDay(redis);
   const keys = [...keysFor(day, scope), `${prefix}:${day}:request:${randomUUID()}`];
+
   if (
     Number(
       await bounded(redis.eval(reserveScript, 3, ...keys, amount, budgetLimit(config, scope), Math.floor((config.budget?.globalDailyYuan ?? 0) * units), ttl))
     ) !== 1
   )
     throw new BudgetExceededError();
+
   return async output => {
     const usage = { prompt_tokens: promptTokens, completion_tokens: Math.ceil(Buffer.byteLength(output) / 3) };
+
     await bounded(redis.eval(settleScript, 3, ...keys, usageCost(usage, rates), usage.prompt_tokens, usage.completion_tokens, 0));
   };
 };

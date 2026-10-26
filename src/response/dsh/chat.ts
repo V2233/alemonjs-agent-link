@@ -63,6 +63,7 @@ export const runDSHChat = async (
   }
   const message = options.transport?.message || useMessage()[0];
   let turnSignal: AbortSignal | undefined;
+  let generatedImage: Buffer | undefined;
   const checkSend = async (): Promise<void> => {
     options.autonomous?.signal.throwIfAborted();
     turnSignal?.throwIfAborted();
@@ -339,6 +340,14 @@ export const runDSHChat = async (
 
           return;
         }
+        if (generatedImage) {
+          await beforeExpression();
+          await checkSend();
+          assertMessageDelivered([
+            await media.send({ type: 'image', data: generatedImage.toString('base64'), name: 'dafeiyu-drawing.png', replyId: replyTarget.messageId })
+          ]);
+          archiveReply(config, event, '[大肥鱼绘图]');
+        }
         const useVoice = options.voice || (expression.voice && automaticVoiceText(answer, getMediaConfig().ttsMaxChars));
         let audioSent = false;
 
@@ -402,6 +411,11 @@ export const runDSHChat = async (
       },
       {
         streamContent: nativeStream,
+        onImage: png => {
+          generatedImage = png;
+
+          return Promise.resolve();
+        },
         userText: options.userText ?? prompt,
         inputId: event.MessageId,
         addressed: !options.allowSilence,
@@ -422,6 +436,7 @@ export const runDSHChat = async (
             return await prepareNativeMedia(event.MessageMedia, text, settings, AbortSignal.any([signal, AbortSignal.timeout(settings.timeoutMs)]));
           } catch (error) {
             signal.throwIfAborted();
+            if (error instanceof DSHError && error.kind === 'budget') throw error;
             throw new DSHError('media', error instanceof MediaError ? error.message : '附件处理超时或失败，请稍后重试或改用文字。');
           }
         }

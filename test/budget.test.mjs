@@ -7,6 +7,7 @@ import YAML from 'yaml';
 import {
   budgetNoticeScript,
   claimBudgetNotice,
+  reserveWorkspaceText,
   textBudgetInput,
   budgetDay,
   budgetLimit,
@@ -327,6 +328,27 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
         assert.equal((await classifyGroupReply(input, new AbortController().signal)).reply, true);
         assert.equal(calls, before + 1);
         assert.equal((await budgetStatus(config, s)).used, 0);
+      } finally {
+        globalThis.__config = oldConfig;
+      }
+    });
+    await t.test('workspace counts visible text and keeps per-call quota without forcing chat-only', async () => {
+      const protectedSandbox = resolveDSHConfig({ budget: { enabled: true }, runtimeMode: 'sandbox' });
+      assert.equal(protectedSandbox.runtimeMode, 'sandbox');
+      const s = { ...scope, channelId: 'workspace-text' };
+      const oldConfig = globalThis.__config;
+      globalThis.__config = { value: { 'alemonjs-agent-link': { apiKey: 'test' } } };
+      try {
+        const finish = await withBudgetScope(s, () => reserveWorkspaceText(protectedSandbox, '你好世界'));
+        assert.ok((await budgetStatus(config, s)).reserved > 0);
+        await finish('任务完成');
+        await finish('任务完成');
+        const status = await budgetStatus(config, s);
+        assert.equal(status.promptTokens, 4);
+        assert.equal(status.completionTokens, 4);
+        assert.equal(status.used, 0.00004);
+        assert.equal(status.reserved, 0);
+        assert.equal(status.requests, 1);
       } finally {
         globalThis.__config = oldConfig;
       }
