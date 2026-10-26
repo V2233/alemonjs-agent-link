@@ -6,28 +6,21 @@
 
 ## 快速开始
 
-默认 `runtimeMode: auto`：优先启用沙箱；本地环境准备失败时，自动降级为 Node 直连模型的纯聊天模式。纯聊天可在 Windows、macOS、Linux 上运行，不需要 Python 或 Bubblewrap，但仍需要 Redis、有效模型凭证和兼容 Chat Completions 的 HTTPS 模型服务。降级时网页、文件和终端工具均关闭。
+默认 `runtimeMode: auto`：优先启用沙箱；本地环境准备失败时，自动降级为 Node 直连模型的纯聊天模式。
 
-**运行条件：** macOS 或 Linux、Node.js、Docker（或一个可用的 Redis）、QQ Bot 配置。macOS 需要系统自带的 `sandbox-exec`；Linux 需要 Bubblewrap（`bwrap`）。Windows 请在 WSL2 内运行完整服务，不支持原生 Windows Worker。首次启动时会自动创建插件专用 Python 环境并安装 DSH SDK。
+**运行条件：** 
 
-```bash
-yarn install
-docker compose up -d redis
-yarn dev --login qq-bot
-```
+macOS 或 Linux、Node.js、Docker（或一个可用的 Redis）、QQ Bot 配置。
 
-在启动前，将 QQ Bot、Redis 和主人账号配置写入本机的 `alemon.config.yaml`。该文件包含密钥，已经被 Git 忽略；不要提交、截图或复制到公开环境。配置示例与所有可调参数见 [配置指南](docs/config.md)。
+macOS 需要系统自带的 `sandbox-exec`；
+
+Linux 需要 Bubblewrap（`bwrap`）。
+
+Windows 请在 WSL2 内运行完整服务，不支持原生 Windows Worker。首次启动时会自动创建插件专用 Python 环境并安装 DSH SDK。
+
+在启动前，将 QQ Bot、Redis 和主人账号配置写入本机的 `alemon.config.yaml`。配置示例与所有可调参数见 [配置指南](docs/config.md)。
 
 在 `alemon.config.yaml` 的 `alemonjs-agent-link` 中设置 `apiKey`、可选 `baseUrl` 与 `model` 后启动。发送 `/agentstatus` 确认服务已就绪。
-
-生产环境先构建再启动：
-
-```bash
-yarn build
-yarn start --login qq-bot
-```
-
-不要将带热重载的 `yarn dev` 用作生产进程。
 
 ## 使用方法
 
@@ -79,10 +72,3 @@ AgentLink 仅支持**单 Node 进程**连接同一个 QQ 机器人。不要同�
 - [配置指南](docs/config.md)：配置项、默认值和示例。
 - [运维手册](docs/operations.md)：部署、状态检查和故障处理。
 - [安全与数据](docs/security.md)：沙箱边界、数据生命周期和凭证处理。
-
-## 验证
-
-```bash
-yarn test
-npx eslint src
-```
