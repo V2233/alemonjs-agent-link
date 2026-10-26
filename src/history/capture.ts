@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import type { DSHBridgeConfig } from '../dsh/client';
 import { canPrivateChat, getConversationId } from '../response/dsh/util';
 import { getChatArchive, historyEnabled } from './store';
+import { getMemoryStore } from '../memory/store';
+import { memoryEnabled } from '../memory/consolidation';
 
 type Event = {
   Platform?: string;
@@ -42,6 +44,9 @@ export const archiveIncoming = (config: DSHBridgeConfig, event: Event): void => 
         text
       }
     );
+    if (memoryEnabled(config)) {
+      getMemoryStore(config).observe({ platform: event.Platform, channelId });
+    }
   } catch {
     logger.error('聊天历史归档写入失败；当前消息未保存，请检查磁盘和权限。');
   }

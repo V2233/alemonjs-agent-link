@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises';
-import { unlinkSync } from 'node:fs';
+import { acquireProcessLock } from '../../bin/process-lock.mjs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { GroupMeta, PrivateMemory } from './registry';
@@ -34,46 +34,7 @@ export class LocalStore {
 
   static async open(path: string): Promise<LocalStore> {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    const lock = `${path}.lock`;
-
-    // Never steal a live process lock. A crash leaves a PID that can be checked
-    // on the next launch; ambiguous ownership fails closed.
-    for (let attempt = 0; ; attempt++) {
-      try {
-        await writeFile(lock, String(process.pid), { flag: 'wx', mode: 0o600 });
-        break;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || attempt > 0) {
-          throw error;
-        }
-        const pid = Number(await readFile(lock, 'utf8'));
-
-        if (!Number.isSafeInteger(pid) || pid <= 0) {
-          throw new Error('本地状态库锁异常，请确认没有其他实例后移除 state.json.lock');
-        }
-        try {
-          process.kill(pid, 0);
-        } catch (probe) {
-          if ((probe as NodeJS.ErrnoException).code === 'ESRCH') {
-            const recovery = `${lock}.recovery`;
-
-            await writeFile(recovery, String(process.pid), { flag: 'wx', mode: 0o600 });
-            try {
-              // Another starter may have recovered the lock while we probed.
-              if (Number(await readFile(lock, 'utf8')) !== pid) {
-                throw new Error('状态库锁已变化，请重新启动');
-              }
-              await unlink(lock);
-            } finally {
-              await unlink(recovery);
-            }
-            continue;
-          }
-          throw probe;
-        }
-        throw new Error('本地状态库已由另一个进程使用，请只启动一个机器人实例');
-      }
-    }
+    const ownership = await acquireProcessLock(`${path}.lock`);
     const store = new LocalStore(path);
 
     try {
@@ -95,17 +56,10 @@ export class LocalStore {
         }
       }
       await store.transaction(() => 'OK');
-      process.once('exit', () => {
-        try {
-          unlinkSync(lock);
-        } catch {
-          /* Already removed. */
-        }
-      });
 
       return store;
     } catch (error) {
-      await unlink(lock);
+      await ownership.release();
       throw error;
     }
   }
@@ -139,9 +93,18 @@ export class LocalStore {
     return result;
   }
 
+  private read<T>(action: () => T): Promise<T> {
+    const result = this.queue.then(action);
+
+    this.queue = result.catch(() => undefined);
+
+    return result;
+  }
+
   private command([name, ...args]: Command): unknown {
     const key = String(args[0]);
-    const entry = this.entries[key];
+    const candidate = this.entries[key];
+    const entry = candidate?.expires !== undefined && candidate.expires <= Date.now() ? undefined : candidate;
     const list = (): string[] => (entry?.value as string[]) ?? [];
     const sorted = (): Record<string, number> => (entry?.value as Record<string, number>) ?? Object.create(null);
 
@@ -233,7 +196,12 @@ export class LocalStore {
           throw new Error('Unsupported local scan');
         }
 
-        return ['0', Object.keys(this.entries).filter(item => item.startsWith(pattern.slice(0, -1)))];
+        return [
+          '0',
+          Object.keys(this.entries).filter(
+            item => item.startsWith(pattern.slice(0, -1)) && (this.entries[item].expires === undefined || this.entries[item].expires > Date.now())
+          )
+        ];
       }
       default:
         throw new Error(`Unsupported local command: ${name}`);
@@ -241,7 +209,7 @@ export class LocalStore {
   }
 
   get(key: string): Promise<unknown> {
-    return this.transaction(() => this.command(['get', key]));
+    return this.read(() => this.command(['get', key]));
   }
   set(...args: Array<string | number>): Promise<unknown> {
     return this.transaction(() => this.command(['set', ...args]));
@@ -250,16 +218,16 @@ export class LocalStore {
     return this.transaction(() => this.command(['del', ...keys]));
   }
   lrange(...args: Array<string | number>): Promise<unknown> {
-    return this.transaction(() => this.command(['lrange', ...args]));
+    return this.read(() => this.command(['lrange', ...args]));
   }
   zrem(...args: Array<string | number>): Promise<unknown> {
     return this.transaction(() => this.command(['zrem', ...args]));
   }
   zrangebyscore(...args: Array<string | number>): Promise<unknown> {
-    return this.transaction(() => this.command(['zrangebyscore', ...args]));
+    return this.read(() => this.command(['zrangebyscore', ...args]));
   }
   scan(...args: Array<string | number>): Promise<unknown> {
-    return this.transaction(() => this.command(['scan', ...args]));
+    return this.read(() => this.command(['scan', ...args]));
   }
 
   multi() {

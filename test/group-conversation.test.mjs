@@ -91,11 +91,11 @@ test('debounce combines participants and preserves the last actual direct sender
   };
   try {
     const first = h.coordinator.receive(message('owner', { owner: true }), policy(), respond);
-    h.advance(1000);
+    h.advance(100);
     const second = h.coordinator.receive(message('member', { owner: false }), policy(), respond);
     const third = h.coordinator.receive(message('background', { direct: false, text: '补充一点' }), policy(), respond);
     assert.equal(h.timers.size, 1);
-    assert.equal([...h.timers.values()][0].ms, 1500);
+    assert.equal([...h.timers.values()][0].ms, 50);
     await h.coordinator.flush('group');
     await Promise.all([first, second, third]);
     assert.equal(batches.length, 1);
@@ -125,10 +125,10 @@ test('continuous input is bounded by the maximum wait and active replies buffer 
     return { delivered: true };
   };
   try {
-    const first = h.coordinator.receive(message('one'), policy(), respond);
-    h.advance(5500);
-    const more = h.coordinator.receive(message('two'), policy(), respond);
-    assert.equal([...h.timers.values()][0].ms, 500);
+    const first = h.coordinator.receive(message('one', { direct: false }), policy({ minRecentMessages: 1 }), respond);
+    h.advance(1400);
+    const more = h.coordinator.receive(message('two', { direct: false }), policy({ minRecentMessages: 1 }), respond);
+    assert.equal([...h.timers.values()][0].ms, 100);
     const flushing = h.coordinator.flush('group');
     const next = h.coordinator.receive(message('three'), policy(), respond);
     assert.equal(h.timers.size, 0);
@@ -369,5 +369,39 @@ test('failed delivery does not train the loop breaker to reject a retry', async 
   await h.coordinator.flush('group');
   await second;
   assert.equal(replies, 1);
+  h.coordinator.close();
+});
+
+test('explicit command has zero debounce and a trailing message cannot delay it', async () => {
+  const h = harness();
+  const a = h.coordinator.receive(message('command', { explicitCommand: true }), policy(), async () => ({ delivered: true }));
+  assert.equal([...h.timers.values()][0].ms, 0);
+  const b = h.coordinator.receive(message('background', { direct: false }), policy(), async () => ({ delivered: true }));
+  assert.equal([...h.timers.values()][0].ms, 0);
+  await h.coordinator.flush('group');
+  await Promise.all([a, b]);
+  h.coordinator.close();
+});
+
+test('latency separates local waiting, classification and response without dropping the gate', async () => {
+  let timings;
+  const h = harness({
+    classify: async () => {
+      h.advance(40);
+      return { reply: true, reason: 'direct_call' };
+    },
+    onTiming: value => {
+      timings = value;
+    }
+  });
+  const a = h.coordinator.receive(message('timing'), policy(), async () => {
+    h.advance(60);
+    return { delivered: true };
+  });
+  assert.equal([...h.timers.values()][0].ms, 150);
+  h.advance(150);
+  await h.coordinator.flush('group');
+  await a;
+  assert.deepEqual(timings, { waitMs: 150, gateMs: 40, responseMs: 60, totalMs: 250 });
   h.coordinator.close();
 });

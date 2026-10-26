@@ -13,7 +13,7 @@ type CredentialConfig = {
   };
 };
 
-const managedByConfigMessage = '模型凭证由 alemon.config.yaml 管理，请修改配置后重启服务。';
+const managedByConfigMessage = '模型凭证由 alemon.config.yaml 管理，保存配置后，后续请求自动使用新配置，无需重启机器人。';
 
 export const getDSHCredentials = (value: CredentialConfig = getConfigValue()): Promise<DSHCredentials | null> => {
   const config = value?.['alemonjs-agent-link'];

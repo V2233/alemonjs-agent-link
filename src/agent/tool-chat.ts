@@ -4,6 +4,8 @@ import { modelContent, MAX_IMAGE_REQUEST_BYTES, type ChatInput } from '../dsh/in
 import type { ChatHistoryMessage } from '../state/registry';
 import type { AgentTool, TurnContext } from './types';
 import { executeTool } from './modules';
+import { logger } from 'alemonjs';
+import { abortFailure } from '../dsh/errors';
 
 type ToolCall = { id: string; type: 'function'; function: { name: string; arguments: string } };
 type ModelMessage = { role: string; content: unknown; reasoning_content?: string; tool_calls?: ToolCall[]; tool_call_id?: string };
@@ -128,7 +130,18 @@ export const runToolChat = async (options: {
 
   for (let round = 0; round <= maxRounds; round++) {
     context.signal.throwIfAborted();
-    const response = await requestModelMessage(config, credentials, messages, tools, context.signal);
+    const startedAt = Date.now();
+    let response: Awaited<ReturnType<typeof requestModelMessage>>;
+    try {
+      response = await requestModelMessage(config, credentials, messages, tools, context.signal);
+    } catch (error) {
+      const failure = abortFailure(error, context.signal);
+      logger.warn(
+        { requestId: context.requestId, round: round + 1, phase: 'model', elapsedMs: Date.now() - startedAt, kind: failure?.kind ?? 'request-failed' },
+        'Agent model request failed'
+      );
+      throw failure ?? error;
+    }
 
     if (!response.tool_calls?.length) {
       if (typeof response.content !== 'string' || !response.content.trim()) {

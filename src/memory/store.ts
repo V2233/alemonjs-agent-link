@@ -1,0 +1,505 @@
+import { DatabaseSync } from 'node:sqlite';
+import { chmodSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import type { DSHBridgeConfig } from '../dsh/client';
+import { rankMemories } from './retrieval';
+
+export type MemoryScope = { platform: string; channelId: string };
+export type MemorySource = { seq: number; speakerId: string; speaker: string; text: string; timestamp: number };
+export type MemoryKind = 'fact' | 'insight' | 'style' | 'event' | 'diary';
+export type MemoryItem = {
+  id: string;
+  subjectId: string;
+  subjectName: string;
+  kind: MemoryKind;
+  text: string;
+  tags: string[];
+  importance: number;
+  confidence: number;
+  status: 'active' | 'outdated';
+  origin: 'explicit' | 'extracted' | 'event' | 'diary';
+  sourceRefs: MemorySource[];
+  supersedes: string[];
+  createdAt: number;
+  updatedAt: number;
+  lastRecalledAt: number;
+  recallDays: number;
+};
+export type MemoryChange = {
+  action: 'add' | 'merge' | 'replace';
+  targetId?: string;
+  text: string;
+  kind: 'fact' | 'insight' | 'style';
+  sourceSeqs: number[];
+  evidence: string;
+  tags: string[];
+  importance: number;
+  confidence: number;
+};
+export type MemoryGuard = { epoch: string; revision: number };
+const hash = (text: string): string => createHash('sha256').update(text).digest('hex');
+const normalize = (text: string): string =>
+  text
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\p{P}\p{Z}\s]/gu, '');
+const scopeKey = (scope: MemoryScope): string => {
+  if (!scope.platform || !scope.channelId) {
+    throw new Error('记忆缺少平台或会话标识。');
+  }
+
+  return hash(JSON.stringify([scope.platform, scope.channelId]));
+};
+
+export class MemoryStore {
+  private readonly db: DatabaseSync;
+
+  constructor(
+    path: string,
+    private readonly now = Date.now
+  ) {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    this.db = new DatabaseSync(path);
+    chmodSync(path, 0o600);
+    this.db.exec(`PRAGMA busy_timeout=3000; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
+      CREATE TABLE IF NOT EXISTS memory_scopes (
+        scope TEXT PRIMARY KEY, platform TEXT NOT NULL, channel_id TEXT NOT NULL, group_hash TEXT NOT NULL,
+        epoch TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, checkpoint INTEGER NOT NULL DEFAULT 0,
+        last_run INTEGER NOT NULL DEFAULT 0, retry_after INTEGER NOT NULL DEFAULT 0, active_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS memories (
+        scope TEXT NOT NULL REFERENCES memory_scopes(scope) ON DELETE CASCADE, id TEXT NOT NULL,
+        subject_id TEXT NOT NULL, subject_name TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, normalized TEXT NOT NULL,
+        tags TEXT NOT NULL, importance REAL NOT NULL, confidence REAL NOT NULL, status TEXT NOT NULL, origin TEXT NOT NULL,
+        sources TEXT NOT NULL, supersedes TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        last_recalled_at INTEGER NOT NULL DEFAULT 0, recall_days INTEGER NOT NULL DEFAULT 0, recall_day TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY(scope,id));
+      CREATE INDEX IF NOT EXISTS memory_status ON memories(scope,status,subject_id);
+      CREATE INDEX IF NOT EXISTS memory_groups ON memory_scopes(group_hash);
+      CREATE TABLE IF NOT EXISTS memory_recalls (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL REFERENCES memory_scopes(scope) ON DELETE CASCADE,
+        at INTEGER NOT NULL, ids TEXT NOT NULL);`);
+  }
+
+  close(): void {
+    this.db.close();
+  }
+
+  private transaction<T>(run: () => T): T {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = run();
+
+      this.db.exec('COMMIT');
+
+      return result;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  observe(scope: MemoryScope): void {
+    this.db
+      .prepare(
+        `INSERT INTO memory_scopes(scope,platform,channel_id,group_hash,epoch,active_at) VALUES(?,?,?,?,?,?)
+      ON CONFLICT(scope) DO UPDATE SET active_at=excluded.active_at`
+      )
+      .run(scopeKey(scope), scope.platform, scope.channelId, hash(scope.channelId), randomUUID(), this.now());
+  }
+
+  state(scope: MemoryScope): (MemoryGuard & { checkpoint: number; lastRun: number; retryAfter: number }) | undefined {
+    const row = this.db
+      .prepare('SELECT epoch,revision,checkpoint,last_run AS lastRun,retry_after AS retryAfter FROM memory_scopes WHERE scope=?')
+      .get(scopeKey(scope));
+
+    return row ? (row as unknown as MemoryGuard & { checkpoint: number; lastRun: number; retryAfter: number }) : undefined;
+  }
+
+  due(intervalMs: number, limit = 4): MemoryScope[] {
+    return this.db
+      .prepare(
+        `SELECT platform,channel_id AS channelId FROM memory_scopes WHERE last_run<=? AND retry_after<=?
+      ORDER BY last_run,active_at DESC LIMIT ?`
+      )
+      .all(this.now() - intervalMs, this.now(), limit) as unknown as MemoryScope[];
+  }
+
+  private decode(row: Record<string, unknown>): MemoryItem {
+    return {
+      id: String(row.id),
+      subjectId: String(row.subject_id),
+      subjectName: String(row.subject_name),
+      kind: row.kind as MemoryKind,
+      text: String(row.text),
+      tags: JSON.parse(String(row.tags)),
+      importance: Number(row.importance),
+      confidence: Number(row.confidence),
+      status: row.status as MemoryItem['status'],
+      origin: row.origin as MemoryItem['origin'],
+      sourceRefs: JSON.parse(String(row.sources)),
+      supersedes: JSON.parse(String(row.supersedes)),
+      createdAt: Number(row.created_at),
+      updatedAt: Number(row.updated_at),
+      lastRecalledAt: Number(row.last_recalled_at),
+      recallDays: Number(row.recall_days)
+    };
+  }
+
+  list(scope: MemoryScope, options: { status?: 'active' | 'outdated'; subjectId?: string; limit?: number; before?: number } = {}): MemoryItem[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM memories WHERE scope=? AND (?='' OR status=?) AND (?='' OR subject_id=?)
+      AND created_at<=? ORDER BY created_at DESC,id LIMIT ?`
+      )
+      .all(
+        scopeKey(scope),
+        options.status || '',
+        options.status || '',
+        options.subjectId || '',
+        options.subjectId || '',
+        options.before ?? Number.MAX_SAFE_INTEGER,
+        Math.max(1, Math.min(2000, options.limit ?? 100))
+      );
+
+    return rows.map(row => this.decode(row));
+  }
+
+  private insert(scope: MemoryScope, item: MemoryItem): void {
+    this.db
+      .prepare(
+        `INSERT INTO memories(scope,id,subject_id,subject_name,kind,text,normalized,tags,importance,confidence,status,origin,sources,supersedes,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET
+      text=excluded.text,normalized=excluded.normalized,tags=excluded.tags,importance=excluded.importance,
+      confidence=excluded.confidence,status=excluded.status,updated_at=excluded.updated_at`
+      )
+      .run(
+        scopeKey(scope),
+        item.id,
+        item.subjectId,
+        item.subjectName,
+        item.kind,
+        item.text,
+        normalize(item.text),
+        JSON.stringify(item.tags),
+        item.importance,
+        item.confidence,
+        item.status,
+        item.origin,
+        JSON.stringify(item.sourceRefs),
+        JSON.stringify(item.supersedes),
+        item.createdAt,
+        item.updatedAt
+      );
+  }
+
+  syncExplicit(scope: MemoryScope, subjectId: string, notes: { id: string; text: string; createdAt: number }[]): void {
+    this.observe(scope);
+    this.transaction(() => {
+      const key = scopeKey(scope);
+      const existing = this.db.prepare("SELECT id FROM memories WHERE scope=? AND origin='explicit' AND subject_id=?").all(key, subjectId);
+      const ids = new Set(notes.map(note => note.id));
+
+      for (const row of existing) {
+        if (!ids.has(String(row.id))) {
+          this.db.prepare('DELETE FROM memories WHERE scope=? AND id=?').run(key, row.id);
+        }
+      }
+      for (const note of notes) {
+        this.insert(scope, {
+          id: note.id,
+          subjectId,
+          subjectName: '',
+          kind: 'fact',
+          text: note.text,
+          tags: [],
+          importance: 1,
+          confidence: 1,
+          origin: 'explicit',
+          status: 'active',
+          sourceRefs: [],
+          supersedes: [],
+          createdAt: note.createdAt,
+          updatedAt: note.createdAt,
+          lastRecalledAt: 0,
+          recallDays: 0
+        });
+      }
+    });
+  }
+
+  recall(scope: MemoryScope, query: string, subjectId: string, limit = 8, record = true): (MemoryItem & { score: number })[] {
+    const ranked = rankMemories(this.list(scope, { status: 'active', limit: 2000 }), query, subjectId, this.now());
+    const unique = new Set<string>();
+    const hits = ranked
+      .filter(item => {
+        const key = `${item.subjectId}:${normalize(item.text)}`;
+
+        if (unique.has(key)) {
+          return false;
+        }
+        unique.add(key);
+
+        return true;
+      })
+      .slice(0, Math.max(1, Math.min(20, limit)));
+
+    if (record && hits.length) {
+      const now = this.now();
+      const day = new Date(now).toISOString().slice(0, 10);
+      const key = scopeKey(scope);
+
+      this.transaction(() => {
+        for (const item of hits) {
+          this.db
+            .prepare(
+              `UPDATE memories SET last_recalled_at=?, recall_days=recall_days+CASE WHEN recall_day<>? THEN 1 ELSE 0 END,recall_day=?
+            WHERE scope=? AND id=?`
+            )
+            .run(now, day, day, key, item.id);
+        }
+        this.db.prepare('INSERT INTO memory_recalls(scope,at,ids) VALUES(?,?,?)').run(key, now, JSON.stringify(hits.map(item => item.id)));
+        this.db
+          .prepare('DELETE FROM memory_recalls WHERE scope=? AND seq NOT IN(SELECT seq FROM memory_recalls WHERE scope=? ORDER BY seq DESC LIMIT 20)')
+          .run(key, key);
+      });
+    }
+
+    return hits;
+  }
+
+  profile(scope: MemoryScope, subjectId: string, maxChars = 600): { facts: MemoryItem[]; text: string } {
+    const facts = this.list(scope, { status: 'active', subjectId, limit: 2000 })
+      .filter(item => item.kind === 'fact' && item.confidence >= 0.8)
+      .sort((a, b) => b.importance - a.importance || b.updatedAt - a.updatedAt);
+    const selected: MemoryItem[] = [];
+    let length = 0;
+
+    for (const fact of facts) {
+      if (selected.some(item => normalize(item.text) === normalize(fact.text))) {
+        continue;
+      }
+      if (length + fact.text.length > maxChars) {
+        continue;
+      }
+      selected.push(fact);
+      length += fact.text.length;
+      if (selected.length === 8) {
+        break;
+      }
+    }
+
+    return { facts: selected, text: selected.map(item => item.text).join('；') };
+  }
+
+  recalls(scope: MemoryScope): { at: number; ids: string[] }[] {
+    return this.db
+      .prepare('SELECT at,ids FROM memory_recalls WHERE scope=? ORDER BY seq DESC LIMIT 20')
+      .all(scopeKey(scope))
+      .map(row => ({ at: Number(row.at), ids: JSON.parse(String(row.ids)) }));
+  }
+
+  applyExtraction(
+    scope: MemoryScope,
+    guard: MemoryGuard,
+    changes: MemoryChange[],
+    sources: MemorySource[],
+    checkpoint: number,
+    hasMore: boolean
+  ): { applied: boolean; added: number } {
+    return this.transaction(() => {
+      const state = this.state(scope);
+
+      if (!state || state.epoch !== guard.epoch || state.revision !== guard.revision) {
+        return { applied: false, added: 0 };
+      }
+      const allowed = new Map(sources.map(source => [source.seq, source]));
+      const key = scopeKey(scope);
+      let added = 0;
+
+      for (const change of changes) {
+        if (change.confidence < 0.8) {
+          continue;
+        }
+        const refs = change.sourceSeqs.map(seq => allowed.get(seq));
+
+        if (
+          !refs.length ||
+          refs.some(ref => !ref) ||
+          new Set(refs.map(ref => ref.speakerId)).size !== 1 ||
+          !refs[0].speakerId ||
+          !refs.some(ref => ref.text.includes(change.evidence)) ||
+          !change.evidence.trim() ||
+          /假设|假装|开玩笑|只是玩笑|如果我是/u.test(change.evidence)
+        ) {
+          throw new Error('记忆来源或证据无效。');
+        }
+        const subjectId = refs[0].speakerId;
+        const old = change.targetId ? this.list(scope, { limit: 2000 }).find(item => item.id === change.targetId) : undefined;
+
+        if (change.action !== 'add' && (!old || old.subjectId !== subjectId || old.status !== 'active' || old.origin === 'explicit')) {
+          throw new Error('记忆变更目标无效，明确保存的资料需要用户手动更正。');
+        }
+        const text = change.action === 'merge' ? `${old.text}；${change.text}` : change.text;
+
+        if (text.length > 800 || !text.trim()) {
+          throw new Error('记忆内容过长或为空。');
+        }
+        const duplicate = this.db
+          .prepare("SELECT id FROM memories WHERE scope=? AND subject_id=? AND normalized=? AND status='active'")
+          .get(key, subjectId, normalize(text));
+
+        if (duplicate) {
+          continue;
+        }
+        if (Number(this.db.prepare('SELECT count(*) AS n FROM memories WHERE scope=?').get(key).n) >= 2000) {
+          throw new Error('当前会话记忆容量已满。');
+        }
+        if (old) {
+          this.db.prepare("UPDATE memories SET status='outdated' WHERE scope=? AND id=?").run(key, old.id);
+        }
+        this.insert(scope, {
+          id: randomUUID().replaceAll('-', '').slice(0, 12),
+          subjectId,
+          subjectName: refs[0].speaker,
+          kind: change.kind,
+          text,
+          tags: change.tags,
+          importance: change.importance,
+          confidence: change.confidence,
+          status: 'active',
+          origin: 'extracted',
+          sourceRefs: change.action === 'merge' ? [...old.sourceRefs, ...refs].slice(-20) : refs,
+          supersedes: old ? [old.id] : [],
+          createdAt: this.now(),
+          updatedAt: this.now(),
+          lastRecalledAt: 0,
+          recallDays: 0
+        });
+        added++;
+      }
+      this.db
+        .prepare('UPDATE memory_scopes SET checkpoint=?,last_run=?,retry_after=? WHERE scope=?')
+        .run(checkpoint, hasMore ? state.lastRun : this.now(), hasMore ? this.now() + 300000 : 0, key);
+
+      return { applied: true, added };
+    });
+  }
+
+  failed(scope: MemoryScope, guard: MemoryGuard): void {
+    this.db
+      .prepare('UPDATE memory_scopes SET retry_after=? WHERE scope=? AND epoch=? AND revision=?')
+      .run(this.now() + 1800000, scopeKey(scope), guard.epoch, guard.revision);
+  }
+
+  forget(scope: MemoryScope, id: string, skipThrough: number): boolean {
+    return this.transaction(() => {
+      const key = scopeKey(scope);
+      const all = this.list(scope, { limit: 2000 });
+      const target = all.find(item => item.id === id);
+
+      if (!target) {
+        return false;
+      }
+      const removed = new Set([target.id]);
+      const sourceSeqs = new Set(target.sourceRefs.map(source => source.seq));
+      let changed = true;
+
+      while (changed) {
+        changed = false;
+        for (const item of all.filter(entry => entry.subjectId === target.subjectId)) {
+          if (removed.has(item.id)) {
+            continue;
+          }
+          if (
+            item.supersedes.some(parent => removed.has(parent)) ||
+            all.some(child => removed.has(child.id) && child.supersedes.includes(item.id)) ||
+            item.sourceRefs.some(source => sourceSeqs.has(source.seq)) ||
+            normalize(item.text) === normalize(target.text)
+          ) {
+            removed.add(item.id);
+            item.sourceRefs.forEach(source => sourceSeqs.add(source.seq));
+            changed = true;
+          }
+        }
+      }
+      for (const entryId of removed) {
+        this.db.prepare('DELETE FROM memories WHERE scope=? AND id=?').run(key, entryId);
+      }
+      this.db.prepare('DELETE FROM memory_recalls WHERE scope=?').run(key);
+      this.db.prepare('UPDATE memory_scopes SET revision=revision+1,checkpoint=max(checkpoint,?) WHERE scope=?').run(skipThrough, key);
+
+      return true;
+    });
+  }
+
+  clear(scope: MemoryScope, skipThrough: number): void {
+    this.observe(scope);
+    this.transaction(() => {
+      const key = scopeKey(scope);
+
+      this.db.prepare('DELETE FROM memories WHERE scope=?').run(key);
+      this.db.prepare('DELETE FROM memory_recalls WHERE scope=?').run(key);
+      this.db.prepare('UPDATE memory_scopes SET revision=revision+1,checkpoint=max(checkpoint,?) WHERE scope=?').run(skipThrough, key);
+    });
+  }
+
+  restore(scope: MemoryScope, id: string): boolean {
+    return this.transaction(() => {
+      const key = scopeKey(scope);
+      const all = this.list(scope, { limit: 2000 });
+      const item = all.find(entry => entry.id === id && entry.status === 'outdated');
+
+      if (!item) {
+        return false;
+      }
+      const connected = new Set([id]);
+      let changed = true;
+
+      while (changed) {
+        changed = false;
+        for (const entry of all.filter(candidate => candidate.subjectId === item.subjectId)) {
+          if (
+            !connected.has(entry.id) &&
+            (entry.supersedes.some(parent => connected.has(parent)) || all.some(child => connected.has(child.id) && child.supersedes.includes(entry.id)))
+          ) {
+            connected.add(entry.id);
+            changed = true;
+          }
+        }
+      }
+      const current = all.filter(entry => entry.status === 'active' && connected.has(entry.id));
+
+      for (const entry of current) {
+        this.db.prepare("UPDATE memories SET status='outdated' WHERE scope=? AND id=?").run(key, entry.id);
+      }
+      this.db.prepare("UPDATE memories SET status='active',updated_at=? WHERE scope=? AND id=?").run(this.now(), key, id);
+      this.db.prepare('UPDATE memory_scopes SET revision=revision+1 WHERE scope=?').run(key);
+
+      return true;
+    });
+  }
+
+  purgeHash(groupHash: string): void {
+    this.db.prepare('DELETE FROM memory_scopes WHERE group_hash=?').run(groupHash);
+  }
+
+  cleanup(days = 30): void {
+    this.db.prepare('DELETE FROM memory_scopes WHERE active_at<?').run(this.now() - days * 86400000);
+  }
+}
+
+const processState = globalThis as typeof globalThis & { __agentLinkMemories__?: Map<string, MemoryStore> };
+const stores = (processState.__agentLinkMemories__ ??= new Map<string, MemoryStore>());
+
+export const getMemoryStore = (config: DSHBridgeConfig): MemoryStore => {
+  const path = join(dirname(config.workspaceRoot), 'memories.sqlite');
+  let store = stores.get(path);
+
+  if (!store) {
+    store = new MemoryStore(path);
+    stores.set(path, store);
+  }
+
+  return store;
+};

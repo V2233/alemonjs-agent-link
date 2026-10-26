@@ -14,7 +14,7 @@ export default async (): Promise<void> => {
   if (
     event.IsBot ||
     (!isPrivateChatText(event.MessageText) &&
-      (!event.MessageMedia?.length ||
+      ((!event.MessageMedia?.length && !event.ReplyId && !event.MessageContent?.replyReferenceId) ||
         String(event.MessageText ?? '')
           .trimStart()
           .startsWith('/')))

@@ -3,7 +3,7 @@ import { type ChatInput } from './input';
 import type { PrivateHistoryContext } from '@src/state/registry';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createConnection } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { access, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,7 @@ type BridgeRuntimeRecord = {
 export type DSHSupervisorStatus = {
   phase: 'idle' | 'preparing' | 'installing' | 'starting' | 'ready' | 'degraded' | 'failed' | 'stopped';
   detail?: string;
+  chatReady?: boolean;
 };
 
 const bridgeScript = join(dirname(fileURLToPath(import.meta.url)), '../../python/dsh_bridge.py');
@@ -78,62 +79,127 @@ export class DSHSupervisor {
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private statusValue: DSHSupervisorStatus = { phase: 'idle' };
   private stopped = false;
+  private attempt = 0;
+  private preparation: AbortController | null = null;
+  private actualPort: number;
+  private nextRetryAt = 0;
+  private readonly directSessions = new Set<string>();
 
   constructor(
     private readonly config: DSHBridgeConfig,
     private readonly credentials: DSHCredentials | null,
     private readonly fingerprint: string
-  ) {}
+  ) {
+    this.actualPort = config.bridgePort;
+  }
 
   async start(): Promise<void> {
-    if (this.statusValue.phase === 'degraded') {
+    if (this.statusValue.phase === 'ready') {
       return;
     }
-    const pending = this.starting;
-
-    if (pending !== null) {
-      return pending;
+    if (this.statusValue.phase === 'degraded' && (this.config.runtimeMode === 'chat-only' || !this.credentials || Date.now() < this.nextRetryAt)) {
+      return;
     }
-
+    if (this.starting !== null) {
+      return this.starting;
+    }
     this.stopped = false;
+    const attempt = ++this.attempt;
+    const controller = new AbortController();
+
+    this.preparation = controller;
     this.statusValue = { phase: 'preparing' };
-    this.starting = this.launch();
-
-    try {
-      await this.starting;
-      this.statusValue = { phase: 'ready' };
-      await this.writeStartupStatus();
-    } catch (error) {
-      if ((this.config.runtimeMode ?? 'auto') !== 'sandbox') {
-        this.stop();
-        this.statusValue = {
-          phase: 'degraded',
-          detail:
-            this.config.runtimeMode === 'chat-only' && this.credentials
-              ? '纯聊天模式；网页、文件、终端关闭。'
-              : `纯聊天模式：${this.describeStartupFailure(error)} 网页、文件、终端关闭。`
-        };
+    const pending = (async () => {
+      try {
         await this.writeStartupStatus();
+        controller.signal.throwIfAborted();
+        await this.launch(controller.signal);
+        if (this.attempt !== attempt || this.stopped) {
+          return;
+        }
+        this.retries = 0;
+        this.statusValue = { phase: 'ready' };
+        await this.writeStartupStatus();
+      } catch (error) {
+        if (this.attempt !== attempt || this.stopped) {
+          return;
+        }
+        this.child?.kill('SIGTERM');
+        this.child = null;
+        if ((this.config.runtimeMode ?? 'auto') !== 'sandbox') {
+          this.statusValue = {
+            phase: 'degraded',
+            detail:
+              this.config.runtimeMode === 'chat-only' && this.credentials
+                ? '普通聊天已就绪。'
+                : `普通聊天模式：${this.describeStartupFailure(error)} 网页、文件、终端暂不可用。`
+          };
+          if (this.credentials && this.config.runtimeMode !== 'chat-only') {
+            this.scheduleRetry();
+          }
+          await this.writeStartupStatus();
 
-        return;
+          return;
+        }
+        this.statusValue = { phase: 'failed', detail: this.describeStartupFailure(error) };
+        await this.writeStartupStatus();
+        throw error;
+      } finally {
+        if (this.attempt === attempt) {
+          this.starting = null;
+          this.preparation = null;
+        }
       }
-      this.stop();
-      this.statusValue = { phase: 'failed', detail: this.describeStartupFailure(error) };
-      await this.writeStartupStatus();
-      throw error;
-    } finally {
-      this.starting = null;
+    })();
+
+    this.starting = pending;
+
+    return await pending;
+  }
+
+  async prepareForChat(): Promise<void> {
+    if ((this.config.runtimeMode ?? 'auto') === 'sandbox') {
+      await this.start();
+
+      return;
+    }
+    void this.start().catch(() => undefined);
+  }
+
+  useSandbox(sessionId: string): boolean {
+    if (this.directSessions.has(sessionId)) {
+      return false;
+    }
+    if (this.statusValue.phase === 'ready') {
+      return true;
+    }
+    // Keep a conversation on its original backend until /new, preserving its
+    // history while the optional sandbox finishes preparation in the background.
+    this.directSessions.add(sessionId);
+
+    return false;
+  }
+
+  resetTransport(sessionId: string): void {
+    for (const id of this.directSessions) {
+      if (id === sessionId || id.startsWith(`${sessionId}:v`)) {
+        this.directSessions.delete(id);
+      }
     }
   }
 
   async request(): Promise<BridgeRequest> {
     await this.start();
 
-    return { url: `http://127.0.0.1:${this.config.bridgePort}`, token: this.token };
+    return { url: `http://127.0.0.1:${this.actualPort}`, token: this.token };
   }
 
   stop(): void {
     this.stopped = true;
+    this.attempt++;
+    this.preparation?.abort();
+    this.preparation = null;
+    this.starting = null;
     this.statusValue = { phase: 'stopped' };
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
@@ -146,7 +212,10 @@ export class DSHSupervisor {
   }
 
   status(): DSHSupervisorStatus {
-    return { ...this.statusValue };
+    return {
+      ...this.statusValue,
+      chatReady: Boolean(this.credentials) && !this.stopped && (this.statusValue.phase === 'ready' || (this.config.runtimeMode ?? 'auto') !== 'sandbox')
+    };
   }
 
   async chatDirect(
@@ -159,7 +228,7 @@ export class DSHSupervisor {
     await directChat(this.config, this.credentials, message, signal, onEvent, privateHistory, onCompleted);
   }
 
-  private async launch(): Promise<void> {
+  private async launch(signal: AbortSignal): Promise<void> {
     if (!this.credentials) {
       throw new Error('Model credentials missing');
     }
@@ -193,16 +262,22 @@ export class DSHSupervisor {
       }
     }
     if (this.child?.exitCode === null) {
-      await this.waitForHealth();
+      await this.waitForHealth(this.config.startupTimeoutMs, signal);
 
       return;
     }
 
-    await this.bootstrapPython();
+    await this.bootstrapPython(signal);
+    signal.throwIfAborted();
     if (await this.adoptAuthenticatedBridge()) {
       return;
     }
+    signal.throwIfAborted();
+    if (this.config.bridgePort === 0) {
+      this.actualPort = await this.choosePort();
+    }
     await this.assertPortAvailable();
+    signal.throwIfAborted();
     this.statusValue = { phase: 'starting' };
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -237,7 +312,7 @@ export class DSHSupervisor {
       }
     }
 
-    const child = spawn(this.config.pythonExecutable, [bridgeScript, '--port', String(this.config.bridgePort)], {
+    const child = spawn(this.config.pythonExecutable, [bridgeScript, '--port', String(this.actualPort)], {
       env,
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -260,7 +335,7 @@ export class DSHSupervisor {
       }
     });
 
-    await this.waitForHealth();
+    await this.waitForHealth(this.config.startupTimeoutMs, signal);
     await this.writeRuntimeRecord();
   }
 
@@ -273,11 +348,14 @@ export class DSHSupervisor {
   private async adoptAuthenticatedBridge(): Promise<boolean> {
     const record = await this.readRuntimeRecord();
 
-    if (record?.port !== this.config.bridgePort || record?.fingerprint !== this.fingerprint) {
+    if (!record || (this.config.bridgePort !== 0 && record.port !== this.config.bridgePort) || record.fingerprint !== this.fingerprint) {
       return false;
     }
 
     const previousToken = this.token;
+    const previousPort = this.actualPort;
+
+    this.actualPort = record.port;
 
     this.token = record.token;
     try {
@@ -286,6 +364,7 @@ export class DSHSupervisor {
       return true;
     } catch {
       this.token = previousToken;
+      this.actualPort = previousPort;
 
       return false;
     }
@@ -323,7 +402,7 @@ export class DSHSupervisor {
     const temporaryPath = `${path}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`;
     const record: BridgeRuntimeRecord = {
       version: 1,
-      port: this.config.bridgePort,
+      port: this.actualPort,
       token: this.token,
       fingerprint: this.fingerprint
     };
@@ -333,28 +412,51 @@ export class DSHSupervisor {
     await rename(temporaryPath, path);
   }
 
-  private async bootstrapPython(): Promise<void> {
-    await preparePython(this.config, requirementsFile, () => {
-      this.statusValue = { phase: 'installing' };
-    });
+  private async bootstrapPython(signal: AbortSignal): Promise<void> {
+    await preparePython(
+      this.config,
+      requirementsFile,
+      () => {
+        this.statusValue = { phase: 'installing' };
+        void this.writeStartupStatus();
+      },
+      undefined,
+      signal
+    );
   }
 
   private scheduleRetry(): void {
-    if (this.retries >= 5 || this.retryTimer) {
+    if (this.retryTimer || this.stopped) {
       return;
     }
-    const delay = 1000 * 2 ** this.retries++;
+    const delay = Math.min(300000, 30000 * 2 ** Math.min(this.retries++, 4));
 
+    this.nextRetryAt = Date.now() + delay;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
-      void this.start().catch(error => logger.error({ err: error }, 'DSH bridge restart failed'));
+      this.nextRetryAt = 0;
+      void this.start().catch(() => undefined);
     }, delay);
     this.retryTimer.unref();
   }
 
+  private choosePort(): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const server = createServer();
+
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+
+        server.close(error => (error ? reject(error) : resolve(port)));
+      });
+    });
+  }
+
   private async assertPortAvailable(): Promise<void> {
     const occupied = await new Promise<boolean>(resolve => {
-      const socket = createConnection({ host: '127.0.0.1', port: this.config.bridgePort });
+      const socket = createConnection({ host: '127.0.0.1', port: this.actualPort });
 
       socket.once('connect', () => {
         socket.destroy();
@@ -368,20 +470,21 @@ export class DSHSupervisor {
     });
 
     if (occupied) {
-      throw new Error(`DSH bridge port ${this.config.bridgePort} is already in use`);
+      throw new Error(`DSH bridge port ${this.actualPort} is already in use`);
     }
   }
 
-  private async waitForHealth(timeoutMs = this.config.startupTimeoutMs): Promise<void> {
+  private async waitForHealth(timeoutMs = this.config.startupTimeoutMs, signal?: AbortSignal): Promise<void> {
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {
+      signal?.throwIfAborted();
       let response: Response;
 
       try {
-        response = await fetch(`http://127.0.0.1:${this.config.bridgePort}/health`, {
+        response = await fetch(`http://127.0.0.1:${this.actualPort}/health`, {
           headers: { Authorization: `Bearer ${this.token}` },
-          signal: AbortSignal.timeout(Math.max(1, Math.min(1500, deadline - Date.now())))
+          signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(Math.max(1, Math.min(1500, deadline - Date.now())))])
         });
       } catch {
         // Bridge is still starting.
@@ -396,7 +499,6 @@ export class DSHSupervisor {
       }
       await new Promise(resolve => setTimeout(resolve, 250));
     }
-    this.stop();
     throw new Error('DSH bridge health check timed out');
   }
 
@@ -407,7 +509,7 @@ export class DSHSupervisor {
       await mkdir(dirname(path), { recursive: true });
       const temp = `${path}.${process.pid}.tmp`;
 
-      const record = { ...this.statusValue, platform: process.platform, arch: process.arch, node: process.version, updatedAt: new Date().toISOString() };
+      const record = { ...this.status(), platform: process.platform, arch: process.arch, node: process.version, updatedAt: new Date().toISOString() };
 
       await writeFile(temp, JSON.stringify(record), { mode: 0o600 });
       await rename(temp, path);
@@ -442,7 +544,7 @@ export class DSHSupervisor {
     }
 
     if (message.includes('port') && message.includes('already in use')) {
-      return `DSH Bridge 端口 ${this.config.bridgePort} 已被占用；请停止旧 Bridge 实例，或在配置中指定其他 bridgePort。`;
+      return `DSH Bridge 端口 ${this.actualPort} 已被占用；请停止旧 Bridge 实例，或在配置中指定其他 bridgePort。`;
     }
 
     if (message.includes('health check timed out')) {
@@ -455,7 +557,9 @@ export class DSHSupervisor {
 
 export const configureDSHSupervisor = (config: DSHBridgeConfig, credentials: DSHCredentials | null = null): DSHSupervisor => {
   installShutdownHook();
-  const fingerprint = `${fingerprintConfig(config)}:${fingerprintCredentials(credentials)}`;
+  const fingerprint = createHash('sha256')
+    .update(`${fingerprintConfig(config)}:${fingerprintCredentials(credentials)}`)
+    .digest('hex');
 
   if (processState.supervisor && processState.fingerprint === fingerprint) {
     return processState.supervisor;

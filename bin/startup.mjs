@@ -1,10 +1,14 @@
 import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname, join, resolve } from 'node:path';
+import { acquireProcessLock } from './process-lock.mjs';
+import { launchPaths } from './paths.mjs';
+import { resolveDSHConfig } from '../lib/dsh/config.js';
+import { launchRuntime } from './runtime.mjs';
 import { LineCounter, parseDocument } from 'yaml';
 
-export const minimalConfig = `# 填好下面三项后，再次运行同一条启动命令。
+export const minimalConfig = `# 填好模型 API Key 后，再次运行同一条启动命令。
+# QQ 凭证可留空，启动后按提示扫码；已有凭证可直接填写。
 # 这份文件包含密钥，请不要发给别人。
 qq-bot:
   app_id: '' # QQ 机器人 AppID
@@ -22,7 +26,7 @@ const check = (name, status, message) => ({ name, status, message });
 
 // Do not import the framework here: doctor must not start watchers, adapters,
 // Redis clients, model requests or Python installation.
-export const inspectConfig = value => {
+export const inspectConfig = (value, options) => {
   if (!object(value)) return [check('config', 'error', '配置应为 YAML 对象，请保留各配置项的缩进。')];
   const agent = value['alemonjs-agent-link'];
   const qq = { ...(object(value['qq-bot']) ? value['qq-bot'] : {}), ...(object(value['@alemonjs/qq-bot']) ? value['@alemonjs/qq-bot'] : {}) };
@@ -35,8 +39,10 @@ export const inspectConfig = value => {
     }
     if ((Object.keys(qq.bots).length > 1 && !qq.default_bot) || (qq.default_bot && !Object.hasOwn(qq.bots, qq.default_bot)))
       checks.push(check('qq-bot.default_bot', 'error', '请将 default_bot 设置为 bots 中的一个 AppID。'));
-  } else {
+  } else if (provided(qq.app_id) || provided(qq.secret)) {
     credentials.push(['qq-bot.app_id', qq.app_id, true], ['qq-bot.secret', qq.secret, false]);
+  } else {
+    checks.push(check('qq-login', 'info', '尚无 QQ 凭证，启动后扫码授权；已有机器人可直接填写 AppID 和密钥。'));
   }
   for (const [name, candidate, numeric] of credentials) {
     checks.push(
@@ -47,29 +53,10 @@ export const inspectConfig = value => {
       )
     );
   }
-  if (agent?.baseUrl !== undefined && agent.baseUrl !== '') {
-    let valid = false;
-    try {
-      const url = new URL(agent.baseUrl);
-      valid = url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash;
-    } catch {
-      /* Invalid URL. */
-    }
-    checks.push(check('model-url', valid ? 'ok' : 'error', valid ? '模型地址格式正确；连接尚未验证。' : 'baseUrl 需要不含账号、密码或查询参数的 HTTPS 地址。'));
-  }
-  if (agent?.provider && agent.provider !== 'deepseek-official' && !agent.baseUrl) {
-    checks.push(check('model-url', 'error', '使用其他模型服务时，请填写 baseUrl 和 model。'));
-  }
-  if (agent?.model !== undefined && (typeof agent.model !== 'string' || !agent.model.trim())) {
-    checks.push(check('model', 'error', 'model 需要填写模型服务提供的模型名称。'));
-  }
-  for (const [name, choices] of [
-    ['runtimeMode', ['auto', 'sandbox', 'chat-only']],
-    ['stateBackend', ['local', 'redis']]
-  ]) {
-    if (agent?.[name] !== undefined && !choices.includes(agent[name])) {
-      checks.push(check(name, 'error', `${name} 可填写 ${choices.join('、')}。`));
-    }
+  try {
+    resolveDSHConfig(value, options);
+  } catch (error) {
+    checks.push(check('agent-config', 'error', error.message));
   }
   return checks;
 };
@@ -89,10 +76,12 @@ const writableAncestor = async path => {
   }
 };
 
-export const diagnose = async ({ cwd = process.cwd(), configPath = resolve(cwd, process.env.CFG_PATH || 'alemon.config.yaml') } = {}) => {
+export const diagnose = async (options = {}) => {
+  const cwd = options.cwd ?? process.cwd();
+  const { configPath, dataRoot } = await launchPaths(options);
   const checks = [];
   const [major, minor] = process.versions.node.split('.').map(Number);
-  checks.push(check('node', major > 22 || (major === 22 && minor >= 12) ? 'ok' : 'error', `Node.js ${process.versions.node}；需要 22.12 或更高版本。`));
+  checks.push(check('node', major > 22 || (major === 22 && minor >= 13) ? 'ok' : 'error', `Node.js ${process.versions.node}；需要 22.13 或更高版本。`));
   let config;
   try {
     const lineCounter = new LineCounter();
@@ -104,13 +93,13 @@ export const diagnose = async ({ cwd = process.cwd(), configPath = resolve(cwd, 
       checks.push(check('config', 'error', `配置 YAML 格式有误${line ? `，请检查第 ${line} 行` : '，请检查缩进或重复配置项'}。`));
     } else {
       config = document.toJS({ maxAliasCount: 50 });
-      checks.push(...inspectConfig(config));
+      checks.push(...inspectConfig(config, { cwd, configPath, dataRoot }));
     }
   } catch (error) {
     checks.push(check('config', 'error', error.code === 'ENOENT' ? '尚无配置文件；运行启动命令会自动生成。' : '无法读取配置，请检查文件权限和 YAML 格式。'));
   }
   const agent = object(config?.['alemonjs-agent-link']) ? config['alemonjs-agent-link'] : {};
-  const dataPath = typeof agent.dshHomeRoot === 'string' ? dirname(resolve(cwd, agent.dshHomeRoot)) : join(cwd, '.data', 'agent-link');
+  const dataPath = typeof agent.dshHomeRoot === 'string' ? dirname(resolve(cwd, agent.dshHomeRoot)) : dataRoot;
   const writable = await writableAncestor(dataPath);
   checks.push(check('data', writable ? 'ok' : 'error', writable ? '数据目录可写。' : '数据目录不可写，请把应用放到当前用户可写的目录。'));
   const backend = agent.stateBackend ?? (config?.db?.redis ? 'redis' : 'local');
@@ -122,7 +111,7 @@ export const diagnose = async ({ cwd = process.cwd(), configPath = resolve(cwd, 
       agent.runtimeMode === 'sandbox' ? '已要求完整沙箱；启动时会验证 Python 和系统沙箱。' : '普通聊天无需 Python；沙箱不可用时自动使用普通聊天。'
     )
   );
-  return { ok: !checks.some(item => item.status === 'error'), configPath, platform: process.platform, arch: process.arch, checks };
+  return { ok: !checks.some(item => item.status === 'error'), configPath, dataRoot, platform: process.platform, arch: process.arch, checks };
 };
 
 const ensureConfig = async path => {
@@ -142,18 +131,20 @@ const ensureConfig = async path => {
   }
 };
 
-export const runCLI = async (argv, { cwd = process.cwd(), write = text => process.stdout.write(`${text}\n`), start } = {}) => {
+export const runCLI = async (argv, { cwd = process.cwd(), write = text => process.stdout.write(`${text}\n`), start, homeDir, env = process.env } = {}) => {
   let command = 'start';
-  let configPath = resolve(cwd, process.env.CFG_PATH || 'alemon.config.yaml');
+  let configPath;
+  let portable = false;
   let json = false;
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (['start', 'init', 'doctor'].includes(arg) && index === 0) command = arg;
     else if (arg === '--config' && argv[index + 1] && !argv[index + 1].startsWith('-')) configPath = resolve(cwd, argv[++index]);
     else if (arg === '--json') json = true;
+    else if (arg === '--portable') portable = true;
     else if (arg === '--login' && argv[index + 1] === 'qq-bot') index++;
     else if (arg === '--help' || arg === '-h') {
-      write('AgentLink：agent-link [start | init | doctor] [--config 文件路径]\n直接运行即可启动；首次自动生成配置。doctor --json 输出离线诊断。');
+      write('AgentLink：agent-link [start | init | doctor] [--config 文件路径] [--portable]\n直接运行即可启动；首次自动生成配置。doctor --json 输出离线诊断。');
       return 0;
     } else {
       write('无法识别参数。运行 agent-link --help 查看用法。');
@@ -161,14 +152,16 @@ export const runCLI = async (argv, { cwd = process.cwd(), write = text => proces
     }
   }
   try {
+    const paths = await launchPaths({ cwd, configPath, portable, homeDir, env });
+    configPath = paths.configPath;
     if (command !== 'doctor') {
       const created = await ensureConfig(configPath);
       if (created || command === 'init') {
-        write(`${created ? '已生成最小配置' : '配置已存在'}：${configPath}\n填写 QQ AppID、QQ 密钥和模型 API Key，然后再次运行启动命令。`);
+        write(`${created ? '已生成最小配置' : '配置已存在'}：${configPath}\n填写模型 API Key 后重跑同一命令；QQ 可扫码登录，也可填写已有 AppID 和密钥。`);
         return created && command === 'start' ? 2 : 0;
       }
     }
-    const report = await diagnose({ cwd, configPath });
+    const report = await diagnose({ cwd, configPath, homeDir, env });
     if (command === 'doctor') {
       write(
         json
@@ -191,19 +184,31 @@ export const runCLI = async (argv, { cwd = process.cwd(), write = text => proces
       );
       return 2;
     }
-    if (start) {
-      await start({ configPath, cwd });
-    } else {
-      const entry = fileURLToPath(new URL('../lib/index.js', import.meta.url));
-      await access(entry);
-      process.env.CFG_PATH = configPath;
-      const framework = await import('alemonjs');
-      // The framework resolves its main entry relative to cwd, including when
-      // this package lives in the npx cache rather than the user's directory.
-      framework.start({ input: relative(cwd, entry), platform: fileURLToPath(import.meta.resolve('@alemonjs/qq-bot')), autoPort: true });
+    const value = parseDocument(await readFile(configPath, 'utf8')).toJS();
+    const resolved = resolveDSHConfig(value, { cwd, configPath, dataRoot: paths.dataRoot });
+    const ownership = await acquireProcessLock(join(dirname(resolved.dshHomeRoot), 'launcher.lock'));
+    try {
+      await mkdir(paths.homeDir, { recursive: true, mode: 0o700 });
+      await writeFile(join(paths.homeDir, 'active-profile.json'), JSON.stringify({ configPath }), { mode: 0o600 });
+      if (start) {
+        try {
+          await start({ configPath, cwd, dataRoot: paths.dataRoot });
+        } finally {
+          await ownership.release();
+        }
+      } else {
+        await launchRuntime({ cwd, configPath, dataRoot: paths.dataRoot, runtimeRoot: dirname(resolved.dshHomeRoot), write, ownership });
+      }
+    } catch (error) {
+      await ownership.release();
+      throw error;
     }
     return 0;
   } catch (error) {
+    if (error.code === 'ELOCKED') {
+      write('机器人已在运行或正在准备，请使用已有实例；异常退出后稍等几秒再试。');
+      return 1;
+    }
     const permission = error.code === 'EACCES' || error.code === 'EPERM';
     write(
       permission

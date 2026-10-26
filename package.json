@@ -235,12 +235,14 @@
   "packageManager": "yarn@1.22.22",
   "dependencies": {
     "@alemonjs/db": "^0.0.21",
-    "alemonjs": "^2.1.114",
     "@alemonjs/qq-bot": "^2.1.41",
+    "alemonjs": "^2.1.114",
+    "proper-lockfile": "^4.1.2",
+    "qrcode": "^1.5.4",
     "yaml": "^2.9.1"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.13.0"
   },
   "bin": {
     "agent-link": "bin/agent-link.mjs"

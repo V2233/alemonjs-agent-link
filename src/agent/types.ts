@@ -2,6 +2,7 @@ import type { ChatInput } from '../dsh/input';
 import type { AgentCapabilities } from '../dsh/client';
 
 export type TurnContext = {
+  requestId?: string;
   channelId: string;
   userId: string;
   platform: string;

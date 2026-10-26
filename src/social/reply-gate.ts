@@ -82,6 +82,7 @@ export const classifyGroupReply = async (input: ReplyGateInput, signal: AbortSig
       model: credentials.model || config.model,
       stream: false,
       max_tokens: 120,
+      ...(url.hostname === 'api.deepseek.com' ? { thinking: { type: 'disabled' } } : {}),
       messages: [
         { role: 'system', content: instruction },
         { role: 'user', content: JSON.stringify(compact) }

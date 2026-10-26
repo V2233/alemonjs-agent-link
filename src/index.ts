@@ -5,6 +5,7 @@ import { ensureDSHSupervisor } from '@src/dsh/supervisor';
 import { SessionRegistry } from '@src/state/registry';
 import { purgeGroupHashData } from '@src/dsh/client';
 import { getChatArchive } from './history/store';
+import { getModuleRuntime } from './agent/modules';
 export default defineChildren({
   register() {
     return {
@@ -14,6 +15,10 @@ export default defineChildren({
   onCreated() {
     try {
       const startupConfig = getDSHConfig();
+
+      void getModuleRuntime(startupConfig)
+        .then(runtime => runtime.refresh())
+        .catch(() => logger.error('AgentLink module startup failed'));
 
       void new SessionRegistry(startupConfig)
         .ready()
@@ -26,8 +31,9 @@ export default defineChildren({
       logger.error({ err: error }, 'DSH bridge configuration invalid');
     }
     try {
-      const config = getDSHConfig();
       const cleanup = async (): Promise<void> => {
+        const config = getDSHConfig();
+
         getChatArchive(config).cleanup();
         const registry = new SessionRegistry(config);
 

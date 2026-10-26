@@ -4,6 +4,8 @@ import { canPrivateChat, getConversationId } from '@src/response/dsh/util';
 import { SessionRegistry, privateMemoryTextLimit } from '@src/state/registry';
 import { resetGroupSession } from '@src/dsh/orchestrator';
 import { assertMessageDelivered } from '@src/dsh/output';
+import { getMemoryStore } from '../../memory/store';
+import { forgetMemory, synchronizeExplicitMemory } from '../../memory/management';
 
 export default async (): Promise<void> => {
   const [context] = useEvent({ selects: 'private.message.create' });
@@ -40,14 +42,20 @@ export default async (): Promise<void> => {
       return;
     }
     const registry = new SessionRegistry(config);
+    const scope = { platform: event.Platform, channelId };
     const args = route.rawArgs.join(' ').trim();
     // The route name is derived from the original text, never from model output.
     const command = event.MessageText.trim().split(/\s+/u)[0];
 
     if (command === '/记忆') {
-      const notes = await registry.privateMemories(channelId);
+      await synchronizeExplicitMemory(config, scope, event.UserId);
+      const notes = getMemoryStore(config).list(scope, { status: 'active', limit: 30 });
 
-      await reply(notes.length ? notes.map(note => `${note.id}：${note.text}`).join('\n') : '还没有长期记忆。发送 /记住 你的偏好，或 /忘记 编号 删除。');
+      await reply(
+        notes.length
+          ? notes.map(note => `${note.id}：${note.text.slice(0, 200)}${note.origin === 'explicit' ? '' : '（自动整理，可用 /记忆来源 编号 核对）'}`).join('\n')
+          : '还没有长期记忆。发送 /记住 你的偏好，或 /忘记 编号 删除。'
+      );
 
       return;
     }
@@ -56,7 +64,7 @@ export default async (): Promise<void> => {
 
       return;
     }
-    if (command === '/忘记' && !/^[a-f0-9]{8}$/u.test(args)) {
+    if (command === '/忘记' && !/^[a-f0-9]{8}(?:[a-f0-9]{4})?$/u.test(args)) {
       await reply('用法：/忘记 编号。先发送 /记忆 查看编号；/忘记全部 删除全部长期记忆。');
 
       return;
@@ -71,7 +79,14 @@ export default async (): Promise<void> => {
     let status = '';
 
     await resetGroupSession(channelId, config, async () => {
-      status = (await registry.changePrivateMemory(channelId, action, args)).status;
+      if (action === 'add') {
+        const changed = await registry.changePrivateMemory(channelId, action, args);
+
+        status = changed.status;
+        getMemoryStore(config).syncExplicit(scope, event.UserId, changed.notes);
+      } else {
+        status = await forgetMemory(config, scope, event.UserId, action === 'clear' ? undefined : args);
+      }
     });
     await reply(
       status === 'full'

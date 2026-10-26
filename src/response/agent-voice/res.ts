@@ -11,7 +11,7 @@ export default async (): Promise<void> => {
   }
   const text = route.rawArgs.join(' ').trim();
 
-  if (!text && !context.current.MessageMedia?.length) {
+  if (!text && !context.current.MessageMedia?.length && !context.current.ReplyId && !context.current.MessageContent?.replyReferenceId) {
     const [message] = useMessage();
 
     await message.send({ format: Format.create().addText('用法：/语音 你的问题。回复使用 AI 合成语音；不可用时发送文字。') });

@@ -1,52 +1,12 @@
 import { type ChatInput, withInputContext } from './input';
-import { dafeiyuPrompt } from './persona';
 import type { PrivateHistoryContext } from '@src/state/registry';
-import type { ModuleConfig } from '../agent/types';
-import { getGroupChatPolicy, type GroupChatConfig } from '../social/group-policy';
 import { getConfigValue } from 'alemonjs';
-import { dirname, join } from 'node:path';
+import { resolveDSHConfig, type DSHBridgeConfig, type AgentCapabilities } from './config';
+import { DSHError, abortFailure } from './errors';
 import { ensureDSHSupervisor, getDSHBridge, hasDSHBridgeOverride } from '@src/dsh/supervisor';
-
-export type DSHBridgeConfig = {
-  groupChat?: GroupChatConfig;
-  modules?: ModuleConfig;
-  groupWakeNames: string[];
-  privateChatAccess: 'owner' | 'all';
-  privateAutoReply: boolean;
-  persona: 'assistant' | 'dafeiyu';
-  privateHistoryMaxTurns: number;
-  privateHistoryTtlSeconds: number;
-  privateHistoryMaxChars: number;
-  stateBackend?: 'local' | 'redis';
-  pythonPackageSources?: string[];
-  runtimeMode?: 'auto' | 'sandbox' | 'chat-only';
-  pythonExecutable?: string;
-  bridgePort: number;
-  workspaceRoot: string;
-  dshHomeRoot: string;
-  profile: string;
-  provider: string;
-  model: string;
-  defaultSystemPrompt: string;
-  maxMessageLength: number;
-  streamFlushIntervalMs: number;
-  requestTimeoutMs: number;
-  startupTimeoutMs: number;
-  maxQueuedPerGroup: number;
-  maxConcurrentRequests: number;
-  maxActiveWorkers: number;
-  maxCallsPerUserPerMinute: number;
-  inputBlockedKeywords: string[];
-  outputBlockedKeywords: string[];
-  maxRequestBytes: number;
-  retentionDays: number;
-  recentChatMaxMessages: number;
-  recentChatWindowSeconds: number;
-  recentChatMaxChars: number;
-  recentChatSummaryMaxChars: number;
-};
-
-export type AgentCapabilities = { chat: boolean; web: boolean; files: boolean; terminal: boolean };
+export { DSHError } from './errors';
+export type { DSHBridgeConfig, AgentCapabilities } from './config';
+export const getDSHConfig = (value: Parameters<typeof resolveDSHConfig>[0] = getConfigValue()): DSHBridgeConfig => resolveDSHConfig(value);
 const toCapabilities = (value: AgentCapabilities): AgentCapabilities => ({
   chat: value.chat,
   web: value.web,
@@ -56,174 +16,6 @@ const toCapabilities = (value: AgentCapabilities): AgentCapabilities => ({
 
 export type DSHStreamEvent =
   { type: 'content'; content: string } | { type: 'done' } | { type: 'tool_call'; tool?: string; args?: unknown } | { type: 'error'; message?: string };
-
-type ConfigValue = {
-  'alemonjs-agent-link'?: Partial<DSHBridgeConfig>;
-};
-
-const dataRoot = join(process.cwd(), '.data', 'agent-link');
-const pythonExecutable = process.platform === 'win32' ? join(dataRoot, 'venv', 'Scripts', 'python.exe') : join(dataRoot, 'venv', 'bin', 'python');
-const defaults: DSHBridgeConfig = {
-  groupWakeNames: ['帮我', '肥鱼', '大肥鱼'],
-  privateChatAccess: 'owner',
-  privateAutoReply: true,
-  persona: 'dafeiyu',
-  privateHistoryMaxTurns: 10,
-  privateHistoryTtlSeconds: 86400,
-  privateHistoryMaxChars: 12000,
-  stateBackend: 'local',
-  pythonPackageSources: ['https://pypi.org/simple', 'https://pypi.tuna.tsinghua.edu.cn/simple'],
-  runtimeMode: 'auto',
-  pythonExecutable,
-  workspaceRoot: join(dataRoot, 'workspaces'),
-  dshHomeRoot: join(dataRoot, 'dsh-homes'),
-  bridgePort: 18080,
-  profile: 'sdk',
-  provider: 'deepseek-official',
-  model: 'deepseek-v4-flash',
-  defaultSystemPrompt: '你是一个友好、可靠的助手。',
-  maxMessageLength: 1000,
-  streamFlushIntervalMs: 500,
-  requestTimeoutMs: 120000,
-  startupTimeoutMs: 30000,
-  maxQueuedPerGroup: 3,
-  maxConcurrentRequests: 8,
-  maxActiveWorkers: 16,
-  maxCallsPerUserPerMinute: 6,
-  inputBlockedKeywords: [],
-  outputBlockedKeywords: [],
-  maxRequestBytes: 1048576,
-  retentionDays: 30,
-  recentChatMaxMessages: 20,
-  recentChatWindowSeconds: 900,
-  recentChatMaxChars: 6000,
-  recentChatSummaryMaxChars: 1600
-};
-
-export class DSHError extends Error {
-  constructor(
-    public readonly kind: 'auth' | 'http' | 'network' | 'timeout' | 'cancelled' | 'protocol' | 'agent' | 'migration' | 'delivery' | 'media',
-    message: string
-  ) {
-    super(message);
-    this.name = 'DSHError';
-  }
-}
-
-export const getDSHConfig = (value: ConfigValue = getConfigValue()): DSHBridgeConfig => {
-  const agentLink = value?.['alemonjs-agent-link'];
-
-  const config = {
-    ...defaults,
-    ...agentLink,
-    // Preserve existing deployments with explicit framework Redis configuration.
-    stateBackend: agentLink?.stateBackend ?? ((value as { db?: { redis?: unknown } })?.db?.redis ? 'redis' : 'local')
-  };
-
-  if (typeof agentLink?.dshHomeRoot === 'string' && agentLink.pythonExecutable === undefined) {
-    const root = dirname(config.dshHomeRoot);
-
-    config.pythonExecutable = process.platform === 'win32' ? join(root, 'venv', 'Scripts', 'python.exe') : join(root, 'venv', 'bin', 'python');
-  }
-
-  if (config.persona === 'dafeiyu' && agentLink?.defaultSystemPrompt === undefined) {
-    config.defaultSystemPrompt = dafeiyuPrompt;
-  }
-  const integerFields = [
-    config.privateHistoryMaxTurns,
-    config.privateHistoryTtlSeconds,
-    config.privateHistoryMaxChars,
-    config.maxMessageLength,
-    config.streamFlushIntervalMs,
-    config.requestTimeoutMs,
-    config.startupTimeoutMs,
-    config.bridgePort,
-    config.maxQueuedPerGroup,
-    config.maxConcurrentRequests,
-    config.maxActiveWorkers,
-    config.maxCallsPerUserPerMinute,
-    config.maxRequestBytes,
-    config.retentionDays,
-    config.recentChatMaxMessages,
-    config.recentChatWindowSeconds,
-    config.recentChatMaxChars,
-    config.recentChatSummaryMaxChars
-  ];
-  const stringFields = [
-    config.pythonExecutable,
-    config.workspaceRoot,
-    config.dshHomeRoot,
-    config.profile,
-    config.provider,
-    config.model,
-    config.defaultSystemPrompt
-  ];
-
-  if (
-    !['local', 'redis'].includes(config.stateBackend) ||
-    !Array.isArray(config.pythonPackageSources) ||
-    config.pythonPackageSources.length < 1 ||
-    config.pythonPackageSources.length > 5 ||
-    config.pythonPackageSources.some(source => {
-      try {
-        const url = new URL(source);
-
-        return url.protocol !== 'https:' || Boolean(url.username || url.password);
-      } catch {
-        return true;
-      }
-    }) ||
-    !Array.isArray(config.groupWakeNames) ||
-    config.groupWakeNames.length > 10 ||
-    config.groupWakeNames.some(name => typeof name !== 'string' || !name.trim() || name.length > 20 || name.trim() !== name || name.startsWith('/')) ||
-    !['owner', 'all'].includes(config.privateChatAccess) ||
-    typeof config.privateAutoReply !== 'boolean' ||
-    !['assistant', 'dafeiyu'].includes(config.persona) ||
-    config.privateHistoryMaxTurns < 0 ||
-    config.privateHistoryMaxTurns > 100 ||
-    config.privateHistoryTtlSeconds < 1 ||
-    config.privateHistoryTtlSeconds > 2592000 ||
-    config.privateHistoryMaxChars < 1 ||
-    config.privateHistoryMaxChars > 100000 ||
-    !['auto', 'sandbox', 'chat-only'].includes(config.runtimeMode) ||
-    !integerFields.every(Number.isSafeInteger) ||
-    !stringFields.every(value => typeof value === 'string' && value.trim().length > 0) ||
-    config.maxMessageLength < 1 ||
-    config.maxMessageLength > 10_000 ||
-    config.streamFlushIntervalMs < 1 ||
-    config.streamFlushIntervalMs > 10_000 ||
-    config.requestTimeoutMs < 1 ||
-    config.requestTimeoutMs > 300_000 ||
-    config.recentChatMaxMessages < 0 ||
-    config.recentChatWindowSeconds < 0 ||
-    config.recentChatMaxChars < 0 ||
-    config.recentChatSummaryMaxChars < 0 ||
-    config.bridgePort < 1024 ||
-    config.bridgePort > 65535 ||
-    config.startupTimeoutMs < 1 ||
-    config.maxQueuedPerGroup < 0 ||
-    config.maxQueuedPerGroup > 3 ||
-    config.maxConcurrentRequests < 1 ||
-    config.maxConcurrentRequests > 100 ||
-    config.maxActiveWorkers < 1 ||
-    config.maxActiveWorkers > 200 ||
-    config.maxCallsPerUserPerMinute < 1 ||
-    config.maxCallsPerUserPerMinute > 60 ||
-    config.maxRequestBytes < 1 ||
-    config.maxRequestBytes > 5 * 1024 * 1024 ||
-    config.retentionDays !== 30 ||
-    !Array.isArray(config.inputBlockedKeywords) ||
-    !config.inputBlockedKeywords.every(value => typeof value === 'string') ||
-    !Array.isArray(config.outputBlockedKeywords) ||
-    !config.outputBlockedKeywords.every(value => typeof value === 'string')
-  ) {
-    throw new DSHError('protocol', 'DSH 配置的类型或安全范围无效');
-  }
-
-  getGroupChatPolicy(config.groupChat);
-
-  return config;
-};
 
 const getHeaders = (token: string): HeadersInit => {
   const headers: HeadersInit = {
@@ -331,9 +123,9 @@ export const streamChat = async (
 
     // Test bridge overrides retain their existing transport behavior.
     if (!hasDSHBridgeOverride()) {
-      await supervisor.start();
+      await supervisor.prepareForChat();
       signal.throwIfAborted();
-      if (supervisor.status().phase === 'degraded') {
+      if (!supervisor.useSandbox(sessionId)) {
         await supervisor.chatDirect(message, signal, onEvent, privateHistory, onCompleted);
 
         return;
@@ -374,6 +166,9 @@ export const streamChat = async (
     await onCompleted?.(signal);
     signal.throwIfAborted();
   } catch (error) {
+    if (externalSignal?.aborted || (error instanceof Error && error.name === 'TimeoutError')) {
+      throw abortFailure(error, externalSignal) ?? error;
+    }
     if (error instanceof DSHError) {
       throw error;
     }
@@ -406,13 +201,18 @@ const deleteBridgeResource = async (config: DSHBridgeConfig, path: string, failu
     const supervisor = await ensureDSHSupervisor(config);
 
     if (!hasDSHBridgeOverride()) {
-      await supervisor.start();
-      if (supervisor.status().phase === 'degraded') {
+      await supervisor.prepareForChat();
+      if (supervisor.status().phase !== 'ready') {
         if (path.startsWith('/v1/session/')) {
+          supervisor.resetTransport(decodeURIComponent(path.slice('/v1/session/'.length)));
+
           return;
         } // Direct chat stores no SDK sessions.
         throw new DSHError('http', '纯聊天模式无法删除旧沙箱数据；请恢复 Bridge 后重试清理。');
       }
+    }
+    if (path.startsWith('/v1/session/')) {
+      supervisor.resetTransport(decodeURIComponent(path.slice('/v1/session/'.length)));
     }
     const bridge = await getDSHBridge();
     const response = await fetch(`${bridge.url}${path}`, {

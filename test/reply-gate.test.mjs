@@ -36,6 +36,7 @@ test('one-shot classifier uses main credentials, bounded context, no tools, and 
     globalThis.fetch = async (_url, options) => {
       const body = JSON.parse(options.body);
       assert.equal(body.model, 'test-gate-model');
+      assert.deepEqual(body.thinking, { type: 'disabled' });
       assert.equal(body.tools, undefined);
       assert.equal(body.messages.length, 2);
       assert.equal(JSON.parse(body.messages[1].content).messages[0].text.length, 600);
@@ -65,4 +66,24 @@ test('automation and loop assessments veto positive replies; unknown source is n
     { reply: true, reason: 'support', source: 'unknown', loopRisk: 'false' }
   ])
     assert.deepEqual(parseReplyVerdict(JSON.stringify(verdict)), { reply: false, reason: 'none' });
+});
+
+test('classifier does not send DeepSeek-specific thinking parameters to other compatible providers', async () => {
+  const { classifyGroupReply } = await import('../lib/social/reply-gate.js');
+  const oldConfig = globalThis.__config,
+    oldFetch = globalThis.fetch;
+  globalThis.__config = { value: { 'alemonjs-agent-link': { apiKey: 'test', baseUrl: 'https://other.test/v1', model: 'test' } } };
+  let called = false;
+  try {
+    globalThis.fetch = async (_url, options) => {
+      called = true;
+      assert.equal(JSON.parse(options.body).thinking, undefined);
+      return Response.json({ choices: [{ message: { content: '{"reply":false,"reason":"none","source":"unknown","loopRisk":false}' } }] });
+    };
+    await classifyGroupReply({ recent: [], messages: [] }, new AbortController().signal);
+    assert.equal(called, true);
+  } finally {
+    globalThis.__config = oldConfig;
+    globalThis.fetch = oldFetch;
+  }
 });

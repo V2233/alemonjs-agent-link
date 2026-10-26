@@ -18,7 +18,7 @@ export default async (): Promise<void> => {
 
   await message.send({
     format: Format.create().addMarkdownOriginal(
-      '模型凭证仅从 `alemon.config.yaml` 读取。请在 `alemonjs-agent-link` 下设置 `apiKey` 和可选的 `baseUrl`，然后重启服务。'
+      '模型凭证仅从 `alemon.config.yaml` 读取。请在 `alemonjs-agent-link` 下设置 `apiKey` 和可选的 `baseUrl`，然后保存，后续请求自动生效，无需重启机器人。'
     )
   });
 };

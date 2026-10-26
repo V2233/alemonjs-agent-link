@@ -23,16 +23,8 @@ export default async (): Promise<void> => {
   }
   const [mention] = useMention();
   const mentionedBot = await mention.findOne({ IsBot: true });
-  const references = await messageReferences.capture(event).catch(() => {
-    logger.warn('Message reference capture failed');
-
-    return { quote: undefined, missingQuote: event.ReplyId, forwarded: '' };
-  });
-  const referenceContext = JSON.stringify({
-    quote: references.quote ? { sender: references.quote.userName || references.quote.userId, text: references.quote.text } : undefined,
-    unavailableQuote: references.missingQuote ? '引用消息内容不可用，不能猜测原文。' : undefined,
-    forwarded: references.forwarded || undefined
-  });
+  const references = await messageReferences.prepare(event);
+  const referenceContext = references.context;
 
   let prompt: string | null;
 
@@ -42,7 +34,7 @@ export default async (): Promise<void> => {
       : event.IsAtMe
         ? String(event.MessageText || '')
         : extractWakePrompt(event.MessageText, getDSHConfig().groupWakeNames);
-    if (prompt === null && references.quote?.isBot) {
+    if (prompt === null && references.quotedBot) {
       prompt = event.MessageText || '用户引用了你的消息，请结合原文回应。';
     }
   } catch (error) {
@@ -50,7 +42,7 @@ export default async (): Promise<void> => {
 
     return;
   }
-  if (prompt !== null && !prompt && !event.MessageMedia?.length && !references.forwarded) {
+  if (prompt !== null && !prompt && !event.MessageMedia?.length && !referenceContext) {
     prompt = '用户 @ 了你，没有附带文字。';
   }
 
@@ -67,7 +59,7 @@ export default async (): Promise<void> => {
 
   const text = String(event.MessageText || '').trim();
 
-  if (!event.ChannelId || (!text && !event.MessageMedia?.length && !references.forwarded) || text.startsWith('/')) {
+  if (!event.ChannelId || (!text && !event.MessageMedia?.length && !referenceContext) || text.startsWith('/')) {
     await Promise.resolve(next());
 
     return;
@@ -85,8 +77,8 @@ export default async (): Promise<void> => {
         owner: Boolean(event.IsMaster),
         text: text || prompt || '',
         direct: prompt !== null,
-        media: event.MessageMedia,
-        referenceContext: referenceContext === '{}' ? undefined : referenceContext
+        media: references.media,
+        referenceContext
       },
       getGroupChatPolicy(getDSHConfig().groupChat, event.ChannelId),
       batch => respondToGroupBatch(event, { message, media }, batch)

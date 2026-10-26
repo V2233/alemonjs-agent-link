@@ -148,6 +148,12 @@ commandGroup.use({ path: '表情', description: '列出或发送配置的表情�
 for (const path of ['记忆', '记住', '忘记', '忘记全部']) {
   commandGroup.use({ path, events: ['private.message.create'], description: '查看、保存或删除自己的长期记忆' }, () => import('@src/response/agent-memory/res'));
 }
+for (const path of ['记忆检索', '记忆来源', '过时记忆', '恢复记忆', '整理记忆', '群记忆', '忘记群记忆']) {
+  commandGroup.use(
+    { path, events: ['message.create', 'private.message.create'], description: '检索、核对和管理当前会话的长期记忆' },
+    () => import('@src/response/memory-tools/res')
+  );
+}
 
 // 保存近期群聊参考；后续群聊协调器按参与策略决定是否创建回合。
 router.res({ events: ['message.create'] }, () => import('@src/response/chat-context/capture'));

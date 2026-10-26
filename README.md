@@ -58,13 +58,13 @@ npx alemonjs-agent-link doctor
 
 ### 机器人主人（私聊）
 
-| 操作               | 用法                                                                 |
-| ------------------ | -------------------------------------------------------------------- |
-| 配置模型凭证       | 修改 `alemon.config.yaml` 的 `alemonjs-agent-link.apiKey` 后重启     |
-| 查看模型           | `/agentmodels`、`/agentmodel`                                        |
-| 查看完整状态       | `/agentstatus`                                                       |
-| 私聊使用 Agent     | 直接发送文字，或 `/chat 你的问题`                                    |
-| 彻底删除指定群数据 | 在目标群中执行 `/agentpurge`，再于 60 秒内执行 `/agentpurge confirm` |
+| 操作               | 用法                                                                             |
+| ------------------ | -------------------------------------------------------------------------------- |
+| 配置模型凭证       | 修改 `alemon.config.yaml` 的 `alemonjs-agent-link.apiKey` 后保存，新请求自动生效 |
+| 查看模型           | `/agentmodels`、`/agentmodel`                                                    |
+| 查看完整状态       | `/agentstatus`                                                                   |
+| 私聊使用 Agent     | 直接发送文字，或 `/chat 你的问题`                                                |
+| 彻底删除指定群数据 | 在目标群中执行 `/agentpurge`，再于 60 秒内执行 `/agentpurge confirm`             |
 
 ## 运行模型
 

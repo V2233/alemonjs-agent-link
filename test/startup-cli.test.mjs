@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, stat, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, stat, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -12,13 +12,13 @@ const valid = "qq-bot:\n  app_id: '1234'\n  secret: 'secret-do-not-print'\nalemo
 const run = async (cwd, args = []) => {
   const output = [];
   const starts = [];
-  const code = await runCLI(args, { cwd, write: line => output.push(line), start: value => starts.push(value) });
+  const code = await runCLI(args, { cwd, homeDir: join(cwd, 'profile'), write: line => output.push(line), start: value => starts.push(value) });
   return { code, output: output.join('\n'), starts };
 };
 
 test('first launch creates a private minimal config and starts only after credentials are filled', async () => {
   const cwd = await temporary();
-  const configPath = join(cwd, 'alemon.config.yaml');
+  const configPath = join(cwd, 'profile', 'alemon.config.yaml');
   const first = await run(cwd);
   assert.equal(first.code, 2);
   assert.equal(first.starts.length, 0);
@@ -27,11 +27,11 @@ test('first launch creates a private minimal config and starts only after creden
   assert.match(generated, /apiKey: ''/);
   assert.doesNotMatch(generated, /redis|python|runtimeMode/i);
   if (process.platform !== 'win32') assert.equal((await stat(configPath)).mode & 0o077, 0);
-  assert.match((await run(cwd)).output, /qq-bot.app_id/);
+  assert.match((await run(cwd)).output, /apiKey/);
   await writeFile(configPath, valid);
   const configured = await run(cwd);
   assert.equal(configured.code, 0);
-  assert.deepEqual(configured.starts, [{ cwd, configPath }]);
+  assert.deepEqual(configured.starts, [{ cwd, configPath, dataRoot: join(cwd, 'profile', 'data') }]);
   assert.equal(configured.output, '');
   assert.equal(await readFile(configPath, 'utf8'), valid);
 });
@@ -40,8 +40,9 @@ test('doctor never creates files or starts services and emits secret-free JSON',
   const cwd = await temporary();
   const missing = await run(cwd, ['doctor']);
   assert.equal(missing.code, 1);
-  await assert.rejects(access(join(cwd, 'alemon.config.yaml')));
-  await writeFile(join(cwd, 'alemon.config.yaml'), valid);
+  await assert.rejects(access(join(cwd, 'profile', 'alemon.config.yaml')));
+  await mkdir(join(cwd, 'profile'), { recursive: true });
+  await writeFile(join(cwd, 'profile', 'alemon.config.yaml'), valid);
   const result = await run(cwd, ['doctor', '--json']);
   assert.equal(result.starts.length, 0);
   assert.equal(result.code, 0);
@@ -53,7 +54,8 @@ test('doctor never creates files or starts services and emits secret-free JSON',
 test('malformed and duplicate YAML never echo source secrets or overwrite user config', async () => {
   const cwd = await temporary();
   for (const contents of ["secret: 'do-not-print-[\n", 'secret: do-not-print\nsecret: again\n']) {
-    const path = join(cwd, 'alemon.config.yaml');
+    const path = join(cwd, 'profile', 'alemon.config.yaml');
+    await mkdir(join(cwd, 'profile'), { recursive: true });
     await writeFile(path, contents);
     const result = await run(cwd);
     assert.equal(result.code, 2);
@@ -79,7 +81,7 @@ test('custom config path, idempotent init and invalid arguments are handled', as
 test('placeholder, invalid credential types and model URLs are actionable', () => {
   const config = { 'qq-bot': { app_id: '<APP_ID>', secret: 123 }, 'alemonjs-agent-link': { apiKey: 123, baseUrl: 'http://user:password@example.com' } };
   const checks = inspectConfig(config);
-  assert.equal(checks.filter(item => item.status === 'error').length, 4);
+  assert.equal(checks.filter(item => item.status === 'error').length, 3);
   assert.doesNotMatch(JSON.stringify(checks), /password@example|<APP_ID>/);
 });
 
@@ -96,7 +98,11 @@ test('data path that is a file fails offline preflight', async () => {
 
 test('CLI executable works from an empty directory without importing the bot framework', async () => {
   const cwd = await temporary();
-  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/agent-link.mjs', import.meta.url)), 'doctor', '--json'], { cwd, encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/agent-link.mjs', import.meta.url)), 'doctor', '--json'], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, AGENT_LINK_HOME: join(cwd, 'profile') }
+  });
   assert.equal(result.status, 1);
   assert.equal(JSON.parse(result.stdout).ok, false);
   assert.equal(result.stderr, '');

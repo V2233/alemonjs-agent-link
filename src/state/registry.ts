@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { getLocalStore } from './local-store';
 import { getChatArchive } from '../history/store';
+import { getMemoryStore } from '../memory/store';
 import { join, dirname } from 'node:path';
 import type { AgentCapabilities, DSHBridgeConfig } from '@src/dsh/client';
 
@@ -494,6 +495,7 @@ export class SessionRegistry {
   }
   async purge(channelId: string): Promise<void> {
     getChatArchive(this.config).purgeHash(groupHash(channelId));
+    getMemoryStore(this.config).purgeHash(groupHash(channelId));
     const store = await redis(this.config);
 
     await store.del(
@@ -510,6 +512,7 @@ export class SessionRegistry {
   async purgeHash(hash: string, includeArchive = true): Promise<void> {
     if (includeArchive) {
       getChatArchive(this.config).purgeHash(hash);
+      getMemoryStore(this.config).purgeHash(hash);
     }
     const store = await redis(this.config);
     let cursor = '0';

@@ -17,6 +17,6 @@ export default async (): Promise<void> => {
   }
 
   await message.send({
-    format: Format.create().addMarkdownOriginal('请从 `alemon.config.yaml` 的 `alemonjs-agent-link.apiKey` 移除凭证后重启服务。')
+    format: Format.create().addMarkdownOriginal('请从 `alemon.config.yaml` 的 `alemonjs-agent-link.apiKey` 移除凭证并保存，后续请求自动生效，无需重启机器人。')
   });
 };

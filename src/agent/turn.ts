@@ -1,4 +1,5 @@
 import { logger } from 'alemonjs';
+import { abortFailure } from '../dsh/errors';
 import { streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '../dsh/client';
 import { getDSHCredentials } from '../dsh/credentials';
 import { inputText, withInputContext, type ChatInput } from '../dsh/input';
@@ -46,7 +47,7 @@ export const runModuleTurn = async (options: {
       const supervisor = await ensureDSHSupervisor(config);
 
       if (!hasDSHBridgeOverride()) {
-        await supervisor.start();
+        await supervisor.prepareForChat();
       }
       const sandboxReady = hasDSHBridgeOverride() || supervisor.status().phase === 'ready';
 
@@ -124,6 +125,8 @@ export const runModuleTurn = async (options: {
     }
     context.signal.throwIfAborted();
     await lease.activity(context.userText, answer, context).catch(() => logger.warn('AgentLink module activity hook failed'));
+  } catch (error) {
+    throw abortFailure(error, context.signal) ?? error;
   } finally {
     await lease.release();
   }

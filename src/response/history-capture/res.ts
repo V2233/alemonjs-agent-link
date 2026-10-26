@@ -1,3 +1,4 @@
+import { messageReferences } from '../../social/references';
 import { logger, useEvent } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
 import { archiveIncoming } from '../../history/capture';
@@ -7,6 +8,7 @@ export default async (): Promise<void> => {
 
   try {
     if (context.match.selects) {
+      await messageReferences.capture(context.current).catch(() => logger.warn('Message reference capture failed'));
       archiveIncoming(getDSHConfig(), context.current);
     }
   } catch {

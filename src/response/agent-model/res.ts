@@ -25,7 +25,7 @@ export default async (): Promise<void> => {
   await message.send({
     format: Format.create().addMarkdownOriginal(
       requestedModel
-        ? `模型由 \`alemon.config.yaml\` 的 \`alemonjs-agent-link.model\` 管理。请将其改为 \`${requestedModel}\` 后重启服务。`
+        ? `模型由 \`alemon.config.yaml\` 的 \`alemonjs-agent-link.model\` 管理。请将其改为 \`${requestedModel}\` 并保存，后续请求自动生效，无需重启机器人。`
         : `当前配置模型：\`${config.model}\`\n查看可用列表：/agentmodels`
     )
   });

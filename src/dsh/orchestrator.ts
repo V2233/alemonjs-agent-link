@@ -289,6 +289,7 @@ export const runCoordinatedChat = async (
       config.maxQueuedPerGroup,
       event.UserKey || 'unknown',
       async signal => {
+        const startedAt = Date.now();
         const releaseRequestSlot = acquireRequestSlot(config.maxConcurrentRequests);
 
         try {
@@ -309,6 +310,7 @@ export const runCoordinatedChat = async (
               input: mediaTask?.prepareMessage ? await mediaTask.prepareMessage(message, signal) : message,
               onEvent,
               context: {
+                requestId: duplicate.requestId,
                 channelId: event.ChannelId,
                 userId: event.UserId || event.UserKey || 'unknown',
                 platform: event.Platform || '',
@@ -331,6 +333,10 @@ export const runCoordinatedChat = async (
           signal.throwIfAborted();
           await registry.touch(event.ChannelId, meta.generation);
         } catch (error) {
+          logger.warn(
+            { requestId: duplicate.requestId, elapsedMs: Date.now() - startedAt, kind: error instanceof DSHError ? error.kind : 'unexpected' },
+            'Agent turn failed'
+          );
           if (signal.aborted) {
             throw new DSHError('cancelled', '请求已取消');
           }

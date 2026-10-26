@@ -1,3 +1,4 @@
+import { messageReferences } from './references';
 import { runDSHChat, type ChatEvent } from '../response/dsh/chat';
 import { buildGroupBatchPrompt, type GroupBatch, type GroupBatchResult } from './group-conversation';
 import { groupConversations } from './groups';
@@ -56,6 +57,7 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
         buildGroupBatchPrompt(currentBatch),
         {
           requestId,
+          referencesPrepared: true,
           voice: anchor.voice,
           userText: anchor.text,
           allowSilence: batch.mode !== 'direct',
@@ -96,6 +98,8 @@ export const submitGroupChat = async (event: ChatEvent, prompt: string, transpor
   if (!event.ChannelId || event.IsPrivate || event.IsBot) {
     return;
   }
+  const references = event.ReplyId || event.MessageContent ? await messageReferences.prepare(event) : { media: event.MessageMedia, context: undefined };
+
   await groupConversations.receive(
     {
       channelId: event.ChannelId,
@@ -104,9 +108,10 @@ export const submitGroupChat = async (event: ChatEvent, prompt: string, transpor
       userKey: event.UserKey || event.UserId || 'unknown',
       name: (event.UserName || '').slice(0, 80),
       owner: Boolean(event.IsMaster),
-      text: prompt,
+      text: prompt || '请结合引用消息回应。',
+      referenceContext: references.context,
       direct: true,
-      media: event.MessageMedia,
+      media: references.media,
       voice,
       explicitCommand: true
     },

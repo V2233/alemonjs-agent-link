@@ -56,6 +56,7 @@ export class GroupConversationCoordinator {
       random?: () => number;
       schedule?: (fn: () => void, delay: number) => ReturnType<typeof setTimeout> | number;
       unschedule?: (timer: ReturnType<typeof setTimeout> | number) => void;
+      onTiming?: (timing: { waitMs: number; gateMs: number; responseMs: number; totalMs: number }) => void;
       onError?: (error: unknown) => void;
       classify?: (input: ReplyGateInput, signal: AbortSignal) => Promise<ReplyVerdict>;
       getPolicy?: (channelId: string) => GroupChatPolicy;
@@ -196,7 +197,11 @@ export class GroupConversationCoordinator {
         }
         pending.mode = 'direct';
       }
-      pending.dueAt = Math.min(pending.firstAt + policy.maxBatchWaitMs, now + policy.batchWindowMs);
+      // Calls must not be delayed again by unrelated trailing group messages.
+      const fastDeadline = pending.anchor.message.explicitCommand ? now : pending.mode === 'direct' ? now + Math.min(policy.batchWindowMs, 150) : Infinity;
+      const priorDeadline = pending.entries.length > 1 && pending.mode === 'direct' ? pending.dueAt : Infinity;
+
+      pending.dueAt = Math.min(pending.firstAt + policy.maxBatchWaitMs, now + policy.batchWindowMs, fastDeadline, priorDeadline);
       this.arm(message.channelId, state);
     });
 
@@ -238,6 +243,9 @@ export class GroupConversationCoordinator {
     state.pending = undefined;
     state.running = true;
     let completed = false;
+    const started = this.now();
+    let gateMs = 0;
+    let responseMs = 0;
 
     try {
       const policy = this.services.getPolicy?.(channelId) || pending.policy;
@@ -294,6 +302,8 @@ export class GroupConversationCoordinator {
 
         state.gateAbort = new AbortController();
         state.gateUserKey = pending.anchor.message.userKey;
+        const gateStarted = this.now();
+
         try {
           verdict = await this.services.classify(
             {
@@ -313,6 +323,8 @@ export class GroupConversationCoordinator {
           );
         } catch {
           verdict = { reply: false, reason: 'none' };
+        } finally {
+          gateMs = this.now() - gateStarted;
         }
         if (
           state.retired ||
@@ -332,13 +344,20 @@ export class GroupConversationCoordinator {
 
         return;
       }
-      const result = await pending.anchor.respond({
-        id: `group-batch:${pending.anchor.message.id || randomUUID()}`,
-        replyReason: verdict?.reason,
-        mode: decision.mode as Exclude<GroupReplyMode, 'none'>,
-        anchor: pending.anchor.message,
-        messages: pending.entries.map(item => item.message)
-      });
+      const responseStarted = this.now();
+      let result: GroupBatchResult;
+
+      try {
+        result = await pending.anchor.respond({
+          id: `group-batch:${pending.anchor.message.id || randomUUID()}`,
+          replyReason: verdict?.reason,
+          mode: decision.mode as Exclude<GroupReplyMode, 'none'>,
+          anchor: pending.anchor.message,
+          messages: pending.entries.map(item => item.message)
+        });
+      } finally {
+        responseMs = this.now() - responseStarted;
+      }
 
       completed = result.completed ?? result.delivered;
       if (result.delivered && !state.retired) {
@@ -359,6 +378,11 @@ export class GroupConversationCoordinator {
         state.engagedUntil = now + policy.engagedSeconds * 1000;
       }
     } finally {
+      try {
+        this.services.onTiming?.({ waitMs: started - pending.firstAt, gateMs, responseMs, totalMs: this.now() - pending.firstAt });
+      } catch {
+        /* Telemetry must not keep the group queue locked. */
+      }
       if (!completed) {
         pending.entries.forEach(entry => {
           if (entry.message.id) {

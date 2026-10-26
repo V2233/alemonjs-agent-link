@@ -9,5 +9,6 @@ const processState = globalThis as typeof globalThis & { __agentLinkGroupConvers
 export const groupConversations = (processState.__agentLinkGroupConversations__ ??= new GroupConversationCoordinator({
   classify: classifyGroupReply,
   getPolicy: channelId => getGroupChatPolicy(getDSHConfig().groupChat, channelId),
+  onTiming: timing => logger.info(timing, 'Group reply latency'),
   onError: () => logger.warn('AgentLink group conversation failed')
 }));

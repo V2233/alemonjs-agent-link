@@ -136,6 +136,30 @@ export class ChatArchive {
   purgeHash(groupHash: string): void {
     this.db.prepare('DELETE FROM messages WHERE group_hash=?').run(groupHash);
   }
+  latestSeq(scope: HistoryScope): number {
+    return Number(this.db.prepare('SELECT coalesce(max(seq),0) AS seq FROM messages WHERE scope=?').get(scopeKey(scope)).seq);
+  }
+  memoryBatch(scope: HistoryScope, after: number, limit = 40) {
+    const key = scopeKey(scope);
+    const upper = this.latestSeq(scope);
+    const rows = this.db
+      .prepare(
+        `SELECT seq,speaker_id AS speakerId,speaker,text,timestamp FROM messages
+      WHERE scope=? AND seq>? AND seq<=? AND timestamp>=? AND role='user' AND speaker_id<>''
+      AND substr(ltrim(text),1,1)<>'/' ORDER BY seq LIMIT ?`
+      )
+      .all(key, after, upper, Date.now() - this.days * 86400000, limit + 1);
+    const sources = rows.slice(0, limit).map(row => ({
+      seq: Number(row.seq),
+      speakerId: String(row.speakerId),
+      speaker: String(row.speaker),
+      text: String(row.text).slice(0, 1500),
+      timestamp: Number(row.timestamp)
+    }));
+    const hasMore = rows.length > limit;
+
+    return { sources, checkpoint: hasMore ? sources.at(-1).seq : upper, hasMore };
+  }
   purge(scope: HistoryScope): void {
     this.db.prepare('DELETE FROM messages WHERE scope=?').run(scopeKey(scope));
   }

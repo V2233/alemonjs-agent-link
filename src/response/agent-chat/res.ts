@@ -17,7 +17,7 @@ export default async (): Promise<void> => {
     return;
   }
 
-  if (!prompt && !eventContext.current.MessageMedia?.length) {
+  if (!prompt && !eventContext.current.MessageMedia?.length && !eventContext.current.ReplyId && !eventContext.current.MessageContent?.replyReferenceId) {
     await message.send({
       format: Format.create().addMarkdownOriginal('想问什么？例如：`/chat 帮我总结刚才的讨论`。')
     });
