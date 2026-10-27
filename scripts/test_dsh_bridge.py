@@ -92,6 +92,14 @@ class BridgeSafetyTests(unittest.TestCase):
         self.assertEqual(self.bridge.valid_capabilities(baseline), baseline)
         self.assertIsNone(self.bridge.valid_capabilities({'web': True}))
 
+    def test_native_files_and_terminal_remain_disabled_even_for_legacy_owner(self):
+        caps = {'chat': True, 'web': True, 'files': True, 'terminal': True}
+        patch = self.bridge.tool_policy_patch(caps)
+        for tool in ('tool-fs', 'tool-fs-search', 'tool-bash', 'tool-pwsh', 'tool-jobs'):
+            self.assertIn(f'- id: {tool}\n  disabled: true', patch)
+        self.assertIn('workspace_*', self.bridge.trusted_prompt('test', caps))
+        self.assertNotIn('可在当前隔离工作区中执行终端命令', self.bridge.trusted_prompt('test', caps))
+
     def test_chat_only_profile_check_is_cached_until_patch_changes(self):
         calls = 0
         original_run = self.bridge.subprocess.run
@@ -262,6 +270,7 @@ class BridgeSafetyTests(unittest.TestCase):
         class Upstream(BaseHTTPRequestHandler):
             def log_message(self, *_): pass
             def do_POST(self):
+                self.rfile.read(int(self.headers.get('Content-Length', '0')))
                 self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
         upstream = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
         proxy = ThreadingHTTPServer(('127.0.0.1', 0), self.bridge.Handler)
@@ -291,6 +300,62 @@ class BridgeSafetyTests(unittest.TestCase):
         finally:
             for server in (proxy, upstream): server.shutdown(); server.server_close()
             self.bridge.WORKERS.clear()
+
+    def test_personal_key_egress_is_scoped_and_reports_exhaustion(self):
+        import http.client
+        import io
+        from http.server import ThreadingHTTPServer
+        from unittest.mock import patch
+        self.bridge.RUNTIME_PATH = Path('/tmp/runtime-fixture')
+        worker = self.bridge.Worker('d' * 64, 1, {'chat': True, 'web': False, 'files': False, 'terminal': False})
+        self.bridge.WORKERS[worker.key] = worker
+        worker.personal_api_key = 'sk-fixture-0001'
+        self.bridge.MODEL_API_KEY = 'sk-robot-test-12345678'
+        self.bridge.MODEL_BASE_URL = 'https://robot.example/v1'
+        captured = []
+        class Upstream(io.BytesIO):
+            status = 402
+            headers = {'Content-Type': 'application/json'}
+        def open_request(request, **_):
+            captured.append((request.full_url, request.get_header('Authorization')))
+            return Upstream(b'{}')
+        server = ThreadingHTTPServer(('127.0.0.1', 0), self.bridge.Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        def send():
+            connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
+            try:
+                connection.request('POST', f'/internal/egress/{worker.proxy_token}/chat/completions', body=b'{}', headers={'Authorization': f'Bearer {worker.proxy_token}'})
+                response = connection.getresponse(); response.read()
+                return response.status
+            finally: connection.close()
+        try:
+            with patch.object(self.bridge.urllib.request, 'build_opener', return_value=SimpleNamespace(open=open_request)):
+                self.assertEqual(send(), 402)
+                self.assertEqual(captured[-1], ('https://api.deepseek.com/chat/completions', 'Bearer sk-fixture-0001'))
+                self.assertTrue(worker.personal_exhausted)
+                worker.personal_api_key = None
+                self.assertEqual(send(), 402)
+                self.assertEqual(captured[-1], ('https://robot.example/v1/chat/completions', 'Bearer sk-robot-test-12345678'))
+        finally:
+            server.shutdown(); server.server_close(); self.bridge.WORKERS.clear()
+
+    def test_personal_key_is_cleared_after_success_and_failure(self):
+        self.bridge.RUNTIME_PATH = Path('/tmp/runtime-fixture')
+        worker = self.bridge.Worker('e' * 64, 1, {'chat': True, 'web': False, 'files': False, 'terminal': False})
+        old_token = worker.proxy_token
+        def run(*_):
+            self.assertEqual(worker.personal_api_key, 'sk-fixture-0001')
+            raise RuntimeError('fixture')
+        worker._run = run
+        with self.assertRaises(RuntimeError): worker.run('hello', 'dsh:qq:private:test', lambda _: None, None, 'sk-fixture-0001')
+        self.assertIsNone(worker.personal_api_key)
+        self.assertNotEqual(worker.proxy_token, old_token)
+        def success(*_):
+            worker.dsh_home.mkdir(parents=True, exist_ok=True)
+            return {'content': 'ok'}
+        worker._run = success
+        self.assertEqual(worker.run('hello', 'dsh:qq:private:test', lambda _: None, None, 'sk-fixture-0001'), {'content': 'ok'})
+        self.assertIsNone(worker.personal_api_key)
 
     def test_session_snapshot_never_copies_configuration_or_follows_symlinks(self):
         self.bridge.RUNTIME_PATH = Path('/tmp/runtime-fixture')
@@ -328,6 +393,23 @@ class BridgeSafetyTests(unittest.TestCase):
         code = f'try: open({str(secret)!r}).read()\nexcept PermissionError: pass\nelse: raise AssertionError("new turn credentials readable")\n'
         result = subprocess.run(['/usr/bin/sandbox-exec', '-p', profile, sys.executable, '-c', code], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_successful_turn_flushes_native_runtime_before_snapshot(self):
+        from unittest.mock import patch
+        import io
+        self.bridge.RUNTIME_PATH = Path('/tmp/runtime-fixture')
+        worker = self.bridge.Worker('e' * 64, 1, {'chat': True, 'web': False, 'files': False, 'terminal': False})
+        sequence = []
+        class Process:
+            pid = 123456
+            stdin = io.StringIO()
+            def poll(self): return None
+            def wait(self, timeout=None): sequence.append('wait'); return 0
+        process = Process(); worker.process = process
+        with patch.object(self.bridge.os, 'killpg', lambda *_: sequence.append('kill')):
+            worker.stop(graceful=True)
+        self.assertEqual(json.loads(process.stdin.getvalue())['type'], 'shutdown')
+        self.assertEqual(sequence[0], 'wait')
 
 if __name__ == '__main__':
     unittest.main()

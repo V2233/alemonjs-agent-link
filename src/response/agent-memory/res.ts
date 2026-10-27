@@ -49,12 +49,14 @@ export default async (): Promise<void> => {
 
     if (command === '/记忆') {
       await synchronizeExplicitMemory(config, scope, event.UserId);
-      const notes = getMemoryStore(config).list(scope, { status: 'active', limit: 30 });
+      const notes = getMemoryStore(config).list(scope, { status: 'active', limit: 10 });
 
       await reply(
         notes.length
-          ? notes.map(note => `${note.id}：${note.text.slice(0, 200)}${note.origin === 'explicit' ? '' : '（自动整理，可用 /记忆来源 编号 核对）'}`).join('\n')
-          : '还没有长期记忆。发送 /记住 你的偏好，或 /忘记 编号 删除。'
+          ? notes
+              .map(note => `${note.id}：${note.text.slice(0, 80)}${note.text.length > 80 ? '…' : ''}${note.origin === 'explicit' ? '' : '（自动）'}`)
+              .join('\n') + '\n仅展示最近10条；/记忆检索 关键词，/记忆来源 编号 查看详情。'
+          : '暂无长期记忆，可发送 /记住 内容。'
       );
 
       return;
@@ -65,7 +67,7 @@ export default async (): Promise<void> => {
       return;
     }
     if (command === '/忘记' && !/^[a-f0-9]{8}(?:[a-f0-9]{4})?$/u.test(args)) {
-      await reply('用法：/忘记 编号。先发送 /记忆 查看编号；/忘记全部 删除全部长期记忆。');
+      await reply('用法：/忘记 编号；/记忆 查看编号。');
 
       return;
     }
@@ -96,10 +98,10 @@ export default async (): Promise<void> => {
           : status === 'exists'
             ? '这条记忆已经保存。已开始新话题。'
             : action === 'add'
-              ? '已保存长期记忆，并开始新话题。可用 /记忆 查看。'
-              : '已删除指定长期记忆，并清空当前对话，避免继续引用旧内容。'
+              ? '记忆已保存，已开始新话题。'
+              : '记忆已删除，已开始新话题。'
     );
   } catch {
-    await reply('记忆操作未完整完成，请稍后用 /记忆 核对；若会话重置失败，可用 /新会话 重试。');
+    await reply('操作未完成，请用 /记忆 核对，必要时 /新会话。');
   }
 };

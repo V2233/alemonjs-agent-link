@@ -131,7 +131,7 @@ docker compose ps
 alemonjs-agent-link:
   persona: dafeiyu
   privateAutoReply: true
-  privateChatAccess: owner # all 向普通用户开放私聊；普通用户无网页、文件和终端工具
+  privateChatAccess: owner # all 向普通用户开放私聊；普通用户默认可联网查询和操作个人文件目录，终端禁止
   privateHistoryMaxTurns: 10 # 0 关闭纯聊天私聊记忆，最大 100
   privateHistoryTtlSeconds: 86400 # 每轮历史最多保留 24 小时，范围 1–2592000
   privateHistoryMaxChars: 12000 # 历史总字符预算，范围 1–100000
@@ -330,3 +330,9 @@ alemonjs-agent-link:
 这属于行为指导，无法保证模型绝不误用工具，权限和预算限制仍由代码执行。本次没有缩减会话历史或迁移会话存储，也不承诺固定节省比例。应观察实际判断次数、工具调用与账单；明确 @ 省下一次判断请求，但正式回复仍消耗 token。
 
 群聊近期摘录的字数预算保持不变：先选最新三条，再补较早的重要问题，按优先级分配预算后恢复时间顺序。重复文本保留最新一次，避免旧记录挤掉最新纠正。完整当前请求和已解析引用仍走原有输入链路，不引入另一套 DSH 会话。
+
+## 私聊个人 API Key
+
+用户可在本人私聊中用 `/个人密钥` 管理自己的 DeepSeek 官方 Key。它是独立的加密 Redis 记录，不修改这里的共享 `apiKey`；余额不足时自动停用，需手动恢复。指令、回退规则和加密文件备份要求见 [个人 Key 管理](personal-key.md)。
+
+群管理员可用 `/群密钥` 申请 5 分钟临时码，再由本人私聊绑定、启用或停用该群的 DeepSeek Key。具体流程见 [群 Key 管理](group-key.md)。

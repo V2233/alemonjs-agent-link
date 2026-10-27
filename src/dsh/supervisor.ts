@@ -134,7 +134,7 @@ export class DSHSupervisor {
             detail:
               this.config.runtimeMode === 'chat-only' && this.credentials
                 ? '普通聊天已就绪。'
-                : `普通聊天模式：${this.describeStartupFailure(error)} 网页、文件、终端暂不可用。`
+                : `普通聊天模式：${this.describeStartupFailure(error)} 网页暂不可用；受限文件工具按模块及会话权限开放，终端禁止。`
           };
           if (this.credentials && this.config.runtimeMode !== 'chat-only') {
             this.scheduleRetry();

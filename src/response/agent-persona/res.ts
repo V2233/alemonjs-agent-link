@@ -55,7 +55,7 @@ export default async (): Promise<void> => {
 
       if (!value) {
         await reply(
-          `当前${global ? '全局默认' : '会话'}表达程度：${store.expressionMode(global ? undefined : scope)}。主人可用 /人格 ${action} 个性|工作|专业；设为“默认”可恢复继承。`
+          `${global ? '全局默认' : '当前'}程度：${store.expressionMode(global ? undefined : scope)}\n主人可用 /人格 ${action} 个性|工作|专业；“默认”恢复继承。`
         );
 
         return;
@@ -72,24 +72,28 @@ export default async (): Promise<void> => {
       }
       store.setExpressionMode(global ? undefined : scope, value === '默认' ? undefined : (value as PersonaMode), true);
       await reply(
-        `${global ? '全局默认' : '当前会话'}表达程度已设为${store.expressionMode(global ? undefined : scope)}，下一轮生效。原人设、追加设定和聊天记录保留。${global ? '单独设置过程度的会话不变。' : ''}`
+        `${global ? '全局默认' : '当前会话'}程度已设为${store.expressionMode(global ? undefined : scope)}，下一轮生效。${global ? '已单独设置的会话保留原值。' : ''}`
       );
 
       return;
     }
 
+    if (args === '帮助') {
+      await reply(
+        event.IsPrivate && event.IsMaster
+          ? '人设管理\n/人格 程度 个性|工作|专业；/人格 全局程度 工作\n/人格 追加 编号 内容；/人格 查看追加 编号；/人格 清空追加 编号\n/人格 查看 编号；/人格 保存 编号 名称|提示词；/人格 删除 编号'
+          : '用法：/人格 使用 编号或默认。群内切换需管理员或主人，会开始新话题。'
+      );
+
+      return;
+    }
     if (!args || args === '列表') {
       const selected = store.selected(scope) || config.modules?.settings?.persona?.defaultId || '配置默认';
       const rows = await store.list();
 
       await reply(
-        `当前人格：${selected}；表达程度：${store.expressionMode(scope)}\n${rows.map(row => `${row.id}：${row.name}${row.error ? '（文件无效）' : ''}`).join('\n')}\n使用：/人格 使用 编号；/人格 使用 默认。切换会开始新话题。`
+        `当前人格：${selected}；表达程度：${store.expressionMode(scope)}\n${rows.map(row => `${row.id}：${row.name}${row.error ? '（文件无效）' : ''}`).join('\n')}\n切换：/人格 使用 编号或默认（开始新话题）\n管理用法：/人格 帮助`
       );
-      if (event.IsPrivate && event.IsMaster) {
-        await reply(
-          '主人管理：/人格 程度 个性|工作|专业；/人格 全局程度 个性|工作|专业；/人格 追加 编号 内容；/人格 查看追加 编号；/人格 清空追加 编号；/人格 查看 编号；/人格 保存 编号 名称|提示词；/人格 删除 编号。完整规则可编辑本地 personas/*.json，下一轮读取。'
-        );
-      }
 
       return;
     }
@@ -134,14 +138,14 @@ export default async (): Promise<void> => {
         return;
       }
       store.append(id, body);
-      await reply(`已追加到 ${id}，保留原人设。所有使用该人格的会话下一轮生效，进行中的回复不变。`);
+      await reply(`已追加到 ${id}，使用该人格的会话下一轮生效。`);
     } else if (action === '查看追加' && !body) {
       await store.read(id);
       await reply(store.additions(id) || '这个人格还没有追加设定。');
     } else if (action === '清空追加' && !body) {
       await store.read(id);
       store.clearAdditions(id);
-      await reply('追加设定已清空，原人设保留；使用该人格的会话下一轮生效。');
+      await reply('追加设定已清空，原人设保留；下一轮生效。');
     } else if (action === '查看' && !body) {
       const persona = await store.read(id);
 
@@ -151,7 +155,7 @@ export default async (): Promise<void> => {
       const existing = (await store.list()).some(row => row.id === id) ? await store.read(id) : undefined;
 
       await store.save({ ...existing, id, name: body.slice(0, split).trim(), prompt: body.slice(split + 1).trim() });
-      await reply('人格文件已保存，下一轮请求生效。既有进行中的请求仍使用原有快照。');
+      await reply('人格已保存，下一轮生效。');
     } else if (action === '删除' && !body) {
       // Default references are configuration, not conversation choices. Do not silently leave them broken.
       if (config.modules?.settings?.persona?.defaultId === id) {
@@ -163,11 +167,11 @@ export default async (): Promise<void> => {
         await resetGroupSession(selected.channelId, config, () => store.select(selected));
       }
       await store.remove(id);
-      await reply('人格文件已删除，使用它的会话已回到默认；内置编号的覆盖文件删除后恢复内置内容。');
+      await reply('人格文件已删除，相关会话恢复默认；内置人格恢复原设定。');
     } else {
       await reply('保存格式：/人格 保存 编号 名称|提示词；查看和删除只接受编号。');
     }
   } catch {
-    await reply('人格操作未完整完成，请检查编号、文件格式及会话状态后重试。');
+    await reply('人格操作未完成，请检查编号和文件格式。');
   }
 };

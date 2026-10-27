@@ -88,7 +88,7 @@ test('provider authorization/output contract govern automatically available writ
       return { hp: 2 };
     });
     assert.equal((await executeTool(t.expose_discover, {}, c)).items[0].callable, true);
-    assert.equal((await executeTool(t.expose_read, args(), c)).error.code, 'FORBIDDEN');
+    assert.equal((await executeTool(t.expose_read, args(), c)).error.code, 'EFFECT_MISMATCH');
     const write = t.expose_write;
     const first = await executeTool(write, args(), c);
     assert.deepEqual(await executeTool(write, args(), c), first);
@@ -142,7 +142,7 @@ test('writes share receipts across MCP context copies and preserve unknown outco
     assert.equal(executions, 1);
   }));
 
-test('legacy/unknown contracts are discoverable but cannot execute; pagination and cancellation are bounded', () =>
+test('incomplete contracts cannot execute; unknown effects require conservative entry and cancellation is bounded', () =>
   fixture(async () => {
     let executions = 0;
     const action = {
@@ -258,4 +258,57 @@ test('mixed-speaker batching restores selected sender scope for Expose', () =>
     scheduled();
     await Promise.all([first, second]);
     assert.deepEqual(observed, { anchor: '100', event: '100' });
+  }));
+
+test('query declared unknown is not reported as forbidden and can use conservative generic entry', () =>
+  fixture(async () => {
+    // Regression for the game's query() helper: get_profile/get_realm declare unknown.
+    let queries = 0;
+    register('unknown', async (_input, call) => {
+      assert.equal(call.callerApp, 'alemonjs-agent-link');
+      queries++;
+      return { hp: 42 };
+    });
+    const t = tools();
+    const c = ctx();
+    const catalog = await executeTool(t.expose_discover, {}, c);
+    assert.equal(catalog.items[0].callable, true);
+    assert.equal(catalog.items[0].executionTool, 'expose_call');
+    assert.equal(catalog.items[0].mayMutate, true);
+    const schema = await executeTool(t.expose_discover, { protocol: 'game.v1', provider: 'game', action: 'stats' }, c);
+    assert.equal(schema.effect, 'unknown');
+    const wrong = await executeTool(t.expose_read, args(), c);
+    assert.equal(wrong.error.code, 'EFFECT_MISMATCH');
+    assert.equal(wrong.error.origin, 'link');
+    assert.equal(wrong.executionTool, 'expose_call');
+    assert.equal(queries, 0);
+    const receipt = await executeTool(t.expose_call, args(), c);
+    assert.equal(receipt.data.hp, 42);
+    assert.deepEqual(await executeTool(t.expose_call, args(), { ...c }), receipt);
+    assert.equal(queries, 1);
+    await assert.rejects(executeTool(t.expose_call, args(), { ...c, autonomous: true }));
+  }));
+
+test('missing contract and provider denial carry distinct origins without declaring all reads unavailable', () =>
+  fixture(async () => {
+    const t = tools();
+    const c = ctx();
+    registerExpose('legacy', [{ name: 'legacy.v1', description: 'legacy', actions: { stats: { description: 'old read', handler: () => ({}) } } }]);
+    const missing = await executeTool(t.expose_call, { ...args(), protocol: 'legacy.v1', provider: 'legacy' }, c);
+    assert.equal(missing.error.code, 'CONTRACT_REQUIRED');
+    assert.equal(missing.error.origin, 'link');
+    register(
+      'unknown',
+      async () => {
+        throw new Error('must not execute');
+      },
+      () => false
+    );
+    const rejected = await executeTool(t.expose_call, args(), c);
+    assert.equal(rejected.error.code, 'FORBIDDEN');
+    assert.equal(rejected.error.origin, 'expose');
+    assert.ok(rejected.callId);
+    assert.match(rejected.notice, /不能据此推断所有查询未开放/);
+    const absent = await executeTool(t.expose_call, args('absent'), c);
+    assert.equal(absent.error.code, 'CAPABILITY_NOT_FOUND');
   }));

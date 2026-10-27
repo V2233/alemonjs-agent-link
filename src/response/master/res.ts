@@ -23,21 +23,19 @@ export default async (): Promise<void> => {
     const code = masterVerification.issue(identity);
 
     logger.info({ platform: event.Platform, userId: event.UserId, code }, 'AgentLink 主人验证码（5 分钟有效）');
-    await reply(
-      '请输入验证码：验证码已打印到机器人服务端日志，5 分钟内有效。请回复 /我的主人 {验证码} 或 /我是主人 {验证码}（将 {验证码} 替换为实际数字）。单独发送 /我是主人 会重新申请，使旧验证码失效。'
-    );
+    await reply('验证码已写入服务端日志，5分钟有效。\n回复 /我的主人 六位验证码。重新发送 /我是主人 会使旧码失效。');
 
     return;
   }
   const code = String(route.rawArgs[0] ?? '');
 
   if (route.rawArgs.length !== 1 || !/^\d{6}$/.test(code)) {
-    await reply('请回复 /我的主人 {验证码} 或 /我是主人 {验证码}，验证码为 6 位数字。');
+    await reply('格式：/我的主人 六位验证码');
 
     return;
   }
   if (!masterVerification.verify(identity, code)) {
-    await reply('验证码错误、已过期或未申请。最多尝试 5 次，请检查验证码或发送 /我是主人 重新申请。');
+    await reply('验证码无效（最多尝试5次）。可发送 /我是主人 重新申请。');
 
     return;
   }
@@ -57,5 +55,5 @@ export default async (): Promise<void> => {
 
     return;
   }
-  await reply('验证通过，已加入机器人主人配置。');
+  await reply('验证通过，你已成为机器人主人。');
 };

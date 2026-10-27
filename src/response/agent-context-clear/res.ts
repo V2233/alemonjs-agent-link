@@ -20,11 +20,11 @@ export default async (): Promise<void> => {
   }
 
   if (!canReset(event)) {
-    await message.send({ format: Format.create().addMarkdownOriginal('只有机器人主人或群管理员可以清除近期上下文。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('仅主人或群管理员可清除聊天参考。') });
 
     return;
   }
 
   await clearRecentMessages(event.ChannelId, getDSHConfig());
-  await message.send({ format: Format.create().addMarkdownOriginal('已清除近期聊天参考；当前群的正式 Agent 会话仍会保留。') });
+  await message.send({ format: Format.create().addMarkdownOriginal('聊天参考已清除，正式对话保留。') });
 };

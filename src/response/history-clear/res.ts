@@ -42,7 +42,7 @@ export default async (): Promise<void> => {
       return;
     }
     confirmations.set(key, Date.now() + 60000);
-    await reply('将永久删除当前会话的聊天归档。请在60秒内发送 /清除聊天记录 confirm 确认。此操作不会删除长期记忆或当前模型会话。');
+    await reply('将永久删除当前会话的聊天记录，保留记忆和当前对话。\n60秒内发送 /清除聊天记录 confirm 确认。');
 
     return;
   }
@@ -54,7 +54,7 @@ export default async (): Promise<void> => {
   confirmations.delete(key);
   try {
     getChatArchive(config).purge({ platform: event.Platform, channelId });
-    await reply('当前会话聊天归档已清除。之后收到的新消息仍会归档。');
+    await reply('聊天记录已清除，新消息仍会记录。');
   } catch {
     await reply('归档删除失败，请稍后重试。');
   }

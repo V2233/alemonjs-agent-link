@@ -1,3 +1,4 @@
+import { isPersonalKeyCommand } from '../credentials/personal';
 import { buildMessageContext, type MessageContextEvent } from '../social/message-context';
 import { logger, type MessageReceipt, type MediaReceipt } from 'alemonjs';
 import { randomUUID } from 'node:crypto';
@@ -19,6 +20,7 @@ type Event = MessageContextEvent & {
   IsBot?: boolean;
 };
 export const archiveIncoming = (config: DSHBridgeConfig, event: Event): void => {
+  if (isPersonalKeyCommand(event.MessageText)) return;
   if (!historyEnabled(config) || event.IsBot || !event.Platform || !event.MessageId || (event.IsPrivate && !canPrivateChat(event, config.privateChatAccess))) {
     return;
   }

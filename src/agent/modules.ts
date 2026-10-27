@@ -1,3 +1,4 @@
+import { filesModule } from '../modules/files';
 import { exposeModule } from '../modules/expose';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, lstat, writeFile, rename, rm } from 'node:fs/promises';
@@ -232,6 +233,7 @@ export class ModuleRuntime {
   constructor(
     private readonly config: DSHBridgeConfig,
     private readonly builtins: AgentModule[] = [
+      filesModule(config),
       personaModule(config),
       moodModule(config),
       platformModule(config),

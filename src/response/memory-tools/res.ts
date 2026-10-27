@@ -66,17 +66,17 @@ export default async (): Promise<void> => {
       const items =
         command === '/记忆检索'
           ? store.recall(scope, args, event.UserId, 10)
-          : store.list(scope, { status: command === '/过时记忆' ? 'outdated' : 'active', limit: 15 });
+          : store.list(scope, { status: command === '/过时记忆' ? 'outdated' : 'active', limit: 10 });
 
       await reply(
         items.length
           ? items
               .map(
                 item =>
-                  `${item.id} [${item.subjectName || item.subjectId}] ${item.text.slice(0, 220)}${item.origin === 'explicit' ? '（明确保存）' : '（自动资料，请核对）'}`
+                  `${item.id} [${item.subjectName || item.subjectId}] ${item.text.slice(0, 80)}${item.text.length > 80 ? '…' : ''}${item.origin === 'explicit' ? '（明确保存）' : '（自动）'}`
               )
-              .join('\n')
-          : '当前会话没有找到相关记忆。可用 /记忆来源 编号 核对原文。'
+              .join('\n') + '\n最多展示10条；/记忆来源 编号 查看详情。'
+          : '未找到相关记忆。'
       );
 
       return;
@@ -117,7 +117,7 @@ export default async (): Promise<void> => {
 
         return Promise.resolve();
       });
-      await reply(restored ? '旧记忆已恢复，与它冲突的当前版本已标记过时。已开始新话题。' : '没有找到可恢复的旧记忆。');
+      await reply(restored ? '旧记忆已恢复，冲突版本已标记过时；已开始新话题。' : '没有找到可恢复的旧记忆。');
 
       return;
     }
@@ -132,7 +132,7 @@ export default async (): Promise<void> => {
       await resetGroupSession(channelId, config, async () => {
         status = await forgetMemory(config, scope, event.UserId, args === '全部' ? undefined : args);
       });
-      await reply(status === 'ok' ? '指定群记忆及相关版本已删除，旧归档不会自动重新整理这些内容。已开始新话题。' : '没有找到这个群记忆编号。');
+      await reply(status === 'ok' ? '群记忆及相关版本已删除，旧记录不会自动重新提取；已开始新话题。' : '没有找到这个群记忆编号。');
 
       return;
     }
@@ -156,7 +156,7 @@ export default async (): Promise<void> => {
           undefined,
           {
             execute: async signal => {
-              const applied = await worker.consolidate(scope, true, signal);
+              const applied = await worker.consolidate(scope, true, signal, event.UserId);
 
               result = { ...applied, hasMore: Boolean(applied.hasMore) };
             }
@@ -179,6 +179,6 @@ export default async (): Promise<void> => {
     }
   } catch {
     await coordinated?.release().catch(() => undefined);
-    await reply('记忆操作未完整完成，请稍后核对记忆与来源。');
+    await reply('记忆操作未完成，请核对后重试。');
   }
 };

@@ -14,7 +14,7 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   if (!event.IsMaster) {
-    await message.send({ format: Format.create().addMarkdownOriginal('只有机器人主人可以查看全群模型列表。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('公共模型列表仅限机器人主人查看。') });
 
     return;
   }
@@ -24,7 +24,7 @@ export default async (): Promise<void> => {
 
     if (!credentials) {
       await message.send({
-        format: Format.create().addMarkdownOriginal('尚未配置模型凭证。请在 `alemon.config.yaml` 的 `alemonjs-agent-link` 下设置 `apiKey`。')
+        format: Format.create().addMarkdownOriginal('尚未配置模型密钥，请查看 /密钥配置。')
       });
 
       return;
@@ -33,7 +33,9 @@ export default async (): Promise<void> => {
     const config = getDSHConfig();
     const models = await listAvailableModels(credentials);
     const lines = ['# 可用模型', `当前模型：\`${credentials.model || config.model}\``];
-    let length = lines.join('\n').length;
+    const footer = '\n修改指引：/当前模型 模型ID';
+    // Reserve the footer and overflow hint before adding model rows.
+    let length = lines.join('\n').length + footer.length + 40;
     let displayed = 0;
 
     for (const model of models) {
@@ -50,9 +52,9 @@ export default async (): Promise<void> => {
       displayed += 1;
     }
 
-    lines.push('\n修改模型：编辑 `alemon.config.yaml` 中的 `alemonjs-agent-link.model` 并保存，后续请求自动生效，无需重启机器人。配置指引：`/帮助`。');
+    lines.push(footer);
     await message.send({ format: Format.create().addMarkdownOriginal(lines.join('\n')) });
   } catch {
-    await message.send({ format: Format.create().addMarkdownOriginal('无法读取模型列表。请确认 API Key、BASE_URL 和模型服务状态。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('模型列表读取失败，请检查密钥和服务地址。') });
   }
 };

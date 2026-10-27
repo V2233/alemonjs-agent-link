@@ -1,5 +1,6 @@
+import { getBoundCredential } from '../credentials/scoped';
 import { assertAIEnabled } from '../dsh/ai-switch';
-import { budgetEnabled, budgetStatus, type BudgetScope } from '../billing/budget';
+import { budgetEnabled, budgetedFetch, replyGateBudgetStatus, withBudgetScope, BudgetExceededError, type BudgetScope } from '../billing/budget';
 import { getDSHConfig } from '../dsh/client';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { getDSHCredentials, type DSHCredentials } from '../dsh/credentials';
@@ -100,7 +101,10 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
     const config = getDSHConfig();
 
     assertAIEnabled(config);
-    const credentials = resolveReplyGateConnection(config, await getDSHCredentials());
+    const bound = input.scope && !input.scope.channelId.startsWith('private:') ? await withBudgetScope(input.scope, getBoundCredential) : null;
+    const credentials = bound
+      ? { apiKey: bound.apiKey, baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' }
+      : resolveReplyGateConnection(config, await getDSHCredentials());
 
     if (!credentials) {
       return reject();
@@ -135,26 +139,30 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
     if (Buffer.byteLength(body) > 20000 || config.inputBlockedKeywords.some(word => word && JSON.stringify(compact).includes(word))) {
       return reject();
     }
-    // The classifier does not spend the chat allowance. Once a chat request
-    // cannot reserve its allowance, stop classification before any provider call.
+    // Recognition uses its own group allowance and the shared group recharge balance.
     if (budgetEnabled(config)) {
-      if (!input.scope?.platform || !input.scope.channelId) return reject();
-      if ((await budgetStatus(config, input.scope)).blocked) return { ...reject(), budgetBlocked: true };
+      if (!input.scope?.platform || !input.scope.channelId || input.scope.channelId.startsWith('private:')) return reject();
+      if (!bound && (await replyGateBudgetStatus(config, input.scope)).blocked) return { ...reject(), budgetBlocked: true };
     }
     signal.throwIfAborted();
     assertAIEnabled(config);
-    const response = await fetch(url, {
+    const request: RequestInit & { scopedKey?: boolean } = {
+      scopedKey: Boolean(bound),
       method: 'POST',
       redirect: 'error',
       signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
       headers: { Authorization: `Bearer ${credentials.apiKey}`, 'Content-Type': 'application/json' },
       body
-    });
+    };
+    const response =
+      budgetEnabled(config) || bound ? await withBudgetScope(input.scope, () => budgetedFetch(config, url, request, 'reply-gate')) : await fetch(url, request);
     const result = JSON.parse((await readBounded(response, 16384)).toString('utf8'));
     const content = result?.choices?.[0]?.message?.content;
 
     return typeof content === 'string' ? parseReplyVerdict(content) : reject();
-  } catch {
+  } catch (error) {
+    if (error instanceof BudgetExceededError) return { ...reject(), budgetBlocked: true };
+
     return reject();
   } finally {
     active--;

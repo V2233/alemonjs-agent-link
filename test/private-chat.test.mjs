@@ -14,7 +14,7 @@ test('private identities isolate platforms and users and reject missing identity
   assert.equal(canPrivateChat(a, 'owner'), false);
   assert.equal(canPrivateChat(a, 'all'), true);
   assert.equal(canPrivateChat({ ...a, IsMaster: true }, 'owner'), true);
-  assert.deepEqual(publicPrivatePolicy, { version: 1, chat: true, web: false, files: false, terminal: false });
+  assert.deepEqual(publicPrivatePolicy, { version: 2, chat: true, web: true, files: true, terminal: false });
   for (const text of ['', ' ', '/new', ' /chat hi', '/unknown']) assert.equal(isPrivateChatText(text), false);
   assert.equal(isPrivateChatText('今天好累'), true);
 });

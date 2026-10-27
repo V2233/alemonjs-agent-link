@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { getAppConfig } from 'alemonjs';
 import { DSHError } from './errors';
 import type { AgentConfig, DSHBridgeConfig } from './config';
@@ -21,7 +22,7 @@ export const setAIEnabled = (owner: boolean, enabled: boolean, reason = ''): str
   if (!app.name || !app.path) throw new Error('无法确认配置文件位置，未修改 AI 开关。');
   const aiDisabledReason = enabled ? app.value.aiDisabledReason || '' : reason.trim() || defaultDisabledReason;
 
-  app.saveValue({ ...app.value, aiEnabled: enabled, aiDisabledReason });
+  app.saveValue({ ...app.value, aiEnabled: enabled, aiDisabledReason, ...(enabled ? { aiNoticeEpoch: randomUUID() } : {}) });
   if (app.value.aiEnabled !== enabled || app.value.aiDisabledReason !== aiDisabledReason) throw new Error('AI 开关保存失败。');
 
   return enabled ? 'AI 请求已全局开启。' : `AI 请求已全局关闭。\n原因：${aiDisabledReason}\n主人可发送 /开启 恢复。`;

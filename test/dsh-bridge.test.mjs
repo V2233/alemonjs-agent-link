@@ -1,3 +1,4 @@
+import { withToolUsePolicy } from '../lib/agent/tool-use-policy.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DSHError, clearSession, getDSHConfig, purgeSessionData, streamChat, toUserMessage } from '../lib/dsh/client.js';
@@ -38,9 +39,9 @@ const config = {
 
 setDSHBridgeForTesting({ url: 'http://dsh.test', token: 'secret' });
 
-test('startup diagnostics are specific and do not claim a session was reset', () => {
+test('startup diagnostics stay concise and do not expose internal details or claim a reset', () => {
   const detail = 'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。';
-  assert.equal(toUserMessage(new DSHError('agent', detail)), detail);
+  assert.equal(toUserMessage(new DSHError('agent', detail)), '服务暂时不可用，请联系机器人主人。');
   const generic = toUserMessage(new DSHError('agent', 'private provider detail'));
   assert.doesNotMatch(generic, /private provider detail|已自动开始/);
 });
@@ -82,9 +83,9 @@ test('sends a DSH SSE request and consumes content events', async () => {
   assert.deepEqual(JSON.parse(request.options.body), {
     sessionId: 'dsh:qq:group:1',
     message: 'hello',
-    systemPrompt: 'test prompt',
+    systemPrompt: withToolUsePolicy('test prompt'),
     stream: true,
-    capabilities: { chat: true, web: true, files: false, terminal: false }
+    capabilities: { chat: true, web: true, files: true, terminal: false }
   });
   assert.deepEqual(events, [{ type: 'content', content: '你' }, { type: 'content', content: '好' }, { type: 'done' }]);
 });
@@ -116,8 +117,8 @@ test('maps DSH HTTP and protocol failures to safe user messages', async () => {
   );
   globalThis.fetch = originalFetch;
 
-  assert.equal(toUserMessage(new DSHError('auth', 'x')), 'Agent 服务认证失败，请联系机器人管理员。');
-  assert.equal(toUserMessage(new DSHError('network', 'x')), '暂时无法连接 Agent 服务，请稍后再试。');
+  assert.equal(toUserMessage(new DSHError('auth', 'x')), '模型认证失败，请联系主人检查密钥。');
+  assert.equal(toUserMessage(new DSHError('network', 'x')), '暂时无法连接服务，请稍后重试。');
 });
 
 test('clears an encoded group session through the DSH API', async () => {
@@ -190,9 +191,9 @@ test('derives shared group sessions, strips a leading bot mention, and guards re
   assert.throws(() => getDSHConfig({ maxActiveWorkers: 201 }));
 });
 
-test('defaults groups to web access while owner private sessions receive all tools', () => {
-  assert.deepEqual(defaultGroupPolicy, { version: 1, chat: true, web: true, files: false, terminal: false });
-  assert.deepEqual(ownerPrivatePolicy, { version: 1, chat: true, web: true, files: true, terminal: true });
+test('defaults groups and owner private sessions to scoped files without terminal', () => {
+  assert.deepEqual(defaultGroupPolicy, { version: 2, chat: true, web: true, files: true, terminal: false });
+  assert.deepEqual(ownerPrivatePolicy, { version: 2, chat: true, web: true, files: true, terminal: false });
 });
 
 test('keeps idempotency claims alive through the maximum group queue', () => {
@@ -288,7 +289,7 @@ test('sandbox receives current explicit memory as reference alongside the actual
       memoryContext: '明确保存：喜欢科幻'
     });
     assert.equal(body.message, '明确保存：喜欢科幻\n\n当前消息：\n今天聊什么');
-    assert.equal(body.systemPrompt, config.defaultSystemPrompt);
+    assert.equal(body.systemPrompt, withToolUsePolicy(config.defaultSystemPrompt));
   } finally {
     globalThis.fetch = originalFetch;
   }

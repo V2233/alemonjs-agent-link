@@ -10,6 +10,7 @@ import { exposeModule } from '../lib/modules/expose.js';
 import { startFrameworkMcp } from '../lib/platform/mcp.js';
 const exposeMode = process.argv.includes('--expose');
 const twoTurns = process.argv.includes('--two-turns');
+const unknownEffect = process.argv.includes('--unknown-effect');
 const previousConfig = globalThis.__config;
 globalThis.__config = { value: { 'alemonjs-agent-link': { aiEnabled: true } } };
 const root = await mkdtemp(join(tmpdir(), 'agent-link-mcp-runtime-'));
@@ -38,7 +39,7 @@ if (exposeMode) {
       actions: {
         stats: Expose.action({
           description: 'Current player stats',
-          effect: 'read',
+          effect: unknownEffect ? 'unknown' : 'read',
           inputSchema: { type: 'object', properties: {}, additionalProperties: false },
           outputSchema: { type: 'object', properties: { hp: { type: 'integer' } }, required: ['hp'], additionalProperties: false },
           authorize: (_input, call) => call.callerApp === 'alemonjs-agent-link' && getCurrentEvent()?.UserId === '100',
@@ -97,7 +98,7 @@ const model = createServer(async (request, response) => {
           ['mcp__framework__discover', {}],
           ['mcp__framework__call', { name: 'expose_discover', argumentsJson: '{}' }],
           ['mcp__framework__call', { name: 'expose_discover', argumentsJson: JSON.stringify(target) }],
-          ['mcp__framework__call', { name: 'expose_read', argumentsJson: JSON.stringify({ ...target, argumentsJson: '{}' }) }]
+          ['mcp__framework__call', { name: unknownEffect ? 'expose_call' : 'expose_read', argumentsJson: JSON.stringify({ ...target, argumentsJson: '{}' }) }]
         ]
       : [
           ['mcp__framework__discover', {}],
@@ -238,6 +239,7 @@ server.serve_forever()
       signal: AbortSignal.timeout(50000)
     });
     output = await response.text();
+    if (failure) throw failure;
     assert.equal(response.status, 200, output);
     assert.ok(!output.includes('"type": "error"'), `${output}; ${stderr}`);
     if (twoTurns) {
@@ -253,6 +255,7 @@ server.serve_forever()
         signal: AbortSignal.timeout(50000)
       });
       const text = await second.text();
+      if (failure) throw failure;
       assert.equal(second.status, 200, text);
       assert.ok(!text.includes('"type": "error"'), `${text}; ${stderr}`);
     }

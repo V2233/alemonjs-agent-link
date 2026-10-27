@@ -7,7 +7,7 @@ import { modelContext } from '../dsh/model-context';
 import { logger } from 'alemonjs';
 import { abortFailure } from '../dsh/errors';
 import { streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '../dsh/client';
-import { getDSHCredentials } from '../dsh/credentials';
+import { getChatCredentials } from '../dsh/credentials';
 import { inputText, withInputContext, type ChatInput } from '../dsh/input';
 import { ensureDSHSupervisor, hasDSHBridgeOverride } from '../dsh/supervisor';
 import { SessionRegistry, type PrivateHistoryContext } from '../state/registry';
@@ -30,7 +30,11 @@ const runModuleTurnInner = async (options: {
   const { config, sessionId, history, onEvent, onCompleted } = options;
 
   assertAIEnabled(config);
-  const context = { ...options.context, onSpeech: options.onSpeech || options.context.onSpeech };
+  const context = {
+    ...options.context,
+    capabilities: { ...options.context.capabilities, terminal: false },
+    onSpeech: options.onSpeech || options.context.onSpeech
+  };
   const lease = await (await getModuleRuntime(config)).acquire();
 
   try {
@@ -74,7 +78,7 @@ const runModuleTurnInner = async (options: {
       (lease.transformsSystem && personaPrompt !== config.defaultSystemPrompt) ||
       hasImages
     ) {
-      const credentials = await getDSHCredentials();
+      const credentials = await getChatCredentials();
 
       if (!credentials) {
         throw new Error('业务工具需要配置模型 API Key。');
@@ -89,7 +93,7 @@ const runModuleTurnInner = async (options: {
       if (!context.autonomous && sandboxReady && (context.capabilities.web || context.capabilities.files || context.capabilities.terminal)) {
         const workspaceTool: AgentTool = {
           name: 'agent_workspace',
-          description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}、终端${context.capabilities.terminal ? '允许' : '禁止'}。可通过 framework MCP 发现并调用本轮开放的框架和业务接口，权限以目录与真实回执为准。`,
+          description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}、终端${context.capabilities.terminal ? '允许' : '禁止'}。文件操作仅使用 framework MCP 的 workspace_* 工具，不得使用原生文件或终端工具。可通过 framework MCP 发现并调用本轮开放的框架和业务接口，权限以目录与真实回执为准。`,
           parameters: {
             type: 'object',
             properties: { task: { type: 'string', minLength: 1, maxLength: 12000 } },

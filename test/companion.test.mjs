@@ -426,12 +426,14 @@ test('changing persona aborts a running generation before delivery and leaves th
     assert.equal(store.selected(scope), 'assistant');
   }));
 
-test('automatic expression with no configured media preserves the native QQ streaming path', () =>
+test('automatic expression with voice disabled and no stickers preserves the native QQ streaming path', () =>
   fixture(async () => {
     const { runDSHChat } = await import('../lib/response/dsh/chat.js');
     const { withEventContext, ResultCode, getConfig } = await import('alemonjs');
     const { runtimeScope } = await import(new URL('./common/runtime-scope.js', import.meta.resolve('alemonjs')));
     globalThis.__config.value['alemonjs-agent-link'].modules.settings.expression = { automatic: true, voiceChance: 1, stickerChance: 1 };
+    // System speech is available by default; explicitly disable it for this text-only stream fixture.
+    globalThis.__config.value['alemonjs-agent-link'].modules.disabled = ['voice'];
     globalThis.fetch = async (_url, init) => {
       assert.equal(JSON.parse(init.body).stream, true);
       return new Response('data: {"choices":[{"delta":{"content":"原生流回复"}}]}\n\ndata: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });

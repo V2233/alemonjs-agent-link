@@ -1,3 +1,4 @@
+import { SessionRegistry } from '../../state/registry';
 import { aiDisabledMessage } from '../../dsh/ai-switch';
 import { readMessageContext } from '../../social/message-context';
 import { Format, logger, useEvent, useMessage, useMedia } from 'alemonjs';
@@ -73,7 +74,9 @@ export default async (): Promise<void> => {
   const config = getDSHConfig();
 
   if (config.aiEnabled === false) {
-    if (prompt !== null) await message.send({ format: Format.create().addText(aiDisabledMessage(config)) });
+    if (await new SessionRegistry(config).claimDisabledNotice(event.Platform || '', event.ChannelId, false)) {
+      await message.send({ format: Format.create().addText(aiDisabledMessage(config)) });
+    }
 
     return;
   }

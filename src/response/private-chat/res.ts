@@ -41,5 +41,5 @@ export default async (): Promise<void> => {
 
     return;
   }
-  await runDSHChat(event, String(event.MessageText ?? '').trim());
+  await runDSHChat(event, String(event.MessageText ?? '').trim(), { ordinaryPrivateChat: true });
 };

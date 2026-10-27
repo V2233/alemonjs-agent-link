@@ -297,9 +297,19 @@ export class LocalStore {
       };
       const raw = get(keys[0]);
       const meta = (name === 'finalizeDedupe' || name === 'releaseDedupe' || name === 'memory' ? {} : JSON.parse(raw || '{}')) as GroupMeta;
-      const policy = { version: 1, chat: true, web: true, files: false, terminal: false };
+      const policy = { version: 2, chat: true, web: true, files: true, terminal: false };
 
       switch (name) {
+        case 'claimDisabledNotice': {
+          let notice = raw ? (JSON.parse(raw) as { epoch: string; count: number }) : { epoch: a[0], count: 0 };
+
+          if (notice.epoch !== a[0]) notice = { epoch: a[0], count: 0 };
+          if (notice.count >= Number(a[1])) return 0;
+          notice.count++;
+          put(keys[0], notice);
+
+          return 1;
+        }
         case 'finalizeDedupe':
           if (raw !== a[0]) {
             return 0;
@@ -339,7 +349,7 @@ export class LocalStore {
           if (name === 'beginReset') {
             meta.generation = (Number(meta.generation) || 0) + 1;
           }
-          if (meta.policy?.version !== 1) {
+          if (meta.policy?.version !== 1 && meta.policy?.version !== 2) {
             meta.policy = policy as GroupMeta['policy'];
           }
           meta.lastActivity = Number(a[0]);

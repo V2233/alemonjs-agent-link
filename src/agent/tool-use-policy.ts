@@ -8,4 +8,15 @@ export const toolUsePolicy = `${marker}
 每次调用服务于当前请求的具体需要。复用仍适用的结果，避免重复检索、无关探索和反复重试；拿到足够依据或完成任务就停止，不擅自扩展任务。只有实际执行成功才声称完成。
 正常的上下文加载、记忆注入和已配置的记忆机制保持不变；模型主动检索或修改记忆需与当前请求相关并遵守记忆规则。个性、工作、专业只改变表达，不改变调用权限、授权范围和预算限制。`;
 
-export const withToolUsePolicy = (prompt: string): string => (prompt.includes(marker) ? prompt : `${prompt}\n\n${toolUsePolicy}`);
+const replyMarker = '【回复表达：简洁且完整】';
+
+export const replyStylePolicy = `${replyMarker}
+先回答本次问题或给出实际结果，默认用一到三句自然表达。闲聊不写报告式标题，不复述用户原话，不重复介绍自己或后台流程；用户要求详解、完整清单、代码或复杂任务结果时，按需展开。
+只补充影响本次结果的必要信息，不在新问题后反复附带之前失败的查询、无关限制或重复建议。结果已说明就结束，避免再发一条“先这样吧”或重复总结。优先组织成一条紧凑回复，平台长度限制下才分段；不要为少发气泡截断必要内容。
+工具错误用用户能理解的一句话说明具体原因和必要的下一步；仅在用户排障或确有必要时附技术错误码。保留费用、不可逆操作的确认、部分成功和结果不明等关键事实，不用简短掩盖失败，也不编造成功。`;
+
+export const withToolUsePolicy = (prompt: string): string => {
+  const execution = prompt.includes(marker) ? prompt : `${prompt}\n\n${toolUsePolicy}`;
+
+  return execution.includes(replyMarker) ? execution : `${execution}\n\n${replyStylePolicy}`;
+};

@@ -52,6 +52,7 @@ export const runDSHChat = async (
   prompt: string,
   options: {
     referencesPrepared?: boolean;
+    ordinaryPrivateChat?: boolean;
     voice?: boolean;
     allowSilence?: boolean;
     requestId?: string;
@@ -135,7 +136,11 @@ export const runDSHChat = async (
     return;
   }
   if (config.aiEnabled === false) {
-    if (!options.autonomous && !options.allowSilence) await reply(aiDisabledMessage(config));
+    if (!options.autonomous && !options.allowSilence) {
+      if (!options.ordinaryPrivateChat || (await new SessionRegistry(config).claimDisabledNotice(event.Platform || '', getConversationId(event), true))) {
+        await reply(aiDisabledMessage(config));
+      }
+    }
 
     return;
   }

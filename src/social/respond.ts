@@ -1,5 +1,5 @@
 import { readMessageContext } from './message-context';
-import { claimBudgetNotice, budgetExceededMessage } from '../billing/budget';
+import { claimReplyGateBudgetNotice, replyGateExceededMessage } from '../billing/budget';
 import { messageReferences } from './references';
 import { runDSHChat, type ChatEvent } from '../response/dsh/chat';
 import { buildGroupBatchPrompt, type GroupBatch, type GroupBatchResult } from './group-conversation';
@@ -14,8 +14,8 @@ type Transport = NonNullable<Parameters<typeof runDSHChat>[2]>['transport'];
 
 export const respondToGroupBatch = async (event: ChatEvent, transport: Transport, batch: GroupBatch): Promise<GroupBatchResult> => {
   if (batch.budgetBlocked) {
-    if (batch.mode === 'direct' && (await claimBudgetNotice({ platform: event.Platform || '', channelId: event.ChannelId || '' }, batch.anchor.id))) {
-      await transport.message.send({ format: Format.create().addText(budgetExceededMessage) });
+    if (await claimReplyGateBudgetNotice({ platform: event.Platform || '', channelId: event.ChannelId || '' })) {
+      await transport.message.send({ format: Format.create().addText(replyGateExceededMessage) });
 
       return { delivered: true, completed: true };
     }

@@ -1,4 +1,4 @@
-import { withBudgetScope } from '../billing/budget';
+import { budgetEnabled, withBudgetScope } from '../billing/budget';
 import type { DSHBridgeConfig } from '../dsh/client';
 import { getDSHCredentials } from '../dsh/credentials';
 import { requestModelMessage } from '../agent/tool-chat';
@@ -135,7 +135,12 @@ export class MemoryConsolidator {
     }
   }
 
-  async consolidate(scope: MemoryScope, force = false, externalSignal?: AbortSignal): Promise<{ status: string; added: number; hasMore?: boolean }> {
+  async consolidate(
+    scope: MemoryScope,
+    force = false,
+    externalSignal?: AbortSignal,
+    userId?: string
+  ): Promise<{ status: string; added: number; hasMore?: boolean }> {
     if (this.closed || !memoryEnabled(this.config)) {
       return { status: 'disabled', added: 0 };
     }
@@ -145,6 +150,7 @@ export class MemoryConsolidator {
     if (this.services.canCommit?.() === false) {
       return { status: 'stale', added: 0 };
     }
+    if (budgetEnabled(this.config) && !userId) return { status: 'budget-user-required', added: 0 };
     const key = JSON.stringify([scope.platform, scope.channelId]);
 
     if (this.running.has(key) || jobs.active >= 2) {
@@ -196,7 +202,7 @@ export class MemoryConsolidator {
           if (!credentials) {
             throw new Error('记忆整理缺少模型凭证。');
           }
-          const response = await withBudgetScope(scope, () =>
+          const response = await withBudgetScope({ ...scope, userId }, () =>
             requestModelMessage(
               this.config,
               credentials,

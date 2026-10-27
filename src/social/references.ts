@@ -1,3 +1,4 @@
+import { isPersonalKeyCommand } from '../credentials/personal';
 import { getDSHConfig } from '../dsh/client';
 import { getChatArchive, historyEnabled } from '../history/store';
 import { canPrivateChat, getConversationId } from '../response/dsh/util';
@@ -73,6 +74,7 @@ export class MessageReferences {
   }
 
   async capture(event: ReferenceEvent): Promise<{ quote?: ConversationEntry; missingQuote?: string; forwarded: string }> {
+    if (isPersonalKeyCommand(event.MessageText)) return { forwarded: '' };
     const scope = this.track(event);
     const snapshot = await this.serialize(scope || '', () =>
       this.service.capture({
@@ -84,7 +86,7 @@ export class MessageReferences {
     return {
       quote: snapshot.quote?.message,
       missingQuote: snapshot.quote && !snapshot.quote.message ? snapshot.quote.referenceId : undefined,
-      forwarded: expandForwardedContent(event.MessageContent)
+      forwarded: expandForwardedContent(event.MessageContent).replace(/sk-[A-Za-z0-9_-]{8,240}/gu, '[密钥已隐藏]')
     };
   }
 
@@ -145,7 +147,7 @@ export class MessageReferences {
                   senderId: references.quote.userId,
                   sender: references.quote.userName || references.quote.userId,
                   isBot: references.quote.isBot,
-                  text: references.quote.text,
+                  text: isPersonalKeyCommand(references.quote.text) ? '[个人密钥管理消息已隐藏]' : references.quote.text,
                   attachments
                 }
               : undefined,

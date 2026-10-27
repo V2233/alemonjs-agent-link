@@ -11,6 +11,7 @@ export type ConfigContext = { cwd?: string; configPath?: string; dataRoot?: stri
 export type DSHBridgeConfig = {
   aiEnabled?: boolean;
   aiDisabledReason?: string;
+  aiNoticeEpoch?: string;
   budget?: BudgetConfig;
   transport?: 'qq-bot' | 'onebot';
   replyGate?: { model?: string; baseUrl?: string; apiKey?: string };
@@ -232,7 +233,7 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     if (!b || typeof b !== 'object' || Array.isArray(b) || (b.enabled !== undefined && typeof b.enabled !== 'boolean')) {
       throw new DSHError('protocol', 'budget 配置无效');
     }
-    for (const field of ['groupDailyYuan', 'privateDailyYuan', 'globalDailyYuan'] as const) {
+    for (const field of ['groupDailyYuan', 'privateDailyYuan', 'personalDailyYuan', 'replyGateDailyYuan', 'globalDailyYuan'] as const) {
       if (b[field] !== undefined && (!Number.isFinite(b[field]) || b[field] < 0 || b[field] > 10000)) {
         throw new DSHError('protocol', `budget.${field} 需要为 0–10000 元`);
       }

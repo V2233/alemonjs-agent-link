@@ -1,3 +1,4 @@
+import { isPersonalKeyCommand } from '../../credentials/personal';
 import { messageReferences } from '../../social/references';
 import { logger, useEvent } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
@@ -8,7 +9,7 @@ export default async (): Promise<void> => {
   const [context, next] = useEvent({ selects: ['message.create', 'private.message.create'] });
 
   try {
-    if (context.match.selects) {
+    if (context.match.selects && !isPersonalKeyCommand(context.current.MessageText)) {
       observeProactiveInput(getDSHConfig(), context.current);
       await messageReferences.capture(context.current).catch(() => logger.warn('Message reference capture failed'));
       archiveIncoming(getDSHConfig(), context.current);

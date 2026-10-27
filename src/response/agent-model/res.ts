@@ -13,7 +13,7 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   if (!event.IsMaster) {
-    await message.send({ format: Format.create().addMarkdownOriginal('只有机器人主人可以切换全群模型。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('公共模型仅限机器人主人设置。') });
 
     return;
   }
@@ -25,8 +25,8 @@ export default async (): Promise<void> => {
   await message.send({
     format: Format.create().addMarkdownOriginal(
       requestedModel
-        ? `模型由 \`alemon.config.yaml\` 的 \`alemonjs-agent-link.model\` 管理。请将其改为 \`${requestedModel}\` 并保存，后续请求自动生效，无需重启机器人。`
-        : `当前配置模型：\`${config.model}\`\n查看可用列表：/模型列表`
+        ? `请将配置中的 \`alemonjs-agent-link.model\` 改为 \`${requestedModel}\`，保存即生效。`
+        : `当前模型：\`${config.model}\`\n查看可用列表：/模型列表`
     )
   });
 };

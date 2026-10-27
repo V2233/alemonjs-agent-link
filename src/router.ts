@@ -32,6 +32,14 @@ commandGroup.use(
   () => import('@src/response/agent-proactive/res')
 );
 
+for (const path of ['apikey', '个人密钥']) {
+  commandGroup.use({ path, description: '私聊绑定、启用、停用、移除本人的 DeepSeek API Key' }, () => import('@src/response/personal-key/res'));
+}
+
+for (const path of ['群密钥', 'groupapikey']) {
+  commandGroup.use({ path, description: '群管理员申请临时码，在本人私聊绑定或启停群 Key' }, () => import('@src/response/group-key/res'));
+}
+
 commandGroup.use({ path: '额度', description: '查询今日额度；主人可手动增加、设置、查看调整记录' }, () => import('@src/response/agent-budget/res'));
 
 commandGroup.use({ path: '人格', description: '查看及切换当前会话人格' }, () => import('@src/response/agent-persona/res'));

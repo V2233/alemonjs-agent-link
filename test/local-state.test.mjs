@@ -191,3 +191,21 @@ test('a removed lock fails closed on reads and writes instead of throwing from a
   await new Promise(resolve => setTimeout(resolve, 1100));
   await assert.rejects(getLocalStore(path), { code: 'ELOCKLOST' });
 });
+
+test('disabled notices have durable per-conversation limits and reset only with a new enable epoch', async () => {
+  const config = getDSHConfig({ aiEnabled: false, aiNoticeEpoch: 'cycle-one' });
+  const registry = new SessionRegistry(config);
+  const id = `notice-${randomUUID()}`;
+  const claim = (platform = 'qq', privateChat = false) => registry.claimDisabledNotice(platform, id, privateChat);
+  const results = await Promise.all(Array.from({ length: 12 }, () => claim()));
+  assert.equal(results.filter(Boolean).length, 2);
+  assert.equal(await new SessionRegistry(config).claimDisabledNotice('qq', id, false), false);
+  assert.equal(await claim('other-platform'), true);
+  assert.equal(await registry.claimDisabledNotice('qq', id + '-other', false), true);
+  assert.equal((await Promise.all(Array.from({ length: 12 }, () => claim('qq', true)))).filter(Boolean).length, 3);
+  assert.equal(await registry.claimDisabledNotice('qq', '', true), false);
+  const saved = JSON.parse(await readFile(join(root, 'state.json'), 'utf8'));
+  assert.ok(Object.values(saved.entries).some(entry => entry.value === JSON.stringify({ epoch: 'cycle-one', count: 3 })));
+  const reopened = new SessionRegistry({ ...config, aiNoticeEpoch: 'cycle-two' });
+  assert.deepEqual(await Promise.all(Array.from({ length: 4 }, () => reopened.claimDisabledNotice('qq', id, false))), [true, true, false, false]);
+});

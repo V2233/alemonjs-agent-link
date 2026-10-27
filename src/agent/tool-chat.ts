@@ -45,6 +45,8 @@ export const requestModelMessage = async (
   }
   signal.throwIfAborted();
   const response = await budgetedFetch(config, url, {
+    personalKey: credentials.personal,
+    scopedKey: credentials.scoped,
     method: 'POST',
     redirect: 'error',
     signal,

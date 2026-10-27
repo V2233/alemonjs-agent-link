@@ -401,7 +401,7 @@ export class GroupConversationCoordinator {
         try {
           verdict = await this.services.classify(
             {
-              scope: { channelId, platform: pending.anchor.message.platform || '' },
+              scope: { channelId, platform: pending.anchor.message.platform || '', userId: pending.anchor.message.userId },
               recent: state.recent
                 .filter(item => !currentTexts.has(item.text))
                 .slice(-3)
@@ -425,10 +425,10 @@ export class GroupConversationCoordinator {
           gateMs = this.now() - gateStarted;
         }
         if (verdict.budgetBlocked) {
-          if (!state.retired && !state.gateAbort.signal.aborted && pending.mode === 'direct') {
+          if (!state.retired && !state.gateAbort.signal.aborted) {
             await pending.anchor.respond({
               id: `group-batch:${pending.anchor.message.id || randomUUID()}`,
-              mode: 'direct',
+              mode: pending.mode,
               budgetBlocked: true,
               anchor: pending.anchor.message,
               messages: pending.entries.map(item => item.message)

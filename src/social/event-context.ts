@@ -1,3 +1,4 @@
+import { isPersonalKeyCommand } from '../credentials/personal';
 import { describePlatformAction, eventTime } from './message-context';
 import { conversationIdentity, type EventKeys } from 'alemonjs';
 import type { ReferenceEvent } from './references';
@@ -77,7 +78,11 @@ export class EventContextStore {
       userId: event.UserId,
       userName: event.UserName?.slice(0, 80),
       updatedText:
-        ['message.update', 'private.message.update'].includes(event.name) && typeof event.MessageText === 'string' ? event.MessageText.slice(0, 500) : undefined
+        ['message.update', 'private.message.update'].includes(event.name) && typeof event.MessageText === 'string'
+          ? isPersonalKeyCommand(event.MessageText)
+            ? '[个人密钥管理消息已隐藏]'
+            : event.MessageText.slice(0, 500)
+          : undefined
     };
 
     this.scopes.delete(key);

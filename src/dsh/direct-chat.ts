@@ -5,6 +5,7 @@ import { type ChatInput, inputText, modelContent, MAX_IMAGE_REQUEST_BYTES } from
 import { SessionRegistry, type PrivateHistoryContext } from '@src/state/registry';
 import type { DSHBridgeConfig, DSHStreamEvent } from './client';
 import type { DSHCredentials } from './credentials';
+import { getBoundCredential } from '../credentials/scoped';
 
 // Deliberately no SDK, tool dispatch, or local process execution in this path.
 export const directChat = async (
@@ -16,6 +17,10 @@ export const directChat = async (
   privateHistory?: PrivateHistoryContext,
   onCompleted?: (signal: AbortSignal) => Promise<void>
 ): Promise<void> => {
+  const personal = await getBoundCredential();
+
+  if (personal)
+    credentials = { apiKey: personal.apiKey, baseUrl: 'https://api.deepseek.com', scoped: true, personal: personal.scope.channelId.startsWith('private:') };
   if (!credentials) {
     throw new Error('纯聊天需要配置模型 API Key。');
   }
@@ -48,6 +53,8 @@ export const directChat = async (
     throw new Error('请求超过大小限制。');
   }
   const response = await budgetedFetch(config, url, {
+    personalKey: credentials.personal,
+    scopedKey: credentials.scoped,
     method: 'POST',
     redirect: 'error',
     signal,

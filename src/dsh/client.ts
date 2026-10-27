@@ -1,3 +1,4 @@
+import { checkedBoundCredential, disableBoundCredential } from '../credentials/scoped';
 import { assertAIEnabled } from './ai-switch';
 import { withToolUsePolicy } from '../agent/tool-use-policy';
 import { reserveWorkspaceText } from '../billing/budget';
@@ -17,7 +18,12 @@ const toCapabilities = (value: AgentCapabilities): AgentCapabilities => ({
 });
 
 export type DSHStreamEvent =
-  { type: 'content'; content: string } | { type: 'done' } | { type: 'tool_call'; tool?: string; args?: unknown } | { type: 'error'; message?: string };
+  | { type: 'content'; content: string }
+  | { type: 'done' }
+  | { type: 'tool_call'; tool?: string; args?: unknown }
+  | { type: 'error'; message?: string }
+  | { type: 'personal_key_exhausted' }
+  | { type: 'scoped_key_exhausted' };
 
 const getHeaders = (token: string): HeadersInit => {
   const headers: HeadersInit = {
@@ -104,11 +110,12 @@ export const streamChat = async (
   onEvent: (event: DSHStreamEvent) => Promise<void>,
   userId = 'unknown',
   externalSignal?: AbortSignal,
-  capabilities: AgentCapabilities = { chat: true, web: true, files: false, terminal: false },
+  capabilities: AgentCapabilities = { chat: true, web: true, files: true, terminal: false },
   privateHistory?: PrivateHistoryContext,
   onCompleted?: (signal: AbortSignal) => Promise<void>,
   framework?: { url: string; token: string }
 ): Promise<void> => {
+  capabilities = { ...capabilities, terminal: false };
   assertAIEnabled(config);
   config = { ...config, defaultSystemPrompt: withToolUsePolicy(config.defaultSystemPrompt) };
   const controller = new AbortController();
@@ -137,7 +144,10 @@ export const streamChat = async (
       }
     }
     const bridge = await getDSHBridge();
-    const settleText = await reserveWorkspaceText(config, `${config.defaultSystemPrompt}\n${inputText(message)}\n${privateHistory?.memoryContext || ''}`);
+    const personal = await checkedBoundCredential(signal);
+    const settleText = personal
+      ? async (_output: string) => {}
+      : await reserveWorkspaceText(config, `${config.defaultSystemPrompt}\n${inputText(message)}\n${privateHistory?.memoryContext || ''}`);
     let budgetText = '';
 
     signal.throwIfAborted();
@@ -151,7 +161,8 @@ export const streamChat = async (
         systemPrompt: config.defaultSystemPrompt,
         stream: true,
         capabilities: toCapabilities(capabilities),
-        ...(framework ? { framework } : {})
+        ...(framework ? { framework } : {}),
+        ...(personal ? (personal.scope.channelId.startsWith('private:') ? { personalApiKey: personal.apiKey } : { scopedApiKey: personal.apiKey }) : {})
       }),
       signal: externalSignal ? AbortSignal.any([controller.signal, externalSignal]) : controller.signal
     });
@@ -173,6 +184,10 @@ export const streamChat = async (
     }
 
     await consumeEvents(response.body.getReader(), async event => {
+      if ((event.type === 'personal_key_exhausted' || event.type === 'scoped_key_exhausted') && personal) {
+        await disableBoundCredential(personal);
+        throw new DSHError('budget', '当前绑定 Key 余额不足，已自动停用并切回额度模式。为避免重复执行工作区操作，请重新发送请求；恢复 Key 需手动启用。');
+      }
       if (event.type === 'content') budgetText += event.content;
       if (Buffer.byteLength(budgetText) > config.maxRequestBytes) throw new DSHError('protocol', '工作区回复超过大小限制。');
       await onEvent(event);
@@ -302,16 +317,16 @@ export const toUserMessage = (error: unknown): string => {
 
   const messages: Record<DSHError['kind'], string> = {
     disabled: 'AI 暂时关闭。',
-    budget: '今日额度不足，请联系机器人主人充值或增加今日额度，也可等待北京时间零点刷新。',
+    budget: '今日额度不足，可联系主人调整，或等北京时间零点重置。',
     media: '媒体处理失败，请改用文字。',
     delivery: '回复发送失败，请稍后重试。',
-    auth: 'Agent 服务认证失败，请联系机器人管理员。',
-    http: 'Agent 服务暂时不可用，请稍后再试。',
-    network: '暂时无法连接 Agent 服务，请稍后再试。',
-    timeout: 'Agent 响应超时，请稍后重试。',
+    auth: '模型认证失败，请联系主人检查密钥。',
+    http: '服务暂不可用，请稍后重试。',
+    network: '暂时无法连接服务，请稍后重试。',
+    timeout: '回复超时，请稍后重试。',
     cancelled: '本次回复已取消。',
-    protocol: 'Agent 服务响应异常，请联系机器人管理员。',
-    agent: 'Agent 本轮执行失败。请稍后重试；若持续失败，请由主人检查模型配置和运行环境。',
+    protocol: '服务响应异常，请联系主人。',
+    agent: '本次处理失败；仍无法使用时，请联系主人检查。',
     migration: '会话正在初始化，请稍后重试。'
   };
 

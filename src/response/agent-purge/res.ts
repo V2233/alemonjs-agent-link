@@ -22,7 +22,7 @@ export default async (): Promise<void> => {
   }
 
   if (!event.ChannelId || !event.IsMaster) {
-    await message.send({ format: Format.create().addMarkdownOriginal('只有机器人主人可清除当前群的 Agent 数据。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('仅机器人主人可清除群数据。') });
 
     return;
   }
@@ -35,7 +35,7 @@ export default async (): Promise<void> => {
     confirmations.set(event.ChannelId, { actor, expiresAt: Date.now() + confirmationTtlMs });
     await message.send({
       format: Format.create().addMarkdownOriginal(
-        '## 即将彻底删除本群数据\n会删除 Agent 会话、工作区、聊天归档和近期聊天参考，且无法恢复。\n\n请由你本人在 **60 秒内** 发送：`/清除群数据 确认`'
+        '将永久删除本群会话、文件、聊天记录、记忆及本群人格和心情设置，无法恢复。\n请本人在60秒内发送 `/清除群数据 确认`。'
       )
     });
 
@@ -55,9 +55,9 @@ export default async (): Promise<void> => {
     const config = getDSHConfig();
 
     await purgeGroupSession(event.ChannelId, config);
-    await message.send({ format: Format.create().addMarkdownOriginal('## 已删除\n当前群的 Agent 会话、工作区、聊天归档与近期聊天参考已彻底清除。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('本群数据已彻底清除。') });
   } catch (error) {
     logger.error({ err: error }, 'Agent group data purge failed');
-    await message.send({ format: Format.create().addMarkdownOriginal('操作暂时未完成，请稍后再试。') });
+    await message.send({ format: Format.create().addMarkdownOriginal('清理未完成，请核对后重试。') });
   }
 };

@@ -32,9 +32,11 @@ export default async (): Promise<void> => {
     const requested = aliases[rawRequested] || rawRequested;
 
     if (requested === 'status') {
+      const policy = await registry.policy(event.ChannelId);
+
       await message.send({
-        format: Format.create().addMarkdownOriginal(
-          `当前群策略：\n\n- 聊天：${(await registry.policy(event.ChannelId)).chat ? '开启' : '关闭'}\n- 网页：${(await registry.policy(event.ChannelId)).web ? '开启' : '关闭'}\n- 文件：${(await registry.policy(event.ChannelId)).files ? '开启' : '关闭'}\n- 终端：${(await registry.policy(event.ChannelId)).terminal ? '开启' : '关闭'}`
+        format: Format.create().addText(
+          `本群权限：聊天${policy.chat ? '开' : '关'} · 网页${policy.web ? '开' : '关'} · 文件${policy.files ? '开' : '关'}\n终端禁止；/工具策略 能力 开启或关闭`
         )
       });
 
@@ -44,7 +46,12 @@ export default async (): Promise<void> => {
     const enabled = rawEnabled === '开启' ? 'on' : rawEnabled === '关闭' ? 'off' : rawEnabled;
 
     if (!['chat', 'web', 'files', 'terminal'].includes(requested) || !['on', 'off'].includes(enabled)) {
-      await message.send({ format: Format.create().addMarkdownOriginal('用法：/工具策略 状态，或 /工具策略 聊天|网页|文件|终端 开启|关闭') });
+      await message.send({ format: Format.create().addMarkdownOriginal('用法：/工具策略 状态，或 /工具策略 聊天|网页|文件 开启|关闭') });
+
+      return;
+    }
+    if (requested === 'terminal') {
+      await message.send({ format: Format.create().addMarkdownOriginal('终端禁止。文件操作仅限本群隔离目录。') });
 
       return;
     }
@@ -53,7 +60,7 @@ export default async (): Promise<void> => {
     await registry.setPolicy(event.ChannelId, { ...policy, [requested]: enabled === 'on' });
     await resetGroupSession(event.ChannelId, getDSHConfig());
     await message.send({
-      format: Format.create().addMarkdownOriginal(`已${enabled === 'on' ? '开启' : '关闭'}当前群的 ${capabilityNames[requested]}权限，并开始新会话。`)
+      format: Format.create().addMarkdownOriginal(`本群${capabilityNames[requested]}已${enabled === 'on' ? '开启' : '关闭'}，已开始新话题。`)
     });
   } catch {
     await message.send({ format: Format.create().addMarkdownOriginal('策略暂时无法读取，请稍后再试。') });

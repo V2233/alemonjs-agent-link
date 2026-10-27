@@ -28,10 +28,10 @@ export default async (): Promise<void> => {
   const text = config.modules?.disabled?.includes('mood')
     ? '心情模块已停用。'
     : [
-        `当前会话心情：${snapshot.label} ${Math.round(snapshot.value)}/100；会随时间回到基线。`,
+        `心情：${snapshot.label} ${Math.round(snapshot.value)}/100`,
         ...history.map(
           row =>
-            `${new Date(row.at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} ${row.delta >= 0 ? '+' : ''}${row.delta.toFixed(1)} → ${Math.round(row.value)}（${row.source === 'model' ? '模型复核' : '直接表达'}）`
+            `${new Date(row.at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} ${row.delta >= 0 ? '+' : ''}${row.delta.toFixed(1)} → ${Math.round(row.value)}`
         )
       ].join('\n');
   const [message] = useMessage();

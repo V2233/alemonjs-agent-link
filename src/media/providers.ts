@@ -169,6 +169,7 @@ export const requestSpeechAudio = async (text: string, config: MediaConfig, sign
   if (!text.trim() || Array.from(text).length > config.ttsMaxChars) {
     throw new MediaError('回复过长，已改用文字发送。');
   }
+
   return await request(
     config.tts,
     'audio/speech',

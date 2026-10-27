@@ -1,3 +1,4 @@
+import { purgeWorkspaceHash } from '../files/workspace';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { getLocalStore } from './local-store';
@@ -63,8 +64,8 @@ if meta.transition == 'resetting' and type(meta.operationId) == 'string' then
   return cjson.encode(meta)
 end
 meta.generation = (tonumber(meta.generation) or 0) + 1
-if type(meta.policy) ~= 'table' or meta.policy.version ~= 1 then
-  meta.policy = { version = 1, chat = true, web = true, files = false, terminal = false }
+if type(meta.policy) ~= 'table' or (meta.policy.version ~= 1 and meta.policy.version ~= 2) then
+  meta.policy = { version = 2, chat = true, web = true, files = true, terminal = false }
 end
 meta.lastActivity = tonumber(ARGV[1])
 meta.isolated = false
@@ -98,8 +99,8 @@ end
 if meta.transition == 'purging' and type(meta.operationId) == 'string' then
   return cjson.encode(meta)
 end
-if type(meta.policy) ~= 'table' or meta.policy.version ~= 1 then
-  meta.policy = { version = 1, chat = true, web = true, files = false, terminal = false }
+if type(meta.policy) ~= 'table' or (meta.policy.version ~= 1 and meta.policy.version ~= 2) then
+  meta.policy = { version = 2, chat = true, web = true, files = true, terminal = false }
 end
 meta.lastActivity = tonumber(ARGV[1])
 meta.isolated = false
@@ -110,10 +111,10 @@ redis.call('ZADD', KEYS[2], meta.lastActivity, ARGV[3])
 return cjson.encode(meta)
 `;
 
-export type GroupPolicy = AgentCapabilities & { version: 1 };
-export const defaultGroupPolicy: GroupPolicy = { version: 1, chat: true, web: true, files: false, terminal: false };
-export const publicPrivatePolicy: GroupPolicy = { version: 1, chat: true, web: false, files: false, terminal: false };
-export const ownerPrivatePolicy: GroupPolicy = { version: 1, chat: true, web: true, files: true, terminal: true };
+export type GroupPolicy = AgentCapabilities & { version: 1 | 2 };
+export const defaultGroupPolicy: GroupPolicy = { version: 2, chat: true, web: true, files: true, terminal: false };
+export const publicPrivatePolicy: GroupPolicy = { version: 2, chat: true, web: true, files: true, terminal: false };
+export const ownerPrivatePolicy: GroupPolicy = { version: 2, chat: true, web: true, files: true, terminal: false };
 export type RecentMessage = { id?: string; text: string; timestamp: number };
 export type GroupTransition = 'resetting' | 'purging';
 export type GroupMeta = {
@@ -171,13 +172,13 @@ const parseMeta = (value: string | null): GroupMeta => {
       generation: Number.isInteger(raw.generation) ? raw.generation : 0,
       // Legacy chat-only records upgrade to the new public default.
       policy:
-        raw.policy && typeof raw.policy === 'object' && (raw.policy as Partial<GroupPolicy>).version === 1
+        raw.policy && typeof raw.policy === 'object' && [1, 2].includes((raw.policy as Partial<GroupPolicy>).version ?? 0)
           ? {
-              version: 1,
+              version: 2,
               chat: (raw.policy as Partial<GroupPolicy>).chat === true,
               web: (raw.policy as Partial<GroupPolicy>).web === true,
-              files: (raw.policy as Partial<GroupPolicy>).files === true,
-              terminal: (raw.policy as Partial<GroupPolicy>).terminal === true
+              files: raw.policy.version === 1 || raw.policy.files === true,
+              terminal: false
             }
           : defaultGroupPolicy,
       lastActivity: typeof raw.lastActivity === 'number' ? raw.lastActivity : Date.now(),
@@ -241,8 +242,33 @@ end
 return cjson.encode({status='ok', notes=notes})
 `;
 
+const claimDisabledNoticeScript = `-- agent-link:claimDisabledNotice
+local raw = redis.call('GET', KEYS[1])
+local state = raw and cjson.decode(raw) or {epoch=ARGV[1], count=0}
+if state.epoch ~= ARGV[1] then state = {epoch=ARGV[1], count=0} end
+if state.count >= tonumber(ARGV[2]) then return 0 end
+state.count = state.count + 1
+redis.call('SET', KEYS[1], cjson.encode(state))
+return 1
+`;
+
 export class SessionRegistry {
   constructor(private readonly config: DSHBridgeConfig) {}
+  async claimDisabledNotice(platform: string, conversationId: string, isPrivate: boolean): Promise<boolean> {
+    if (!conversationId) return false;
+
+    return Boolean(
+      await (
+        await redis(this.config)
+      ).eval(
+        claimDisabledNoticeScript,
+        1,
+        key(JSON.stringify([platform, isPrivate, conversationId]), 'disabled-notice'),
+        this.config.aiNoticeEpoch || 'initial',
+        String(isPrivate ? 3 : 2)
+      )
+    );
+  }
   async claimSticker(channelId: string, seconds: number): Promise<boolean> {
     if (seconds === 0) {
       return true;
@@ -389,7 +415,9 @@ export class SessionRegistry {
   }
   async setPolicy(channelId: string, policy: GroupPolicy): Promise<void> {
     await this.touch(channelId);
-    await (await redis(this.config)).eval(setPolicyScript, 1, key(channelId, 'meta.v1.json'), JSON.stringify(policy), JSON.stringify(parseMeta(null)));
+    await (
+      await redis(this.config)
+    ).eval(setPolicyScript, 1, key(channelId, 'meta.v1.json'), JSON.stringify({ ...policy, version: 2, terminal: false }), JSON.stringify(parseMeta(null)));
   }
   async deduplicate(channelId: string, messageId?: string): Promise<{ duplicate: boolean; requestId: string }> {
     const requestId = randomUUID();
@@ -498,6 +526,7 @@ export class SessionRegistry {
     await (await redis(this.config)).del(key(channelId, 'recent.v1.jsonl'));
   }
   async purge(channelId: string): Promise<void> {
+    purgeWorkspaceHash(this.config.workspaceRoot, groupHash(channelId));
     getProactiveStore(this.config).purgeHash(groupHash(channelId));
     getPlatformLedger(this.config).purgeHash(groupHash(channelId));
     getPersonaStore(this.config).purgeHash(groupHash(channelId));
@@ -518,6 +547,7 @@ export class SessionRegistry {
     return await (await redis(this.config)).zrangebyscore(`${prefix}:retention.v1`, 0, Date.now() - this.config.retentionDays * 86400_000, 'LIMIT', 0, 100);
   }
   async purgeHash(hash: string, includeArchive = true): Promise<void> {
+    purgeWorkspaceHash(this.config.workspaceRoot, hash);
     getProactiveStore(this.config).purgeHash(hash);
     getPlatformLedger(this.config).purgeHash(hash);
     getPersonaStore(this.config).purgeHash(hash);

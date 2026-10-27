@@ -54,6 +54,14 @@ test('owner switch persists in app config, preserves unrelated settings, and blo
     assert.equal(requests, 0);
     assert.match(setAIEnabled(true, true), /全局开启/);
     assert.doesNotThrow(() => assertAIEnabled(getDSHConfig()));
+    const epoch = getDSHConfig().aiNoticeEpoch;
+    assert.ok(epoch);
+    setAIEnabled(true, false);
+    assert.equal(getDSHConfig().aiNoticeEpoch, epoch);
+    setAIEnabled(true, false, 'changed reason');
+    assert.equal(getDSHConfig().aiNoticeEpoch, epoch);
+    setAIEnabled(true, true);
+    assert.notEqual(getDSHConfig().aiNoticeEpoch, epoch);
     assert.throws(() => setAIEnabled(true, false, 'x'.repeat(501)), /500/);
     setAIEnabled(true, false);
     assert.throws(() => assertAIEnabled(), /AI 暂时关闭/);

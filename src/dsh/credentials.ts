@@ -2,6 +2,8 @@ import { getAppConfigValue } from 'alemonjs';
 
 export type DSHCredentials = {
   apiKey: string;
+  personal?: boolean;
+  scoped?: boolean;
   baseUrl?: string;
   model?: string;
 };
@@ -27,7 +29,17 @@ export const getDSHCredentials = (config: CredentialConfig = getAppConfigValue<C
 };
 
 // Retained only to direct owners of an older command panel to configuration.
-// Credentials must never be written by chat commands.
+// Shared robot credentials must never be written by chat commands.
 export const saveDSHCredentials = (_credentials: DSHCredentials): Promise<void> => Promise.reject(new Error(managedByConfigMessage));
 
 export const removeDSHCredentials = (): Promise<void> => Promise.reject(new Error(managedByConfigMessage));
+
+// Bound credentials are request-scoped; never pass them to the shared supervisor.
+export const getChatCredentials = async (): Promise<DSHCredentials | null> => {
+  const { getBoundCredential } = await import('../credentials/scoped');
+  const personal = await getBoundCredential();
+
+  return personal
+    ? { apiKey: personal.apiKey, baseUrl: 'https://api.deepseek.com', scoped: true, personal: personal.scope.channelId.startsWith('private:') }
+    : getDSHCredentials();
+};

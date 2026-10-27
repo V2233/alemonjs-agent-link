@@ -401,4 +401,4 @@ const runCoordinatedChatInner = async (
 };
 
 export const runCoordinatedChat = (...args: Parameters<typeof runCoordinatedChatInner>): ReturnType<typeof runCoordinatedChatInner> =>
-  withBudgetScope({ platform: args[0].Platform || '', channelId: args[0].ChannelId }, () => runCoordinatedChatInner(...args));
+  withBudgetScope({ platform: args[0].Platform || '', channelId: args[0].ChannelId, userId: args[0].UserId }, () => runCoordinatedChatInner(...args));

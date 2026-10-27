@@ -61,7 +61,7 @@ export default async (): Promise<void> => {
           const selected = chooseSticker(items, query);
 
           if (!selected) {
-            await reply('没有找到这个表情，请发送 /表情 查看清单。');
+            await reply('未找到表情，/表情 查看清单。');
 
             return;
           }
@@ -69,7 +69,7 @@ export default async (): Promise<void> => {
 
           signal.throwIfAborted();
           if (!(await new SessionRegistry(config).claimSticker(channelId, settings.stickerCooldownSeconds))) {
-            await reply('表情发送冷却中，请稍后再试。');
+            await reply('表情冷却中，请稍后再发。');
 
             return;
           }

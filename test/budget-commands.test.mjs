@@ -13,6 +13,12 @@ test('owner quota grammar: current scope, remote group/private, exact cents and 
   });
   assert.deepEqual(parseBudgetCommand(['查询', '群', 'g2'], { ...owner, IsPrivate: true }), { action: 'query', scope: { platform: 'qq', channelId: 'g2' } });
   assert.equal(parseBudgetCommand(['记录'], owner).action, 'history');
+  assert.equal(parseBudgetCommand(['充值', '群', 'g1', '2'], owner).action, 'add');
+  assert.deepEqual(parseBudgetCommand(['充值', '私聊', 'u2', '2'], owner), {
+    action: 'add',
+    scope: { platform: 'qq', channelId: 'private:["qq","u2"]' },
+    amount: 2000000
+  });
   assert.equal(parseBudgetCommand(['帮助'], owner).action, 'help');
   assert.equal(parseBudgetCommand([], { ...owner, IsMaster: false }).action, 'query');
 });

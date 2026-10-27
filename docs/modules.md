@@ -85,7 +85,7 @@ export default {
 
 存在可用业务工具、回复转换模块或本轮系统提示词变化时，主模型通过兼容 Chat Completions 的 function tools 完成调用循环。存在工具时配置的模型服务必须支持工具调用；服务不支持时本轮报错，不假装执行成功。内置人格和心情见[人格、心情与自动表达](companion.md)。
 
-网页、文件和终端任务仍在已有隔离 DSH 会话中执行，主模型通过 `agent_workspace` 获取真实执行结果。该工具仅在沙箱已就绪且当前策略允许相应能力时提供。Node 降级模式只开放已注册的业务工具，不会通过模块工具获得宿主机终端权限。
+网页任务通过隔离 DSH 会话的 `agent_workspace` 执行，需要沙箱就绪和网页权限。文件由内置 `files` 模块的 `workspace_list/read/write/mkdir/move/delete` 工具执行，Node 模式也可用；路径固定在当前群或个人目录内，具体边界见 [安全说明](security.md#工具权限与隔离)。DSH 可通过 framework MCP 调用同一组受限文件工具，原生文件和终端工具始终禁用。
 
 模块工具回合的问答在全部回复成功送达后保存到会话历史，群聊和私聊按会话隔离。沿用 `privateHistoryMaxTurns`、`privateHistoryTtlSeconds`、`privateHistoryMaxChars` 的历史预算；`/new` 和数据清理同样覆盖这份历史。回复转换后的最终文本写入历史，图片仅保存文字占位。模块未提供工具或回复转换时沿用原有聊天链路。
 
@@ -133,8 +133,9 @@ DSH 的每次模型请求只增加两个工具定义，完整能力 schema 按�
 - `expose_discover({protocol, provider, action})`：读取该动作原始输入、输出 schema 和读写类型，`callable` 表示桥是否允许尝试。
 - `expose_read({protocol, provider, action, argumentsJson})`：执行只读动作。
 - `expose_write({protocol, provider, action, argumentsJson})`：执行提供插件公开且声明为 write 的动作，无需 Link 逐动作配置。
+- `expose_call({protocol, provider, action, argumentsJson})`：统一调用完整契约接口，包含声明为 unknown 或未标效果的查询。未知效果按可能改变状态的操作处理，保留防重与提供方授权。
 
-目录每次从 `Expose.list()` 读取，后加载的插件和后续新增动作无需逐项修改 AgentLink。执行走 `Expose.call()`，保留框架对输入、输出、授权、超时和取消的检查，默认单次接口时限 15 秒。`argumentsJson` 为按接口 schema 编码的 JSON 值；原始 schema 直接呈现，不转换成 AgentLink 的较小 schema 子集，避免丢失 null、minItems 等约束。缺少完整输入/输出契约或 `effect` 为 unknown 的动作可以查看，但无法执行；目录声明不代表账号已绑定或已获授权。
+目录每次从 `Expose.list()` 读取，后加载的插件和后续新增动作无需逐项修改 AgentLink。执行走 `Expose.call()`，保留框架对输入、输出、授权、超时和取消的检查，默认单次接口时限 15 秒。`argumentsJson` 为按接口 schema 编码的 JSON 值；原始 schema 直接呈现，不转换成 AgentLink 的较小 schema 子集，避免丢失 null、minItems 等约束。缺少完整输入/输出契约的动作可以查看但无法执行。`effect=unknown` 只代表提供方未明确标定效果，不代表权限拒绝；目录和动作详情返回 `executionTool` 与 `mayMutate`，模型应按推荐入口调用。目录声明不代表账号已绑定或已获授权。
 
 工具同步进入既有 DSH MCP 目录，DSH 可先发现 `expose_discover`，再通过 `mcp__framework__call` 查询插件能力与调用。Node 回复模型也可直接使用同一组工具。模型无需接触游戏服务端凭据。
 
@@ -150,14 +151,18 @@ alemonjs-agent-link:
 
 Link 不再要求 `writeActions`；历史同名配置不再参与动作准入。提供方须在 Expose 授权和业务接口中落实玩家身份、操作权限、确认及持久幂等，模型或机器人主人不能替玩家授权。提供方筛选只是允许尝试。桥要求可信框架消息上下文与本轮平台、机器人、发言人及会话匹配，不接受模型传入 callerApp 或替换消息身份。后台自主搭话不开放 Expose 工具；每条待合并消息保存其原始异步上下文，回复所选发言人时恢复对应上下文。身份不匹配仍拒绝调用。主人的机器人管理身份不能代替其他玩家授权。可通过 `modules.disabled: [expose]` 停用整座桥。
 
-同一请求对同一写动作复用首次回执，主模型与 DSH 的上下文副本也共享该记录；若首次明确返回 INVALID_INPUT 且 outcome=not_started，允许本轮纠正参数；其余已尝试的操作更换参数会拒绝再次执行。记录在模块内保留 30 分钟，最多 1000 条，满时拒绝新的写入。该保护不提供跨进程重启、模块重载或跨请求的持久幂等；这些保证必须由提供插件及游戏服务实现。失败回执保留 `callId`、错误代码与 `outcome`；unknown 表示可能已执行，不自动重试，也不能当作已成功。
+同一请求对同一写动作或未知效果动作复用首次回执，主模型与 DSH 的上下文副本也共享该记录；若首次明确返回 INVALID_INPUT 且 outcome=not_started，允许本轮纠正参数；其余已尝试的操作更换参数会拒绝再次执行。记录在模块内保留 30 分钟，最多 1000 条，满时拒绝新的写入。该保护不提供跨进程重启、模块重载或跨请求的持久幂等；这些保证必须由提供插件及游戏服务实现。失败回执保留 `callId`、错误代码与 `outcome`；unknown 表示可能已执行，不自动重试，也不能当作已成功。
 
 修仙插件当前的只读属性接口可按它实际注册的协议和 provider 调用，后续玩法是否开放以 Expose 目录为准。本桥不新增游戏玩法、不代替提供方实现确认流程或离线委托。
 
 验证：`node --test --test-force-exit test/expose-tools.test.mjs`；本地安装 DSH 后可执行 `node scripts/test_framework_runtime.mjs --expose`，通过真实 DSH 沙箱、Python 中转与本地模型测试桩验证 Expose 的发现、schema、调用和回执，并检查提供方接收到原始玩家身份与真实调用插件名。
 
-框架权限按回合隔离：每个带 MCP 的 DSH 工作区回合使用新的运行进程、独立 home 和一次性凭证，结束时撤销框架与模型代理凭证并结束进程组。后续回合不复用旧 home 的 profile、插件或凭证，只从受保护快照恢复原生 sessions/attachments 数据，并通过 SDK `resume_session` 恢复历史；快照复制忽略符号链接，限制目录深度、文件数量和体积。工作文件目录沿用当前群的隔离工作区。既有脱离进程组的后台进程也无法凭旧凭证调用后续回合。
+框架权限按回合隔离：每个带 MCP 的 DSH 工作区回合使用新的运行进程、独立 home 和一次性凭证，结束时撤销框架与模型代理凭证；成功回合先正常关闭 DSH，让原生日志刷盘，再结束进程组并保存快照。后续回合不复用旧 home 的 profile、插件或凭证，只从受保护快照恢复原生 sessions/attachments 数据，并通过 SDK `resume_session` 恢复历史；快照复制忽略符号链接，限制目录深度、文件数量和体积。用户文件位于独立的受限目录，通过 framework MCP 操作，不能直接访问。既有脱离进程组的后台进程也无法凭旧凭证调用后续回合。
 
 此路径锁定 DSH SDK/Runtime 0.2.1rc2，使用其原生恢复能力；管理虚拟环境启动探针会识别旧 SDK 并按锁定依赖更新。真实两回合恢复验证可用 `node scripts/test_framework_runtime.mjs --expose --two-turns`，测试 Python 可通过 `AGENT_LINK_TEST_PYTHON` 指定。轮换运行进程会增加工作区请求的初始化成本，普通 Node 聊天和直接 Expose 查询不受影响。
 
 该版本 DSH 的 DeepSeek 适配器使用 Messages 协议，桥支持其 x-api-key 鉴权并将官方默认地址映射至 `/anthropic/v1/messages`。第三方工作区模型网关需兼容 Messages；Node 普通聊天仍使用 Chat Completions。仅支持 Chat Completions 的网关可继续使用普通聊天，但不能据此声称新版 DSH 工作区兼容。
+
+桥自身的入口类型错误返回 `EFFECT_MISMATCH`（origin=link），并给出正确 `executionTool`；未发现能力返回 `CAPABILITY_NOT_FOUND`，缺少结构化契约返回 `CONTRACT_REQUIRED`。这些错误不冒用提供方的 `FORBIDDEN`。真正的 Expose 拒绝保留 callId、原错误代码及 outcome，并标记 origin=expose；一次拒绝不能被解释为所有查询未开放。用户要求查资料不授权顺便签到、领奖或使用其他无关动作测试权限。注意：`effect=unknown` 是接口效果声明，`error.outcome=unknown` 是某次执行结果不明，两者含义不同。
+
+回归验证可用 `node scripts/test_framework_runtime.mjs --expose --unknown-effect --two-turns`，检查真实 DSH 对未明确效果的查询经推荐入口调用，提供方收到可信身份并返回数据。
