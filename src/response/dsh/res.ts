@@ -1,3 +1,4 @@
+import { aiDisabledMessage } from '../../dsh/ai-switch';
 import { readMessageContext } from '../../social/message-context';
 import { Format, logger, useEvent, useMessage, useMedia } from 'alemonjs';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
@@ -66,6 +67,13 @@ export default async (): Promise<void> => {
 
   if (!event.ChannelId || (!text && !event.MessageMedia?.length && !referenceContext) || text.startsWith('/')) {
     await Promise.resolve(next());
+
+    return;
+  }
+  const config = getDSHConfig();
+
+  if (config.aiEnabled === false) {
+    if (prompt !== null) await message.send({ format: Format.create().addText(aiDisabledMessage(config)) });
 
     return;
   }

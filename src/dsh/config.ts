@@ -9,6 +9,8 @@ export type AgentConfig = Partial<DSHBridgeConfig> & { baseUrl?: string; apiKey?
 export type ConfigContext = { cwd?: string; configPath?: string; dataRoot?: string; hasRedis?: boolean };
 
 export type DSHBridgeConfig = {
+  aiEnabled?: boolean;
+  aiDisabledReason?: string;
   budget?: BudgetConfig;
   transport?: 'qq-bot' | 'onebot';
   replyGate?: { model?: string; baseUrl?: string; apiKey?: string };
@@ -59,6 +61,8 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
   const dataRoot = options.dataRoot ?? process.env.AGENT_LINK_DATA_DIR ?? join(base, '.data', 'agent-link');
   const pythonExecutable = process.platform === 'win32' ? join(dataRoot, 'venv', 'Scripts', 'python.exe') : join(dataRoot, 'venv', 'bin', 'python');
   const defaults: DSHBridgeConfig = {
+    aiEnabled: true,
+    aiDisabledReason: '',
     transport: 'qq-bot',
     groupWakeNames: [
       '帮我',
@@ -286,6 +290,9 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     config.groupWakeNames.some(name => typeof name !== 'string' || !name.trim() || name.length > 20 || name.trim() !== name || name.startsWith('/')) ||
     !['owner', 'all'].includes(config.privateChatAccess) ||
     typeof config.privateAutoReply !== 'boolean' ||
+    typeof config.aiEnabled !== 'boolean' ||
+    typeof config.aiDisabledReason !== 'string' ||
+    config.aiDisabledReason.length > 500 ||
     !['assistant', 'dafeiyu'].includes(config.persona) ||
     config.privateHistoryMaxTurns < 0 ||
     config.privateHistoryMaxTurns > 100 ||

@@ -1,3 +1,4 @@
+import { assertAIEnabled } from '../dsh/ai-switch';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
@@ -199,6 +200,7 @@ export const textBudgetInput = (body: { messages?: unknown; tools?: unknown }): 
 // The debit is durable BEFORE fetch. Missing usage, cancellation and crashes retain
 // the reservation; only a complete provider response can refund it, exactly once.
 export const budgetedFetch = async (config: DSHBridgeConfig, url: URL, init: RequestInit): Promise<Response> => {
+  assertAIEnabled(config);
   if (!budgetEnabled(config)) return fetch(url, init);
   init.signal?.throwIfAborted();
   const scope = context.getStore();
@@ -227,6 +229,7 @@ export const budgetedFetch = async (config: DSHBridgeConfig, url: URL, init: Req
 
   if (Number(admitted) !== 1) throw new BudgetExceededError();
   init.signal?.throwIfAborted();
+  assertAIEnabled(config);
   const response = await fetch(url, { ...init, body: JSON.stringify(body) });
 
   if (!response.ok || !response.body) return response;
@@ -433,6 +436,7 @@ export const claimBudgetNotice = async (scope: BudgetScope, messageId?: string):
 };
 
 export const assertBudgetAvailable = async (config: DSHBridgeConfig): Promise<void> => {
+  assertAIEnabled(config);
   if (!budgetEnabled(config)) return;
   const scope = context.getStore();
 
@@ -443,6 +447,7 @@ export const assertBudgetAvailable = async (config: DSHBridgeConfig): Promise<vo
 // DSH owns its internal loop. The anti-abuse budget counts the visible text turn,
 // not every hidden model/tool bill, so enabling budgets never removes its tools.
 export const reserveWorkspaceText = async (config: DSHBridgeConfig, input: string): Promise<(output: string) => Promise<void>> => {
+  assertAIEnabled(config);
   if (!budgetEnabled(config)) return async () => {};
   const scope = context.getStore();
 

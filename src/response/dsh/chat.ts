@@ -1,3 +1,4 @@
+import { aiDisabledMessage } from '../../dsh/ai-switch';
 import { readMessageContext, type MessageContextEvent } from '../../social/message-context';
 import { BudgetExceededError, claimBudgetNotice } from '../../billing/budget';
 import { QQStreamOutput, supportsQQStream, createQQSequenceAllocator } from '../../dsh/qq-stream';
@@ -130,6 +131,11 @@ export const runDSHChat = async (
   }
   if (event.IsPrivate && !canPrivateChat(event, config.privateChatAccess)) {
     await reply('仅机器人主人可在私聊中使用 Agent。');
+
+    return;
+  }
+  if (config.aiEnabled === false) {
+    if (!options.autonomous && !options.allowSilence) await reply(aiDisabledMessage(config));
 
     return;
   }

@@ -1,3 +1,4 @@
+import { assertAIEnabled } from '../dsh/ai-switch';
 import { startFrameworkMcp } from '../platform/mcp';
 import { withToolUsePolicy } from './tool-use-policy';
 import { drawingTool } from '../media/drawing';
@@ -27,6 +28,8 @@ const runModuleTurnInner = async (options: {
   onCompleted?: (signal: AbortSignal) => Promise<void>;
 }): Promise<void> => {
   const { config, sessionId, history, onEvent, onCompleted } = options;
+
+  assertAIEnabled(config);
   const context = { ...options.context, onSpeech: options.onSpeech || options.context.onSpeech };
   const lease = await (await getModuleRuntime(config)).acquire();
 

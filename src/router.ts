@@ -24,6 +24,9 @@ const commandGroup = router.group({
   duplicateKey: 'throw'
 });
 
+commandGroup.use({ path: '关闭', description: '主人全局关闭 AI 请求并设置原因' }, () => import('@src/response/ai-switch/res'));
+commandGroup.use({ path: '开启', description: '主人全局恢复 AI 请求' }, () => import('@src/response/ai-switch/res'));
+
 commandGroup.use(
   { path: '主动搭话', events: ['private.message.create'], description: '主人管理自己的主动搭话订阅' },
   () => import('@src/response/agent-proactive/res')

@@ -1,3 +1,4 @@
+import { assertAIEnabled } from './ai-switch';
 import { withToolUsePolicy } from '../agent/tool-use-policy';
 import { reserveWorkspaceText } from '../billing/budget';
 import { type ChatInput, withInputContext, inputText } from './input';
@@ -108,6 +109,7 @@ export const streamChat = async (
   onCompleted?: (signal: AbortSignal) => Promise<void>,
   framework?: { url: string; token: string }
 ): Promise<void> => {
+  assertAIEnabled(config);
   config = { ...config, defaultSystemPrompt: withToolUsePolicy(config.defaultSystemPrompt) };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
@@ -139,6 +141,7 @@ export const streamChat = async (
     let budgetText = '';
 
     signal.throwIfAborted();
+    assertAIEnabled(config);
     const response = await fetch(`${bridge.url}/v1/chat`, {
       method: 'POST',
       headers: { ...getHeaders(bridge.token), 'X-Agent-Link-User': userId },
@@ -284,6 +287,7 @@ export const toUserMessage = (error: unknown): string => {
   if (Object.hasOwn(publicErrors, error.message)) return publicErrors[error.message];
 
   if (
+    error.kind === 'disabled' ||
     error.kind === 'budget' ||
     error.kind === 'media' ||
     (error.kind === 'agent' &&
@@ -297,6 +301,7 @@ export const toUserMessage = (error: unknown): string => {
   }
 
   const messages: Record<DSHError['kind'], string> = {
+    disabled: 'AI 暂时关闭。',
     budget: '今日额度不足，请联系机器人主人充值或增加今日额度，也可等待北京时间零点刷新。',
     media: '媒体处理失败，请改用文字。',
     delivery: '回复发送失败，请稍后重试。',

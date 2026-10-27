@@ -1,3 +1,4 @@
+import { assertAIEnabled } from '../dsh/ai-switch';
 import { budgetEnabled, budgetStatus, type BudgetScope } from '../billing/budget';
 import { getDSHConfig } from '../dsh/client';
 import type { DSHBridgeConfig } from '../dsh/config';
@@ -97,6 +98,8 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
   try {
     signal.throwIfAborted();
     const config = getDSHConfig();
+
+    assertAIEnabled(config);
     const credentials = resolveReplyGateConnection(config, await getDSHCredentials());
 
     if (!credentials) {
@@ -139,6 +142,7 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
       if ((await budgetStatus(config, input.scope)).blocked) return { ...reject(), budgetBlocked: true };
     }
     signal.throwIfAborted();
+    assertAIEnabled(config);
     const response = await fetch(url, {
       method: 'POST',
       redirect: 'error',

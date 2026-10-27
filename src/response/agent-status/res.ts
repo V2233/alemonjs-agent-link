@@ -1,3 +1,4 @@
+import { aiDisabledMessage } from '../../dsh/ai-switch';
 import { budgetEnabled } from '../../billing/budget';
 import { getMediaConfig } from '@src/media/config';
 import { Format, logger, useEvent, useMessage, useConnection, ResultCode } from 'alemonjs';
@@ -37,7 +38,7 @@ export default async (): Promise<void> => {
     const event = eventContext.current;
     const policy = event.ChannelId && storeReady ? await registry.policy(event.ChannelId) : undefined;
 
-    if (!['ready', 'degraded'].includes(supervisor.status().phase)) {
+    if (config.aiEnabled !== false && !['ready', 'degraded'].includes(supervisor.status().phase)) {
       void supervisor.start().catch(error => logger.error({ err: error }, 'DSH bridge status startup failed'));
     }
 
@@ -76,6 +77,7 @@ export default async (): Promise<void> => {
       }
       text = [
         '# AgentLink · 管理状态',
+        config.aiEnabled === false ? `- AI 请求：全局关闭，原因：${aiDisabledMessage(config)}` : '- AI 请求：开启。',
         budgetEnabled(config) ? '- 每日额度：已开启，发送 /额度 查看。' : '- 每日额度：未设置。',
         `- 平台连接：${transport}。`,
         mediaStatus,
@@ -88,15 +90,18 @@ export default async (): Promise<void> => {
         .filter(Boolean)
         .join('\n');
     } else {
-      text = !credentials
-        ? '# AgentLink\n\n服务尚未配置完成，请联系机器人主人。'
-        : !storeReady
-          ? '# AgentLink\n\n会话数据暂时不可用，请让机器人主人查看服务状态后重试。'
-          : status.phase !== 'ready' && (status.chatReady || status.phase === 'degraded')
-            ? '# AgentLink\n\n当前为纯聊天模式，可发送问题；网页、文件和终端工具暂不可用。'
-            : status.phase === 'ready'
-              ? '# AgentLink\n\n服务正常，可以直接 @机器人 或发送 `/提问 问题`。'
-              : `# AgentLink\n\n服务正在准备中：${phaseMessage[status.phase]} 请稍后再试。`;
+      text =
+        config.aiEnabled === false
+          ? `# AgentLink\n\n${aiDisabledMessage(config)}`
+          : !credentials
+            ? '# AgentLink\n\n服务尚未配置完成，请联系机器人主人。'
+            : !storeReady
+              ? '# AgentLink\n\n会话数据暂时不可用，请让机器人主人查看服务状态后重试。'
+              : status.phase !== 'ready' && (status.chatReady || status.phase === 'degraded')
+                ? '# AgentLink\n\n当前为纯聊天模式，可发送问题；网页、文件和终端工具暂不可用。'
+                : status.phase === 'ready'
+                  ? '# AgentLink\n\n服务正常，可以直接 @机器人 或发送 `/提问 问题`。'
+                  : `# AgentLink\n\n服务正在准备中：${phaseMessage[status.phase]} 请稍后再试。`;
     }
     if (budgetEnabled(config) && !(event.IsPrivate && event.IsMaster)) {
       text += '\n\n发送 /额度 可查看今日剩余额度。';
