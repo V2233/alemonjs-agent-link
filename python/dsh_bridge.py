@@ -16,6 +16,8 @@ import urllib.error
 import urllib.request
 import re
 import shutil
+import stat
+import signal
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -51,7 +53,7 @@ CHAT_ONLY_PATCH = Path(__file__).with_name('chat_only.patch.yml')
 CHAT_ONLY_TOOL_IDS = (
     'tool-bash', 'tool-pwsh', 'tool-jobs', 'tool-fs', 'tool-fs-search', 'tool-skill',
     'tool-subagent-control', 'tool-subagent-list-agents', 'tool-subagent', 'tool-subagent-fork',
-    'tool-workflow', 'tool-todo', 'tool-goal', 'tool-ralph', 'tool-web'
+    'tool-workflow', 'tool-todo', 'tool-goal', 'tool-working-directory', 'tool-plugin-manager', 'tool-web'
 )
 SANDBOX_CHECK_LOCK = threading.Lock()
 SANDBOX_CHECK: tuple[bool, str, float] | None = None
@@ -85,7 +87,7 @@ class ClientDisconnected(WorkerError): pass
 class WorkerCapacityError(WorkerError): pass
 
 TOOL_IDS = ('tool-bash', 'tool-pwsh', 'tool-jobs', 'tool-fs', 'tool-fs-search', 'tool-web')
-PERMANENTLY_DISABLED_TOOL_IDS = ('tool-skill', 'tool-subagent-control', 'tool-subagent-list-agents', 'tool-subagent', 'tool-subagent-fork', 'tool-workflow', 'tool-todo', 'tool-goal', 'tool-ralph')
+PERMANENTLY_DISABLED_TOOL_IDS = ('tool-skill', 'tool-subagent-control', 'tool-subagent-list-agents', 'tool-subagent', 'tool-subagent-fork', 'tool-workflow', 'tool-todo', 'tool-goal', 'tool-working-directory', 'tool-plugin-manager')
 
 def valid_capabilities(value) -> dict | None:
     if not isinstance(value, dict) or set(value) != {'chat', 'web', 'files', 'terminal'} or not all(isinstance(value[key], bool) for key in value):
@@ -115,6 +117,42 @@ def framework_patch(port, token):
             '      config:\n        serverName: framework\n        transport: streamable-http\n'
             f'        url: {json.dumps(url)}\n        headers:\n          Authorization: "Bearer {token}"\n'
             '        toolCallTimeoutMs: 30000\n        failOnStartupError: true\n')
+
+def model_egress_target(base, tail, messages=False):
+    parsed = urlparse(base)
+    if messages and parsed.hostname == 'api.deepseek.com' and parsed.path.rstrip('/') in ('', '/v1'):
+        base = f'{parsed.scheme}://{parsed.netloc}/anthropic/v1'
+    return f'{base.rstrip("/")}/{tail}'
+
+def copy_session_tree(source, target, parent_fd=None):
+    """Copy bounded regular data using no-follow directory descriptors, never host symlinks."""
+    remaining = [128 * 1024 * 1024, 10000]
+    def copy_dir(source_fd, destination, depth=0):
+        if depth > 20: raise ValueError('session tree too deep')
+        destination.mkdir(parents=True, exist_ok=True)
+        for name in os.listdir(source_fd):
+            remaining[1] -= 1
+            if remaining[1] < 0: raise ValueError('session tree too large')
+            info = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=source_fd)
+                try: copy_dir(child, destination / name, depth + 1)
+                finally: os.close(child)
+            elif stat.S_ISREG(info.st_mode):
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=source_fd)
+                with os.fdopen(fd, 'rb') as reader:
+                    if not stat.S_ISREG(os.fstat(reader.fileno()).st_mode): continue
+                    with (destination / name).open('wb') as writer:
+                        while True:
+                            chunk = reader.read(65536)
+                            if not chunk: break
+                            remaining[0] -= len(chunk)
+                            if remaining[0] < 0: raise ValueError('session snapshot too large')
+                            writer.write(chunk)
+    try: root = os.open(source, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd)
+    except FileNotFoundError: return
+    try: copy_dir(root, target)
+    finally: os.close(root)
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     """The model credential must never follow a provider-controlled redirect."""
@@ -328,6 +366,10 @@ class Worker:
         self.proxy_token = os.urandom(32).hex()
         self.framework = None
         self.framework_enabled = False
+        self.turn_id = None
+        self.framework_token = None
+        self.session_epoch = os.urandom(16).hex()
+        self.persisted_sessions = set()
         self.lock = threading.Lock()
         self.process: subprocess.Popen[str] | None = None
         self.last_used = time.monotonic()
@@ -342,14 +384,17 @@ class Worker:
     @property
     def runtime_dir(self) -> Path: return RUNTIME_ROOT / self.key / 'runtime'
     @property
-    def dsh_home(self) -> Path: return HOME_ROOT / self.key / 'dsh-home'
+    def dsh_home(self) -> Path:
+        return HOME_ROOT / self.key / ('turns/' + self.turn_id if self.turn_id else 'dsh-home')
+    @property
+    def session_snapshot(self) -> Path: return HOME_ROOT / self.key / 'session-snapshot'
     @property
     def policy_patch(self) -> Path: return self.dsh_home / 'agent-link-tools.patch.yml'
 
     def start(self) -> None:
         if self.process and self.process.poll() is None: return
         self.runtime_dir.mkdir(parents=True, exist_ok=True); self.dsh_home.mkdir(parents=True, exist_ok=True)
-        self.policy_patch.write_text(tool_policy_patch(self.capabilities) + (framework_patch(self.port, self.proxy_token) if self.framework_enabled else ''), encoding='utf-8')
+        self.policy_patch.write_text(tool_policy_patch(self.capabilities) + (framework_patch(self.port, self.framework_token) if self.framework_enabled else ''), encoding='utf-8')
         # Do not inherit parent env: the actual model key stays only in this bridge.
         env = {
             'PATH': '/usr/bin:/bin', 'LANG': 'en_US.UTF-8', 'PYTHONIOENCODING': 'utf-8',
@@ -361,13 +406,14 @@ class Worker:
             # worker to its own workspace and DSH home.
             'DSH_PERMISSION_MODE': 'danger-full-access' if self.capabilities['files'] or self.capabilities['terminal'] else 'read-only',
             'DSH_CHAT_ONLY_PATCH': str(self.policy_patch),
+            'DSH_SESSION_EPOCH': self.session_epoch,
             'DSH_PROXY_TOKEN': self.proxy_token,
             'DSH_PROXY_BASE_URL': f'http://127.0.0.1:{self.port}/internal/egress/{self.proxy_token}',
         }
         self.stderr_lines.clear(); self.stderr_bytes = 0; self.last_event_type = 'started'; self.last_phase = 'worker-start'
         self.stdout_queue = queue.Queue()
         self.process = subprocess.Popen(sandbox_command(self.runtime_dir, self.dsh_home, self.port, self.capabilities['web']),
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', bufsize=1, env=env, cwd=str(self.runtime_dir))
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', bufsize=1, env=env, cwd=str(self.runtime_dir), start_new_session=True)
         assert self.process.stdout and self.process.stderr
         threading.Thread(target=self._drain_stdout, args=(self.process.stdout, self.stdout_queue), name=f'dsh-stdout-{self.key[:8]}', daemon=True).start()
         # stderr is diagnostic-only, but it must be drained continuously.  DSH
@@ -407,10 +453,16 @@ class Worker:
     def stop(self) -> None:
         if self.idle_timer: self.idle_timer.cancel(); self.idle_timer = None
         process, self.process = self.process, None
-        if process and process.poll() is None:
-            process.terminate()
+        if process:
+            # The Python worker owns a separate process group, including the native
+            # Harness and normal tool subprocesses. Revocation does not depend on cleanup.
+            try: os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError: pass
             try: process.wait(timeout=2)
-            except subprocess.TimeoutExpired: process.kill(); process.wait()
+            except subprocess.TimeoutExpired: pass
+            try: os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            process.wait()
 
     def schedule_idle_close(self) -> None:
         if self.idle_timer: self.idle_timer.cancel()
@@ -418,23 +470,63 @@ class Worker:
             if time.monotonic() - self.last_used >= WORKER_IDLE_SECONDS: discard_worker(self.key)
         self.idle_timer = threading.Timer(WORKER_IDLE_SECONDS, close_if_idle); self.idle_timer.daemon = True; self.idle_timer.start()
 
+    def restore_session_data(self):
+        # Restore data only; executable profiles/plugins and credentials are regenerated.
+        for name in ('sessions', 'attachments'):
+            copy_session_tree(self.session_snapshot / name, self.dsh_home / name)
+
+    def save_session_data(self):
+        # The snapshot location is outside every model sandbox's writable home.
+        staging = self.session_snapshot.with_name('snapshot-' + os.urandom(16).hex())
+        try:
+            staging.mkdir(parents=True, exist_ok=True)
+            root = os.open(self.dsh_home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                for name in ('sessions', 'attachments'):
+                    copy_session_tree(name, staging / name, parent_fd=root)
+            finally: os.close(root)
+            old = self.session_snapshot.with_name('snapshot-old-' + os.urandom(16).hex())
+            if self.session_snapshot.exists(): self.session_snapshot.rename(old)
+            staging.rename(self.session_snapshot)
+            shutil.rmtree(old, ignore_errors=True)
+        finally: shutil.rmtree(staging, ignore_errors=True)
+
     def run(self, message: str, session_id: str, on_content, framework=None) -> dict:
         with self.lock:
             enabled = framework is not None
-            if self.framework_enabled != enabled:
+            if enabled or self.framework_enabled != enabled:
                 self.stop()
             self.framework_enabled = enabled
+            if enabled:
+                self.turn_id = os.urandom(16).hex()
+                self.proxy_token = os.urandom(32).hex()
+                self.framework_token = os.urandom(32).hex()
             self.framework = framework
+            completed = False
             try:
-                return self._run(message, session_id, on_content)
+                if enabled: self.restore_session_data()
+                result = self._run(message, session_id, on_content)
+                completed = True
+                return result
             finally:
                 self.framework = None
+                self.framework_token = None
+                try:
+                    if enabled:
+                        self.proxy_token = os.urandom(32).hex()
+                        self.stop()
+                        if completed:
+                            self.save_session_data()
+                            self.persisted_sessions.add(session_id)
+                finally:
+                    if enabled: shutil.rmtree(self.dsh_home, ignore_errors=True)
+                    self.turn_id = None
 
     def _run(self, message: str, session_id: str, on_content) -> dict:
         # Caller holds the worker lock for the whole turn, including MCP callbacks.
         self.start(); self.last_used = time.monotonic()
         assert self.process and self.process.stdin and self.process.stdout
-        self.process.stdin.write(json.dumps({'type': 'chat', 'message': message, 'sessionId': session_id}, ensure_ascii=False) + '\n'); self.process.stdin.flush()
+        self.process.stdin.write(json.dumps({'type': 'chat', 'message': message, 'sessionId': session_id, 'resume': self.framework_enabled and session_id in self.persisted_sessions}, ensure_ascii=False) + '\n'); self.process.stdin.flush()
         deadline = time.monotonic() + WORKER_TIMEOUT_SECONDS
         while True:
             remaining = deadline - time.monotonic()
@@ -592,7 +684,7 @@ class Handler(BaseHTTPRequestHandler):
             discard_worker(key); print(f'worker failed key={key[:12]} error={error}', file=sys.stderr); send_sse(self, {'type': 'error', 'message': 'DSH Agent execution failed'})
     def proxy_framework(self):
         token = self.path.removeprefix('/internal/framework/')
-        with WORKERS_LOCK: worker = next((item for item in WORKERS.values() if item.proxy_token == token), None)
+        with WORKERS_LOCK: worker = next((item for item in WORKERS.values() if item.framework_token == token), None)
         endpoint = worker.framework if worker else None
         if not endpoint or self.headers.get('Authorization') != f'Bearer {token}': self.send_error(HTTPStatus.UNAUTHORIZED); return
         try:
@@ -619,11 +711,11 @@ class Handler(BaseHTTPRequestHandler):
         _, _, suffix = self.path.partition('/internal/egress/')
         token, _, tail = suffix.partition('/')
         with WORKERS_LOCK: worker = next((item for item in WORKERS.values() if item.proxy_token == token), None)
-        if worker is None or self.headers.get('Authorization') != f'Bearer {token}': self.send_error(HTTPStatus.UNAUTHORIZED); return
+        if worker is None or not (self.headers.get('Authorization') == f'Bearer {token}' or self.headers.get('x-api-key') == token): self.send_error(HTTPStatus.UNAUTHORIZED); return
         parsed_tail = urlparse(tail)
         if not tail or parsed_tail.scheme or parsed_tail.netloc or any(unquote(part) == '..' for part in parsed_tail.path.split('/')):
             self.send_error(HTTPStatus.BAD_REQUEST); return
-        target = f'{MODEL_BASE_URL.rstrip("/")}/{tail}'
+        target = model_egress_target(MODEL_BASE_URL, tail, self.headers.get('x-api-key') == token)
         try:
             length = int(self.headers.get('Content-Length', '0'))
         except ValueError:
@@ -631,7 +723,13 @@ class Handler(BaseHTTPRequestHandler):
         if length < 0 or length > MAX_IMAGE_BODY:
             self.send_error(HTTPStatus.REQUEST_ENTITY_TOO_LARGE); return
         body = self.rfile.read(length) if length else None
-        headers = {'Authorization': f'Bearer {MODEL_API_KEY}', 'Accept': self.headers.get('Accept', 'application/json'), 'Content-Type': self.headers.get('Content-Type', 'application/json')}
+        headers = {'Accept': self.headers.get('Accept', 'application/json'), 'Content-Type': self.headers.get('Content-Type', 'application/json')}
+        if self.headers.get('x-api-key') == token:
+            headers['x-api-key'] = MODEL_API_KEY
+            for name in ('anthropic-version', 'anthropic-beta'):
+                if self.headers.get(name): headers[name] = self.headers[name]
+        else:
+            headers['Authorization'] = f'Bearer {MODEL_API_KEY}'
         request = urllib.request.Request(target, data=body, headers=headers, method='POST')
         started_at = time.monotonic()
         try:

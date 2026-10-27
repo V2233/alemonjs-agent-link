@@ -1,3 +1,4 @@
+import { exposeModule } from '../modules/expose';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, readdir, lstat, writeFile, rename, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -234,6 +235,7 @@ export class ModuleRuntime {
       personaModule(config),
       moodModule(config),
       platformModule(config),
+      exposeModule(),
       groupAdminModule(config),
       proactiveModule(config),
       voiceModule(config),

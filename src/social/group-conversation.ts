@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { MessageContext } from './message-context';
 import { MessageFragments, speechControl } from './message-fragments';
 import { LoopGuard } from './loop-guard';
@@ -115,6 +116,11 @@ export class GroupConversationCoordinator {
   }
 
   async receive(message: GroupMessage, policy: GroupChatPolicy, respond: (batch: GroupBatch) => Promise<GroupBatchResult>): Promise<GroupReplyDecision> {
+    // Each pending entry keeps the actual sender's framework/runtime context.
+    const runInScope = AsyncLocalStorage.snapshot();
+    const originalRespond = respond;
+
+    respond = batch => runInScope(originalRespond, batch);
     const state = this.state(message.channelId);
     const now = this.now();
 

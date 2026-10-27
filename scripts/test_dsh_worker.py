@@ -93,5 +93,27 @@ class InitializationTests(unittest.TestCase):
         self.assertEqual(worker.execution_error_code(RuntimeError('Unsupported or malformed image data.')), 'invalid-image')
 
 
+class NativeResumeTests(unittest.TestCase):
+    def test_restored_turn_uses_native_resume_without_creating_an_empty_session(self):
+        events, resumed = [], []
+        class Harness:
+            def start(self): pass
+            def close(self): pass
+            def start_session(self, _id): raise AssertionError('must explicitly resume persisted history')
+            def resume_session(self, session_id):
+                resumed.append(session_id)
+                return SimpleNamespace(run=lambda *_args, **_kwargs: SimpleNamespace(final_response='restored', finish_reason='completed', events=[]))
+        modules = {
+            'deepseek_harness': SimpleNamespace(DeepSeekHarness=lambda **_kwargs: Harness()),
+            'deepseek_harness_runtime': SimpleNamespace(bundled_runtime_path=lambda: Path('/tmp/runtime')),
+        }
+        env = {'DSH_PROXY_TOKEN': 'fixture', 'DSH_PROXY_BASE_URL': 'http://127.0.0.1:1',
+               'DSH_CHAT_ONLY_PATCH': '/tmp/patch', 'DSH_SESSION_EPOCH': 'stable-epoch'}
+        command = json.dumps({'type': 'chat', 'sessionId': 'fixture-session', 'message': 'continue', 'resume': True}) + '\n'
+        with patch.dict('sys.modules', modules), patch.dict(os.environ, env), patch('sys.stdin', io.StringIO(command)), patch.object(worker, 'emit', events.append):
+            self.assertEqual(worker.main(), 0)
+        self.assertEqual(resumed, ['fixture-session:wstable-epoch'])
+        self.assertEqual(events[-1]['content'], 'restored')
+
 if __name__ == '__main__':
     unittest.main()

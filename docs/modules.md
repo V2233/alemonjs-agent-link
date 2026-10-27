@@ -121,6 +121,43 @@ AgentLink 发起 `agent_workspace` 请求时，为本轮创建仅监听 127.0.0.
 
 目录来自本轮模块租约中实际注册并通过 `available(context)` 的工具，包含平台查询及其他已开放业务能力，自动排除 `agent_workspace` 防止递归。新增模块工具无需另外编写 DSH 工具适配；未登记的框架底层方法不会被任意反射暴露。目录只表示本轮允许尝试，不表示平台账号权限已核验，也不是 AlemonJS 全部 API 的清单。
 
-DSH 的每次模型请求只增加两个工具定义，完整能力 schema 按需读取。Node 在原有异步运行上下文中执行，复用 `executeTool` 的参数校验、可用性检查和主动消息限制；群管理继续使用主人校验、白名单与账本。模型不能传入或覆盖可信会话身份。单轮最多执行 16 次业务调用，不允许并行重入；结束或取消后撤销入口。Python 中转仅接受当前 Worker token，转发地址必须是经过主服务鉴权提交的固定格式回环地址，不跟随重定向。
+DSH 的每次模型请求只增加两个工具定义，完整能力 schema 按需读取。Node 在原有异步运行上下文中执行，复用 `executeTool` 的参数校验、可用性检查和主动消息限制；群管理继续使用主人校验、白名单与账本。模型不能传入或覆盖可信会话身份。单轮最多执行 16 次业务调用，不允许并行重入；结束或取消后撤销入口。Python 中转仅接受当前回合的独立框架凭证，转发地址必须是经过主服务鉴权提交的固定格式回环地址，不跟随重定向。
 
 验证：`node --test --test-force-exit test/framework-mcp.test.mjs test/group-info.test.mjs test/onebot.test.mjs`；Python 桥测试使用 `python3 -m unittest scripts/test_dsh_bridge.py scripts/test_dsh_worker.py`。安装本地 DSH 虚拟环境并完成构建后，可运行 `node scripts/test_framework_runtime.mjs`，使用真实 DSH Runtime、OS 沙箱、Python 中转与本地模型测试桩验证发现→schema→调用→回执→回答，不消耗在线模型额度或发送 QQ 消息。真实 QQ 账号的接口权限仍需部署环境验证。
+
+### 自动发现其他插件的 Expose 能力
+
+内置 `expose` 模块默认启用，要求宿主 AlemonJS 2.1.118 或更新兼容版本。其他插件与 AgentLink 由同一 AlemonJS 运行实例加载并注册 Expose 后，模型可以使用：
+
+- `expose_discover({})`：分页读取精简目录，每页 30 个动作，可用 `protocol`、`provider` 筛选，`offset` 翻页。
+- `expose_discover({protocol, provider, action})`：读取该动作原始输入、输出 schema 和读写类型，`callable` 表示桥是否允许尝试。
+- `expose_read({protocol, provider, action, argumentsJson})`：执行只读动作。
+- `expose_write({protocol, provider, action, argumentsJson})`：执行提供插件公开且声明为 write 的动作，无需 Link 逐动作配置。
+
+目录每次从 `Expose.list()` 读取，后加载的插件和后续新增动作无需逐项修改 AgentLink。执行走 `Expose.call()`，保留框架对输入、输出、授权、超时和取消的检查，默认单次接口时限 15 秒。`argumentsJson` 为按接口 schema 编码的 JSON 值；原始 schema 直接呈现，不转换成 AgentLink 的较小 schema 子集，避免丢失 null、minItems 等约束。缺少完整输入/输出契约或 `effect` 为 unknown 的动作可以查看，但无法执行；目录声明不代表账号已绑定或已获授权。
+
+工具同步进入既有 DSH MCP 目录，DSH 可先发现 `expose_discover`，再通过 `mcp__framework__call` 查询插件能力与调用。Node 回复模型也可直接使用同一组工具。模型无需接触游戏服务端凭据。
+
+默认接入提供插件公开的完整读写契约。可选配置仅用于限制提供方：
+
+```yaml
+alemonjs-agent-link:
+  modules:
+    settings:
+      expose:
+        providers: [xiuxian-game] # 可省略；空数组拒绝全部提供方
+```
+
+Link 不再要求 `writeActions`；历史同名配置不再参与动作准入。提供方须在 Expose 授权和业务接口中落实玩家身份、操作权限、确认及持久幂等，模型或机器人主人不能替玩家授权。提供方筛选只是允许尝试。桥要求可信框架消息上下文与本轮平台、机器人、发言人及会话匹配，不接受模型传入 callerApp 或替换消息身份。后台自主搭话不开放 Expose 工具；每条待合并消息保存其原始异步上下文，回复所选发言人时恢复对应上下文。身份不匹配仍拒绝调用。主人的机器人管理身份不能代替其他玩家授权。可通过 `modules.disabled: [expose]` 停用整座桥。
+
+同一请求对同一写动作复用首次回执，主模型与 DSH 的上下文副本也共享该记录；若首次明确返回 INVALID_INPUT 且 outcome=not_started，允许本轮纠正参数；其余已尝试的操作更换参数会拒绝再次执行。记录在模块内保留 30 分钟，最多 1000 条，满时拒绝新的写入。该保护不提供跨进程重启、模块重载或跨请求的持久幂等；这些保证必须由提供插件及游戏服务实现。失败回执保留 `callId`、错误代码与 `outcome`；unknown 表示可能已执行，不自动重试，也不能当作已成功。
+
+修仙插件当前的只读属性接口可按它实际注册的协议和 provider 调用，后续玩法是否开放以 Expose 目录为准。本桥不新增游戏玩法、不代替提供方实现确认流程或离线委托。
+
+验证：`node --test --test-force-exit test/expose-tools.test.mjs`；本地安装 DSH 后可执行 `node scripts/test_framework_runtime.mjs --expose`，通过真实 DSH 沙箱、Python 中转与本地模型测试桩验证 Expose 的发现、schema、调用和回执，并检查提供方接收到原始玩家身份与真实调用插件名。
+
+框架权限按回合隔离：每个带 MCP 的 DSH 工作区回合使用新的运行进程、独立 home 和一次性凭证，结束时撤销框架与模型代理凭证并结束进程组。后续回合不复用旧 home 的 profile、插件或凭证，只从受保护快照恢复原生 sessions/attachments 数据，并通过 SDK `resume_session` 恢复历史；快照复制忽略符号链接，限制目录深度、文件数量和体积。工作文件目录沿用当前群的隔离工作区。既有脱离进程组的后台进程也无法凭旧凭证调用后续回合。
+
+此路径锁定 DSH SDK/Runtime 0.2.1rc2，使用其原生恢复能力；管理虚拟环境启动探针会识别旧 SDK 并按锁定依赖更新。真实两回合恢复验证可用 `node scripts/test_framework_runtime.mjs --expose --two-turns`，测试 Python 可通过 `AGENT_LINK_TEST_PYTHON` 指定。轮换运行进程会增加工作区请求的初始化成本，普通 Node 聊天和直接 Expose 查询不受影响。
+
+该版本 DSH 的 DeepSeek 适配器使用 Messages 协议，桥支持其 x-api-key 鉴权并将官方默认地址映射至 `/anthropic/v1/messages`。第三方工作区模型网关需兼容 Messages；Node 普通聊天仍使用 Chat Completions。仅支持 Chat Completions 的网关可继续使用普通聊天，但不能据此声称新版 DSH 工作区兼容。

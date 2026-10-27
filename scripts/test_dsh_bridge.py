@@ -237,6 +237,7 @@ class BridgeSafetyTests(unittest.TestCase):
         worker = self.bridge.Worker('a' * 64, 1, {'chat': True, 'web': False, 'files': False, 'terminal': False})
         endpoint = {'url': 'http://127.0.0.1:12345/mcp', 'token': 'a' * 64}
         def success(*_args):
+            worker.dsh_home.mkdir(parents=True, exist_ok=True)
             self.assertEqual(worker.framework, endpoint)
             return {'type': 'result'}
         worker._run = success
@@ -250,6 +251,83 @@ class BridgeSafetyTests(unittest.TestCase):
         self.assertIn('@deepseek-ai/dsh-mcp-client', patch)
         self.assertIn('serverName: framework', patch)
 
+
+    def test_framework_grants_rotate_and_old_tokens_cannot_reach_later_turns(self):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import urllib.request
+        import urllib.error
+        self.bridge.RUNTIME_PATH = Path('/tmp/runtime-fixture')
+        worker = self.bridge.Worker('b' * 64, 1, {'chat': True, 'web': False, 'files': False, 'terminal': False})
+        self.bridge.WORKERS[worker.key] = worker
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *_): pass
+            def do_POST(self):
+                self.send_response(200); self.end_headers(); self.wfile.write(b'{"ok":true}')
+        upstream = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
+        proxy = ThreadingHTTPServer(('127.0.0.1', 0), self.bridge.Handler)
+        for server in (upstream, proxy): threading.Thread(target=server.serve_forever, daemon=True).start()
+        endpoint = {'url': f'http://127.0.0.1:{upstream.server_port}/mcp', 'token': 'c' * 64}
+        tokens, homes = [], []
+        def request(token):
+            req = urllib.request.Request(f'http://127.0.0.1:{proxy.server_port}/internal/framework/{token}', data=b'{}', headers={'Authorization': f'Bearer {token}'})
+            try:
+                with urllib.request.urlopen(req, timeout=3) as response: return response.status
+            except urllib.error.HTTPError as error:
+                code = error.code; error.close(); return code
+        def run(*_):
+            worker.dsh_home.mkdir(parents=True, exist_ok=True)
+            if tokens: self.assertEqual(request(tokens[-1]), 401)
+            tokens.append(worker.framework_token); homes.append(worker.dsh_home)
+            self.assertEqual(request(tokens[-1]), 200)
+            return {'type': 'result'}
+        worker._run = run
+        try:
+            worker.run('one', 'session', lambda _: None, endpoint)
+            self.assertEqual(request(tokens[0]), 401)
+            worker.run('two', 'session', lambda _: None, endpoint)
+            self.assertNotEqual(tokens[0], tokens[1]); self.assertNotEqual(homes[0], homes[1])
+            self.assertIsNone(worker.framework_token)
+            self.assertFalse(homes[0].exists()); self.assertFalse(homes[1].exists())
+        finally:
+            for server in (proxy, upstream): server.shutdown(); server.server_close()
+            self.bridge.WORKERS.clear()
+
+    def test_session_snapshot_never_copies_configuration_or_follows_symlinks(self):
+        self.bridge.RUNTIME_PATH = Path('/tmp/runtime-fixture')
+        worker = self.bridge.Worker('c' * 64, 1, {'chat': True, 'web': False, 'files': False, 'terminal': False})
+        worker.turn_id = 'one'
+        (worker.dsh_home / 'sessions').mkdir(parents=True)
+        (worker.dsh_home / 'sessions' / 'history.jsonl').write_text('fixture history')
+        (worker.dsh_home / 'profiles').mkdir()
+        (worker.dsh_home / 'profiles' / 'unsafe.yml').write_text('old secret')
+        outside = self.root / 'outside.txt'; outside.write_text('must not copy')
+        (worker.dsh_home / 'sessions' / 'link').symlink_to(outside)
+        worker.save_session_data()
+        worker.turn_id = 'two'; worker.restore_session_data()
+        self.assertEqual((worker.dsh_home / 'sessions' / 'history.jsonl').read_text(), 'fixture history')
+        self.assertFalse((worker.dsh_home / 'profiles').exists())
+        self.assertFalse((worker.dsh_home / 'sessions' / 'link').exists())
+
+    def test_messages_proxy_uses_official_deepseek_endpoint_without_changing_compatible_origins(self):
+        target = self.bridge.model_egress_target
+        self.assertEqual(target('https://api.deepseek.com', 'messages', True), 'https://api.deepseek.com/anthropic/v1/messages')
+        self.assertEqual(target('https://api.deepseek.com/v1', 'messages', True), 'https://api.deepseek.com/anthropic/v1/messages')
+        self.assertEqual(target('https://api.deepseek.com', 'chat/completions'), 'https://api.deepseek.com/chat/completions')
+        self.assertEqual(target('https://gateway.example/v1', 'messages', True), 'https://gateway.example/v1/messages')
+
+    @unittest.skipUnless(platform.system() == 'Darwin', 'macOS sandbox required')
+    def test_previous_turn_sandbox_cannot_read_new_turn_credentials(self):
+        from sandbox_profile import macos_profile
+        old_home = self.root / 'turns' / 'old'
+        new_home = self.root / 'turns' / 'new'
+        workspace = self.root / 'workspace'
+        for directory in (old_home, new_home, workspace): directory.mkdir(parents=True)
+        secret = new_home / 'agent-link-tools.patch.yml'
+        secret.write_text('new-turn-credential-fixture')
+        profile = macos_profile(workspace, old_home, Path(sys.executable), Path(sys.prefix), Path(__file__), Path(__file__), 19879)
+        code = f'try: open({str(secret)!r}).read()\nexcept PermissionError: pass\nelse: raise AssertionError("new turn credentials readable")\n'
+        result = subprocess.run(['/usr/bin/sandbox-exec', '-p', profile, sys.executable, '-c', code], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 if __name__ == '__main__':
     unittest.main()

@@ -61,7 +61,10 @@ export const runQuiet = (command: string, args: string[], timeout: number, signa
     });
   });
 
-const probe = ['-c', 'from deepseek_harness import DeepSeekHarness; from deepseek_harness_runtime import bundled_runtime_path; bundled_runtime_path()'];
+const probe = [
+  '-c',
+  'from deepseek_harness import DeepSeekHarness; from deepseek_harness_runtime import bundled_runtime_path; assert callable(getattr(DeepSeekHarness, "resume_session", None)), "DSH SDK requires native session resume support"; bundled_runtime_path()'
+];
 
 export const preparePython = async (
   config: DSHBridgeConfig,

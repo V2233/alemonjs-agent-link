@@ -90,6 +90,8 @@ test('DSH client includes the scoped callback only when supplied', async () => {
   const { streamChat, getDSHConfig } = await import('../lib/dsh/client.js');
   const { setDSHBridgeForTesting } = await import('../lib/dsh/supervisor.js');
   const original = globalThis.fetch;
+  const previousConfig = globalThis.__config;
+  globalThis.__config = { value: { 'alemonjs-agent-link': { aiEnabled: true } } };
   const captured = [];
   setDSHBridgeForTesting({ url: 'http://dsh.test', token: 'fixture' });
   globalThis.fetch = async (_url, options) => {
@@ -106,5 +108,6 @@ test('DSH client includes the scoped callback only when supplied', async () => {
   } finally {
     globalThis.fetch = original;
     setDSHBridgeForTesting(undefined);
+    globalThis.__config = previousConfig;
   }
 });

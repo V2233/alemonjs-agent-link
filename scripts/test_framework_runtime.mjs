@@ -5,63 +5,161 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { Expose, registerExpose, disposeExpose, withEventContext, getCurrentEvent } from 'alemonjs';
+import { exposeModule } from '../lib/modules/expose.js';
 import { startFrameworkMcp } from '../lib/platform/mcp.js';
+const exposeMode = process.argv.includes('--expose');
+const twoTurns = process.argv.includes('--two-turns');
+const previousConfig = globalThis.__config;
+globalThis.__config = { value: { 'alemonjs-agent-link': { aiEnabled: true } } };
 const root = await mkdtemp(join(tmpdir(), 'agent-link-mcp-runtime-'));
-const python = resolve('.data/agent-link/venv/bin/python');
+const python = process.env.AGENT_LINK_TEST_PYTHON || resolve('.data/agent-link/venv/bin/python');
 let executed = 0;
 let requests = 0;
 let failure;
-const bridge = await startFrameworkMcp(
-  [
+const event = { name: 'message.create', Platform: 'qq-bot', BotId: '900', ChannelId: '200', UserId: '100', IsPrivate: false };
+const context = {
+  platform: 'qq-bot',
+  botId: '900',
+  channelId: '200',
+  userId: '100',
+  private: false,
+  owner: false,
+  requestId: 'fixture-turn',
+  capabilities: { chat: true },
+  signal: new AbortController().signal
+};
+const exposeTools = [];
+if (exposeMode) {
+  registerExpose('fixture-game', [
     {
-      name: 'fixture_group_info',
-      readOnly: true,
-      description: 'Query current group',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
-      execute: async () => {
-        executed++;
-        return { name: '测试群', memberCount: 42 };
+      name: 'fixture.player.v1',
+      description: 'Fixture game',
+      actions: {
+        stats: Expose.action({
+          description: 'Current player stats',
+          effect: 'read',
+          inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+          outputSchema: { type: 'object', properties: { hp: { type: 'integer' } }, required: ['hp'], additionalProperties: false },
+          authorize: (_input, call) => call.callerApp === 'alemonjs-agent-link' && getCurrentEvent()?.UserId === '100',
+          handler: async () => {
+            executed++;
+            return { hp: 42 };
+          }
+        })
       }
     }
-  ],
-  {
-    platform: 'onebot',
-    channelId: '200',
-    userId: '100',
-    private: false,
-    owner: false,
-    capabilities: { chat: true },
-    signal: new AbortController().signal
-  }
+  ]);
+  exposeModule().setup({ settings: {}, tool: tool => exposeTools.push(tool) });
+}
+const bridge = await withEventContext(
+  event,
+  () => {},
+  () =>
+    startFrameworkMcp(
+      exposeMode
+        ? exposeTools
+        : [
+            {
+              name: 'fixture_group_info',
+              readOnly: true,
+              description: 'Query current group',
+              parameters: { type: 'object', properties: {}, additionalProperties: false },
+              execute: async () => {
+                executed++;
+                return { name: '测试群', memberCount: 42 };
+              }
+            }
+          ],
+      context
+    ),
+  { appName: 'alemonjs-agent-link' }
 );
 const model = createServer(async (request, response) => {
   try {
     let raw = '';
     for await (const chunk of request) raw += chunk;
     const body = JSON.parse(raw);
-    const names = (body.tools || []).map(tool => tool.function?.name);
+    const messagesApi = request.url.includes('/messages');
+    const names = (body.tools || []).map(tool => tool.function?.name || tool.name);
     assert.ok(names.includes('mcp__framework__discover'), JSON.stringify(names));
     assert.ok(names.includes('mcp__framework__call'), JSON.stringify(names));
     const step = requests++;
-    const choices = [
-      ['mcp__framework__discover', {}],
-      ['mcp__framework__discover', { name: 'fixture_group_info' }],
-      ['mcp__framework__call', { name: 'fixture_group_info', argumentsJson: '{}' }]
-    ];
-    if (step === 3) assert.ok(JSON.stringify(body.messages).includes('42'));
+    if (twoTurns && step > (exposeMode ? 4 : 3)) {
+      assert.ok(
+        body.messages.some(item => item.role === 'assistant' && JSON.stringify(item.content).includes('测试群有42人')),
+        'native DSH history was not restored'
+      );
+    }
+    const target = { protocol: 'fixture.player.v1', provider: 'fixture-game', action: 'stats' };
+    const choices = exposeMode
+      ? [
+          ['mcp__framework__discover', {}],
+          ['mcp__framework__call', { name: 'expose_discover', argumentsJson: '{}' }],
+          ['mcp__framework__call', { name: 'expose_discover', argumentsJson: JSON.stringify(target) }],
+          ['mcp__framework__call', { name: 'expose_read', argumentsJson: JSON.stringify({ ...target, argumentsJson: '{}' }) }]
+        ]
+      : [
+          ['mcp__framework__discover', {}],
+          ['mcp__framework__discover', { name: 'fixture_group_info' }],
+          ['mcp__framework__call', { name: 'fixture_group_info', argumentsJson: '{}' }]
+        ];
+    if (step === choices.length) assert.ok(JSON.stringify(body.messages).includes('42'));
     const message =
-      step < 3
+      step < choices.length
         ? {
             role: 'assistant',
             content: '',
             tool_calls: [{ id: `fixture-${step}`, type: 'function', function: { name: choices[step][0], arguments: JSON.stringify(choices[step][1]) } }]
           }
         : { role: 'assistant', content: '测试群有42人。' };
-    if (body.stream) {
+    if (messagesApi) {
+      const content =
+        step < choices.length
+          ? { type: 'tool_use', id: `fixture-${step}`, name: choices[step][0], input: choices[step][1] }
+          : { type: 'text', text: '测试群有42人。' };
+      const stop = step < choices.length ? 'tool_use' : 'end_turn';
+      const messageValue = {
+        id: `fixture-${step}`,
+        type: 'message',
+        role: 'assistant',
+        model: 'deepseek-v4-flash',
+        content: [content],
+        stop_reason: stop,
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 }
+      };
+      if (body.stream) {
+        const frame = value => `event: ${value.type}\ndata: ${JSON.stringify(value)}\n\n`;
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.end(
+          [
+            { type: 'message_start', message: { ...messageValue, content: [], stop_reason: null } },
+            { type: 'content_block_start', index: 0, content_block: content.type === 'tool_use' ? { ...content, input: {} } : { type: 'text', text: '' } },
+            {
+              type: 'content_block_delta',
+              index: 0,
+              delta:
+                content.type === 'tool_use'
+                  ? { type: 'input_json_delta', partial_json: JSON.stringify(content.input) }
+                  : { type: 'text_delta', text: content.text }
+            },
+            { type: 'content_block_stop', index: 0 },
+            { type: 'message_delta', delta: { stop_reason: stop, stop_sequence: null }, usage: { output_tokens: 1 } },
+            { type: 'message_stop' }
+          ]
+            .map(frame)
+            .join('')
+        );
+      } else {
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(JSON.stringify(messageValue));
+      }
+    } else if (body.stream) {
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       const delta = { ...message, ...(message.tool_calls ? { tool_calls: message.tool_calls.map((tool, index) => ({ index, ...tool })) } : {}) };
       response.end(
-        `data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', choices: [{ index: 0, delta, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: step < 3 ? 'tool_calls' : 'stop' }] })}\n\ndata: [DONE]\n\n`
+        `data: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', choices: [{ index: 0, delta, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: 'fixture', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: step < choices.length ? 'tool_calls' : 'stop' }] })}\n\ndata: [DONE]\n\n`
       );
     } else {
       response.writeHead(200, { 'content-type': 'application/json' });
@@ -71,7 +169,7 @@ const model = createServer(async (request, response) => {
           object: 'chat.completion',
           created: 1,
           model: 'deepseek-v4-flash',
-          choices: [{ index: 0, message, finish_reason: step < 3 ? 'tool_calls' : 'stop' }],
+          choices: [{ index: 0, message, finish_reason: step < choices.length ? 'tool_calls' : 'stop' }],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
         })
       );
@@ -142,6 +240,22 @@ server.serve_forever()
     output = await response.text();
     assert.equal(response.status, 200, output);
     assert.ok(!output.includes('"type": "error"'), `${output}; ${stderr}`);
+    if (twoTurns) {
+      const second = await fetch(`http://127.0.0.1:${port}/v1/chat`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer fixture-token', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: 'dsh:qq:group:200',
+          message: 'Recall your previous answer without another tool call.',
+          capabilities: { chat: true, web: false, files: false, terminal: false },
+          framework: bridge.endpoint
+        }),
+        signal: AbortSignal.timeout(50000)
+      });
+      const text = await second.text();
+      assert.equal(second.status, 200, text);
+      assert.ok(!text.includes('"type": "error"'), `${text}; ${stderr}`);
+    }
   } finally {
     clearTimeout(timer);
     child.kill('SIGTERM');
@@ -151,9 +265,11 @@ server.serve_forever()
   if (failure) throw failure;
   assert.equal(executed, 1, `requests=${requests}; output=${output}; stderr=${stderr.slice(-3000)}`);
   assert.ok(output.includes('42'), output);
-  console.log('PASS: sandboxed installed DSH -> Python relay -> framework MCP -> receipt -> DSH answer (local model fixture).');
+  console.log(`${exposeMode ? 'EXPOSE ' : ''}PASS: sandboxed installed DSH -> Python relay -> framework MCP -> receipt -> DSH answer (local model fixture).`);
 } finally {
   bridge.close();
+  if (exposeMode) disposeExpose('fixture-game');
+  globalThis.__config = previousConfig;
   model.closeAllConnections();
   model.close();
   await rm(root, { recursive: true, force: true });
