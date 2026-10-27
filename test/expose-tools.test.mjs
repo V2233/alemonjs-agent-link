@@ -312,3 +312,26 @@ test('missing contract and provider denial carry distinct origins without declar
     const absent = await executeTool(t.expose_call, args('absent'), c);
     assert.equal(absent.error.code, 'CAPABILITY_NOT_FOUND');
   }));
+
+test('capability search finds actions outside the first page without unrelated enumeration', () =>
+  fixture(async () => {
+    const action = { description: '无关动作', effect: 'read', inputSchema: empty, outputSchema: empty, handler: async () => ({}) };
+    registerExpose('large-game', [
+      {
+        name: 'large.v1',
+        description: 'large catalog',
+        actions: {
+          ...Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`other_${i}`, action])),
+          get_profile: { ...action, description: '查询玩家资料与境界' }
+        }
+      }
+    ]);
+    const t = tools();
+    const c = ctx();
+    assert.equal((await executeTool(t.expose_discover, {}, c)).items.length, 30);
+    const result = await executeTool(t.expose_discover, { query: '资料' }, c);
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].action, 'get_profile');
+    assert.equal(result.nextOffset, null);
+    assert.equal((await executeTool(t.expose_discover, { query: 'GET_PROFILE' }, c)).items[0].action, 'get_profile');
+  }));

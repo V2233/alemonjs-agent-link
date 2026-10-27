@@ -1,5 +1,25 @@
 # 图片、语音与表情包
 
+## 外部生图
+
+可选配置兼容 `POST /images/generations` 的服务。配置后，模型可使用 `generate_image` 生成一张图片并交给当前会话发送；未配置时仍可使用 `draw_image` 绘制图形元素。两种工具每轮合计最多尝试一次，调用成功只表示图片准备完成，平台回执决定是否发送成功。
+
+```yaml
+alemonjs-agent-link:
+  media:
+    imageGen:
+      baseUrl: 'https://<生图服务地址>/v1'
+      apiKey: '<生图服务密钥>'
+      model: '<生图模型ID>'
+      size: '1024x1024'
+      stylePrompt: ''
+      ownerOnly: false
+```
+
+填写接口前缀；服务须接受 `model/prompt/size/n/response_format`，并返回 `data[0].b64_json` 或 `data[0].url`（也接受 `images` 数组）。返回地址遵守附件下载的 HTTPS、公网和域名限制。仅支持 PNG、JPEG、WebP；图片大小、超时、取消与 `media.maxBytes`、`media.timeoutMs` 和当前回合一致。自建本机回环 HTTP 服务可不配置密钥。`ownerOnly: true` 仅向主人开放工具；后台主动搭话不开放。
+
+生图可能由第三方单独收费。开启预算时会检查当前会话是否允许付费调用，但现有文本额度统计**不核算图片服务的实际费用，也不预留生图费用**；请在服务商侧设置额度。不要将配置成功等同于真实服务和 QQ 发送已验证。
+
 图片复用当前配置的模型 ID、接口和凭证，无需另配 vision。带图聊天使用原生多模态请求，以 base64 image_url 内容块发送图片，避免 DSH 模型目录将图片替换为文字占位。业务工具仍可使用，工作区操作仍通过沙箱工具执行。实际识别能力取决于所配置模型和服务。ASR/TTS 仍采用独立的 OpenAI-compatible HTTP 接口。
 
 ## 使用

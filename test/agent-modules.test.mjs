@@ -143,6 +143,7 @@ test('retired module cleanup runs after its last turn and release is idempotent'
 
 test('module loader rejects symlinks and validates configuration', async () => {
   const f = await fixture();
+  assert.equal(getModuleConfig(f.config).maxToolContinuations, 2);
   const runtime = new ModuleRuntime(f.config, []);
   await mkdir(f.modules, { recursive: true });
   await symlink(f.root, join(f.modules, 'escape'));
@@ -150,7 +151,13 @@ test('module loader rejects symlinks and validates configuration', async () => {
     const lease = await runtime.acquire();
     assert.equal(runtime.status()[0].state, 'failed');
     assert.equal(lease.tools(turn()).length, 0);
-    for (const modules of [{ maxToolRounds: 0 }, { disabled: ['../escape'] }, { settings: { sample: null } }]) {
+    for (const modules of [
+      { maxToolRounds: 0 },
+      { maxToolContinuations: -1 },
+      { maxToolContinuations: 5 },
+      { disabled: ['../escape'] },
+      { settings: { sample: null } }
+    ]) {
       assert.throws(() => getModuleConfig({ ...f.config, modules }));
     }
     await lease.release();

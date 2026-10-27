@@ -1,3 +1,4 @@
+import { RequestSlotPool } from './request-slots';
 import { withBudgetScope } from '../billing/budget';
 import type { ChatInput } from './input';
 import { buildMemoryContext } from './memory';
@@ -14,25 +15,9 @@ type Job = { userId: string; run: () => Promise<void>; reject: (error: Error) =>
 type GroupQueue = { running: boolean; jobs: Job[]; cancel?: AbortController; activeUserId?: string };
 const queues = new Map<string, GroupQueue>();
 const groupResetTransitions = new Map<string, Promise<void>>();
-let activeRequests = 0;
+const requestSlots = new RequestSlotPool();
 
-const acquireRequestSlot = (limit: number): (() => void) => {
-  if (activeRequests >= limit) {
-    throw new DSHError('http', 'Agent 服务繁忙，请稍后重试');
-  }
-
-  activeRequests += 1;
-  let released = false;
-
-  return () => {
-    if (!released) {
-      released = true;
-      activeRequests -= 1;
-    }
-  };
-};
-
-export const getRequestCapacity = (): { active: number } => ({ active: activeRequests });
+export const getRequestCapacity = (): { active: number } => ({ active: requestSlots.active });
 export const conversationBusy = (channelId: string): boolean => Boolean(queues.get(channelId)?.running || queues.get(channelId)?.jobs.length);
 
 export const enqueueChat = async (
@@ -268,6 +253,7 @@ const runCoordinatedChatInner = async (
     streamContent?: boolean;
     onImage?: (png: Buffer) => Promise<void>;
     onSpeech?: import('../agent/types').TurnContext['onSpeech'];
+    onSticker?: import('../agent/types').TurnContext['onSticker'];
     prepareMessage?: (text: string, signal: AbortSignal) => Promise<ChatInput>;
     execute?: (signal: AbortSignal) => Promise<void>;
     userText?: string;
@@ -310,7 +296,7 @@ const runCoordinatedChatInner = async (
         signal = mediaTask?.signal ? AbortSignal.any([signal, mediaTask.signal]) : signal;
         signal.throwIfAborted();
         const startedAt = Date.now();
-        const releaseRequestSlot = acquireRequestSlot(config.maxConcurrentRequests);
+        let releaseRequestSlot = requestSlots.acquire(config.maxConcurrentRequests);
 
         try {
           const current = await registry.meta(event.ChannelId);
@@ -324,6 +310,8 @@ const runCoordinatedChatInner = async (
             const memoryContext = event.ChannelId.startsWith('private:') ? buildMemoryContext(await registry.privateMemories(event.ChannelId)) : '';
 
             signal.throwIfAborted();
+            const turnSignal = AbortSignal.any([signal, AbortSignal.timeout(config.requestTimeoutMs)]);
+
             await runModuleTurn({
               config,
               sessionId: `${getSessionId(event.ChannelId)}:v${meta.generation}`,
@@ -332,6 +320,7 @@ const runCoordinatedChatInner = async (
               streamContent: mediaTask?.streamContent,
               onImage: mediaTask?.onImage,
               onSpeech: mediaTask?.onSpeech,
+              onSticker: mediaTask?.onSticker,
               context: {
                 requestId: duplicate.requestId,
                 inputId: mediaTask?.inputId || event.MessageId || duplicate.requestId,
@@ -345,7 +334,13 @@ const runCoordinatedChatInner = async (
                 owner: Boolean(event.IsMaster),
                 userText: mediaTask?.userText ?? message,
                 capabilities,
-                signal: AbortSignal.any([signal, AbortSignal.timeout(config.requestTimeoutMs)])
+                signal: turnSignal,
+                yieldForTools: async () => {
+                  const release = releaseRequestSlot;
+
+                  releaseRequestSlot = () => {};
+                  releaseRequestSlot = await requestSlots.requeue(release, config.maxConcurrentRequests, turnSignal);
+                }
               },
               history: {
                 channelId: event.ChannelId,

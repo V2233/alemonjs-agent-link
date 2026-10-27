@@ -20,6 +20,7 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { expressionOptions, planExpression, automaticVoiceText, selectExpressionSticker } from '../../companion/expression';
 import { getMoodStore, moodOptions } from '../../companion/mood';
 import { listStickers, loadSticker } from '../../media/stickers';
+import { imageMime } from '../../media/download';
 import { observeProactiveOutput } from '../../proactive/observe';
 
 export type ChatEvent = MessageContextEvent & {
@@ -70,6 +71,7 @@ export const runDSHChat = async (
   let turnSignal: AbortSignal | undefined;
   let generatedImage: Buffer | undefined;
   let generatedSpeech: SpeechAudio | undefined;
+  let stickerAttempted = false;
   const checkSend = async (): Promise<void> => {
     options.autonomous?.signal.throwIfAborted();
     turnSignal?.throwIfAborted();
@@ -378,7 +380,7 @@ export const runDSHChat = async (
           const sentImage = await media.send({
             type: 'image',
             data: generatedImage.toString('base64'),
-            name: 'dafeiyu-drawing.png',
+            name: `dafeiyu-drawing.${({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' } as Record<string, string>)[imageMime(generatedImage) || ''] || 'png'}`,
             replyId: replyTarget.messageId
           });
 
@@ -446,7 +448,7 @@ export const runDSHChat = async (
         if (!options.autonomous) {
           observeProactiveOutput(config, event, renderedAnswer || answer || visibleAnswer);
         }
-        if (expression.sticker) {
+        if (expression.sticker && !stickerAttempted) {
           try {
             const settings = getMediaConfig();
             const value =
@@ -492,6 +494,29 @@ export const runDSHChat = async (
 
               return Promise.resolve();
             },
+        onSticker:
+          config.modules?.disabled?.includes('stickers') || options.autonomous
+            ? undefined
+            : async (item, data) => {
+                if (stickerAttempted) throw new MediaError('本轮已经尝试发送表情。');
+                stickerAttempted = true;
+                const settings = getMediaConfig();
+
+                await checkSend();
+                if (!(await new SessionRegistry(config).claimSticker(channelId, settings.stickerCooldownSeconds))) {
+                  throw new MediaError('表情冷却中，请稍后再发。');
+                }
+                await checkSend();
+                const receipt = await media.send({
+                  type: 'image',
+                  data: data.toString('base64'),
+                  name: item.file.split(/[\\/]/u).at(-1),
+                  replyId: replyTarget.messageId
+                });
+
+                assertMessageDelivered([receipt]);
+                archiveReply(config, event, `[表情：${item.id}]`, receipt.data, replyTarget.messageId);
+              },
         userText: options.userText ?? prompt,
         inputId: event.MessageId,
         addressed: !options.allowSilence,

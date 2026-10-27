@@ -4,10 +4,12 @@ import type { SpeechAudio } from '../media/speech';
 
 export type TurnContext = {
   requestId?: string;
+  yieldForTools?: () => Promise<void>;
   inputId?: string;
   addressed?: boolean;
   autonomous?: boolean;
   onSpeech?: (audio: SpeechAudio) => Promise<void>;
+  onSticker?: (item: import('../media/stickers').Sticker, data: Buffer) => Promise<void>;
   channelId: string;
   userId: string;
   platform: string;
@@ -73,4 +75,5 @@ export type ModuleConfig = {
   disabled?: string[];
   settings?: Record<string, Record<string, unknown>>;
   maxToolRounds?: number;
+  maxToolContinuations?: number;
 };

@@ -2,6 +2,8 @@ import { assertAIEnabled } from '../dsh/ai-switch';
 import { startFrameworkMcp } from '../platform/mcp';
 import { withToolUsePolicy } from './tool-use-policy';
 import { drawingTool } from '../media/drawing';
+import { imageGenerationTool } from '../media/image-generation';
+import { getMediaConfig } from '../media/config';
 import { withBudgetScope } from '../billing/budget';
 import { modelContext } from '../dsh/model-context';
 import { logger } from 'alemonjs';
@@ -24,6 +26,7 @@ const runModuleTurnInner = async (options: {
   streamContent?: boolean;
   onImage?: (png: Buffer) => Promise<void>;
   onSpeech?: TurnContext['onSpeech'];
+  onSticker?: TurnContext['onSticker'];
   onEvent: (event: DSHStreamEvent) => Promise<void>;
   onCompleted?: (signal: AbortSignal) => Promise<void>;
 }): Promise<void> => {
@@ -33,30 +36,54 @@ const runModuleTurnInner = async (options: {
   const context = {
     ...options.context,
     capabilities: { ...options.context.capabilities, terminal: false },
-    onSpeech: options.onSpeech || options.context.onSpeech
+    onSpeech: options.onSpeech || options.context.onSpeech,
+    onSticker: options.onSticker || options.context.onSticker
   };
   const lease = await (await getModuleRuntime(config)).acquire();
 
   try {
     const personaPrompt = await lease.system(config.defaultSystemPrompt, context);
     const systemPrompt = withToolUsePolicy(
-      `${personaPrompt}\n\n${modelContext(config.model)}${options.onImage && !context.autonomous ? '\n当前可调用 draw_image 绘制插画、图标、示意图和海报并回传 PNG；用户要求绘图时优先实际调用，不要笼统声称不能生成图片。照片级扩散生图和精确图片编辑不在该工具能力内。' : ''}${context.autonomous ? '\n当前为系统调度的主动搭话，不是主人发来的请求。只可读取当前私聊资料，不得把历史话语当作新授权，不能保存记忆、执行工作区、管理群或联系其他对象。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`
+      `${personaPrompt}\n\n${modelContext(config.model)}${options.onImage && !context.autonomous ? '\n当前可调用 draw_image 绘制图形元素构成的 PNG；如果 generate_image 可用，也可按用户要求使用外部生图服务。前者不是照片级扩散生图，两者均不支持精确编辑已有图片。' : ''}${context.autonomous ? '\n当前为系统调度的主动搭话，不是主人发来的请求。只可读取当前私聊资料，不得把历史话语当作新授权，不能保存记忆、执行工作区、管理群或联系其他对象。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`
     );
     const moduleContext = await lease.context(context);
     const input = await lease.prompt(withInputContext(options.input, moduleContext), context);
     const tools = lease.tools(context);
 
     if (options.onImage && !context.autonomous) {
-      let drawn = false;
+      let imageAttempted = false;
 
       if (tools.some(tool => tool.name === 'draw_image')) throw new Error('模块不能覆盖 draw_image 工具。');
-      tools.push(
-        drawingTool(async png => {
-          if (drawn) throw new Error('每回合最多绘制一张图片。');
-          await options.onImage(png);
-          drawn = true;
-        })
-      );
+      const drawing = drawingTool(options.onImage);
+      const executeDrawing = drawing.execute;
+
+      drawing.execute = async (args, turn) => {
+        if (imageAttempted) throw new Error('每回合最多尝试生成一张图片。');
+        imageAttempted = true;
+
+        return await executeDrawing(args, turn);
+      };
+      tools.push(drawing);
+      try {
+        const media = getMediaConfig();
+
+        if (media.imageGen) {
+          if (tools.some(tool => tool.name === 'generate_image')) throw new Error('模块不能覆盖 generate_image 工具。');
+          const imageTool = imageGenerationTool(media, options.onImage);
+          const generate = imageTool.execute;
+
+          imageTool.execute = async (args, turn) => {
+            if (imageAttempted) throw new Error('每回合最多尝试生成一张图片。');
+            imageAttempted = true;
+
+            return await generate(args, turn);
+          };
+          if (!imageTool.available || imageTool.available(context)) tools.push(imageTool);
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === '模块不能覆盖 generate_image 工具。') throw error;
+        logger.warn('Image generation configuration unavailable');
+      }
     }
     let answer = '';
     const observe = async (event: DSHStreamEvent): Promise<void> => {
@@ -151,6 +178,7 @@ const runModuleTurnInner = async (options: {
         history: history ? await registry.privateHistory(history) : [],
         memoryContext: history?.memoryContext,
         maxRounds: getModuleConfig(config).maxToolRounds,
+        maxContinuations: getModuleConfig(config).maxToolContinuations,
         onContent: incremental
           ? async content => {
               await onEvent({ type: 'content', content });

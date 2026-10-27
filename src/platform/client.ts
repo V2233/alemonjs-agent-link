@@ -13,6 +13,10 @@ type Bridge = {
     poke(): Promise<unknown>;
     groupRole(args: { groupId?: string }): Promise<unknown>;
     manageGroup(args: GroupOperation): Promise<unknown>;
+    qzoneRead(args: { kind: 'own' | 'feed' }): Promise<unknown>;
+    qzonePost(args: { content: string; visibility: 'all' | 'friends' | 'self' }): Promise<unknown>;
+    qzoneDetail(args: { id: string; authorId: string }): Promise<unknown>;
+    qzoneInteract(args: { id: string; authorId: string; action: 'comment' | 'like'; content?: string; time?: number }): Promise<unknown>;
   };
 };
 export const platformClient = (context: TurnContext) => {
@@ -43,7 +47,15 @@ export const platformClient = (context: TurnContext) => {
     capabilities: () => checked<{ state: string; botId: string; capabilities: string[] }>(() => client.agentLink.capabilities()),
     role: (groupId?: string) => checked<{ groupId: string; role: 'owner' | 'admin' | 'member' }>(() => client.agentLink.groupRole({ groupId })),
     poke: () => checked<{ ok: boolean }>(() => client.agentLink.poke()),
-    manage: (operation: GroupOperation) => checked<{ ok: boolean }>(() => client.agentLink.manageGroup(operation))
+    manage: (operation: GroupOperation) => checked<{ ok: boolean }>(() => client.agentLink.manageGroup(operation)),
+    qzoneRead: (kind: 'own' | 'feed') =>
+      checked<{ items: { id: string; author: string; authorId: string | null; interactable: boolean; content: string; time: number | null }[] }>(() =>
+        client.agentLink.qzoneRead({ kind })
+      ),
+    qzonePost: (content: string, visibility: 'all' | 'friends' | 'self') => checked<{ id: string }>(() => client.agentLink.qzonePost({ content, visibility })),
+    qzoneDetail: (id: string, authorId: string) => checked<{ content: string; comments: unknown[] }>(() => client.agentLink.qzoneDetail({ id, authorId })),
+    qzoneInteract: (args: { id: string; authorId: string; action: 'comment' | 'like'; content?: string; time?: number }) =>
+      checked<{ ok: boolean }>(() => client.agentLink.qzoneInteract(args))
   };
 };
 

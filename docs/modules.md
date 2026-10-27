@@ -13,14 +13,70 @@ alemonjs-agent-link:
     directory: '/absolute/path/to/agent-link/modules'
     disabled: []
     maxToolRounds: 8
+    maxToolContinuations: 2
     settings:
       greeting:
         suffix: '咕噜。'
 ```
 
-`maxToolRounds` 限制一次回答可执行工具的轮数，范围 1–16，默认 8；每轮最多 8 个调用，整次最多 32 个。整轮工具、模型及回复共享请求时限、队列与取消信号。出现错误不会自动重跑有副作用的操作。
+`maxToolRounds` 限制每段可执行工具的轮数，范围 1–16，默认 8；每轮最多 8 个调用，每段最多 32 个。首次触顶保留模型历史和回执，静默释放全局执行名额并排队续跑；同一会话继续串行，后续消息不会抢先进入原任务的上下文。`maxToolContinuations` 默认 2（最多共三段），范围 0–4；设为 0 可直接收尾。正常结束不额外续跑，排队期间不发送提示，也不重做已有回执的同编号调用。
+
+连续用完所有续跑次数仍未结束时，最多请求一次不带工具的模型汇总，说明已有结果、未完成和不确定部分；汇总失败使用固定提示。超出单轮8项的待执行批次不执行，恢复提示要求模型分批处理。所有分段、排队和汇总共享原始总时限、取消信号及额度，续跑不会重置超时或绕过费用检查；`/取消`、会话重置同样中止等待中的续跑。每次模型请求和实际调用仍可能收费，增加续跑次数会增加潜在调用量。
 
 内置 `memory` 模块默认启用。明确保存工具仅向私聊提供；当前会话还可检索自动整理的资料、核对来源与人物档案。停用该模块使用 `disabled: [memory]`，已有记忆及手动命令继续保留。自动整理、版本恢复和删除语义见[长期记忆](memory.md)。
+
+内置 `stickers` 模块提供 `list_stickers` 和 `send_sticker`。前者按编号或标签搜索，后者只接受完整编号或标签，向当前会话发送并检查平台回执；每轮最多尝试一次，与命令及自动表情共用冷却。素材目录配置见[媒体能力](media.md)。`modules.disabled: [stickers]` 停用模型工具，不影响手动命令或自动表达；后台自主搭话不开放这两个工具。
+
+### B 站只读工具
+
+```yaml
+alemonjs-agent-link:
+  modules:
+    settings:
+      bili:
+        enabled: true
+        timeoutMs: 20000
+        allowComments: false
+        dryRun: true
+        maxCommentsPerDay: 5
+        commentCooldownSeconds: 60
+        # 可选，填写到本机配置中；不要提交、发到聊天或日志。
+        cookie: '<B站登录 Cookie>'
+```
+
+启用后，`bili_search` 可搜索视频；`bili_watch` 可读取 BV、av、B 站链接和 b23.tv 短链的标题、简介、作者、字幕及热评。字幕或评论不可获取时分别标明状态，不把元数据当作观看视频画面或音频。登录可影响部分内容可见性；接口风控和 Cookie 过期以服务端结果为准。短链只接受跳转至 B 站页面，字幕只从指定 B 站域名下载，遵守公网地址与大小限制。来自视频及评论的文字均为不可信资料。
+
+`bili_watch` 和 `bili_search` 为只读。可选 `allowComments: true` 开放 `bili_comment`：仅验证过的机器人主人本轮明确要求发评论时可调用，需要 Cookie 中的 `SESSDATA` 和 `bili_jct`。默认 `dryRun: true`，只预览目标和文字；切为 false 才允许发布。执行前确认账号及目标视频，持久记录每轮评论请求、按 B 站账号限制每天次数和冷却；请求中断或响应不明确时返回 unknown，须先到 B 站核查，不会自动重试。拒绝、未知和成功的尝试都计入当天上限，预演不计入。账本只保存账号和评论的哈希，不存 Cookie 和评论原文。
+
+这些工具不在后台主动搭话中开放。自动浏览、自动评论和回复等功能尚未实现；评论测试使用模拟 B 站接口，未向真实账号发布。真实账号、字幕 CDN 和线上风控仍需验收。
+
+### QQ 空间
+
+使用支持空间扩展的 OneBot v11 服务，并配置：
+
+```yaml
+alemonjs-agent-link:
+  transport: onebot
+  modules:
+    settings:
+      qzone:
+        enabled: true
+        allowPost: false
+        allowInteract: false
+        dryRun: true
+        visibility: friends # all、friends 或 self
+        maxPostsPerDay: 5
+        maxInteractionsPerDay: 10
+        cooldownSeconds: 60
+```
+
+主人在 OneBot 私聊中可使用模型工具 `qzone_read` 查看机器人自己的说说或可访问的好友动态。空间扩展不是 OneBot v11 的通用保证：服务须分别支持 `get_qzone_msg_list` 和 `get_qzone_feeds`，返回值以平台为准。
+
+启用 `allowPost` 后，`qzone_post` 可以处理主人本轮明确要求发布的文字说说；默认 `dryRun: true` 仅预览。设为 false 后适配器再次核对主人身份、开关和参数，再调用 `send_qzone_msg`。可见范围来自主人的明确要求，否则使用配置默认值。每轮一次，持久限制账号的每日次数和冷却；平台未返回可核验的说说 ID 或发送中断时标记为 unknown，先到空间核查，不会自动重试。尝试结果的账本只保存哈希，不保存正文。
+
+`qzone_detail` 可读取最近通过 `qzone_read` 获得的动态详情和评论。启用 `allowInteract` 后，主人本轮明确要求时可用 `qzone_interact` 评论或点赞；需要 OneBot 服务支持 `get_qzone_msg_detail`、`comment_qzone` 和 `like_qzone`。只能操作同一主人私聊中最近 15 分钟读到、且平台提供了作者账号的说说；好友动态须由平台标为说说类型（appid 311），点赞还要求发布时间。目标缓存只在进程内保存，重启或模块重载后需重新读取。互动遵守同一试运行设置，按机器人账号单独限制每日次数和冷却；结果不明时应核查，不能自动重试。空间评论是对说说发表评论，尚未支持按评论 ID 精确回复。
+
+当前不支持配图、定时日记或后台浏览与自动互动。模拟测试不能证明特定 OneBot 实现或真实 QQ 账号的空间扩展可用。
 
 主人私聊发送 `/agentmodules` 查看模块加载结果，同时检查最新文件。正常聊天也会自动检查更新。坏模块会显示加载失败，其他模块继续加载；本地替换模块加载失败时不会偷偷启用同名内置模块。
 
@@ -129,7 +185,7 @@ DSH 的每次模型请求只增加两个工具定义，完整能力 schema 按�
 
 内置 `expose` 模块默认启用，要求宿主 AlemonJS 2.1.118 或更新兼容版本。其他插件与 AgentLink 由同一 AlemonJS 运行实例加载并注册 Expose 后，模型可以使用：
 
-- `expose_discover({})`：分页读取精简目录，每页 30 个动作，可用 `protocol`、`provider` 筛选，`offset` 翻页。
+- `expose_discover({})`：分页读取精简目录，每页 30 个动作，可用 `protocol`、`provider` 筛选，`offset` 翻页。优先用 `query` 按动作名或描述搜索（例如 `{query: "资料"}`、`{query: "get_profile"}`），避免为查一项资料遍历整个目录。
 - `expose_discover({protocol, provider, action})`：读取该动作原始输入、输出 schema 和读写类型，`callable` 表示桥是否允许尝试。
 - `expose_read({protocol, provider, action, argumentsJson})`：执行只读动作。
 - `expose_write({protocol, provider, action, argumentsJson})`：执行提供插件公开且声明为 write 的动作，无需 Link 逐动作配置。
@@ -166,3 +222,5 @@ Link 不再要求 `writeActions`；历史同名配置不再参与动作准入。
 桥自身的入口类型错误返回 `EFFECT_MISMATCH`（origin=link），并给出正确 `executionTool`；未发现能力返回 `CAPABILITY_NOT_FOUND`，缺少结构化契约返回 `CONTRACT_REQUIRED`。这些错误不冒用提供方的 `FORBIDDEN`。真正的 Expose 拒绝保留 callId、原错误代码及 outcome，并标记 origin=expose；一次拒绝不能被解释为所有查询未开放。用户要求查资料不授权顺便签到、领奖或使用其他无关动作测试权限。注意：`effect=unknown` 是接口效果声明，`error.outcome=unknown` 是某次执行结果不明，两者含义不同。
 
 回归验证可用 `node scripts/test_framework_runtime.mjs --expose --unknown-effect --two-turns`，检查真实 DSH 对未明确效果的查询经推荐入口调用，提供方收到可信身份并返回数据。
+
+工具诊断日志仅记录 requestId、轮次、调用序号、工具名、结果分类、耗时和触顶原因，不记录参数、工具结果正文或思考内容。`tool-limit` 的 reason 区分 round-limit、call-limit、batch-limit；returned 仅表示获得回执，不等于业务成功。

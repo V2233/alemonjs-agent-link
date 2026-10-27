@@ -14,6 +14,9 @@ import { moodModule } from '../modules/mood';
 import { platformModule, groupAdminModule } from '../modules/platform';
 import { proactiveModule } from '../modules/proactive';
 import { voiceModule } from '../modules/voice';
+import { stickerModule } from '../modules/stickers';
+import { biliModule } from '../modules/bili';
+import { qzoneModule } from '../modules/qzone';
 import { validateArguments } from './schema';
 import type { AgentModule, AgentTool, ModuleApi, ModuleConfig, ModuleHooks, TurnContext } from './types';
 
@@ -39,7 +42,8 @@ export const getModuleConfig = (config: DSHBridgeConfig): Required<ModuleConfig>
     directory: value.directory || resolve(config.workspaceRoot, '..', 'modules'),
     disabled: value.disabled || [],
     settings: value.settings || {},
-    maxToolRounds: value.maxToolRounds ?? 8
+    maxToolRounds: value.maxToolRounds ?? 8,
+    maxToolContinuations: value.maxToolContinuations ?? 2
   };
 
   if (
@@ -53,7 +57,10 @@ export const getModuleConfig = (config: DSHBridgeConfig): Required<ModuleConfig>
     Object.entries(result.settings).some(([id, settings]) => !moduleId.test(id) || !settings || typeof settings !== 'object' || Array.isArray(settings)) ||
     !Number.isSafeInteger(result.maxToolRounds) ||
     result.maxToolRounds < 1 ||
-    result.maxToolRounds > 16
+    result.maxToolRounds > 16 ||
+    !Number.isSafeInteger(result.maxToolContinuations) ||
+    result.maxToolContinuations < 0 ||
+    result.maxToolContinuations > 4
   ) {
     throw new Error('modules 配置无效。');
   }
@@ -241,6 +248,9 @@ export class ModuleRuntime {
       groupAdminModule(config),
       proactiveModule(config),
       voiceModule(config),
+      stickerModule(),
+      biliModule(config),
+      qzoneModule(config),
       memoryModule(config),
       chatHistoryModule(config)
     ]

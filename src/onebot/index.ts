@@ -27,7 +27,8 @@ export const startOneBot = () => {
     return {
       owner: id => isMaster(id, 'onebot'),
       groups: Array.isArray(modules?.settings?.['group-admin']?.groups) ? modules.settings['group-admin'].groups : [],
-      disabled: modules?.disabled || []
+      disabled: modules?.disabled || [],
+      qzone: modules?.settings?.qzone || {}
     };
   });
 

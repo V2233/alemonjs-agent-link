@@ -27,7 +27,7 @@ export const formatSegments = (items: Record<string, any>[]): Segment[] => {
 export class OneBotActions {
   constructor(
     private readonly connection: OneBotConnection,
-    private readonly policy: () => { owner: (id: string) => boolean; groups: string[]; disabled: string[] }
+    private readonly policy: () => { owner: (id: string) => boolean; groups: string[]; disabled: string[]; qzone?: Record<string, unknown> }
   ) {}
 
   private target(payload: Record<string, any>) {
@@ -213,6 +213,99 @@ export class OneBotActions {
         data = { groupId, role: member.role };
       } else if (payload.key === 'agentLink.manageGroup') {
         data = await this.manage(event, args);
+      } else if (['agentLink.qzoneRead', 'agentLink.qzonePost', 'agentLink.qzoneDetail', 'agentLink.qzoneInteract'].includes(payload.key)) {
+        const policy = this.policy();
+        const settings = policy.qzone || {};
+
+        if (!event.IsPrivate || !policy.owner(event.UserId) || policy.disabled.includes('qzone') || settings.enabled !== true) {
+          throw new Error('当前会话没有 QQ 空间授权。');
+        }
+        if (payload.key === 'agentLink.qzoneRead') {
+          const kind = args.kind;
+
+          if (!['own', 'feed'].includes(kind)) throw new Error('空间读取类型无效。');
+          const result = (await this.connection.call(
+            kind === 'own' ? 'get_qzone_msg_list' : 'get_qzone_feeds',
+            kind === 'own' ? { num: 10 } : { count: 10 }
+          )) as Record<string, unknown>;
+          const rows = kind === 'own' ? result?.msglist : result?.feeds;
+
+          if (!Array.isArray(rows)) throw new OneBotError('protocol');
+          data = {
+            items: rows.slice(0, 10).map(row => ({
+              id: String(kind === 'own' ? row?.tid || '' : row?.key || '').slice(0, 200),
+              author: String(row?.nickname || row?.name || '').slice(0, 100),
+              authorId:
+                kind === 'own'
+                  ? this.connection.config.selfId
+                  : (() => {
+                      try {
+                        return numericId(row?.uin);
+                      } catch {
+                        return null;
+                      }
+                    })(),
+              interactable: kind === 'own' || Number(row?.appid) === 311,
+              content: String(kind === 'own' ? row?.content || '' : row?.html || '')
+                .replace(/<[^>]*>/gu, ' ')
+                .replace(/\s+/gu, ' ')
+                .slice(0, 1000),
+              time: Number.isSafeInteger(Number(row?.time)) && Number(row.time) > 0 ? Number(row.time) : null
+            }))
+          };
+        } else if (payload.key === 'agentLink.qzonePost') {
+          if (settings.allowPost !== true || settings.dryRun !== false) throw new Error('空间发布未启用。');
+          const rights: Record<string, number> = { all: 1, friends: 4, self: 64 };
+
+          if (typeof args.content !== 'string' || !args.content.trim() || Array.from(args.content).length > 2000 || !Object.hasOwn(rights, args.visibility)) {
+            throw new Error('空间内容或可见范围无效。');
+          }
+          const result = (await this.connection.call('send_qzone_msg', { content: args.content.trim(), ugc_right: rights[args.visibility] })) as Record<
+            string,
+            unknown
+          >;
+          const id = String(result?.tid ?? result?.id ?? (typeof result === 'string' ? result : ''));
+
+          if (!id || id.length > 200) throw new OneBotError('protocol');
+          data = { id };
+        } else {
+          if (
+            typeof args.id !== 'string' ||
+            !args.id.trim() ||
+            args.id.length > 200 ||
+            [...args.id].some(char => char.codePointAt(0) < 32 || char.codePointAt(0) === 127)
+          )
+            throw new Error('空间动态编号无效。');
+          const target = numericId(args.authorId);
+          const params = { tid: args.id, ...(target === this.connection.config.selfId ? {} : { target_uin: Number(target) }) };
+
+          if (payload.key === 'agentLink.qzoneDetail') {
+            const result = (await this.connection.call('get_qzone_msg_detail', { ...params, num: 30 })) as Record<string, any>;
+
+            if (!result || typeof result !== 'object' || !Array.isArray(result.comments)) throw new OneBotError('protocol');
+            data = {
+              content: String(result.content || '').slice(0, 2000),
+              comments: result.comments.slice(0, 30).map((row: any) => ({
+                id: String(row?.comment_id || '').slice(0, 200),
+                author: String(row?.name || '').slice(0, 100),
+                content: String(row?.content || '').slice(0, 500),
+                replies: (Array.isArray(row?.replies) ? row.replies : [])
+                  .slice(0, 10)
+                  .map((reply: any) => ({ author: String(reply?.name || '').slice(0, 100), content: String(reply?.content || '').slice(0, 500) }))
+              }))
+            };
+          } else {
+            if (settings.allowInteract !== true || settings.dryRun !== false) throw new Error('空间互动未启用。');
+            if (args.action === 'comment') {
+              if (typeof args.content !== 'string' || !args.content.trim() || Array.from(args.content).length > 500) throw new Error('评论内容无效。');
+              await this.connection.call('comment_qzone', { ...params, content: args.content.trim() });
+            } else if (args.action === 'like') {
+              if (!Number.isSafeInteger(args.time) || args.time <= 0) throw new Error('空间动态时间无效。');
+              await this.connection.call('like_qzone', { ...params, abstime: args.time });
+            } else throw new Error('空间互动类型无效。');
+            data = { ok: true };
+          }
+        }
       } else if (payload.key === 'agentLink.readMessage') {
         const id = validMessageId(args.messageId);
 

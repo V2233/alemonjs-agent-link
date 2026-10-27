@@ -2,10 +2,12 @@ import { getAppConfigValue } from 'alemonjs';
 import { speechOptions, type SpeechOptions } from './speech-config';
 
 export type MediaProvider = { baseUrl: string; apiKey: string; model: string; voice?: string };
+export type ImageGenerationProvider = MediaProvider & { size: string; stylePrompt: string; ownerOnly: boolean };
 export type MediaConfig = {
   vision?: MediaProvider;
   asr?: MediaProvider;
   tts?: MediaProvider;
+  imageGen?: ImageGenerationProvider;
   speech?: Partial<SpeechOptions>;
   // Empty means any public HTTPS host; a nonempty list restricts hosts exactly.
   allowedHosts: string[];
@@ -57,6 +59,28 @@ const provider = (value: unknown, allowLocal = false): MediaProvider | undefined
   return { baseUrl: input.baseUrl.replace(/\/+$/u, ''), apiKey: input.apiKey || '', model: input.model, voice: input.voice };
 };
 
+const imageProvider = (value: unknown): ImageGenerationProvider | undefined => {
+  const base = provider(value, true);
+
+  if (!base) return undefined;
+  const raw = value as ImageGenerationProvider;
+  const size = raw.size ?? '1024x1024';
+  const stylePrompt = raw.stylePrompt ?? '';
+  const ownerOnly = raw.ownerOnly ?? false;
+
+  if (
+    typeof size !== 'string' ||
+    !/^\d{2,4}x\d{2,4}$/u.test(size) ||
+    typeof stylePrompt !== 'string' ||
+    stylePrompt.length > 2000 ||
+    typeof ownerOnly !== 'boolean'
+  ) {
+    throw new MediaError('生图服务 size、stylePrompt 或 ownerOnly 配置无效。');
+  }
+
+  return { ...base, size, stylePrompt, ownerOnly };
+};
+
 export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppConfigValue()): MediaConfig => {
   const raw = value?.media ?? {};
   const config: MediaConfig = {
@@ -70,6 +94,7 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
     vision: provider(raw.vision),
     asr: provider(raw.asr),
     tts: provider(raw.tts, true),
+    imageGen: imageProvider(raw.imageGen),
     speech: speechOptions(raw.speech)
   };
 
