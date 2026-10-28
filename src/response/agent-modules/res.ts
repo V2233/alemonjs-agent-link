@@ -1,4 +1,5 @@
-import { Format, useEvent, useMessage } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { useEvent, useMessage } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
 import { getModuleRuntime } from '../../agent/modules';
 
@@ -8,6 +9,7 @@ export default async (): Promise<void> => {
   if (!context.match.selects || !context.current.IsMaster) {
     return;
   }
+  const event = context.current;
   const [message] = useMessage();
   let text: string;
 
@@ -27,5 +29,14 @@ export default async (): Promise<void> => {
   } catch {
     text = '模块配置或目录不可用，请检查服务端配置和文件权限。';
   }
-  await message.send({ format: Format.create().addText(text) });
+  await message.send({
+    format: commandBubble(text, '功能状态', {
+      platform: event.Platform,
+      actions: [
+        { label: '刷新状态', command: '/模块状态' },
+        { label: '服务状态', command: '/状态' },
+        { label: '帮助', command: '/帮助' }
+      ]
+    })
+  });
 };

@@ -14,7 +14,30 @@ import { getPlatformLedger } from './platform/ledger';
 import { getProactiveStore } from './proactive/store';
 import { interruptAllProactive } from './proactive/control';
 import { autoStickerCollector } from './media/sticker-auto';
+import { clearRecentMedia } from './media/recent';
+import { ensureStickerRoot } from './media/stickers';
+import { getMediaConfig } from './media/config';
+import { startStickerPanel, type StickerPanel } from './panel/sticker-panel';
 let stopModuleConfigWatch: (() => void) | undefined;
+let stickerPanel: StickerPanel | undefined;
+let panelChain = Promise.resolve();
+let panelStopped = false;
+
+type PanelConfig = ReturnType<typeof getDSHConfig>;
+const syncStickerPanel = (config: PanelConfig): Promise<void> => {
+  panelChain = panelChain.then(async () => {
+    if (panelStopped) return;
+    await stickerPanel?.close().catch(() => undefined);
+    stickerPanel = undefined;
+    try {
+      stickerPanel = await startStickerPanel(config);
+    } catch (error) {
+      logger.warn({ err: error }, 'Sticker panel failed to start');
+    }
+  });
+
+  return panelChain;
+};
 
 export default defineChildren({
   register() {
@@ -23,6 +46,7 @@ export default defineChildren({
     };
   },
   onCreated() {
+    panelStopped = false;
     try {
       const startupConfig = getDSHConfig();
 
@@ -40,18 +64,24 @@ export default defineChildren({
           .catch(() => logger.error('AgentLink budget Redis unavailable; paid calls are blocked'));
       }
 
+      void ensureStickerRoot(getMediaConfig()).catch(() => logger.warn('Default sticker library could not be prepared'));
       stopModuleConfigWatch?.();
       stopModuleConfigWatch = watchDSHConfig(() => {
         interruptAllProactive();
         autoStickerCollector.reset();
+        clearRecentMedia();
         try {
-          void getModuleRuntime(getDSHConfig())
+          const next = getDSHConfig();
+
+          void syncStickerPanel(next);
+          void getModuleRuntime(next)
             .then(runtime => runtime.refresh())
             .catch(() => logger.warn('AgentLink module configuration reload failed'));
         } catch {
           logger.warn('AgentLink module configuration is invalid');
         }
       });
+      void syncStickerPanel(startupConfig);
 
       void getModuleRuntime(startupConfig)
         .then(runtime => runtime.refresh())
@@ -108,9 +138,15 @@ export default defineChildren({
   onDispose() {
     interruptAllProactive();
     autoStickerCollector.reset();
+    clearRecentMedia();
     stopModuleConfigWatch?.();
     stopModuleConfigWatch = undefined;
+    panelStopped = true;
+    const closePanel = panelChain.then(async () => {
+      await stickerPanel?.close().catch(() => undefined);
+      stickerPanel = undefined;
+    });
 
-    return closeModuleRuntime();
+    return Promise.all([closePanel, closeModuleRuntime()]).then(() => undefined);
   }
 });

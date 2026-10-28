@@ -45,12 +45,20 @@ export const wbiQuery = (params: Record<string, string | number>, img: string, s
 export type BiliOptions = { cookie: string; timeoutMs: number };
 export const biliOptions = (
   settings: Readonly<Record<string, unknown>>
-): BiliOptions & { enabled: boolean; allowComments: boolean; dryRun: boolean; maxCommentsPerDay: number; commentCooldownSeconds: number } => {
-  const enabled = settings.enabled ?? false;
+): BiliOptions & {
+  enabled: boolean;
+  allowComments: boolean;
+  allowProactiveBrowse: boolean;
+  dryRun: boolean;
+  maxCommentsPerDay: number;
+  commentCooldownSeconds: number;
+} => {
+  const enabled = settings.enabled ?? true;
   const cookie = settings.cookie ?? '';
   const timeoutMs = settings.timeoutMs ?? 20000;
-  const allowComments = settings.allowComments ?? false;
-  const dryRun = settings.dryRun ?? true;
+  const allowComments = settings.allowComments ?? true;
+  const allowProactiveBrowse = settings.allowProactiveBrowse ?? true;
+  const dryRun = settings.dryRun ?? false;
   const maxCommentsPerDay = settings.maxCommentsPerDay ?? 5;
   const commentCooldownSeconds = settings.commentCooldownSeconds ?? 60;
 
@@ -63,6 +71,7 @@ export const biliOptions = (
     Number(timeoutMs) < 1000 ||
     Number(timeoutMs) > 60000 ||
     typeof allowComments !== 'boolean' ||
+    typeof allowProactiveBrowse !== 'boolean' ||
     typeof dryRun !== 'boolean' ||
     !Number.isSafeInteger(maxCommentsPerDay) ||
     Number(maxCommentsPerDay) < 1 ||
@@ -79,6 +88,7 @@ export const biliOptions = (
     cookie,
     timeoutMs: Number(timeoutMs),
     allowComments,
+    allowProactiveBrowse,
     dryRun,
     maxCommentsPerDay: Number(maxCommentsPerDay),
     commentCooldownSeconds: Number(commentCooldownSeconds)

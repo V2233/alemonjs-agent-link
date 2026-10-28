@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getGroupChatPolicy, decideGroupReply, isQuietHour, groupTopicRelevance } from '../lib/social/group-policy.js';
-import { GroupConversationCoordinator, buildGroupBatchPrompt } from '../lib/social/group-conversation.js';
+import { GroupConversationCoordinator, buildGroupBatchPrompt, needsReplySelection } from '../lib/social/group-conversation.js';
 
 const now = Date.parse('2026-10-26T04:00:00Z');
 const policy = overrides => getGroupChatPolicy({ interjectChance: 1, quietHours: [0, 0], ...overrides });
@@ -64,6 +64,8 @@ test('reply policy covers direct wake, quiet time, relevance, active windows, co
   assert.equal(decision({ interjectTimes: [now - 1] }).reply, false);
   assert.equal(decision({ policy: policy({ maxPerHour: 1 }), interjectTimes: [now - 100000] }).reply, false);
   assert.equal(decision({ engagedUntil: now + 1, interjectTimes: [now - 1] }).mode, 'engaged');
+  assert.equal(decision({ semantic: true, engagedUntil: now + 1, relevance: 0.8, interjectTimes: [now - 1] }).mode, 'engaged');
+  assert.equal(decision({ semantic: true, engagedUntil: now + 1, relevance: 0.1 }).mode, 'interject');
   assert.equal(decision({ policy: policy({ burstMax: 1 }), replyTimes: [now - 1], direct: true }).reply, false);
   assert.equal(decision({ policy: policy({ burstMax: 1 }), replyTimes: [now - 1], direct: true, owner: true }).mode, 'direct');
   assert.equal(isQuietHour(23, [22, 7]), true);
@@ -176,6 +178,35 @@ test('silence and failures never start engagement; failed requests can be retrie
   } finally {
     h.coordinator.close();
   }
+});
+
+test('an engaged group topic continues without a second recognition call', async () => {
+  let classified = 0;
+  const batches = [];
+  const h = harness({
+    classify: async () => {
+      classified++;
+      return { reply: false, reason: 'none', source: 'human', loopRisk: false };
+    }
+  });
+  const p = policy({ minRecentMessages: 1, engagedSeconds: 60, interests: ['游戏'] });
+  const respond = async batch => {
+    batches.push(batch);
+    return { delivered: true, replyText: '接着聊' };
+  };
+  const first = h.coordinator.receive(message('first', { explicitMention: true, text: '一起聊游戏' }), p, respond);
+  await h.coordinator.flush('group');
+  await first;
+  assert.equal(classified, 0);
+  assert.equal(batches.length, 1);
+
+  const second = h.coordinator.receive(message('second', { direct: false, text: '游戏里那个 boss 怎么打' }), p, respond);
+  await h.coordinator.flush('group');
+  await second;
+  assert.equal(classified, 0, 'engaged continuation must not re-run the recognition model');
+  assert.equal(batches[1].mode, 'engaged');
+  assert.equal(batches[1].replyReason, 'follow_up');
+  h.coordinator.close();
 });
 
 test('pending cancellation respects sender ownership and reset discards pending context', async () => {
@@ -381,6 +412,35 @@ test('explicit command has zero debounce and a trailing message cannot delay it'
   await h.coordinator.flush('group');
   await Promise.all([a, b]);
   h.coordinator.close();
+});
+
+test('explicit mentions debounce at most 200ms and remain responsive after local automatic-chat limits', async () => {
+  const h = harness({ classify: () => assert.fail('explicit calls must not classify') });
+  let replies = 0;
+  for (let i = 0; i < 6; i++) {
+    const done = h.coordinator.receive(
+      message(`at-${i}`, { userId: 'human', userKey: 'human', explicitMention: true, text: `请回答不同问题${i}` }),
+      policy({ burstMax: 1 }),
+      async () => {
+        replies++;
+        return { delivered: true, replyText: `回答${i}` };
+      }
+    );
+    assert.ok([...h.timers.values()][0].ms <= 200);
+    await h.coordinator.flush('group');
+    await done;
+  }
+  assert.equal(replies, 6);
+  h.coordinator.close();
+});
+
+test('one speaker direct replies have a fixed target; multiple speakers still support reply selection', () => {
+  const anchor = message('one');
+  const batch = { id: 'batch', mode: 'direct', anchor, messages: [anchor, { ...anchor, id: 'part2' }] };
+  assert.equal(needsReplySelection(batch), false);
+  assert.doesNotMatch(buildGroupBatchPrompt(batch), /<reply:m1>/);
+  assert.equal(needsReplySelection({ ...batch, messages: [anchor, message('two')] }), true);
+  assert.equal(needsReplySelection({ ...batch, mode: 'interject' }), true);
 });
 
 test('latency separates local waiting, classification and response without dropping the gate', async () => {

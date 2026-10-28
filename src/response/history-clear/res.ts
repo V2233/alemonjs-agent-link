@@ -1,6 +1,7 @@
-import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
-import { canPrivateChat, getConversationId } from '../dsh/util';
+import { canPrivateChatWithKey, getConversationId } from '../dsh/util';
 import { getChatArchive } from '../../history/store';
 const confirmations = new Map<string, number>();
 
@@ -13,10 +14,19 @@ export default async (): Promise<void> => {
     return;
   }
   const event = context.current;
-  const reply = (text: string) => message.send({ format: Format.create().addText(text) });
+  const reply = (text: string) =>
+    message.send({
+      format: commandBubble(text, '清除聊天记录', {
+        platform: event.Platform,
+        actions: [
+          { label: '清除聊天记录', command: '/清除聊天记录' },
+          { label: '隐私说明', command: '/隐私说明' }
+        ]
+      })
+    });
   const config = getDSHConfig();
 
-  if (event.IsPrivate ? !canPrivateChat(event, config.privateChatAccess) : !event.IsMaster) {
+  if (event.IsPrivate ? !(await canPrivateChatWithKey(event, config.privateChatAccess)) : !event.IsMaster) {
     await reply('仅可清除自己的私聊记录；群归档需由机器人主人清除。');
 
     return;

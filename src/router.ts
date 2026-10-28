@@ -18,8 +18,10 @@ const commandGroup = router.group({
     allowBare: false
   },
   fallback: {
-    suggest: true,
-    allowPrefixMatch: true
+    // 框架的 fallback 只在“候选键是消息前缀”时才比较距离，因此真正会命中的
+    // 全是「合法命令 + 参数」的场景（如 /帮助 管理、/人格 使用 1），命中后还会
+    // 在真实回复之外再回一条“我猜你想用的是 帮助”，属于噪声，直接关闭。
+    suggest: false
   },
   duplicateKey: 'throw'
 });

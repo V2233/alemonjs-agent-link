@@ -12,9 +12,19 @@ import { runModuleTurn } from '../lib/agent/turn.js';
 
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
 const signal = () => new AbortController().signal;
-const ctx = overrides => ({ platform: 'onebot', botId: '900', channelId: 'private:100', userId: '100', private: true, owner: true,
-  userText: '帮我收藏这张图片做表情', capabilities: { chat: true, web: false, files: false, terminal: false }, signal: signal(),
-  onStickerCollect: async () => png, ...overrides });
+const ctx = overrides => ({
+  platform: 'onebot',
+  botId: '900',
+  channelId: 'private:100',
+  userId: '100',
+  private: true,
+  owner: true,
+  userText: '帮我收藏这张图片做表情',
+  capabilities: { chat: true, web: false, files: false, terminal: false },
+  signal: signal(),
+  onStickerCollect: async () => png,
+  ...overrides
+});
 
 test('collection stores and deduplicates images while edits preserve original assets', async () => {
   const root = await mkdtemp(join(tmpdir(), 'sticker-store-'));
@@ -37,7 +47,9 @@ test('collection stores and deduplicates images while edits preserve original as
     assert.deepEqual(await listStickers(config), []);
     assert.deepEqual(await readFile(join(root, filename)), png);
     assert.equal(await updateSticker(config, 'missing', null, signal()), false);
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('collection respects locks, cancellation, limits and directory boundaries', async () => {
@@ -57,7 +69,10 @@ test('collection respects locks, cancellation, limits and directory boundaries',
     await assert.rejects(collectSticker(config, png, [], controller.signal));
     await assert.rejects(collectSticker(config, Buffer.from('invalid'), [], signal()), /格式无效/);
     await assert.rejects(collectSticker(config, png, ['重复', '重复'], signal()), /标签无效/);
-  } finally { await rm(root, { recursive: true, force: true }); await rm(outside, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
 });
 
 test('concurrent collection never silently overwrites another manifest update', async () => {
@@ -73,7 +88,9 @@ test('concurrent collection never silently overwrites another manifest update', 
     const items = await listStickers(config);
     assert.equal(items.length, 2);
     assert.deepEqual(new Set(items.flatMap(item => item.tags)), new Set(['一', '二']));
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('tools require owner intent and prevent an identifier prefix from authorizing edits', async () => {
@@ -91,9 +108,14 @@ test('tools require owner intent and prevent an identifier prefix from authorizi
     const result = await collect.execute({ tags: ['开心'] }, ctx());
     assert.equal(result.ok, true);
     assert.equal((await manage.execute({ id: result.id, action: 'remove' }, ctx({ userText: `删除 ${result.id}extra` }))).ok, false);
+    assert.equal((await manage.execute({ id: result.id, action: 'name', name: '开心猫' }, ctx({ userText: `给 ${result.id} 改名 开心猫` }))).ok, true);
+    assert.equal((await listStickers(getMediaConfig()))[0].name, '开心猫');
     assert.equal((await manage.execute({ id: result.id, action: 'tags', tags: ['可爱'] }, ctx({ userText: `修改 ${result.id} 标签` }))).ok, true);
     assert.equal((await manage.execute({ id: result.id, action: 'remove' }, ctx({ userText: `删除 ${result.id}` }))).ok, true);
-  } finally { globalThis.__config = old; await rm(root, { recursive: true, force: true }); }
+  } finally {
+    globalThis.__config = old;
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('multimodal model turn can collect the actual attachment through the tool', async () => {
@@ -103,25 +125,54 @@ test('multimodal model turn can collect the actual attachment through the tool',
   const stickers = join(root, 'stickers');
   await mkdir(stickers);
   await writeFile(join(stickers, 'manifest.json'), '[]');
-  globalThis.__config = { value: { 'alemonjs-agent-link': { apiKey: 'test', model: 'test', runtimeMode: 'chat-only', stateBackend: 'local',
-    workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), media: { stickerRoot: stickers } } } };
+  globalThis.__config = {
+    value: {
+      'alemonjs-agent-link': {
+        apiKey: 'test',
+        model: 'test',
+        runtimeMode: 'chat-only',
+        stateBackend: 'local',
+        workspaceRoot: join(root, 'work'),
+        dshHomeRoot: join(root, 'home'),
+        modules: { settings: { mood: { modelJudge: false }, expression: { automatic: false } } },
+        media: { stickerRoot: stickers }
+      }
+    }
+  };
   const config = getDSHConfig();
   let calls = 0;
   globalThis.fetch = async (_url, init) => {
     const request = JSON.parse(init.body);
     calls++;
     assert.ok(request.tools.some(item => item.function.name === 'collect_sticker'));
-    if (calls === 1) return Response.json({ choices: [{ message: { content: null, tool_calls: [
-      { id: 'collect', type: 'function', function: { name: 'collect_sticker', arguments: '{"tags":["开心"]}' } }
-    ] } }] });
+    if (calls === 1)
+      return Response.json({
+        choices: [
+          {
+            message: { content: null, tool_calls: [{ id: 'collect', type: 'function', function: { name: 'collect_sticker', arguments: '{"tags":["开心"]}' } }] }
+          }
+        ]
+      });
     assert.equal(JSON.parse(request.messages.find(item => item.role === 'tool').content).ok, true);
     return Response.json({ choices: [{ message: { content: '收藏好了。' } }] });
   };
   try {
-    await runModuleTurn({ config, sessionId: 'sticker-collection', input: [{ type: 'text', text: '收藏图片做表情' }, { type: 'image', mimeType: 'image/png', data: png.toString('base64') }],
-      context: ctx(), onStickerCollect: async () => png, onEvent: async () => {} });
+    await runModuleTurn({
+      config,
+      sessionId: 'sticker-collection',
+      input: [
+        { type: 'text', text: '收藏图片做表情' },
+        { type: 'image', mimeType: 'image/png', data: png.toString('base64') }
+      ],
+      context: ctx(),
+      onStickerCollect: async () => png,
+      onEvent: async () => {}
+    });
     assert.equal(calls, 2);
-    assert.deepEqual((await listStickers(getMediaConfig())).map(item => item.tags), [['开心']]);
+    assert.deepEqual(
+      (await listStickers(getMediaConfig())).map(item => item.tags),
+      [['开心']]
+    );
   } finally {
     await (await getModuleRuntime(config)).close();
     globalThis.__config = oldConfig;

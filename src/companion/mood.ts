@@ -8,7 +8,8 @@ import type { PersonaScope } from './personas';
 export type MoodOptions = { baseline: number; halfLifeHours: number; modelJudge: boolean };
 export const moodOptions = (config: DSHBridgeConfig): MoodOptions => {
   const raw = config.modules?.settings?.mood || {};
-  const result = { baseline: raw.baseline ?? 60, halfLifeHours: raw.halfLifeHours ?? 6, modelJudge: raw.modelJudge ?? false };
+  // 默认开启模型心情判定；如不想承担额外请求，可显式设 modelJudge: false。
+  const result = { baseline: raw.baseline ?? 60, halfLifeHours: raw.halfLifeHours ?? 6, modelJudge: raw.modelJudge ?? true };
 
   if (
     !Number.isFinite(result.baseline) ||

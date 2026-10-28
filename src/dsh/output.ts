@@ -12,6 +12,7 @@ export type SendText = (text: string) => Promise<unknown>;
 type Fence = { marker: '`' | '~'; length: number };
 
 const characterLength = (value: string): number => Array.from(value).length;
+const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
 const takeCharacters = (value: string, limit: number): [string, string] => {
   const characters = Array.from(value);
@@ -31,7 +32,7 @@ const closesFence = (line: string, fence: Fence): boolean => {
   return match?.[1][0] === fence.marker && match[1].length >= fence.length;
 };
 
-const safeBoundary = (value: string, limit: number): number | null => {
+const safeBoundary = (value: string, limit: number, sentences = true): number | null => {
   let position = 0;
   let candidate: number | null = null;
   let fence: Fence | null = null;
@@ -55,11 +56,28 @@ const safeBoundary = (value: string, limit: number): number | null => {
 
     if (/^\s*\n$/u.test(line) && characterLength(value.slice(0, position)) <= limit) {
       candidate = position;
+      continue;
+    }
+
+    // Chat replies are typed one line at a time. Keep lists, tables, headings and
+    // fenced code together so a structured answer is not shredded into bubbles.
+    const trimmed = line.trim();
+
+    if (
+      trimmed &&
+      line.endsWith('\n') &&
+      !/^\s*(?:[-*+•·]|\d+[.、)])\s+/u.test(line) &&
+      !/^\s*#/u.test(line) &&
+      !line.includes('|') &&
+      characterLength(value.slice(0, position)) <= limit
+    ) {
+      candidate = position;
     }
   }
 
   // A plain-text sentence is independently valid Markdown. Never use this
   // fallback while inline Markdown syntax might still be incomplete.
+  if (!sentences) return candidate;
   const hasInlineMarkdown = ['`', '*', '_', '~', '[', ']', '<', '>'].some(token => value.includes(token));
 
   if (!fence && !hasInlineMarkdown) {
@@ -75,22 +93,6 @@ const safeBoundary = (value: string, limit: number): number | null => {
   return candidate;
 };
 
-const finalMarkdown = (value: string): string => {
-  let fence: Fence | null = null;
-
-  for (const line of value.split(/(?<=\n)/u)) {
-    const opener = fenceAt(line);
-
-    if (!fence && opener) {
-      fence = opener;
-    } else if (fence && closesFence(line, fence)) {
-      fence = null;
-    }
-  }
-
-  return fence ? `${value}${value.endsWith('\n') ? '' : '\n'}${fence.marker.repeat(fence.length)}` : value;
-};
-
 const oversizedFallback = (value: string, limit: number): [string, string] => {
   const wrapperLength = characterLength('```text\n\n```');
 
@@ -102,6 +104,29 @@ const oversizedFallback = (value: string, limit: number): [string, string] => {
   return [`\`\`\`text\n${part}\n\`\`\``, remainder];
 };
 
+// At close time the whole reply is available, so cap it at maxParts bubbles and
+// keep code, lists and tables intact. This is the chat equivalent of a person
+// sending a few messages instead of a wall of text.
+const finalBubbles = (value: string, limit: number): string[] => {
+  const raw = value.replace(/\|\|\|/gu, '\n');
+
+  if (!raw.trim()) return [];
+  if (/```|~~~/u.test(raw)) return [raw];
+  const text = raw.trim();
+  const lines = text
+    .split(/\n+/u)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  if (lines.length <= 1) return [text];
+  const listy = lines.filter(line => /^(?:[-*+•·]|\d+[.、)])/u.test(line)).length;
+
+  if (listy >= Math.ceil(lines.length / 2) || lines.some(line => line.startsWith('|'))) return [text];
+  if (lines.length <= limit) return lines;
+
+  return [...lines.slice(0, Math.max(0, limit - 1)), lines.slice(Math.max(0, limit - 1)).join('\n')];
+};
+
 export class StreamOutput {
   private buffer = '';
   private readonly timer: ReturnType<typeof setInterval>;
@@ -110,12 +135,15 @@ export class StreamOutput {
   private stopped = false;
   private detachAbort?: () => void;
   private queue: Promise<void> = Promise.resolve();
+  private partsSent = 0;
 
   constructor(
     private readonly send: SendText,
     private readonly maxMessageLength: number,
     flushIntervalMs: number,
-    private readonly onSendError: (error: unknown) => void
+    private readonly onSendError: (error: unknown) => void,
+    private readonly maxParts = 5,
+    private readonly bubbleDelayMs = 0
   ) {
     this.timer = setInterval(() => {
       void this.flush(false);
@@ -148,35 +176,56 @@ export class StreamOutput {
 
   async flush(final = false): Promise<void> {
     const run = async (): Promise<void> => {
+      if (final) {
+        const bubbles = finalBubbles(this.buffer, Math.max(1, this.maxParts - this.partsSent));
+
+        this.buffer = '';
+        for (let index = 0; index < bubbles.length; index++) {
+          if (this.stopped || this.failed) return;
+          await this.sendBubble(bubbles[index]);
+          if (index < bubbles.length - 1 && this.bubbleDelayMs > 0 && !this.stopped && !this.failed) {
+            await sleep(this.bubbleDelayMs);
+          }
+        }
+
+        return;
+      }
       while (this.buffer && !this.stopped && !this.failed) {
-        const boundary = safeBoundary(this.buffer, this.maxMessageLength);
+        // The model can mark an intentional bubble break with |||. QQ renders the
+        // delimiter literally, so split it here and keep it out of the bubble.
+        const delimiter = this.buffer.indexOf('|||');
+
+        if (delimiter !== -1) {
+          const part = this.buffer.slice(0, delimiter);
+
+          this.buffer = this.buffer.slice(delimiter + 3).replace(/^\s+/u, '');
+          if (part.trim()) await this.sendBubble(part);
+          continue;
+        }
+
+        if (this.partsSent >= Math.max(1, this.maxParts - 1) && characterLength(this.buffer) <= this.maxMessageLength) {
+          return;
+        }
+
+        // While streaming, sentence boundaries keep the first bubble responsive.
+        const boundary = safeBoundary(this.buffer, this.maxMessageLength, true);
 
         if (boundary !== null) {
           const part = this.buffer.slice(0, boundary);
 
           this.buffer = this.buffer.slice(boundary);
-          await this.sendPart(part);
+          await this.sendBubble(part);
           continue;
         }
 
-        if (!final && characterLength(this.buffer) <= this.maxMessageLength) {
+        if (characterLength(this.buffer) <= this.maxMessageLength) {
           return;
-        }
-
-        if (final) {
-          const complete = finalMarkdown(this.buffer);
-
-          if (characterLength(complete) <= this.maxMessageLength) {
-            this.buffer = '';
-            await this.sendPart(complete);
-            continue;
-          }
         }
 
         const [part, remainder] = oversizedFallback(this.buffer, this.maxMessageLength);
 
         this.buffer = remainder;
-        await this.sendPart(part);
+        await this.sendBubble(part);
       }
     };
     const result = this.queue.then(run, run);
@@ -188,6 +237,24 @@ export class StreamOutput {
     await result;
   }
 
+  private async sendBubble(text: string): Promise<void> {
+    let rest = /```|~~~/u.test(text) ? text : text.trim();
+
+    if (!rest.trim()) return;
+
+    while (rest && !this.stopped && !this.failed) {
+      if (characterLength(rest) <= this.maxMessageLength) {
+        await this.sendPart(rest);
+
+        return;
+      }
+      const [part, remainder] = oversizedFallback(rest, this.maxMessageLength);
+
+      await this.sendPart(part);
+      rest = remainder;
+    }
+  }
+
   private async sendPart(part: string): Promise<void> {
     if (!part.trim() || this.stopped || this.failed) {
       return;
@@ -196,6 +263,7 @@ export class StreamOutput {
     try {
       await this.send(part);
       this.sentContent = true;
+      this.partsSent += 1;
     } catch (error) {
       this.failed = true;
       this.buffer = '';

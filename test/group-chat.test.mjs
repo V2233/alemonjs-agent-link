@@ -11,6 +11,95 @@ import { groupConversations } from '../lib/social/groups.js';
 import { respondToGroupBatch, submitGroupChat } from '../lib/social/respond.js';
 import { messageReferences } from '../lib/social/references.js';
 
+test('single-speaker direct group reply sends the first sentence before the model stream completes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'group-incremental-'));
+  const previous = { config: globalThis.__config, fetch: globalThis.fetch };
+  globalThis.__config = {
+    value: {
+      'alemonjs-agent-link': {
+        apiKey: 'test',
+        model: 'test',
+        runtimeMode: 'chat-only',
+        stateBackend: 'local',
+        streamFlushIntervalMs: 10,
+        workspaceRoot: join(root, 'work'),
+        dshHomeRoot: join(root, 'home')
+      }
+    }
+  };
+  const config = getDSHConfig();
+  let upstream;
+  let firstDelivered;
+  const first = new Promise(resolve => {
+    firstDelivered = resolve;
+  });
+  const sends = [];
+  const encoder = new TextEncoder();
+  globalThis.fetch = async (_url, init) => {
+    assert.equal(JSON.parse(init.body).stream, true);
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          upstream = controller;
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"<rep"}}]}\n\n'));
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"ly:m1>先说第一句。"}}]}\n\n'));
+        }
+      }),
+      { headers: { 'Content-Type': 'text/event-stream' } }
+    );
+  };
+  const anchor = {
+    id: 'at-one',
+    channelId: 'incremental',
+    userId: 'human',
+    userKey: 'human',
+    name: 'human',
+    owner: false,
+    text: '请回答',
+    direct: true,
+    explicitMention: true
+  };
+  const pending = respondToGroupBatch(
+    { Platform: 'qq-bot', ChannelId: anchor.channelId, UserId: anchor.userId, UserKey: anchor.userKey, MessageId: anchor.id },
+    {
+      message: {
+        send: async params => {
+          sends.push(params);
+          firstDelivered();
+          return [{ code: ResultCode.Ok, data: { id: `reply-${sends.length}` } }];
+        }
+      },
+      media: { send: async () => assert.fail('no media expected') }
+    },
+    { id: 'incremental-batch', mode: 'direct', anchor, messages: [anchor] }
+  );
+  let timer;
+  try {
+    await Promise.race([
+      first,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('first sentence was buffered until completion')), 3000);
+      })
+    ]);
+    const content = JSON.stringify(sends.map(item => ({ ...item, format: item.format.value })));
+    assert.match(content, /先说第一句/);
+    assert.doesNotMatch(content, /<reply:/);
+    assert.equal(sends[0].replyId, anchor.id);
+  } finally {
+    clearTimeout(timer);
+    if (upstream) {
+      upstream.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"后续回答。"}}]}\n\ndata: [DONE]\n\n'));
+      upstream.close();
+    }
+    await pending;
+    await messageReferences.clear(anchor.channelId);
+    await (await getModuleRuntime(config)).close();
+    globalThis.fetch = previous.fetch;
+    globalThis.__config = previous.config;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('group batch reaches the actual model once, quotes a selected participant and saves rendered history', async () => {
   // Production keeps the bot process alive; the coordinator deliberately unrefs its timers.
   const keepAlive = setInterval(() => {}, 1000);
@@ -26,7 +115,8 @@ test('group batch reaches the actual model once, quotes a selected participant a
         stateBackend: 'local',
         workspaceRoot: join(root, 'workspaces'),
         dshHomeRoot: join(root, 'homes'),
-        groupChat: { interjectChance: 0, batchWindowMs: 5000, maxBatchWaitMs: 5000 }
+        groupChat: { interjectChance: 0, batchWindowMs: 5000, maxBatchWaitMs: 5000 },
+        modules: { settings: { mood: { modelJudge: false } } }
       }
     }
   };
@@ -71,6 +161,8 @@ test('group batch reaches the actual model once, quotes a selected participant a
     const b = { ...incoming('b', 'beta'), IsMaster: true };
     const one = submitGroupChat(a, '一起聊游戏', transport);
     const two = submitGroupChat(b, '一起聊游戏', transport);
+    // Both submissions do asynchronous reference preparation before reaching the coordinator.
+    await new Promise(resolve => setTimeout(resolve, 50));
     await groupConversations.flush('group');
     await Promise.all([one, two]);
     assert.equal(modelCalls, 1);

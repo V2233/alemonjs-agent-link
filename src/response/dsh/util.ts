@@ -37,6 +37,17 @@ export const getConversationId = (event: ConversationEvent): string => {
 };
 
 export const canPrivateChat = (event: ConversationEvent, access: 'owner' | 'all'): boolean => Boolean(event.IsMaster) || access === 'all';
+export const canPrivateChatWithKey = async (event: ConversationEvent, access: 'owner' | 'all'): Promise<boolean> => {
+  if (canPrivateChat(event, access)) return true;
+  if (!event.IsPrivate || !event.Platform || !event.UserId) return false;
+  try {
+    const [{ withBudgetScope }, { getPersonalCredential }] = await Promise.all([import('../../billing/budget'), import('../../credentials/personal')]);
+
+    return Boolean(await withBudgetScope({ platform: event.Platform, userId: event.UserId, channelId: getConversationId(event) }, getPersonalCredential));
+  } catch {
+    return false;
+  }
+};
 export const isPrivateChatText = (text: string): boolean => typeof text === 'string' && Boolean(text.trim()) && !text.trimStart().startsWith('/');
 
 // Commands belong to the command router. Wake words may occur anywhere in a message.

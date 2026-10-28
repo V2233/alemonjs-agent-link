@@ -134,6 +134,12 @@
         "type": "number"
       },
       {
+        "description": "分条回复之间的打字间隔（毫秒），默认 250",
+        "name": "bubbleDelayMs",
+        "required": false,
+        "type": "number"
+      },
+      {
         "description": "单次 Agent 请求超时（毫秒）",
         "name": "requestTimeoutMs",
         "required": false,

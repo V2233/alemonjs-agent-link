@@ -87,7 +87,10 @@ export const resolveReplyGateConnection = (config: DSHBridgeConfig, credentials:
   const model = configuredModel || (url.hostname === 'api.deepseek.com' ? 'deepseek-flash' : sameOrigin ? config.model : undefined);
 
   // A new provider requires its own credentials and model; never forward a main key to it.
-  return apiKey && model ? { apiKey, baseUrl, model } : null;
+  // Reuse the pooled endpoint's health/report hooks only when its key is actually reused.
+  const poolHooks = !gate?.apiKey && !gate?.baseUrl && credentials ? credentials : undefined;
+
+  return apiKey && model ? { ...(poolHooks || {}), apiKey, baseUrl, model } : null;
 };
 
 // Stateless, text-only classification. No DSH session, history writes, or tools.
@@ -104,15 +107,9 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
     const bound = input.scope && !input.scope.channelId.startsWith('private:') ? await withBudgetScope(input.scope, getBoundCredential) : null;
     const credentials = bound
       ? { apiKey: bound.apiKey, baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' }
-      : resolveReplyGateConnection(config, await getDSHCredentials());
+      : resolveReplyGateConnection(config, await getDSHCredentials(undefined, { purpose: 'replyGate' }));
 
     if (!credentials) {
-      return reject();
-    }
-    const base = credentials.baseUrl;
-    const url = new URL(`${base.replace(/\/+$/, '')}/chat/completions`);
-
-    if (url.protocol !== 'https:' || url.username || url.password) {
       return reject();
     }
     const compact = {
@@ -125,18 +122,8 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
         media: item.media.slice(0, 5)
       }))
     };
-    const body = JSON.stringify({
-      model: credentials.model || config.model,
-      stream: false,
-      max_tokens: 120,
-      ...(url.hostname === 'api.deepseek.com' ? { thinking: { type: 'disabled' } } : {}),
-      messages: [
-        { role: 'system', content: instruction },
-        { role: 'user', content: JSON.stringify(compact) }
-      ]
-    });
 
-    if (Buffer.byteLength(body) > 20000 || config.inputBlockedKeywords.some(word => word && JSON.stringify(compact).includes(word))) {
+    if (config.inputBlockedKeywords.some(word => word && JSON.stringify(compact).includes(word))) {
       return reject();
     }
     // Recognition uses its own group allowance and the shared group recharge balance.
@@ -146,20 +133,69 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
     }
     signal.throwIfAborted();
     assertAIEnabled(config);
-    const request: RequestInit & { scopedKey?: boolean } = {
-      scopedKey: Boolean(bound),
-      method: 'POST',
-      redirect: 'error',
-      signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
-      headers: { Authorization: `Bearer ${credentials.apiKey}`, 'Content-Type': 'application/json' },
-      body
-    };
-    const response =
-      budgetEnabled(config) || bound ? await withBudgetScope(input.scope, () => budgetedFetch(config, url, request, 'reply-gate')) : await fetch(url, request);
-    const result = JSON.parse((await readBounded(response, 16384)).toString('utf8'));
-    const content = result?.choices?.[0]?.message?.content;
+    let current = credentials;
 
-    return typeof content === 'string' ? parseReplyVerdict(content) : reject();
+    for (;;) {
+      const base = current.baseUrl || 'https://api.deepseek.com';
+      const url = new URL(`${base.replace(/\/+$/u, '')}/chat/completions`);
+
+      if (url.protocol !== 'https:' || url.username || url.password) {
+        return reject();
+      }
+      const body = JSON.stringify({
+        model: current.model || config.model,
+        stream: false,
+        max_tokens: 120,
+        ...(url.hostname === 'api.deepseek.com' ? { thinking: { type: 'disabled' } } : {}),
+        messages: [
+          { role: 'system', content: instruction },
+          { role: 'user', content: JSON.stringify(compact) }
+        ]
+      });
+
+      if (Buffer.byteLength(body) > 20000) return reject();
+      const request: RequestInit & { scopedKey?: boolean } = {
+        scopedKey: Boolean(bound),
+        method: 'POST',
+        redirect: 'error',
+        signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
+        headers: { Authorization: `Bearer ${current.apiKey}`, 'Content-Type': 'application/json' },
+        body
+      };
+      let response: Response;
+
+      try {
+        response =
+          budgetEnabled(config) || bound
+            ? await withBudgetScope(input.scope, () => budgetedFetch(config, url, request, 'reply-gate'))
+            : await fetch(url, request);
+      } catch (error) {
+        current.report?.({ ok: false });
+        if (error instanceof BudgetExceededError) throw error;
+        signal.throwIfAborted();
+        const next = current.next?.();
+
+        if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) return reject();
+        current = next;
+        continue;
+      }
+      if (!response.ok) {
+        const status = response.status;
+
+        await response.body?.cancel();
+        current.report?.({ ok: false, status });
+        const next = current.retryable?.(status) ? current.next?.() : null;
+
+        if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) return reject();
+        current = next;
+        continue;
+      }
+      current.report?.({ ok: true, status: response.status });
+      const result = JSON.parse((await readBounded(response, 16384)).toString('utf8'));
+      const content = result?.choices?.[0]?.message?.content;
+
+      return typeof content === 'string' ? parseReplyVerdict(content) : reject();
+    }
   } catch (error) {
     if (error instanceof BudgetExceededError) return { ...reject(), budgetBlocked: true };
 

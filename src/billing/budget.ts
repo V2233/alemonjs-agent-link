@@ -5,6 +5,7 @@ import type { Redis } from 'ioredis';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { DSHError } from '../dsh/errors';
 import { groupKeyGuide, insufficientBudgetHelp } from './help';
+import { withBalanceCheckScope } from '../credentials/balance-scope';
 
 export type BudgetConfig = {
   enabled?: boolean;
@@ -21,7 +22,7 @@ const context = new AsyncLocalStorage<BudgetScope>();
 
 export const getBudgetScope = (): BudgetScope | undefined => context.getStore();
 
-export const withBudgetScope = <T>(scope: BudgetScope, run: () => T): T => context.run(scope, run);
+export const withBudgetScope = <T>(scope: BudgetScope, run: () => T): T => context.run(scope, () => withBalanceCheckScope(run));
 export const budgetEnabled = (config: DSHBridgeConfig): boolean => config.budget?.enabled === true;
 const prefix = 'data:{agent-link-budget}:v1';
 const ttl = 32 * 86400;
@@ -254,7 +255,9 @@ export const budgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) 
     promptTokens: Number(value.promptTokens || 0),
     completionTokens: Number(value.completionTokens || 0),
     cacheHitTokens: Number(value.cacheHitTokens || 0),
-    globalUsed: globalUsed / units
+    globalUsed: globalUsed / units,
+    globalLimit: globalLimit / units,
+    blockedRequired: Number(person.blockedRequired || 0) / units
   };
 };
 
@@ -281,9 +284,12 @@ export const replyGateBudgetStatus = async (config: DSHBridgeConfig, scope: Budg
     freeUsed: (used - paidUsed) / units,
     freeRemaining: freeRemaining / units,
     paidUsed: paidUsed / units,
+    paidRemaining: paidRemaining / units,
+    available: available / units,
     reserved: Number(gate.reserved || 0) / units,
     globalUsed: Number(gateTotal.used || 0) / units,
     globalLimit: gateGlobalLimit / units,
+    blockedRequired: Number(gate.blockedRequired || 0) / units,
     blocked:
       available <= 0 ||
       available < Number(gate.blockedRequired || 0) ||
@@ -423,7 +429,7 @@ export const budgetedFetch = async (
     )
   );
 
-  if (Number(admitted) !== 1) throw new BudgetExceededError();
+  if (Number(admitted) !== 1) throw new BudgetExceededError(await budgetFailureDetails(config, scope, kind, amount / units));
   init.signal?.throwIfAborted();
   assertAIEnabled(config);
   const response = await fetch(url, { ...init, body: JSON.stringify(body) });
@@ -609,10 +615,55 @@ export const budgetAdjustments = async (scope: BudgetScope, isMaster: boolean): 
   return (await bounded(redis.lrange(`${key}:adjustments`, 0, 4))).map(row => JSON.parse(row) as BudgetAdjustment);
 };
 
+export type BudgetExceededDetails = {
+  availableYuan?: number;
+  requiredYuan?: number;
+  isPrivate?: boolean;
+  globalBlocked?: boolean;
+};
+
+const yuanLabel = (value: number): string => (value > 0 && value < 0.01 ? '<0.01' : Math.max(0, value).toFixed(2));
+
 export const budgetExceededMessage = insufficientBudgetHelp(false);
 export class BudgetExceededError extends DSHError {
-  constructor() {
-    super('budget', insufficientBudgetHelp(Boolean(getBudgetScope()?.channelId.startsWith('private:'))));
+  readonly availableYuan?: number;
+  readonly requiredYuan?: number;
+
+  constructor(details: BudgetExceededDetails = {}) {
+    const isPrivate = details.isPrivate ?? Boolean(getBudgetScope()?.channelId.startsWith('private:'));
+    const [headline, ...rest] = insufficientBudgetHelp(isPrivate).split('\n\n');
+    const hasAmounts = Number.isFinite(details.availableYuan) && Number.isFinite(details.requiredYuan);
+    const amounts = hasAmounts
+      ? `本次请求预计需要 ${yuanLabel(Number(details.requiredYuan))} 元，当前可用约 ${yuanLabel(Number(details.availableYuan))} 元。`
+      : '';
+    const globalNote = details.globalBlocked ? '今日全局每日上限也已用满。' : '';
+
+    super('budget', [headline, amounts, globalNote, ...rest].filter(Boolean).join('\n\n'));
+    this.name = 'BudgetExceededError';
+    this.availableYuan = details.availableYuan;
+    this.requiredYuan = details.requiredYuan;
+  }
+}
+
+/**
+ * A reservation was refused. Read the current ledger once so the user sees how
+ * far off the request was instead of a bare "额度不足". This only runs on the
+ * failure path; a healthy request never pays for the extra Redis round trip.
+ */
+async function budgetFailureDetails(config: DSHBridgeConfig, scope: BudgetScope, kind: BudgetKind, requiredYuan: number): Promise<BudgetExceededDetails> {
+  const isPrivate = scope.channelId.startsWith('private:');
+
+  try {
+    const status = kind === 'reply-gate' ? await replyGateBudgetStatus(config, scope) : await budgetStatus(config, scope);
+
+    return {
+      availableYuan: status.available,
+      requiredYuan,
+      isPrivate,
+      globalBlocked: status.globalLimit > 0 && status.globalUsed >= status.globalLimit
+    };
+  } catch {
+    return { requiredYuan, isPrivate };
   }
 }
 
@@ -666,7 +717,15 @@ export const assertBudgetAvailable = async (config: DSHBridgeConfig): Promise<vo
   const { checkedBoundCredential } = await import('../credentials/scoped');
 
   if (await checkedBoundCredential()) return;
-  if ((await budgetStatus(config, scope)).blocked) throw new BudgetExceededError();
+  const status = await budgetStatus(config, scope);
+
+  if (status.blocked) {
+    throw new BudgetExceededError({
+      availableYuan: status.available,
+      requiredYuan: status.blockedRequired > 0 ? status.blockedRequired : undefined,
+      globalBlocked: status.globalLimit > 0 && status.globalUsed >= status.globalLimit
+    });
+  }
 };
 
 // DSH owns its internal loop. The anti-abuse budget counts the visible text turn,
@@ -680,7 +739,7 @@ export const reserveWorkspaceText = async (config: DSHBridgeConfig, input: strin
   const { getDSHCredentials } = await import('../dsh/credentials');
   const credentials = await getDSHCredentials();
   const base = credentials?.baseUrl || (config.provider === 'deepseek-official' ? 'https://api.deepseek.com' : '');
-  const rates = officialRates(new URL(`${base.replace(/\/+$/u, '')}/chat/completions`), config.model);
+  const rates = officialRates(new URL(`${base.replace(/\/+$/u, '')}/chat/completions`), credentials?.model || config.model);
   const promptTokens = Math.ceil(Buffer.byteLength(input) / 3);
   const amount = usageCost({ prompt_tokens: promptTokens, completion_tokens: config.budget?.maxOutputTokens ?? 2048 }, rates);
   const redis = await budgetRedis();
@@ -704,7 +763,7 @@ export const reserveWorkspaceText = async (config: DSHBridgeConfig, input: strin
       )
     ) !== 1
   )
-    throw new BudgetExceededError();
+    throw new BudgetExceededError(await budgetFailureDetails(config, scope, scope.autonomous ? 'autonomous' : 'chat', amount / units));
 
   return async output => {
     const usage = { prompt_tokens: promptTokens, completion_tokens: Math.ceil(Buffer.byteLength(output) / 3) };

@@ -323,11 +323,17 @@ export class SessionRegistry {
         ) {
           continue;
         }
-        chars += turn.user.length + turn.assistant.length;
+        const autonomous = turn.autonomous === true || turn.user.startsWith('【系统主动搭话提醒，不是主人发言】');
+
+        chars += (autonomous ? 0 : turn.user.length) + turn.assistant.length;
         if (chars > this.config.privateHistoryMaxChars) {
           break;
         }
-        result.unshift({ role: 'user', content: turn.user }, { role: 'assistant', content: turn.assistant });
+        if (autonomous) {
+          result.unshift({ role: 'assistant', content: turn.assistant });
+        } else {
+          result.unshift({ role: 'user', content: turn.user }, { role: 'assistant', content: turn.assistant });
+        }
       } catch {
         continue;
       }
@@ -335,7 +341,7 @@ export class SessionRegistry {
 
     return result;
   }
-  async appendPrivateTurn(context: PrivateHistoryContext, user: string, assistant: string): Promise<void> {
+  async appendPrivateTurn(context: PrivateHistoryContext, user: string, assistant: string, autonomous = false): Promise<void> {
     if (!this.config.privateHistoryMaxTurns || context.record?.() === false) {
       return;
     }
@@ -352,7 +358,13 @@ export class SessionRegistry {
       key(context.channelId, 'meta.v1.json'),
       key(context.channelId, 'private-history.v1'),
       String(context.generation),
-      JSON.stringify({ generation: context.generation, timestamp: Date.now(), user, assistant }),
+      JSON.stringify({
+        generation: context.generation,
+        timestamp: Date.now(),
+        user: autonomous ? '' : user,
+        assistant,
+        ...(autonomous ? { autonomous: true } : {})
+      }),
       String(this.config.privateHistoryMaxTurns),
       String(this.config.privateHistoryTtlSeconds)
     );

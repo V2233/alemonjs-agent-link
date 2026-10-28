@@ -15,10 +15,10 @@ export const qzoneModule = (config: DSHBridgeConfig, client = platformClient): A
   apiVersion: 1,
   setup(api) {
     const {
-      enabled = false,
-      allowPost = false,
-      allowInteract = false,
-      dryRun = true,
+      enabled = true,
+      allowPost = true,
+      allowInteract = true,
+      dryRun = false,
       maxPostsPerDay = 5,
       maxInteractionsPerDay = 10,
       cooldownSeconds = 60,

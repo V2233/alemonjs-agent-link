@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import Redis from 'ioredis';
 import YAML from 'yaml';
 import {
@@ -63,6 +65,10 @@ test('Shanghai day boundaries, group/private limits, price aliases and validatio
 
 test('missing identity and unknown pricing fail before any provider request', async () => {
   const old = globalThis.fetch;
+  const previousKeyFile = process.env.AGENT_LINK_PERSONAL_KEY_FILE;
+  // A key file left by a real deployment would make the bound-key lookup reach
+  // Redis before price validation; this test is about the pre-network checks.
+  process.env.AGENT_LINK_PERSONAL_KEY_FILE = join(tmpdir(), `agent-link-budget-${randomUUID()}.key`);
   globalThis.fetch = () => assert.fail('must not contact provider');
   try {
     await assert.rejects(budgetedFetch(config, url, init()), /所属会话/);
@@ -72,6 +78,8 @@ test('missing identity and unknown pricing fail before any provider request', as
     );
   } finally {
     globalThis.fetch = old;
+    if (previousKeyFile === undefined) delete process.env.AGENT_LINK_PERSONAL_KEY_FILE;
+    else process.env.AGENT_LINK_PERSONAL_KEY_FILE = previousKeyFile;
   }
 });
 

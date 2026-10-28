@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { budgetRedis, getBudgetScope, type BudgetScope } from '../billing/budget';
 import { DSHError } from '../dsh/errors';
+import { balanceWasConfirmed, confirmBalance } from './balance-scope';
 
 export const isPersonalKeyCommand = (text: unknown): boolean => /^\/(?:apikey|个人密钥|群密钥|groupapikey)(?:\s|$)/iu.test(String(text ?? '').trimStart());
 const keyFile = () => resolve(process.env.AGENT_LINK_PERSONAL_KEY_FILE || '.data/agent-link/personal-key.key');
@@ -77,6 +78,20 @@ export const personalKeyStatus = async (scope: BudgetScope) => {
 
   return { bound: Boolean(value), enabled: value?.enabled === true, reason: value?.reason || '' };
 };
+/**
+ * 本人私聊是否绑定了已启用的个人 Key，用于"自带 Key 拉满"的权益判断。
+ * 从未绑定过个人 Key 的部署不因此新增 Redis 依赖。
+ */
+export const personalKeyEntitled = async (target: { platform?: string; userId?: string }): Promise<boolean> => {
+  if (!target.platform || !target.userId) return false;
+  const key = await encryptionKey();
+
+  if (!key && !getConfigValue<{ db?: { redis?: unknown } }>()?.db?.redis) return false;
+  const channelId = `private:${JSON.stringify([target.platform, target.userId])}`;
+  const value = await recordFor({ platform: target.platform, channelId, userId: target.userId });
+
+  return value?.enabled === true;
+};
 export const updatePersonalKey = async (scope: BudgetScope, action: 'enable' | 'disable' | 'remove', revision?: string): Promise<boolean> => {
   const redis = await budgetRedis();
   const result = await redis.eval(
@@ -136,6 +151,29 @@ export const checkCredentialBalance = async (
   signal?: AbortSignal
 ): Promise<PersonalCredential | null> => {
   if (!credential) return null;
+  signal?.throwIfAborted();
+  const balanceId = createHash('sha256')
+    .update(
+      JSON.stringify([
+        credential.scope.platform,
+        credential.scope.channelId,
+        credential.scope.channelId.startsWith('private:') ? credential.scope.userId : '',
+        credential.revision,
+        credential.apiKey
+      ])
+    )
+    .digest('hex');
+
+  // Callers reread the enabled credential before entering here. A rotation or
+  // disable therefore never reuses a previous successful balance confirmation.
+  if (balanceWasConfirmed(balanceId)) {
+    const latest = await latestCredential();
+
+    signal?.throwIfAborted();
+    if (latest?.revision !== credential.revision) throw new DSHError('budget', '绑定 Key 设置已变更，请重新发送请求。');
+
+    return credential;
+  }
   let response: Response;
 
   try {
@@ -183,7 +221,9 @@ export const checkCredentialBalance = async (
   if (available !== true) throw new DSHError('budget', '绑定 Key 余额返回格式无效，未切换到机器人额度。');
   const latest = await latestCredential();
 
+  signal?.throwIfAborted();
   if (latest?.revision !== credential.revision) throw new DSHError('budget', '绑定 Key 设置已变更，请重新发送请求。');
+  confirmBalance(balanceId);
 
   return credential;
 };

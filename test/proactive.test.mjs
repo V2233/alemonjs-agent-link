@@ -15,6 +15,8 @@ import { ModuleRuntime, getModuleRuntime, executeTool } from '../lib/agent/modul
 import { getChatArchive } from '../lib/history/store.js';
 import { OneBotActions } from '../lib/onebot/actions.js';
 import { getPersonaStore } from '../lib/companion/personas.js';
+import { SessionRegistry } from '../lib/state/registry.js';
+import { getMemoryStore } from '../lib/memory/store.js';
 
 const scope = { platform: 'onebot', botId: '900', userId: '100' };
 const base = Date.parse('2026-10-26T10:00:00+08:00');
@@ -249,6 +251,30 @@ test('worker revalidates authorization and configuration before sending and pers
     }
   }));
 
+test('proactive prompt offers optional read-only browsing only when Bilibili browsing is enabled', () =>
+  fixture(async f => {
+    f.store.subscribe(scope, true, f.options);
+    let observed = '';
+    const config = { ...f.config, modules: { settings: { bili: { enabled: true, allowProactiveBrowse: true } } } };
+    const worker = new ProactiveWorker(config, {
+      store: f.store,
+      config: () => config,
+      owner: () => true,
+      online: async () => true,
+      deliver: async (_scope, prompt) => {
+        observed = prompt;
+        return { delivered: false, completed: true };
+      }
+    });
+    try {
+      assert.equal(await worker.run(scope, true), 'silent');
+      assert.match(observed, /只读的 B 站搜索/);
+      assert.match(observed, /不要评论、点赞或联系他人/);
+    } finally {
+      worker.stop();
+    }
+  }));
+
 test('autonomous tool leases and executor reject writes even when a recipient is the owner', () =>
   fixture(async f => {
     const runtime = new ModuleRuntime(f.config, [
@@ -328,7 +354,14 @@ const pipeline = async run =>
             stateBackend: 'local',
             workspaceRoot: f.config.workspaceRoot,
             dshHomeRoot: f.config.dshHomeRoot,
-            modules: { settings: { memory: { automatic: false }, 'group-admin': { groups: ['200'] } } }
+            modules: {
+              settings: {
+                memory: { automatic: false },
+                mood: { modelJudge: false },
+                expression: { automatic: false },
+                'group-admin': { groups: ['200'] }
+              }
+            }
           }
         });
         config = getDSHConfig();
@@ -347,14 +380,141 @@ const pipeline = async run =>
     }
   });
 
+test('proactive delivery can browse a real tool result and remember the actual reading', () =>
+  pipeline(async f => {
+    f.worker.stop();
+    const current = getConfig().value;
+    const app = current['alemonjs-agent-link'];
+    getConfig().saveValue({
+      ...current,
+      'alemonjs-agent-link': {
+        ...app,
+        modules: { ...app.modules, settings: { ...app.modules.settings, memory: { automatic: true }, bili: { enabled: true, allowProactiveBrowse: true } } }
+      }
+    });
+    const config = getDSHConfig();
+    const worker = new ProactiveWorker(config);
+    const bvid = 'BV1234567890';
+    const nav = { data: { wbi_img: { img_url: `https://i0.hdslb.com/${'a'.repeat(32)}.png`, sub_url: `https://i0.hdslb.com/${'b'.repeat(32)}.png` } } };
+    let modelCalls = 0,
+      searchCalls = 0,
+      watchCalls = 0;
+    globalThis.fetch = async (url, init) => {
+      const address = String(url);
+      if (address.endsWith('/nav')) return Response.json(nav);
+      if (address.includes('/search/type')) {
+        searchCalls++;
+        return Response.json({ code: 0, data: { result: [{ bvid, title: '鲸鱼的海', author: '作者' }] } });
+      }
+      if (address.includes('/wbi/view')) {
+        watchCalls++;
+        return Response.json({ code: 0, data: { bvid, aid: 123, cid: 456, title: '鲸鱼的海', desc: '研究鲸鱼的歌声' } });
+      }
+      if (address.includes('/player/')) return Response.json({ code: 0, data: { subtitle: { subtitles: [] } } });
+      if (address.includes('/reply/')) return Response.json({ code: 0, data: { replies: [] } });
+      const body = JSON.parse(init.body);
+      modelCalls++;
+      assert.ok(body.tools.some(tool => tool.function.name === 'bili_search'));
+      assert.equal(
+        body.tools.some(tool => tool.function.name === 'bili_comment'),
+        false
+      );
+      if (modelCalls === 1)
+        return Response.json({
+          choices: [
+            { message: { content: null, tool_calls: [{ id: 'search', type: 'function', function: { name: 'bili_search', arguments: '{"keyword":"鲸鱼"}' } }] } }
+          ]
+        });
+      if (modelCalls === 2)
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: null,
+                tool_calls: [{ id: 'watch', type: 'function', function: { name: 'bili_watch', arguments: JSON.stringify({ link: bvid }) } }]
+              }
+            }
+          ]
+        });
+      assert.match(JSON.stringify(body.messages), /研究鲸鱼的歌声/);
+      return Response.json({ choices: [{ message: { content: '刚发现一条讲鲸鱼歌声的视频，标题有点意思。' } }] });
+    };
+    try {
+      assert.equal(await worker.run(scope, true), 'confirmed');
+      assert.equal(modelCalls, 3);
+      assert.equal(searchCalls, 1);
+      assert.equal(watchCalls, 1);
+      assert.equal(f.nativeCalls.filter(item => item.action === 'send_private_msg').length, 1);
+      const events = getMemoryStore(config).list({ platform: scope.platform, channelId: proactiveChannel(scope) }, { subjectId: scope.botId });
+      assert.equal(events.length, 1);
+      assert.match(events[0].text, /研究鲸鱼的歌声/);
+    } finally {
+      worker.stop();
+    }
+  }));
+
+test('incoming owner message cancels in-flight proactive browsing without a message or false experience', () =>
+  pipeline(async f => {
+    f.worker.stop();
+    const current = getConfig().value;
+    const app = current['alemonjs-agent-link'];
+    getConfig().saveValue({
+      ...current,
+      'alemonjs-agent-link': {
+        ...app,
+        modules: { ...app.modules, settings: { ...app.modules.settings, memory: { automatic: true }, bili: { enabled: true, allowProactiveBrowse: true } } }
+      }
+    });
+    const config = getDSHConfig();
+    const worker = new ProactiveWorker(config);
+    let started;
+    const ready = new Promise(resolve => {
+      started = resolve;
+    });
+    globalThis.fetch = async (url, init) => {
+      if (String(url).endsWith('/nav')) {
+        started();
+        await new Promise(resolve => init.signal.addEventListener('abort', resolve, { once: true }));
+        init.signal.throwIfAborted();
+      }
+      return Response.json({
+        choices: [
+          {
+            message: { content: null, tool_calls: [{ id: 'watch', type: 'function', function: { name: 'bili_watch', arguments: '{"link":"BV1234567890"}' } }] }
+          }
+        ]
+      });
+    };
+    try {
+      const pending = worker.run(scope, true);
+      await ready;
+      observeProactiveInput(config, {
+        Platform: scope.platform,
+        BotId: scope.botId,
+        UserId: scope.userId,
+        IsPrivate: true,
+        IsMaster: true,
+        MessageId: 'cancel-browse',
+        MessageText: '我来了'
+      });
+      assert.equal(await pending, 'cancelled');
+      assert.equal(f.nativeCalls.filter(item => item.action === 'send_private_msg').length, 0);
+      assert.deepEqual(getMemoryStore(config).list({ platform: scope.platform, channelId: proactiveChannel(scope) }, { subjectId: scope.botId }), []);
+    } finally {
+      worker.stop();
+    }
+  }));
+
 test('real delivery pipeline uses owner persona and history readers without write tools, sends a scoped platform message, and does not archive a fake user message', () =>
   pipeline(async f => {
     const personas = getPersonaStore(f.config);
     await personas.save({ id: 'companion', name: '茶友', prompt: '用自然简短的中文回应。', privateRules: '保持主人的私聊称呼。', socialRules: '公共称呼。' });
     await personas.select({ platform: scope.platform, channelId: proactiveChannel(scope) }, 'companion');
     let response = '今天有空喝茶吗？';
+    let requests = 0;
     globalThis.fetch = async (_url, init) => {
       const body = JSON.parse(init.body);
+      requests++;
       assert.match(body.messages[0].content, /系统调度的主动搭话，不是主人发来的请求/u);
       assert.match(body.messages[0].content, /保持主人的私聊称呼/u);
       assert.doesNotMatch(body.messages[0].content, /公共称呼/u);
@@ -363,6 +523,13 @@ test('real delivery pipeline uses owner persona and history readers without writ
       assert.ok(tools.includes('search_chat_history'));
       for (const denied of ['remember_private_fact', 'manage_group', 'poke_speaker', 'agent_workspace']) assert.equal(tools.includes(denied), false);
       assert.match(JSON.stringify(body.messages.at(-1).content), /系统主动搭话提醒，不是主人发言/u);
+      if (requests > 1) {
+        assert.ok(body.messages.some(message => message.role === 'assistant' && message.content === '今天有空喝茶吗？'));
+        assert.equal(
+          body.messages.slice(0, -1).some(message => message.role === 'user' && String(message.content).includes('【系统主动搭话提醒，不是主人发言】')),
+          false
+        );
+      }
       return Response.json({ choices: [{ message: { content: response } }] });
     };
     assert.equal(await f.worker.run(scope, true), 'confirmed');
@@ -374,6 +541,10 @@ test('real delivery pipeline uses owner persona and history readers without writ
     const rows = archive.search({ platform: scope.platform, channelId: proactiveChannel(scope) }).items;
     assert.equal(rows.filter(row => row.role === 'user').length, 0);
     assert.equal(rows.filter(row => row.role === 'assistant').length, 1);
+    const registry = new SessionRegistry(f.config);
+    const channelId = proactiveChannel(scope);
+    const meta = await registry.meta(channelId);
+    assert.deepEqual(await registry.privateHistory({ channelId, generation: meta.generation }), [{ role: 'assistant', content: '今天有空喝茶吗？' }]);
     assert.equal(f.store.get(scope).unanswered, 1);
     response = '[沉默]';
     observeProactiveInput(f.config, {

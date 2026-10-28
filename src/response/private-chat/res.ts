@@ -1,4 +1,6 @@
-import { Format, useEvent, useMessage } from 'alemonjs';
+import { useEvent, useMessage } from 'alemonjs';
+import { noticeBubble } from '../bubble';
+import { budgetNoticeActions } from '../../billing/help';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { runDSHChat } from '@src/response/dsh/chat';
 import { isPrivateChatText } from '@src/response/dsh/util';
@@ -32,7 +34,13 @@ export default async (): Promise<void> => {
   } catch (error) {
     const [message] = useMessage();
 
-    await message.send({ format: Format.create().addText(toUserMessage(error)) });
+    await message.send({
+      format: noticeBubble(toUserMessage(error), {
+        platform: event.Platform,
+        title: '服务提示',
+        actions: [{ label: '密钥配置', command: '/密钥配置' }, ...budgetNoticeActions(true)]
+      })
+    });
 
     return;
   }

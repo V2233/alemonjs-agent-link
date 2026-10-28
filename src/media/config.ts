@@ -1,4 +1,5 @@
 import { getAppConfigValue } from 'alemonjs';
+import { join, resolve } from 'node:path';
 import { speechOptions, type SpeechOptions } from './speech-config';
 
 export type MediaProvider = { baseUrl: string; apiKey: string; model: string; voice?: string };
@@ -17,6 +18,7 @@ export type MediaConfig = {
   ttsMaxChars: number;
   stickerRoot?: string;
   stickerCooldownSeconds: number;
+  stickerMaxItems: number;
 };
 export class MediaError extends Error {}
 export const unavailableMediaReply = '看不懂，就当是夸我了';
@@ -25,6 +27,7 @@ export class MediaUnavailableError extends MediaError {
     super(unavailableMediaReply);
   }
 }
+const defaultStickerRoot = (): string => resolve(process.env.AGENT_LINK_DATA_DIR ?? join(process.cwd(), '.data', 'agent-link'), 'stickers');
 const provider = (value: unknown, allowLocal = false): MediaProvider | undefined => {
   if (value === undefined) {
     return undefined;
@@ -89,8 +92,9 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
     maxBytes: raw.maxBytes ?? 10 * 1024 * 1024,
     maxAttachments: raw.maxAttachments ?? 3,
     ttsMaxChars: raw.ttsMaxChars ?? 800,
-    stickerRoot: raw.stickerRoot,
+    stickerRoot: raw.stickerRoot ?? defaultStickerRoot(),
     stickerCooldownSeconds: raw.stickerCooldownSeconds ?? 30,
+    stickerMaxItems: raw.stickerMaxItems ?? 300,
     vision: provider(raw.vision),
     asr: provider(raw.asr, true),
     tts: provider(raw.tts, true),
@@ -109,7 +113,8 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
     [config.maxBytes, 1024, 25 * 1024 * 1024],
     [config.maxAttachments, 1, 5],
     [config.ttsMaxChars, 1, 4000],
-    [config.stickerCooldownSeconds, 0, 3600]
+    [config.stickerCooldownSeconds, 0, 3600],
+    [config.stickerMaxItems, 1, 500]
   ]) {
     if (!Number.isSafeInteger(number) || number < min || number > max) {
       throw new MediaError('媒体大小、超时或次数配置超出范围。');

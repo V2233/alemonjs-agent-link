@@ -19,9 +19,15 @@ type Event = MessageContextEvent & {
   IsMaster?: boolean;
   IsBot?: boolean;
 };
-export const archiveIncoming = (config: DSHBridgeConfig, event: Event): void => {
+export const archiveIncoming = (config: DSHBridgeConfig, event: Event, privateAllowed = false): void => {
   if (isPersonalKeyCommand(event.MessageText)) return;
-  if (!historyEnabled(config) || event.IsBot || !event.Platform || !event.MessageId || (event.IsPrivate && !canPrivateChat(event, config.privateChatAccess))) {
+  if (
+    !historyEnabled(config) ||
+    event.IsBot ||
+    !event.Platform ||
+    !event.MessageId ||
+    (event.IsPrivate && !privateAllowed && !canPrivateChat(event, config.privateChatAccess))
+  ) {
     return;
   }
   const channelId = getConversationId(event);

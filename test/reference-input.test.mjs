@@ -24,7 +24,8 @@ test('private quoted text reaches the actual model; group text and voice command
         runtimeMode: 'chat-only',
         stateBackend: 'local',
         workspaceRoot: join(root, 'workspaces'),
-        dshHomeRoot: join(root, 'homes')
+        dshHomeRoot: join(root, 'homes'),
+        modules: { settings: { mood: { modelJudge: false }, expression: { automatic: false } } }
       }
     }
   };

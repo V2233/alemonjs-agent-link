@@ -1,4 +1,5 @@
-import { createUserHashKey, Format, getConfig, isMaster, logger, useEvent, useMessage, useRoute } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { createUserHashKey, getConfig, isMaster, logger, useEvent, useMessage, useRoute } from 'alemonjs';
 import { masterVerification } from '@src/state/master-verification';
 
 export default async (): Promise<void> => {
@@ -10,7 +11,16 @@ export default async (): Promise<void> => {
   }
   const event = context.current;
   const [message] = useMessage();
-  const reply = (text: string) => message.send({ format: Format.create().addText(text) });
+  const reply = (text: string) =>
+    message.send({
+      format: commandBubble(text, '主人验证', {
+        platform: event.Platform,
+        actions: [
+          { label: '获取验证码', command: '/我是主人' },
+          { label: '帮助', command: '/帮助 管理' }
+        ]
+      })
+    });
 
   if (event.IsMaster || isMaster(event.UserId, event.Platform)) {
     await reply('你已经是机器人主人。');

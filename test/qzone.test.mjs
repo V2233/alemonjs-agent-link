@@ -109,8 +109,9 @@ test('space tools preview by default, enforce direct owner intent, and persist d
   } });
   const setup = settings => { const tools = []; qzoneModule(config, client).setup({ settings, tool: tool => tools.push(tool) }); return tools; };
   try {
-    assert.deepEqual(setup({}), []);
-    const tools = setup({ enabled: true, allowPost: true });
+    assert.deepEqual(setup({ enabled: false }), [], 'explicitly disabling the space module hides its tools');
+    assert.ok(setup({}).length > 0, 'the space module is available by default');
+    const tools = setup({ enabled: true, allowPost: true, dryRun: true });
     const read = tools.find(t => t.name === 'qzone_read');
     const post = tools.find(t => t.name === 'qzone_post');
     assert.equal(read.available(context('1')), true);

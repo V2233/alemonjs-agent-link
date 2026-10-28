@@ -24,7 +24,7 @@ test('persona defaults, custom override and private config validation', () => {
   const cfg = values => getDSHConfig(values);
   assert.equal(cfg({ defaultSystemPrompt: 'custom' }).defaultSystemPrompt, 'custom');
   assert.doesNotMatch(cfg({ persona: 'assistant' }).defaultSystemPrompt, /大肥鱼/);
-  assert.equal(cfg({}).privateChatAccess, 'owner');
+  assert.equal(cfg({}).privateChatAccess, 'all');
   for (const invalid of [
     { privateChatAccess: 'everyone' },
     { privateAutoReply: 'false' },

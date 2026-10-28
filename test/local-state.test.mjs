@@ -11,6 +11,23 @@ import { SessionRegistry } from '../lib/state/registry.js';
 const root = await mkdtemp(join(tmpdir(), 'agent-link-local-'));
 const getDSHConfig = (value = {}) => getConfig({ ...value, stateBackend: 'local', dshHomeRoot: join(root, 'homes') });
 
+test('proactive replies remain assistant messages, including legacy task prompts', async () => {
+  const registry = new SessionRegistry(getDSHConfig({ privateHistoryMaxTurns: 10 }));
+  const channelId = `private:proactive-${randomUUID()}`;
+  const reset = await registry.beginReset(channelId);
+  const ctx = { channelId, generation: reset.generation };
+  try {
+    await registry.completeReset(channelId, reset.operationId);
+    await registry.appendPrivateTurn(ctx, '刚才讲了白鲸', '嗯，有意思');
+    await registry.appendPrivateTurn(ctx, '【系统主动搭话提醒，不是主人发言】旧任务指令', '说到刚才那只白鲸');
+    await registry.appendPrivateTurn(ctx, '', '突然想起你刚才说的故事', true);
+    assert.deepEqual(await registry.privateHistory(ctx), [
+      { role: 'user', content: '刚才讲了白鲸' }, { role: 'assistant', content: '嗯，有意思' },
+      { role: 'assistant', content: '说到刚才那只白鲸' }, { role: 'assistant', content: '突然想起你刚才说的故事' }
+    ]);
+  } finally { await registry.purgeHash(await registry.groupKey(channelId)); }
+});
+
 test('Local private history bounds, isolation, generation guard and deletion', {}, async () => {
   const config = getDSHConfig({ privateHistoryMaxTurns: 2, privateHistoryMaxChars: 12, privateHistoryTtlSeconds: 60 });
   const registry = new SessionRegistry(config);

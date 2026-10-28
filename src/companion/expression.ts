@@ -9,9 +9,9 @@ import { getMoodStore, moodOptions } from './mood';
 export const expressionOptions = (config: DSHBridgeConfig) => {
   const raw = config.modules?.settings?.expression || {};
   const options = {
-    automatic: raw.automatic ?? false,
+    automatic: raw.automatic ?? true,
     voiceChance: raw.voiceChance ?? 0.1,
-    stickerChance: raw.stickerChance ?? 0.15,
+    stickerChance: raw.stickerChance ?? 0.25,
     delayMs: raw.delayMs ?? [0, 0]
   };
 

@@ -1,7 +1,7 @@
 import { isPersonalKeyCommand } from '../credentials/personal';
 import { getDSHConfig } from '../dsh/client';
 import { getChatArchive, historyEnabled } from '../history/store';
-import { canPrivateChat, getConversationId } from '../response/dsh/util';
+import { canPrivateChatWithKey, getConversationId } from '../response/dsh/util';
 import { eventTime, type MessageContextEvent } from './message-context';
 import { SessionRegistry } from '../state/registry';
 import {
@@ -102,7 +102,7 @@ export class MessageReferences {
         const config = getDSHConfig();
         const channelId = getConversationId(event);
         const archived =
-          historyEnabled(config) && channelId && (!event.IsPrivate || canPrivateChat(event, config.privateChatAccess))
+          historyEnabled(config) && channelId && (!event.IsPrivate || (await canPrivateChatWithKey(event, config.privateChatAccess)))
             ? getChatArchive(config).findMessage({ platform: event.Platform, channelId }, referenceId)
             : undefined;
 
@@ -129,7 +129,7 @@ export class MessageReferences {
         const allowed =
           config.aiEnabled !== false &&
           channelId &&
-          (event.IsPrivate ? canPrivateChat(event, config.privateChatAccess) : (await new SessionRegistry(config).policy(channelId)).chat);
+          (event.IsPrivate ? await canPrivateChatWithKey(event, config.privateChatAccess) : (await new SessionRegistry(config).policy(channelId)).chat);
 
         if (allowed) {
           const [client] = useClient<{ agentLink: { readCurrentQuote(args: { messageId: string }): Promise<unknown> } }>(event as never);

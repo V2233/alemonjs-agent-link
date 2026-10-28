@@ -1,10 +1,38 @@
-import { open, realpath, mkdir, lstat, readFile, rename, unlink } from 'node:fs/promises';
+import { open, realpath, mkdir, lstat, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { resolve, sep, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { MediaError, MediaUnavailableError, type MediaConfig } from './config';
 import { imageMime } from './download';
+import { imageInfo, type ImageInfo } from './image-info';
 
-export type Sticker = { id: string; file: string; tags: string[] };
+export type StickerSource = 'manual' | 'auto' | 'forge' | 'import' | 'legacy';
+export type Sticker = {
+  id: string;
+  file: string;
+  tags: string[];
+  name?: string;
+  from?: StickerSource;
+  addedAt?: number;
+  uses?: number;
+  lastUsed?: number;
+  width?: number;
+  height?: number;
+  bytes?: number;
+  confidence?: number;
+  emojiId?: string;
+};
+export type StickerCollectMeta = {
+  name?: string;
+  from?: StickerSource;
+  confidence?: number;
+  addedAt?: number;
+  width?: number;
+  height?: number;
+};
+const SOURCES: StickerSource[] = ['manual', 'auto', 'forge', 'import', 'legacy'];
+const MANIFEST_MAX = 256 * 1024;
+const MAX_ENTRIES = 500;
+const ID_PATTERN = /^[a-zA-Z0-9_-]{1,40}$/u;
 const readLocal = async (root: string, path: string, maxBytes: number): Promise<Buffer> => {
   const base = await realpath(root);
   const candidate = await realpath(resolve(base, path));
@@ -33,32 +61,76 @@ const readLocal = async (root: string, path: string, maxBytes: number): Promise<
   }
 };
 
+const hasControl = (value: string): boolean =>
+  Array.from(value).some(char => {
+    const code = char.codePointAt(0) ?? 0;
+
+    return code < 0x20 || code === 0x7f;
+  });
+const optionalInteger = (value: unknown, min: number, max: number): boolean =>
+  value === undefined || (Number.isSafeInteger(value) && Number(value) >= min && Number(value) <= max);
+const validItem = (item: unknown): item is Sticker => {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const row = item as Record<string, unknown>;
+
+  return (
+    typeof row.id === 'string' &&
+    ID_PATTERN.test(row.id) &&
+    typeof row.file === 'string' &&
+    Array.isArray(row.tags) &&
+    row.tags.length <= 10 &&
+    row.tags.every(tag => typeof tag === 'string' && tag.trim() === tag && tag.length > 0 && tag.length <= 20) &&
+    (row.name === undefined || (typeof row.name === 'string' && row.name.trim() === row.name && row.name.length > 0 && row.name.length <= 24)) &&
+    (row.from === undefined || SOURCES.includes(row.from as StickerSource)) &&
+    optionalInteger(row.addedAt, 0, Number.MAX_SAFE_INTEGER) &&
+    optionalInteger(row.uses, 0, Number.MAX_SAFE_INTEGER) &&
+    optionalInteger(row.lastUsed, 0, Number.MAX_SAFE_INTEGER) &&
+    optionalInteger(row.width, 1, 8192) &&
+    optionalInteger(row.height, 1, 8192) &&
+    optionalInteger(row.bytes, 1, 25 * 1024 * 1024) &&
+    (row.confidence === undefined || (typeof row.confidence === 'number' && Number.isFinite(row.confidence) && row.confidence >= 0 && row.confidence <= 1)) &&
+    (row.emojiId === undefined || (typeof row.emojiId === 'string' && /^[A-Za-z0-9_-]{1,64}$/u.test(row.emojiId)))
+  );
+};
+
+/** Create the default library on first use without overwriting an existing manifest. */
+export const ensureStickerRoot = async (config: MediaConfig): Promise<void> => {
+  if (!config.stickerRoot) return;
+  const root = config.stickerRoot;
+
+  try {
+    const info = await lstat(root);
+
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new MediaError('表情素材目录无效。');
+  } catch (error) {
+    if (error instanceof MediaError) throw error;
+    await mkdir(root, { recursive: true, mode: 0o700 });
+  }
+  const manifest = join(root, 'manifest.json');
+
+  try {
+    await lstat(manifest);
+  } catch {
+    await writeFile(manifest, '[]\n', { mode: 0o600, flag: 'wx' }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error;
+    });
+  }
+};
+
 export const listStickers = async (config: MediaConfig): Promise<Sticker[]> => {
   if (!config.stickerRoot) {
     throw new MediaUnavailableError();
   }
+  await ensureStickerRoot(config);
   let data;
 
   try {
-    data = JSON.parse((await readLocal(config.stickerRoot, 'manifest.json', 64 * 1024)).toString('utf8'));
+    data = JSON.parse((await readLocal(config.stickerRoot, 'manifest.json', MANIFEST_MAX)).toString('utf8'));
   } catch (error) {
     throw error instanceof MediaError ? error : new MediaError('无法读取表情素材清单。');
   }
-  if (
-    !Array.isArray(data) ||
-    data.length > 100 ||
-    data.some(
-      item =>
-        !item ||
-        typeof item.id !== 'string' ||
-        !/^[a-zA-Z0-9_-]{1,40}$/u.test(item.id) ||
-        typeof item.file !== 'string' ||
-        !Array.isArray(item.tags) ||
-        item.tags.length > 10 ||
-        item.tags.some(tag => typeof tag !== 'string' || !tag || tag.length > 20)
-    )
-  ) {
-    throw new MediaError('表情清单格式无效。');
+  if (!Array.isArray(data) || data.length > MAX_ENTRIES || !data.every(validItem)) {
+    throw new MediaError('表情清单格式无效或超过数量上限。');
   }
   if (new Set(data.map(item => item.id)).size !== data.length) {
     throw new MediaError('表情清单的 id 不能重复。');
@@ -67,7 +139,7 @@ export const listStickers = async (config: MediaConfig): Promise<Sticker[]> => {
   return data;
 };
 export const chooseSticker = (items: Sticker[], query: string): Sticker | undefined =>
-  items.find(item => item.id === query) ?? items.find(item => item.tags.includes(query));
+  items.find(item => item.id === query) ?? items.find(item => item.name === query) ?? items.find(item => item.tags.includes(query));
 export const loadSticker = async (item: Sticker, config: MediaConfig): Promise<Buffer> => {
   const data = await readLocal(config.stickerRoot, item.file, config.maxBytes);
 
@@ -83,6 +155,51 @@ const tagsValid = (tags: string[]): boolean =>
   tags.length <= 10 &&
   tags.every(tag => typeof tag === 'string' && tag.trim() === tag && tag.length > 0 && tag.length <= 20) &&
   new Set(tags).size === tags.length;
+const mergeTags = (current: string[], incoming: string[]): string[] => {
+  const merged = [...current];
+
+  for (const tag of incoming) {
+    if (!merged.includes(tag) && merged.length < 10) merged.push(tag);
+  }
+
+  return merged;
+};
+const normalizeMeta = (meta: StickerCollectMeta, info: ImageInfo | undefined, bytes: number): Omit<Sticker, 'id' | 'file' | 'tags'> => {
+  const from = meta.from ?? 'manual';
+
+  if (!SOURCES.includes(from)) throw new MediaError('表情来源无效。');
+  const name = typeof meta.name === 'string' ? meta.name.replace(/\s+/gu, ' ').trim() : undefined;
+
+  if (name !== undefined && (!name || Array.from(name).length > 24 || hasControl(name))) {
+    throw new MediaError('表情名称无效。');
+  }
+  const confidence = meta.confidence;
+
+  if (confidence !== undefined && (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1)) {
+    throw new MediaError('表情判断置信度无效。');
+  }
+  const addedAt = meta.addedAt ?? Date.now();
+
+  if (!Number.isSafeInteger(addedAt) || addedAt < 0) throw new MediaError('表情入库时间无效。');
+  const width = info?.width ?? meta.width;
+  const height = info?.height ?? meta.height;
+
+  if (
+    (width !== undefined && (!Number.isSafeInteger(width) || width < 1 || width > 8192)) ||
+    (height !== undefined && (!Number.isSafeInteger(height) || height < 1 || height > 8192))
+  ) {
+    throw new MediaError('表情图片尺寸无效。');
+  }
+
+  return {
+    ...(name ? { name } : {}),
+    from,
+    addedAt,
+    ...(confidence !== undefined ? { confidence } : {}),
+    ...(width !== undefined && height !== undefined ? { width, height } : {}),
+    bytes
+  };
+};
 
 // A lock protects cooperating AgentLink processes; an atomic rename prevents readers seeing a partial manifest.
 const mutate = async <T>(
@@ -92,6 +209,7 @@ const mutate = async <T>(
 ): Promise<T> => {
   if (!config.stickerRoot) throw new MediaError('尚未配置表情素材目录。');
   signal.throwIfAborted();
+  await ensureStickerRoot(config);
   const root = await realpath(config.stickerRoot);
   const lockPath = join(root, '.agentlink-sticker.lock');
   let lock;
@@ -107,13 +225,13 @@ const mutate = async <T>(
     const manifest = join(root, 'manifest.json');
     const stat = await lstat(manifest);
 
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 64 * 1024) throw new MediaError('表情清单必须是素材目录内不超过 64 KiB 的普通文件。');
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MANIFEST_MAX) throw new MediaError('表情清单必须是素材目录内不超过 256 KiB 的普通文件。');
     const before = await readFile(manifest);
     const items = await listStickers({ ...config, stickerRoot: root });
     const result = await change(items, root);
     const encoded = Buffer.from(`${JSON.stringify(result.items, null, 2)}\n`);
 
-    if (encoded.length > 64 * 1024) throw new MediaError('表情清单超过大小限制。');
+    if (encoded.length > MANIFEST_MAX) throw new MediaError('表情清单超过大小限制。');
     signal.throwIfAborted();
     const staged = await open(temp, 'wx', 0o600);
 
@@ -126,7 +244,7 @@ const mutate = async <T>(
     signal.throwIfAborted();
     const current = await lstat(manifest);
 
-    if (!current.isFile() || current.isSymbolicLink() || current.size > 64 * 1024 || !(await readFile(manifest)).equals(before))
+    if (!current.isFile() || current.isSymbolicLink() || current.size > MANIFEST_MAX || !(await readFile(manifest)).equals(before))
       throw new MediaError('表情清单被其他程序修改，请重试。');
     await rename(temp, manifest);
 
@@ -138,27 +256,93 @@ const mutate = async <T>(
   }
 };
 
-export const collectSticker = async (config: MediaConfig, data: Buffer, tags: string[], signal: AbortSignal): Promise<{ id: string; existing: boolean }> => {
+const pickEviction = (items: Sticker[]): number => {
+  let best = -1;
+
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+
+    if (item.from !== 'auto') continue;
+    if (best < 0) {
+      best = index;
+      continue;
+    }
+    const previous = items[best];
+    const uses = item.uses ?? 0;
+    const previousUses = previous.uses ?? 0;
+    const at = item.lastUsed ?? item.addedAt ?? 0;
+    const previousAt = previous.lastUsed ?? previous.addedAt ?? 0;
+
+    if (uses < previousUses || (uses === previousUses && at < previousAt)) best = index;
+  }
+
+  return best;
+};
+const removeStoredFile = async (config: MediaConfig, file: string): Promise<void> => {
+  if (!config.stickerRoot || !/^managed\/[a-f0-9]{16,64}\.(?:png|jpg|webp|gif)$/u.test(file)) return;
+  try {
+    const root = await realpath(config.stickerRoot);
+    const target = resolve(root, file);
+
+    if (!target.startsWith(`${root}${sep}`)) return;
+    let current: Sticker[];
+
+    try {
+      current = await listStickers({ ...config, stickerRoot: root });
+    } catch {
+      return;
+    }
+
+    // Never delete a file that is still referenced or was placed outside the managed directory.
+    if (current.some(item => item.file === file)) return;
+    await unlink(target);
+  } catch {
+    /* An orphaned file is safer than deleting one that another manifest still references. */
+  }
+};
+
+export const collectSticker = async (
+  config: MediaConfig,
+  data: Buffer,
+  tags: string[],
+  signal: AbortSignal,
+  meta: StickerCollectMeta = {}
+): Promise<{ id: string; existing: boolean; item: Sticker }> => {
   const mime = imageMime(data);
   const ext = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' } as Record<string, string>)[mime || ''];
 
   if (!ext || data.length > config.maxBytes) throw new MediaError('表情图片格式无效或超过大小限制。');
   if (!tagsValid(tags)) throw new MediaError('表情标签无效或重复。');
+  const record = normalizeMeta(meta, imageInfo(data), data.length);
   const digest = createHash('sha256').update(data).digest('hex');
   const id = `s_${digest.slice(0, 24)}`;
   const filename = `${digest}.${ext}`;
 
-  return await mutate<{ id: string; existing: boolean }>(config, signal, async (items, root) => {
+  const result = await mutate<{ id: string; existing: boolean; item: Sticker; removed?: string[] }>(config, signal, async (items, root) => {
     const existing = items.find(item => item.id === id);
 
     if (existing) {
       const previous = await loadSticker(existing, { ...config, stickerRoot: root });
 
       if (!previous.equals(data)) throw new MediaError('表情编号冲突，请检查素材清单。');
+      const merged: Sticker = { ...existing, tags: mergeTags(existing.tags, tags), ...(existing.name || !record.name ? {} : { name: record.name }) };
 
-      return { items, value: { id, existing: true } };
+      return {
+        items: items.map(item => (item.id === id ? merged : item)),
+        value: { id, existing: true, item: merged }
+      };
     }
-    if (items.length >= 100) throw new MediaError('表情库已满，最多 100 项。');
+    let nextItems = items;
+    const removed: string[] = [];
+
+    // A lowered capacity or an externally grown manifest can require more than one eviction.
+    while (nextItems.length >= config.stickerMaxItems) {
+      const index = pickEviction(nextItems);
+
+      if (index < 0) throw new MediaError('表情库已满，且没有可清理的自动收藏。');
+      removed.push(nextItems[index].file);
+      nextItems = nextItems.filter((_, position) => position !== index);
+    }
     const directory = join(root, 'managed');
 
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -184,13 +368,35 @@ export const collectSticker = async (config: MediaConfig, data: Buffer, tags: st
         await file.close();
       }
     }
+    const item: Sticker = { id, file: `managed/${filename}`, tags, ...record };
 
-    return { items: [...items, { id, file: `managed/${filename}`, tags }], value: { id, existing: false } };
+    return { items: [...nextItems, item], value: { id, existing: false, item, ...(removed.length ? { removed } : {}) } };
+  });
+
+  for (const file of result.removed ?? []) await removeStoredFile(config, file);
+
+  return { id: result.id, existing: result.existing, item: result.item };
+};
+
+export const renameSticker = async (config: MediaConfig, id: string, name: string, signal: AbortSignal): Promise<boolean> => {
+  const validName = typeof name === 'string' && name.length > 0 && name.trim() === name && Array.from(name).length <= 24 && !hasControl(name);
+
+  if (!ID_PATTERN.test(id) || !validName) throw new MediaError('表情编号或名称无效。');
+
+  return await mutate(config, signal, items => {
+    const index = items.findIndex(item => item.id === id);
+
+    if (index < 0) return { items, value: false };
+    const updated = [...items];
+
+    updated[index] = { ...updated[index], name };
+
+    return { items: updated, value: true };
   });
 };
 
 export const updateSticker = async (config: MediaConfig, id: string, tags: string[] | null, signal: AbortSignal): Promise<boolean> => {
-  if (!/^[a-zA-Z0-9_-]{1,40}$/u.test(id) || (tags !== null && !tagsValid(tags))) throw new MediaError('表情编号或标签无效。');
+  if (!ID_PATTERN.test(id) || (tags !== null && !tagsValid(tags))) throw new MediaError('表情编号或标签无效。');
 
   return await mutate(config, signal, items => {
     const index = items.findIndex(item => item.id === id);
@@ -200,6 +406,36 @@ export const updateSticker = async (config: MediaConfig, id: string, tags: strin
 
     if (tags === null) updated.splice(index, 1);
     else updated[index] = { ...updated[index], tags };
+
+    return { items: updated, value: true };
+  });
+};
+
+export const setStickerEmoji = async (config: MediaConfig, id: string, emojiId: string, signal: AbortSignal): Promise<boolean> => {
+  if (!ID_PATTERN.test(id) || !/^[A-Za-z0-9_-]{1,64}$/u.test(emojiId)) throw new MediaError('表情编号或 QQ 收藏标识无效。');
+
+  return await mutate(config, signal, items => {
+    const index = items.findIndex(item => item.id === id);
+
+    if (index < 0) return { items, value: false };
+    const updated = [...items];
+
+    updated[index] = { ...updated[index], emojiId };
+
+    return { items: updated, value: true };
+  });
+};
+
+export const markStickerUsed = async (config: MediaConfig, id: string, signal: AbortSignal): Promise<boolean> => {
+  if (!ID_PATTERN.test(id)) return false;
+
+  return await mutate(config, signal, items => {
+    const index = items.findIndex(item => item.id === id);
+
+    if (index < 0) return { items, value: false };
+    const updated = [...items];
+
+    updated[index] = { ...updated[index], uses: (updated[index].uses ?? 0) + 1, lastUsed: Date.now() };
 
     return { items: updated, value: true };
   });

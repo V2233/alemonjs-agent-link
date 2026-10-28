@@ -1,12 +1,14 @@
 import { readMessageContext } from './message-context';
 import { claimReplyGateBudgetNotice, replyGateExceededMessage } from '../billing/budget';
+import { budgetNoticeActions } from '../billing/help';
 import { messageReferences } from './references';
 import { runDSHChat, type ChatEvent } from '../response/dsh/chat';
-import { buildGroupBatchPrompt, type GroupBatch, type GroupBatchResult } from './group-conversation';
+import { buildGroupBatchPrompt, needsReplySelection, type GroupBatch, type GroupBatchResult } from './group-conversation';
 import { groupConversations, scopedGroupPolicy } from './groups';
 import { getDSHConfig } from '../dsh/client';
 import { SessionRegistry } from '../state/registry';
-import { Format, logger } from 'alemonjs';
+import { logger } from 'alemonjs';
+import { noticeBubble } from '../response/bubble';
 import { ensureIsolatedGroup } from '../dsh/orchestrator';
 import { randomUUID } from 'node:crypto';
 import { currentVoiceTranscript } from '../media/onebot-transcript';
@@ -18,7 +20,13 @@ type Transport = NonNullable<Parameters<typeof runDSHChat>[2]>['transport'];
 export const respondToGroupBatch = async (event: ChatEvent, transport: Transport, batch: GroupBatch): Promise<GroupBatchResult> => {
   if (batch.budgetBlocked) {
     if (await claimReplyGateBudgetNotice({ platform: event.Platform || '', channelId: event.ChannelId || '' })) {
-      await transport.message.send({ format: Format.create().addText(replyGateExceededMessage) });
+      await transport.message.send({
+        format: noticeBubble(replyGateExceededMessage, {
+          platform: event.Platform,
+          title: '额度不足',
+          actions: budgetNoticeActions(false)
+        })
+      });
 
       return { delivered: true, completed: true };
     }
@@ -97,9 +105,11 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
           voice: anchor.voice,
           userText: anchor.text,
           allowSilence: batch.mode !== 'direct',
-          replyReferences: Object.fromEntries(
-            accepted.flatMap((message, index) => (message.id ? [[`m${index + 1}`, { messageId: message.id, userId: message.userId }]] : []))
-          ),
+          replyReferences: needsReplySelection(currentBatch)
+            ? Object.fromEntries(
+                accepted.flatMap((message, index) => (message.id ? [[`m${index + 1}`, { messageId: message.id, userId: message.userId }]] : []))
+              )
+            : undefined,
           transport,
           onOutcome: outcome => {
             result = outcome;
@@ -116,7 +126,16 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
     logger.warn('Group batch preparation failed');
     if (batch.mode === 'direct') {
       await transport?.message
-        .send({ format: Format.create().addText('群聊消息暂时无法处理，请稍后重试。') })
+        .send({
+          format: noticeBubble('群聊消息暂时无法处理，请稍后重试。', {
+            platform: event.Platform,
+            title: '暂时不可用',
+            actions: [
+              { label: '重试提问', command: '/提问' },
+              { label: '服务状态', command: '/状态' }
+            ]
+          })
+        })
         .catch(() => logger.warn('Group preparation failure could not be reported'));
     }
   } finally {

@@ -1,7 +1,8 @@
+import { commandBubble } from '../bubble';
 import { aiDisabledMessage } from '../../dsh/ai-switch';
 import { budgetEnabled } from '../../billing/budget';
 import { getMediaConfig } from '@src/media/config';
-import { Format, logger, useEvent, useMessage, useConnection, useRoute, ResultCode } from 'alemonjs';
+import { logger, useEvent, useMessage, useConnection, useRoute, ResultCode } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { getDSHCredentials } from '@src/dsh/credentials';
 import { ensureDSHSupervisor, type DSHSupervisorStatus } from '@src/dsh/supervisor';
@@ -28,7 +29,9 @@ export default async (): Promise<void> => {
 
   const [message] = useMessage();
   const [route] = useRoute();
+  const event = eventContext.current;
   let text: string;
+  let showBudget = false;
 
   try {
     const credentials = await getDSHCredentials();
@@ -36,7 +39,6 @@ export default async (): Promise<void> => {
     const registry = new SessionRegistry(config);
     const storeReady = await registry.health();
     const supervisor = await ensureDSHSupervisor(config);
-    const event = eventContext.current;
     const policy = event.ChannelId && storeReady ? await registry.policy(event.ChannelId) : undefined;
 
     if (config.aiEnabled !== false && !['ready', 'degraded'].includes(supervisor.status().phase)) {
@@ -60,7 +62,7 @@ export default async (): Promise<void> => {
     try {
       const media = getMediaConfig();
 
-      mediaStatus = `图片：当前模型；转写接口：${media.asr ? '已配置' : '未配置'}；语音接口：${media.tts?.voice ? '已配置' : '未配置'}；表情：${media.stickerRoot ? '有素材目录' : '未配置'}`;
+      mediaStatus = `识图：当前模型；转写：${media.asr ? '已配置' : '未配置'}；语音：${media.tts?.voice ? '已配置' : '未配置'}；表情：${media.stickerRoot ? '有素材目录' : '未配置'}`;
     } catch {
       mediaStatus = '媒体配置异常，请检查 media。';
     }
@@ -107,7 +109,9 @@ export default async (): Promise<void> => {
                   ? '服务正常，@我或直接提问即可。'
                   : `${phaseMessage[status.phase]}`;
     }
-    if (budgetEnabled(config) && !(event.IsPrivate && event.IsMaster)) {
+    showBudget = budgetEnabled(config);
+
+    if (showBudget && !(event.IsPrivate && event.IsMaster)) {
       text += '\n\n发送 /额度 可查看今日剩余额度。';
     }
   } catch (error) {
@@ -116,6 +120,14 @@ export default async (): Promise<void> => {
   }
 
   await message.send({
-    format: Format.create().addText(text)
+    format: commandBubble(text, '服务状态', {
+      platform: event.Platform,
+      actions: [
+        { label: '重新查看', command: '/状态' },
+        ...(event.IsPrivate && event.IsMaster ? [{ label: '状态详情', command: '/状态 详情' }] : []),
+        ...(showBudget ? [{ label: '今日额度', command: '/额度' }] : []),
+        { label: '帮助', command: '/帮助' }
+      ]
+    })
   });
 };

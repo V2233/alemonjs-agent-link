@@ -17,7 +17,13 @@ export const observeProactiveInput = (config: DSHBridgeConfig, event: ChatEvent)
   }
   try {
     const store = getProactiveStore(config);
+    const options = proactiveOptions(config);
 
+    // A verified owner private message is enough to opt in; the explicit
+    // “别主动找我” phrase still opts out immediately below.
+    if (options.autoSubscribe && !store.get(recipient)) {
+      store.subscribe(recipient, true, options);
+    }
     if (!store.input(recipient, event.MessageId)) {
       return;
     }
@@ -26,7 +32,7 @@ export const observeProactiveInput = (config: DSHBridgeConfig, event: ChatEvent)
         String(event.MessageText || '').trim()
       )
     ) {
-      store.subscribe(recipient, false, proactiveOptions(config));
+      store.subscribe(recipient, false, options);
     }
   } catch {
     logger.warn('Proactive activity observation failed');

@@ -34,7 +34,7 @@ const fixture = async run => {
         stateBackend: 'local',
         workspaceRoot: join(root, 'workspaces'),
         dshHomeRoot: join(root, 'homes'),
-        modules: { settings: { memory: { automatic: false } } }
+        modules: { settings: { memory: { automatic: false }, mood: { modelJudge: false } } }
       }
     }
   };

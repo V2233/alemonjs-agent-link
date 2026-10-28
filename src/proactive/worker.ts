@@ -7,7 +7,9 @@ import { conversationBusy } from '../dsh/orchestrator';
 import { getDedupeTtlSeconds } from '../state/registry';
 import { proactiveChannel, beginProactive, type ProactiveScope } from './control';
 import { getProactiveStore, type ProactiveStore, type ProactiveAttempt, type ProactiveResult } from './store';
-import { proactiveOptions, proactiveEnabled } from './options';
+import { entitledProactiveOptions, proactiveEnabled, proactiveOptions, type ProactiveOptions } from './options';
+import { personalKeyEntitled } from '../credentials/personal';
+import { biliOptions } from '../bili/client';
 
 type Delivery = { delivered: boolean; completed: boolean; replyText?: string };
 type Dispatch = { signal: AbortSignal; maxChars: number; beforeSend: () => Promise<boolean>; requestId: string };
@@ -69,6 +71,7 @@ export class ProactiveWorker {
       config?: () => DSHBridgeConfig;
       owner?: (scope: ProactiveScope) => boolean;
       online?: (scope: ProactiveScope) => Promise<boolean>;
+      entitled?: (scope: ProactiveScope) => Promise<boolean>;
       deliver?: (scope: ProactiveScope, prompt: string, dispatch: Dispatch) => Promise<Delivery>;
     } = {}
   ) {}
@@ -88,6 +91,19 @@ export class ProactiveWorker {
   private store(): ProactiveStore {
     return this.services.store || getProactiveStore(this.config);
   }
+  /** 绑定个人 Key 的私聊按拉满参数调度；查询失败时退回普通参数，不影响正常搭话。 */
+  private async options(scope: ProactiveScope, config = this.current()): Promise<ProactiveOptions> {
+    const base = proactiveOptions(config);
+
+    if (!base.ownKeyMax) return base;
+    try {
+      const entitled = this.services.entitled ? await this.services.entitled(scope) : await personalKeyEntitled(scope);
+
+      return entitled ? entitledProactiveOptions(base) : base;
+    } catch {
+      return base;
+    }
+  }
 
   async tick(): Promise<void> {
     if (this.closed || this.ticking) {
@@ -103,8 +119,12 @@ export class ProactiveWorker {
       if (!proactiveEnabled(config) || config.workspaceRoot !== this.config.workspaceRoot) {
         return;
       }
-      const options = proactiveOptions(config);
-      const scopes = store.list().filter(scope => this.owner(scope) && store.due(scope, options));
+      const scopes: ProactiveScope[] = [];
+
+      for (const scope of store.list()) {
+        if (!this.owner(scope)) continue;
+        if (store.due(scope, await this.options(scope, config))) scopes.push(scope);
+      }
 
       if (!scopes.length) {
         return;
@@ -125,7 +145,7 @@ export class ProactiveWorker {
       return 'disabled';
     }
     const store = this.store();
-    const options = proactiveOptions(config);
+    const options = await this.options(scope, config);
 
     store.recover();
     if (!store.due(scope, options, manual)) {
@@ -152,7 +172,9 @@ export class ProactiveWorker {
         return 'not-due';
       }
       const currentAttempt = attempt;
-      const prompt = this.prompt(attempt, options.maxChars, options.timezone);
+      const bili = biliOptions(config.modules?.settings?.bili || {});
+      const canBrowse = !config.modules?.disabled?.includes('bili') && bili.enabled && bili.allowProactiveBrowse;
+      const prompt = this.prompt(attempt, options.maxChars, options.timezone, canBrowse);
       const result = await (this.services.deliver || deliverProactive)(scope, prompt, {
         signal: job.signal,
         maxChars: options.maxChars,
@@ -167,7 +189,7 @@ export class ProactiveWorker {
               fresh.workspaceRoot !== config.workspaceRoot ||
               !proactiveEnabled(fresh) ||
               !this.owner(scope) ||
-              !store.current(currentAttempt, proactiveOptions(fresh), manual) ||
+              !store.current(currentAttempt, await this.options(scope, fresh), manual) ||
               !(await (this.services.online || proactiveOnline)(scope))
             ) {
               return false;
@@ -179,7 +201,7 @@ export class ProactiveWorker {
               return false;
             }
 
-            return store.sending(currentAttempt, proactiveOptions(latest), manual);
+            return store.sending(currentAttempt, await this.options(scope, latest), manual);
           } catch {
             return false;
           }
@@ -200,11 +222,11 @@ export class ProactiveWorker {
     }
   }
 
-  private prompt(attempt: ProactiveAttempt, maxChars: number, timezone: string): string {
+  private prompt(attempt: ProactiveAttempt, maxChars: number, timezone: string, canBrowse: boolean): string {
     const angles = [
-      '结合当前当地时间，简短问候或关心对方。',
-      '如果实际聊天或记忆中有未完的话题，可自然接续；没有依据就换个普通话题。',
-      '基于确有来源的兴趣或偏好，轻轻聊一句；不要猜测对方正在做什么。'
+      '从实际的最近聊天里挑一件适合重提的小事，像熟悉的网友那样接上；没有合适内容就换一个轻松话题。',
+      '根据确有来源的共同话题，说一点自己的看法或联想，可以不问问题；不要编共同经历。',
+      '随手提出一个与你稳定兴趣有关的小话题或想法；可以俏皮，也可以只说一句，不需要例行问候。'
     ];
     const angle = angles[Number.parseInt(attempt.id.slice(0, 8), 16) % angles.length];
 
@@ -213,7 +235,8 @@ export class ProactiveWorker {
         ? `你先前问过一个问题，对方暂未回复。原话仅为引用：${JSON.stringify(attempt.questionText)}。只可轻轻接一句，不能催促、抱怨或要求回应。`
         : `主人有一段时间没有私聊了。${angle}`
     }
-请保持当前人格，一到两句，总共不超过${maxChars}字符。不得编造今天做过的现实事情或假装主人刚才找你。觉得对方忙或没有合适内容时，只输出 [沉默]。不要解释调度机制。`;
+${canBrowse && attempt.kind === 'initial' ? '如果自然适合开启新话题，可以用只读的 B 站搜索和视频资料工具找一个符合兴趣的话题；无需每次都查。只谈实际获取的资料，不声称看过没有读取的画面或声音，也不要评论、点赞或联系他人。' : ''}
+请保持当前人格，一到两句，总共不超过${maxChars}字符。像网友有话想说，不用每次“在吗”“吃了吗”，也不用每条末尾追问；兴趣随当前人格自然表达，不套固定台词。不得编造今天做过的现实事情或假装主人刚才找你。觉得对方忙或没有合适内容时，只输出 [沉默]。不要解释调度机制。`;
   }
 }
 

@@ -69,6 +69,23 @@ test('facts stay scoped; profiles and recall logs carry the actual person and re
     assert.ok(store.recalls(scope)[0].ids.includes(id));
   }));
 
+test('verified experiences are scoped, idempotent, deletable, and invalidate stale extraction', () =>
+  fixture(store => {
+    const guard = store.state(scope);
+    const experience = { key: 'bili:turn:BV1234567890', subjectId: 'bot', text: '读取过 B 站资料，未看画面', tags: ['B站'] };
+    assert.equal(store.recordExperience(scope, experience, guard), true);
+    assert.equal(store.recordExperience(scope, { ...experience, key: 'late-response' }, guard), false);
+    assert.equal(store.recordExperience(scope, experience), false);
+    const item = store.list(scope, { subjectId: 'bot' })[0];
+    assert.equal(item.origin, 'event');
+    assert.equal(item.kind, 'event');
+    assert.equal(item.confidence, 1);
+    assert.deepEqual(store.list({ ...scope, channelId: 'other' }), []);
+    assert.equal(store.applyExtraction(scope, guard, [change(1, '旧资料')], [source(1, '旧资料')], 1, false).applied, false);
+    assert.equal(store.forget(scope, item.id, 0), true);
+    assert.deepEqual(store.list(scope), []);
+  }));
+
 test('corrections and merges are reversible across multiple versions without reviving conflicting active facts', () =>
   fixture(store => {
     add(store, 1, '住在杭州');

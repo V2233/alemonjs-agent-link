@@ -2,6 +2,7 @@ import type { DSHBridgeConfig } from '../dsh/config';
 
 export type ProactiveOptions = {
   enabled: boolean;
+  autoSubscribe: boolean;
   idleMinutes: number;
   minIntervalMinutes: number;
   maxIntervalMinutes: number;
@@ -15,11 +16,16 @@ export type ProactiveOptions = {
   quietHours: [number, number];
   timezone: string;
   maxChars: number;
+  /** 绑定个人 Key 的私聊是否自动拉满；配置里设为 false 可关闭。 */
+  ownKeyMax: boolean;
+  /** 运行时派生：拉满时不再等待下一次随机间隔，空闲达标即可搭话。 */
+  flexible?: boolean;
 };
 export const proactiveOptions = (config: DSHBridgeConfig): ProactiveOptions => {
   const raw = config.modules?.settings?.proactive || {};
   const options = {
     enabled: raw.enabled ?? true,
+    autoSubscribe: raw.autoSubscribe ?? true,
     idleMinutes: raw.idleMinutes ?? 40,
     minIntervalMinutes: raw.minIntervalMinutes ?? 60,
     maxIntervalMinutes: raw.maxIntervalMinutes ?? 180,
@@ -32,7 +38,8 @@ export const proactiveOptions = (config: DSHBridgeConfig): ProactiveOptions => {
     maxUnanswered: raw.maxUnanswered ?? 2,
     quietHours: raw.quietHours ?? [23, 8],
     timezone: raw.timezone ?? 'Asia/Shanghai',
-    maxChars: raw.maxChars ?? 300
+    maxChars: raw.maxChars ?? 300,
+    ownKeyMax: raw.ownKeyMax ?? true
   };
   const ranges = [
     [options.idleMinutes, 1, 1440],
@@ -48,7 +55,9 @@ export const proactiveOptions = (config: DSHBridgeConfig): ProactiveOptions => {
 
   if (
     typeof options.enabled !== 'boolean' ||
+    typeof options.autoSubscribe !== 'boolean' ||
     typeof options.nudge !== 'boolean' ||
+    typeof options.ownKeyMax !== 'boolean' ||
     ranges.some(([value, min, max]) => !Number.isSafeInteger(value) || value < min || value > max) ||
     Number(options.minIntervalMinutes) > Number(options.maxIntervalMinutes) ||
     Number(options.nudgeMinMinutes) >= Number(options.nudgeMaxMinutes) ||
@@ -71,6 +80,24 @@ export const proactiveOptions = (config: DSHBridgeConfig): ProactiveOptions => {
   return options as ProactiveOptions;
 };
 export const proactiveEnabled = (config: DSHBridgeConfig): boolean => !config.modules?.disabled?.includes('proactive') && proactiveOptions(config).enabled;
+/**
+ * 绑定个人 Key 的私聊不花机器人额度，主动搭话直接拉满：
+ * 更快空闲、更多次数、更长连发。免打扰时段与平台限制不在此提权范围内。
+ */
+export const entitledProactiveOptions = (options: ProactiveOptions): ProactiveOptions =>
+  options.ownKeyMax
+    ? {
+        ...options,
+        idleMinutes: Math.min(options.idleMinutes, 20),
+        minIntervalMinutes: Math.min(options.minIntervalMinutes, 20),
+        maxIntervalMinutes: Math.min(options.maxIntervalMinutes, 45),
+        maxPerDay: Math.max(options.maxPerDay, 10),
+        nudgeChance: Math.max(options.nudgeChance, 0.7),
+        maxNudgesPerDay: Math.max(options.maxNudgesPerDay, 6),
+        maxUnanswered: Math.max(options.maxUnanswered, 3),
+        flexible: true
+      }
+    : options;
 export const localDay = (now: number, timezone: string): string =>
   new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 export const isQuiet = (now: number, options: ProactiveOptions): boolean => {

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '@src/dsh/client';
 import { getDSHCredentials, type DSHCredentials } from '@src/dsh/credentials';
+import { modelPoolForBridge } from '../credentials/pool';
 import { directChat } from './direct-chat';
 import type { DSHStreamEvent } from './client';
 
@@ -332,6 +333,12 @@ export class DSHSupervisor {
 
     delete env.DEEPSEEK_API_KEY;
     delete env.DEEPSEEK_BASE_URL;
+    delete env.DSH_MODEL_POOL;
+    const pool = modelPoolForBridge(this.config);
+
+    if (pool) {
+      env.DSH_MODEL_POOL = JSON.stringify(pool);
+    }
     if (this.credentials) {
       env.DEEPSEEK_API_KEY = this.credentials.apiKey;
       const baseUrl = this.credentials.baseUrl || (this.config.provider === 'deepseek-official' ? 'https://api.deepseek.com' : undefined);

@@ -5,7 +5,7 @@ import { buildMemoryContext } from './memory';
 import { logger } from 'alemonjs';
 import { clearSession, DSHError, getDSHConfig, purgeSessionData, type DSHBridgeConfig, type DSHStreamEvent } from '@src/dsh/client';
 import { runModuleTurn } from '../agent/turn';
-import { groupConversations } from '../social/groups';
+import { groupConversations, resolveGroupCapabilities } from '../social/groups';
 import { messageReferences } from '../social/references';
 import { SessionRegistry } from '@src/state/registry';
 import { getSessionId } from '@src/response/dsh/util';
@@ -272,7 +272,11 @@ const runCoordinatedChatInner = async (
 
   await registry.ready();
   await ensureIsolatedGroup(event.ChannelId, config);
-  const capabilities = capabilityOverride ?? (await registry.policy(event.ChannelId));
+  const resolvedCapabilities = capabilityOverride ?? (await registry.policy(event.ChannelId));
+  const capabilities = await resolveGroupCapabilities(
+    { platform: event.Platform, channelId: event.ChannelId, userId: event.UserId, private: event.IsPrivate },
+    resolvedCapabilities
+  );
 
   if (!capabilities.chat) {
     throw new DSHError('http', '当前群未开放 Agent 对话权限');
@@ -289,6 +293,7 @@ const runCoordinatedChatInner = async (
       throw new DSHError('http', '请求过于频繁');
     }
     const meta = await registry.touch(event.ChannelId);
+    const queuedAt = Date.now();
 
     await enqueueChat(
       event.ChannelId,
@@ -298,6 +303,8 @@ const runCoordinatedChatInner = async (
         signal = mediaTask?.signal ? AbortSignal.any([signal, mediaTask.signal]) : signal;
         signal.throwIfAborted();
         const startedAt = Date.now();
+        const queueWaitMs = startedAt - queuedAt;
+        let firstContentMs: number | undefined;
         let releaseRequestSlot = requestSlots.acquire(config.maxConcurrentRequests);
 
         try {
@@ -318,7 +325,13 @@ const runCoordinatedChatInner = async (
               config,
               sessionId: `${getSessionId(event.ChannelId)}:v${meta.generation}`,
               input: mediaTask?.prepareMessage ? await mediaTask.prepareMessage(message, signal) : message,
-              onEvent,
+              onEvent: async modelEvent => {
+                if (modelEvent.type === 'content' && modelEvent.content && firstContentMs === undefined) {
+                  firstContentMs = Date.now() - startedAt;
+                  logger.info({ requestId: duplicate.requestId, queueWaitMs, firstContentMs }, 'Agent first content');
+                }
+                await onEvent(modelEvent);
+              },
               streamContent: mediaTask?.streamContent,
               onImage: mediaTask?.onImage,
               onSpeech: mediaTask?.onSpeech,
@@ -368,6 +381,10 @@ const runCoordinatedChatInner = async (
           }
           throw error;
         } finally {
+          logger.info(
+            { requestId: duplicate.requestId, queueWaitMs, firstContentMs: firstContentMs ?? null, elapsedMs: Date.now() - startedAt },
+            'Agent turn latency'
+          );
           releaseRequestSlot();
         }
       },

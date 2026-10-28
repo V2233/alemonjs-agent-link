@@ -1,6 +1,7 @@
-import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
-import { canPrivateChat, getConversationId } from '@src/response/dsh/util';
+import { canPrivateChatWithKey, getConversationId } from '@src/response/dsh/util';
 import { SessionRegistry, privateMemoryTextLimit } from '@src/state/registry';
 import { resetGroupSession } from '@src/dsh/orchestrator';
 import { assertMessageDelivered } from '@src/dsh/output';
@@ -19,9 +20,25 @@ export default async (): Promise<void> => {
   let maxLength = 1000;
   const reply = async (text: string): Promise<void> => {
     const characters = Array.from(text);
+    const chunks: string[] = [];
 
-    for (let index = 0; index < characters.length; index += maxLength) {
-      assertMessageDelivered(await message.send({ format: Format.create().addText(characters.slice(index, index + maxLength).join('')) }));
+    for (let index = 0; index < characters.length; index += maxLength) chunks.push(characters.slice(index, index + maxLength).join(''));
+    for (const [index, chunk] of chunks.entries()) {
+      assertMessageDelivered(
+        await message.send({
+          format: commandBubble(chunk, '我的记忆', {
+            platform: event.Platform,
+            actions:
+              index === chunks.length - 1
+                ? [
+                    { label: '查看记忆', command: event.IsPrivate ? '/记忆' : '/群记忆' },
+                    { label: '记忆检索', command: '/记忆检索' },
+                    { label: '帮助', command: '/帮助 记忆' }
+                  ]
+                : []
+          })
+        })
+      );
     }
   };
 
@@ -29,7 +46,7 @@ export default async (): Promise<void> => {
     const config = getDSHConfig();
 
     maxLength = config.maxMessageLength;
-    if (!canPrivateChat(event, config.privateChatAccess)) {
+    if (!(await canPrivateChatWithKey(event, config.privateChatAccess))) {
       await reply('仅机器人主人可在私聊中使用 Agent。');
 
       return;
@@ -55,8 +72,9 @@ export default async (): Promise<void> => {
         notes.length
           ? notes
               .map(note => `${note.id}：${note.text.slice(0, 80)}${note.text.length > 80 ? '…' : ''}${note.origin === 'explicit' ? '' : '（自动）'}`)
-              .join('\n') + '\n仅展示最近10条；/记忆检索 关键词，/记忆来源 编号 查看详情。'
-          : '暂无长期记忆，可发送 /记住 内容。'
+              .join('\n') +
+              '\n\n这里展示最近10条的预览。\n查找内容：/记忆检索 关键词\n核对原文：/记忆来源 编号\n删除一条：/忘记 编号\n把“编号”换成条目前的编号；删除记忆不会同时删除聊天记录。'
+          : '还没有保存的长期记忆。\n可以告诉我你希望记住的偏好，例如：\n/记住 回答时先说结论\n保存后用 /记忆 查看；不想保留时用 /忘记 编号 删除。'
       );
 
       return;

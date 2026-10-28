@@ -1,4 +1,5 @@
-import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { bindPersonalKey, claimPersonalKeyCommand, personalKeyStatus, updatePersonalKey } from '../../credentials/personal';
 import { getConversationId } from '../dsh/util';
 import { personalKeyGuide } from '../../billing/help';
@@ -20,7 +21,12 @@ export default async (): Promise<void> => {
 
     try {
       if (['绑定', '启用', '停用', '移除'].includes(args[0]) && !(await claimPersonalKeyCommand(scope, event.MessageId || ''))) {
-        await message.send({ format: Format.create().addText('这条指令已处理，请勿重复提交。') });
+        await message.send({
+          format: commandBubble('这条指令已处理，请勿重复提交。', '个人密钥', {
+            platform: event.Platform,
+            actions: [{ label: '密钥状态', command: '/个人密钥 状态' }]
+          })
+        });
 
         return;
       }
@@ -42,5 +48,14 @@ export default async (): Promise<void> => {
       text = '个人 Key 操作失败，请检查格式；仍失败请联系主人。';
     }
   }
-  await message.send({ format: Format.create().addText(text) });
+  await message.send({
+    format: commandBubble(text, '个人密钥', {
+      platform: event.Platform,
+      actions: [
+        { label: '密钥状态', command: '/个人密钥 状态' },
+        { label: '额度', command: '/额度' },
+        { label: '额度教程', command: '/帮助 额度' }
+      ]
+    })
+  });
 };

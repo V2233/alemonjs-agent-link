@@ -1,4 +1,5 @@
-import { Format, useEvent, useMessage } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { useEvent, useMessage } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { getDSHCredentials } from '@src/dsh/credentials';
 import { listAvailableModels } from '@src/dsh/models';
@@ -14,7 +15,7 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   if (!event.IsMaster) {
-    await message.send({ format: Format.create().addText('公共模型列表仅限机器人主人查看。') });
+    await message.send({ format: commandBubble('公共模型列表仅限机器人主人查看。', '模型列表', { platform: event.Platform }) });
 
     return;
   }
@@ -24,7 +25,14 @@ export default async (): Promise<void> => {
 
     if (!credentials) {
       await message.send({
-        format: Format.create().addText('尚未配置模型密钥，请查看 /密钥配置。')
+        format: commandBubble('尚未配置模型密钥，请查看 /密钥配置。', '模型列表', {
+          platform: event.Platform,
+          actions: [
+            { label: '当前模型', command: '/当前模型' },
+            { label: '密钥配置', command: '/密钥配置' },
+            { label: '模型列表', command: '/模型列表' }
+          ]
+        })
       });
 
       return;
@@ -53,8 +61,25 @@ export default async (): Promise<void> => {
     }
 
     lines.push(footer);
-    await message.send({ format: Format.create().addText(lines.join('\n')) });
+    await message.send({
+      format: commandBubble(lines.join('\n'), '模型列表', {
+        platform: event.Platform,
+        actions: [
+          { label: '当前模型', command: '/当前模型' },
+          { label: '密钥配置', command: '/密钥配置' },
+          { label: '模型列表', command: '/模型列表' }
+        ]
+      })
+    });
   } catch {
-    await message.send({ format: Format.create().addText('模型列表读取失败，请检查密钥和服务地址。') });
+    await message.send({
+      format: commandBubble('模型列表读取失败，请检查密钥和服务地址。', '模型列表', {
+        platform: event.Platform,
+        actions: [
+          { label: '密钥配置', command: '/密钥配置' },
+          { label: '重试', command: '/模型列表' }
+        ]
+      })
+    });
   }
 };

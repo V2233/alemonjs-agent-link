@@ -1,5 +1,25 @@
 import { Format } from 'alemonjs';
 
+/** Bubble delimiters are transport markers, never conversation content. */
+export const normalizeBubbleText = (text: string): string => text.replace(/\|\|\|/gu, '\n').trim();
+
+// Legacy history may still suggest a routing prefix. Inspect only that prefix,
+// never buffer the whole answer merely to select an already-known recipient.
+export class ReplyPrefixFilter {
+  private prefix = '';
+  private decided = false;
+  push(content: string): string {
+    if (this.decided) return content;
+    this.prefix += content;
+    const start = this.prefix.trimStart();
+
+    if (this.prefix.length <= 64 && (!start || '<reply:'.startsWith(start) || /^<reply:m\d*$/u.test(start))) return '';
+    this.decided = true;
+
+    return this.prefix.replace(/^\s*<reply:m\d+>\s*/u, '');
+  }
+}
+
 export const createChatReplyFormat = (text: string, platform?: string, mentionUserId?: string): ReturnType<typeof Format.create> => {
   const format = Format.create();
 

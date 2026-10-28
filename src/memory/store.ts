@@ -229,6 +229,58 @@ export class MemoryStore {
     return row ? this.decode(row) : undefined;
   }
 
+  recordExperience(scope: MemoryScope, input: { key: string; subjectId: string; text: string; tags: string[] }, guard?: MemoryGuard): boolean {
+    if (
+      !input.key ||
+      input.key.length > 500 ||
+      !input.subjectId ||
+      input.subjectId.length > 200 ||
+      !input.text.trim() ||
+      input.text.length > 800 ||
+      input.tags.length > 10 ||
+      input.tags.some(tag => typeof tag !== 'string' || tag.length > 40)
+    ) {
+      throw new Error('经历资料无效。');
+    }
+    this.observe(scope);
+
+    return this.transaction(() => {
+      const key = scopeKey(scope);
+      const state = this.state(scope);
+
+      if (guard && (state?.epoch !== guard.epoch || state?.revision !== guard.revision)) return false;
+      const id = hash(JSON.stringify(['experience', input.key])).slice(0, 12);
+
+      if (this.db.prepare('SELECT id FROM memories WHERE scope=? AND id=?').get(key, id)) return false;
+      const capacity = scope.channelId.startsWith('private:') ? 1980 : 2000;
+      const active = this.db.prepare("SELECT count(*) AS n FROM memories WHERE scope=? AND origin<>'explicit' AND status='active'").get(key);
+      const total = this.db.prepare("SELECT count(*) AS n FROM memories WHERE scope=? AND origin<>'explicit'").get(key);
+
+      if (Number(active.n) >= capacity || Number(total.n) >= 10000) return false;
+      this.insert(scope, {
+        id,
+        subjectId: input.subjectId,
+        subjectName: '机器人',
+        kind: 'event',
+        text: input.text.trim(),
+        tags: input.tags,
+        importance: 0.5,
+        confidence: 1,
+        status: 'active',
+        origin: 'event',
+        sourceRefs: [],
+        supersedes: [],
+        createdAt: this.now(),
+        updatedAt: this.now(),
+        lastRecalledAt: 0,
+        recallDays: 0
+      });
+      this.db.prepare('UPDATE memory_scopes SET revision=revision+1 WHERE scope=?').run(key);
+
+      return true;
+    });
+  }
+
   private insert(scope: MemoryScope, item: MemoryItem): void {
     this.db
       .prepare(

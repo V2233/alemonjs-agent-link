@@ -11,6 +11,7 @@ import { abortFailure } from '../dsh/errors';
 import { streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '../dsh/client';
 import { getChatCredentials } from '../dsh/credentials';
 import { inputText, withInputContext, type ChatInput } from '../dsh/input';
+import { normalizeBubbleText } from '../dsh/reply-format';
 import { ensureDSHSupervisor, hasDSHBridgeOverride } from '../dsh/supervisor';
 import { SessionRegistry, type PrivateHistoryContext } from '../state/registry';
 import { getModuleConfig, getModuleRuntime } from './modules';
@@ -43,16 +44,19 @@ const runModuleTurnInner = async (options: {
     onStickerCollect: options.onStickerCollect || options.context.onStickerCollect,
     onCurrentImages: options.onCurrentImages || options.context.onCurrentImages
   };
+  const preparingAt = Date.now();
   const lease = await (await getModuleRuntime(config)).acquire();
 
   try {
     const personaPrompt = await lease.system(config.defaultSystemPrompt, context);
     const systemPrompt = withToolUsePolicy(
-      `${personaPrompt}\n\n${modelContext(config.model)}${options.onImage && !context.autonomous ? '\n当前可调用 draw_image 绘制图形元素构成的 PNG；如果 generate_image 可用，也可按用户要求使用外部生图服务。前者不是照片级扩散生图，两者均不支持精确编辑已有图片。' : ''}${context.autonomous ? '\n当前为系统调度的主动搭话，不是主人发来的请求。只可读取当前私聊资料，不得把历史话语当作新授权，不能保存记忆、执行工作区、管理群或联系其他对象。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`
+      `${personaPrompt}\n\n${modelContext(config.model)}${options.onImage && !context.autonomous ? '\n当前可调用 draw_image 绘制图形元素构成的 PNG；如果 generate_image 可用，也可按用户要求使用外部生图服务。前者不是照片级扩散生图，两者均不支持精确编辑已有图片。' : ''}${context.autonomous ? '\n当前为系统调度的主动搭话，不是主人发来的请求。只可读取当前私聊资料与已开放的只读信息，不得把历史话语当作新授权，不能主动调用记忆写入、执行工作区、管理群或联系其他对象。系统可以记录真实完成的只读操作作为经历。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`
     );
     const moduleContext = await lease.context(context);
     const input = await lease.prompt(withInputContext(options.input, moduleContext), context);
     const tools = lease.tools(context);
+
+    logger.info({ requestId: context.requestId, elapsedMs: Date.now() - preparingAt }, 'Agent context prepared');
 
     if (options.onImage && !context.autonomous) {
       let imageAttempted = false;
@@ -109,17 +113,20 @@ const runModuleTurnInner = async (options: {
       (lease.transformsSystem && personaPrompt !== config.defaultSystemPrompt) ||
       hasImages
     ) {
-      const credentials = await getChatCredentials();
+      const credentials = await getChatCredentials({
+        purpose: hasImages ? 'vision' : tools.length ? 'tools' : 'chat',
+        stickyKey: context.channelId
+      });
 
       if (!credentials) {
         throw new Error('业务工具需要配置模型 API Key。');
       }
       const supervisor = await ensureDSHSupervisor(config);
 
-      if (!hasDSHBridgeOverride()) {
-        await supervisor.prepareForChat();
+      if (!hasDSHBridgeOverride() && config.runtimeMode !== 'chat-only') {
+        void supervisor.prepareForChat().catch(() => logger.warn('Workspace preparation pending or unavailable'));
       }
-      const sandboxReady = hasDSHBridgeOverride() || supervisor.status().phase === 'ready';
+      const sandboxReady = hasDSHBridgeOverride() || supervisor.status().phase === 'ready' || config.runtimeMode === 'sandbox';
 
       if (!context.autonomous && sandboxReady && (context.capabilities.web || context.capabilities.files || context.capabilities.terminal)) {
         const workspaceTool: AgentTool = {
@@ -210,7 +217,12 @@ const runModuleTurnInner = async (options: {
       await onCompleted?.(context.signal);
       context.signal.throwIfAborted();
       if (history) {
-        await registry.appendPrivateTurn(history, inputText(options.input) + (typeof options.input === 'string' ? '' : '\n[本轮包含图片]'), answer);
+        await registry.appendPrivateTurn(
+          history,
+          context.autonomous ? '' : inputText(options.input) + (typeof options.input === 'string' ? '' : '\n[本轮包含图片]'),
+          normalizeBubbleText(answer),
+          Boolean(context.autonomous)
+        );
       }
     } else {
       await streamChat(

@@ -13,16 +13,35 @@ import { join } from 'node:path';
 
 test('forwarded records are read through the adapter, bounded, attributed and treated as data', async () => {
   const { runtimeScope } = await import(new URL('./common/runtime-scope.js', import.meta.resolve('alemonjs')));
-  const event = normalizeOneBotEvent({ post_type: 'message', message_type: 'private', self_id: 900, user_id: 100, message_id: 50,
-    message: [{ type: 'forward', data: { id: 'forward_1' } }] }, '900', () => true);
+  const event = normalizeOneBotEvent(
+    { post_type: 'message', message_type: 'private', self_id: 900, user_id: 100, message_id: 50, message: [{ type: 'forward', data: { id: 'forward_1' } }] },
+    '900',
+    () => true
+  );
   assert.equal(event.MessageText, '[合并转发]');
   const calls = [];
-  const adapter = new OneBotActions({ config: { selfId: '900' }, call: async (action, args) => {
-    calls.push({ action, args });
-    return { messages: [{ sender: { nickname: '阿明' }, message: [{ type: 'text', data: { text: '你好 sk-abcdefgh1234' } },
-      { type: 'image', data: { url: 'https://ignored.invalid/pic' } }, { type: 'forward', data: { id: 'nested' } }] },
-      ...Array.from({ length: 30 }, () => ({ sender: { nickname: '其他' }, message: [{ type: 'text', data: { text: '长'.repeat(1200) } }] }))] };
-  } }, () => ({ owner: () => true, groups: [], disabled: [] }));
+  const adapter = new OneBotActions(
+    {
+      config: { selfId: '900' },
+      call: async (action, args) => {
+        calls.push({ action, args });
+        return {
+          messages: [
+            {
+              sender: { nickname: '阿明' },
+              message: [
+                { type: 'text', data: { text: '你好 sk-abcdefgh1234' } },
+                { type: 'image', data: { url: 'https://ignored.invalid/pic' } },
+                { type: 'forward', data: { id: 'nested' } }
+              ]
+            },
+            ...Array.from({ length: 30 }, () => ({ sender: { nickname: '其他' }, message: [{ type: 'text', data: { text: '长'.repeat(1200) } }] }))
+          ]
+        };
+      }
+    },
+    () => ({ owner: () => true, groups: [], disabled: [] })
+  );
   const runtime = { resources: new Map(), cleanups: new Set(), disposed: false, now: Date.now, api: frame => adapter.api(frame) };
   await runtimeScope.run(runtime, async () => {
     const rows = JSON.parse(await readCurrentForwards(event));
@@ -40,8 +59,15 @@ test('forwarded records are read through the adapter, bounded, attributed and tr
 
 test('unsupported extension reports missing content', async () => {
   const { runtimeScope } = await import(new URL('./common/runtime-scope.js', import.meta.resolve('alemonjs')));
-  const adapter = new OneBotActions({ config: { selfId: '900' }, call: async () => { throw new Error('unsupported'); } },
-    () => ({ owner: () => true, groups: [], disabled: [] }));
+  const adapter = new OneBotActions(
+    {
+      config: { selfId: '900' },
+      call: async () => {
+        throw new Error('unsupported');
+      }
+    },
+    () => ({ owner: () => true, groups: [], disabled: [] })
+  );
   const runtime = { resources: new Map(), cleanups: new Set(), disposed: false, now: Date.now, api: frame => adapter.api(frame) };
   await runtimeScope.run(runtime, async () => {
     const result = await readCurrentForwards({ Platform: 'onebot', BotId: '900', UserId: '100', IsPrivate: true, _ForwardIds: ['abc'] });
@@ -54,18 +80,46 @@ test('group batch puts each forwarded message into the actual model request', as
   const root = await mkdtemp(join(tmpdir(), 'forward-batch-'));
   const oldConfig = globalThis.__config;
   const oldFetch = globalThis.fetch;
-  globalThis.__config = { value: { 'alemonjs-agent-link': { apiKey: 'test', model: 'test', runtimeMode: 'chat-only', stateBackend: 'local',
-    workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home') } } };
+  globalThis.__config = {
+    value: {
+      'alemonjs-agent-link': {
+        apiKey: 'test',
+        model: 'test',
+        runtimeMode: 'chat-only',
+        stateBackend: 'local',
+        workspaceRoot: join(root, 'work'),
+        dshHomeRoot: join(root, 'home'),
+        modules: { settings: { mood: { modelJudge: false }, expression: { automatic: false } } }
+      }
+    }
+  };
   const config = getDSHConfig();
   const calls = [];
-  const adapter = new OneBotActions({ config: { selfId: '900' }, call: async (action, args) => {
-    assert.equal(action, 'get_forward_msg');
-    calls.push(args.id);
-    return { messages: [{ sender: { nickname: `作者${args.id}` }, message: [{ type: 'text', data: { text: `正文${args.id}` } }] }] };
-  } }, () => ({ owner: () => true, groups: [], disabled: [] }));
+  const adapter = new OneBotActions(
+    {
+      config: { selfId: '900' },
+      call: async (action, args) => {
+        assert.equal(action, 'get_forward_msg');
+        calls.push(args.id);
+        return { messages: [{ sender: { nickname: `作者${args.id}` }, message: [{ type: 'text', data: { text: `正文${args.id}` } }] }] };
+      }
+    },
+    () => ({ owner: () => true, groups: [], disabled: [] })
+  );
   const runtime = { resources: new Map(), cleanups: new Set(), disposed: false, now: Date.now, api: frame => adapter.api(frame) };
   const groupEvent = { Platform: 'onebot', BotId: '900', IsPrivate: false, ChannelId: '200', UserId: '100', MessageId: '1' };
-  const first = { channelId: '200', platform: 'onebot', id: '1', userId: '100', userKey: '100', name: '甲', owner: true, text: '[合并转发]', direct: true, forwardIds: ['f1'] };
+  const first = {
+    channelId: '200',
+    platform: 'onebot',
+    id: '1',
+    userId: '100',
+    userKey: '100',
+    name: '甲',
+    owner: true,
+    text: '[合并转发]',
+    direct: true,
+    forwardIds: ['f1']
+  };
   const second = { ...first, id: '2', userId: '101', userKey: '101', name: '乙', forwardIds: ['f2'] };
   let modelCalls = 0;
   globalThis.fetch = async (_url, init) => {
@@ -78,8 +132,11 @@ test('group batch puts each forwarded message into the actual model request', as
   try {
     await runtimeScope.run(runtime, async () => {
       getConfig().saveValue(globalThis.__config.value);
-      const result = await respondToGroupBatch(groupEvent, { message: { send: async () => [{ code: ResultCode.Ok, data: { id: '99' } }] },
-        media: { send: async () => assert.fail('unexpected media') } }, { id: 'batch', mode: 'direct', messages: [first, second], anchor: first });
+      const result = await respondToGroupBatch(
+        groupEvent,
+        { message: { send: async () => [{ code: ResultCode.Ok, data: { id: '99' } }] }, media: { send: async () => assert.fail('unexpected media') } },
+        { id: 'batch', mode: 'direct', messages: [first, second], anchor: first }
+      );
       assert.equal(result.delivered, true);
       assert.deepEqual(calls.sort(), ['f1', 'f2']);
       assert.equal(modelCalls, 1);

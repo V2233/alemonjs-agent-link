@@ -57,6 +57,33 @@ class BridgeSafetyTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.root, ignore_errors=True)
 
+    def test_model_pool_round_robin_reports_cooldown_and_rewrites_model(self):
+        self.bridge.MODEL_POOL = {
+            'maxAttempts': 3,
+            'retryStatuses': [429],
+            'failureThreshold': 2,
+            'cooldownSeconds': 30,
+            'endpoints': [
+                {'id': 'a', 'apiKey': 'sk-a', 'model': 'model-a', 'weight': 1, 'maxConcurrent': 1, 'enabled': True},
+                {'id': 'b', 'apiKey': 'sk-b', 'model': 'model-b', 'weight': 1, 'maxConcurrent': 1, 'enabled': True}
+            ]
+        }
+        self.bridge.POOL_ENDPOINTS = self.bridge.MODEL_POOL['endpoints']
+        self.bridge.POOL_STATE = {}
+        self.bridge.POOL_CURSOR = 0
+        first = self.bridge.pool_select()
+        second = self.bridge.pool_select()
+        self.assertEqual(first['id'], 'a')
+        self.assertEqual(second['id'], 'b')
+        self.assertIsNone(self.bridge.pool_select(), 'both endpoints are at maxConcurrent')
+        body = self.bridge.pool_model_body(b'{"model":"old","messages":[]}', second)
+        self.assertEqual(json.loads(body)['model'], 'model-b')
+        self.bridge.pool_report(first, 429)
+        self.assertGreater(self.bridge.POOL_STATE['a']['cooldownUntil'], 0)
+        self.bridge.pool_report(second, 401)
+        self.assertTrue(self.bridge.POOL_STATE['b']['disabled'])
+        self.assertIsNone(self.bridge.pool_select())
+
     def test_native_image_input(self):
         parts = [{'type': 'text', 'text': '看看图片'}, {'type': 'image', 'mimeType': 'image/png', 'data': 'aGVsbG8='}]
         self.assertEqual(self.bridge.normalize_chat_input(parts), parts)
@@ -97,8 +124,11 @@ class BridgeSafetyTests(unittest.TestCase):
         patch = self.bridge.tool_policy_patch(caps)
         for tool in ('tool-fs', 'tool-fs-search', 'tool-bash', 'tool-pwsh', 'tool-jobs'):
             self.assertIn(f'- id: {tool}\n  disabled: true', patch)
-        self.assertIn('workspace_*', self.bridge.trusted_prompt('test', caps))
-        self.assertNotIn('可在当前隔离工作区中执行终端命令', self.bridge.trusted_prompt('test', caps))
+        prompt = self.bridge.trusted_prompt('test', caps)
+        self.assertIn('workspace_*', prompt)
+        self.assertIn('<agentlink_persona priority="highest">', prompt)
+        self.assertIn('不是通用编码代理或助手', prompt)
+        self.assertNotIn('可在当前隔离工作区中执行终端命令', prompt)
 
     def test_chat_only_profile_check_is_cached_until_patch_changes(self):
         calls = 0

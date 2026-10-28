@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { budgetedFetch } from '../billing/budget';
+import { budgetedFetch, BudgetExceededError } from '../billing/budget';
 import { readCompletionStream } from '../dsh/completion-stream';
 import type { DSHBridgeConfig } from '../dsh/client';
 import type { DSHCredentials } from '../dsh/credentials';
@@ -21,84 +21,112 @@ export const requestModelMessage = async (
   signal: AbortSignal,
   onContent?: (text: string) => Promise<void>
 ): Promise<{ content?: string | null; reasoning_content?: string; tool_calls?: ToolCall[] }> => {
-  const base = credentials.baseUrl || (config.provider === 'deepseek-official' ? 'https://api.deepseek.com' : '');
-  const url = new URL(`${base.replace(/\/+$/u, '')}/chat/completions`);
-
-  if (url.protocol !== 'https:' || url.username || url.password) {
-    throw new Error('模型服务需要有效的 HTTPS 地址。');
-  }
-  const body = JSON.stringify({
-    model: credentials.model || config.model,
-    stream: Boolean(onContent),
-    messages,
-    ...(tools.length
-      ? {
-          tools: tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
-          tool_choice: 'auto',
-          parallel_tool_calls: false
-        }
-      : {})
-  });
   const containsImages = messages.some(message => Array.isArray(message.content) && message.content.some(block => block.type === 'image_url'));
+  const maxBytes = containsImages ? MAX_IMAGE_REQUEST_BYTES : config.maxRequestBytes;
+  let current = credentials;
 
-  if (Buffer.byteLength(body) > (containsImages ? MAX_IMAGE_REQUEST_BYTES : config.maxRequestBytes)) {
-    throw new Error('请求超过大小限制。');
-  }
-  signal.throwIfAborted();
-  const response = await budgetedFetch(config, url, {
-    personalKey: credentials.personal,
-    scopedKey: credentials.scoped,
-    method: 'POST',
-    redirect: 'error',
-    signal,
-    headers: { Authorization: `Bearer ${credentials.apiKey}`, 'Content-Type': 'application/json' },
-    body
-  });
+  for (;;) {
+    const base = current.baseUrl || (config.provider === 'deepseek-official' ? 'https://api.deepseek.com' : '');
+    const url = new URL(`${base.replace(/\/+$/u, '')}/chat/completions`);
 
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error(`模型服务返回 HTTP ${response.status}。`);
-  }
-  if (!response.body) {
-    throw new Error('模型响应为空。');
-  }
-  if (onContent && response.headers.get('content-type')?.includes('text/event-stream')) {
-    return await readCompletionStream(response, config.maxRequestBytes, signal, onContent);
-  }
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
+    if (url.protocol !== 'https:' || url.username || url.password) {
+      throw new Error('模型服务需要有效的 HTTPS 地址。');
+    }
+    const body = JSON.stringify({
+      model: current.model || config.model,
+      stream: Boolean(onContent),
+      messages,
+      ...(tools.length
+        ? {
+            tools: tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
+            tool_choice: 'auto',
+            parallel_tool_calls: false
+          }
+        : {})
+    });
 
-  try {
-    while (true) {
-      const part = await reader.read();
+    if (Buffer.byteLength(body) > maxBytes) {
+      throw new Error('请求超过大小限制。');
+    }
+    signal.throwIfAborted();
+    let response: Response;
 
-      if (part.done) {
-        break;
+    try {
+      response = await budgetedFetch(config, url, {
+        personalKey: current.personal,
+        scopedKey: current.scoped,
+        method: 'POST',
+        redirect: 'error',
+        signal,
+        headers: { Authorization: `Bearer ${current.apiKey}`, 'Content-Type': 'application/json' },
+        body
+      });
+    } catch (error) {
+      current.report?.({ ok: false });
+      if (error instanceof BudgetExceededError) throw error;
+      signal.throwIfAborted();
+      const next = current.next?.();
+
+      if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) throw error;
+      current = next;
+      continue;
+    }
+
+    if (!response.ok) {
+      const status = response.status;
+
+      await response.body?.cancel();
+      current.report?.({ ok: false, status });
+      const next = current.retryable?.(status) ? current.next?.() : null;
+
+      if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
+        throw new Error(`模型服务返回 HTTP ${status}。`);
       }
-      bytes += part.value.length;
-      if (bytes > config.maxRequestBytes) {
-        throw new Error('模型响应超过大小限制。');
+      current = next;
+      continue;
+    }
+    current.report?.({ ok: true, status: response.status });
+    if (!response.body) {
+      throw new Error('模型响应为空。');
+    }
+    if (onContent && response.headers.get('content-type')?.includes('text/event-stream')) {
+      return await readCompletionStream(response, config.maxRequestBytes, signal, onContent);
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+
+    try {
+      while (true) {
+        const part = await reader.read();
+
+        if (part.done) {
+          break;
+        }
+        bytes += part.value.length;
+        if (bytes > config.maxRequestBytes) {
+          throw new Error('模型响应超过大小限制。');
+        }
+        chunks.push(part.value);
       }
-      chunks.push(part.value);
+    } finally {
+      await reader.cancel();
     }
-  } finally {
-    await reader.cancel();
-  }
-  try {
-    const message = JSON.parse(Buffer.concat(chunks).toString('utf8'))?.choices?.[0]?.message;
+    try {
+      const message = JSON.parse(Buffer.concat(chunks).toString('utf8'))?.choices?.[0]?.message;
 
-    if (!message || typeof message !== 'object') {
-      throw new Error();
+      if (!message || typeof message !== 'object') {
+        throw new Error();
+      }
+
+      if (onContent && typeof message.content === 'string') {
+        await onContent(message.content);
+      }
+
+      return message;
+    } catch {
+      throw new Error('模型未返回有效消息。');
     }
-
-    if (onContent && typeof message.content === 'string') {
-      await onContent(message.content);
-    }
-
-    return message;
-  } catch {
-    throw new Error('模型未返回有效消息。');
   }
 };
 

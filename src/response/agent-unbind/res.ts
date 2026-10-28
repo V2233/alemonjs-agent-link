@@ -1,4 +1,5 @@
-import { Format, useEvent, useMessage } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { useEvent, useMessage } from 'alemonjs';
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: 'private.message.create' });
@@ -11,12 +12,12 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   if (!event.IsMaster) {
-    await message.send({ format: Format.create().addText('公共密钥仅限机器人主人移除。') });
+    await message.send({ format: commandBubble('公共密钥仅限机器人主人移除。', '移除密钥') });
 
     return;
   }
 
   await message.send({
-    format: Format.create().addText('删除配置中的 alemonjs-agent-link.apiKey 并保存即可。')
+    format: commandBubble('删除配置中的 alemonjs-agent-link.apiKey 并保存即可。', '移除密钥')
   });
 };

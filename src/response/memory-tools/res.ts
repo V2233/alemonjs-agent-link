@@ -1,6 +1,7 @@
-import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
-import { canPrivateChat, canReset, getConversationId } from '../dsh/util';
+import { canPrivateChatWithKey, canReset, getConversationId } from '../dsh/util';
 import { getMemoryStore } from '../../memory/store';
 import { MemoryConsolidator } from '../../memory/consolidation';
 import { forgetMemory, synchronizeExplicitMemory } from '../../memory/management';
@@ -20,9 +21,25 @@ export default async (): Promise<void> => {
   let replyLimit = 900;
   const reply = async (text: string): Promise<void> => {
     const chars = Array.from(text);
+    const chunks: string[] = [];
 
-    for (let index = 0; index < chars.length; index += replyLimit) {
-      assertMessageDelivered(await message.send({ format: Format.create().addText(chars.slice(index, index + replyLimit).join('')) }));
+    for (let index = 0; index < chars.length; index += replyLimit) chunks.push(chars.slice(index, index + replyLimit).join(''));
+    for (const [index, chunk] of chunks.entries()) {
+      assertMessageDelivered(
+        await message.send({
+          format: commandBubble(chunk, '记忆查询与管理', {
+            platform: event.Platform,
+            actions:
+              index === chunks.length - 1
+                ? [
+                    { label: '查看记忆', command: event.IsPrivate ? '/记忆' : '/群记忆' },
+                    { label: '过时记忆', command: '/过时记忆' },
+                    { label: '帮助', command: '/帮助 记忆' }
+                  ]
+                : []
+          })
+        })
+      );
     }
   };
   let coordinated: CoordinatedChatResult | undefined;
@@ -32,7 +49,7 @@ export default async (): Promise<void> => {
 
     replyLimit = Math.min(900, config.maxMessageLength);
 
-    if (event.IsPrivate && !canPrivateChat(event, config.privateChatAccess)) {
+    if (event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))) {
       await reply('当前未开放此私聊。');
 
       return;

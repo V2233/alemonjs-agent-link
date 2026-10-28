@@ -1,4 +1,5 @@
-import { Format, useEvent, useMessage, useRoute, useMedia } from 'alemonjs';
+import { useEvent, useMessage, useRoute, useMedia } from 'alemonjs';
+import { noticeBubble } from '../bubble';
 import { runDSHChat } from '@src/response/dsh/chat';
 import { submitGroupChat } from '../../social/respond';
 
@@ -14,7 +15,13 @@ export default async (): Promise<void> => {
   if (!text && !context.current.MessageMedia?.length && !context.current.ReplyId && !context.current.MessageContent?.replyReferenceId) {
     const [message] = useMessage();
 
-    await message.send({ format: Format.create().addText('用法：/语音 你的问题（不可用时回退文字）') });
+    await message.send({
+      format: noticeBubble('用法：/语音 你的问题（不可用时回退文字）', {
+        platform: context.current.Platform,
+        title: '语音',
+        actions: [{ label: '语音用法', command: '/帮助 媒体' }]
+      })
+    });
 
     return;
   }
@@ -27,7 +34,16 @@ export default async (): Promise<void> => {
     try {
       await submitGroupChat(context.current, text, { message, media }, true);
     } catch {
-      await message.send({ format: Format.create().addText('群聊消息暂时无法处理，请稍后重试。') });
+      await message.send({
+        format: noticeBubble('群聊消息暂时无法处理，请稍后重试。', {
+          platform: context.current.Platform,
+          title: '暂时不可用',
+          actions: [
+            { label: '服务状态', command: '/状态' },
+            { label: '帮助', command: '/帮助 媒体' }
+          ]
+        })
+      });
     }
   }
 };

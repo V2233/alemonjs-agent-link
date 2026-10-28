@@ -1,5 +1,6 @@
 import { getChatArchive, historyEnabled } from '../../history/store';
 import { archiveIncoming } from '../../history/capture';
+import { canPrivateChatWithKey } from '../dsh/util';
 import { logger, useEvent } from 'alemonjs';
 import { contextEvents, eventContexts, normalizeContextEvent } from '../../social/event-context';
 import { messageReferences } from '../../social/references';
@@ -52,7 +53,7 @@ export default async (): Promise<void> => {
         const id = event.MessageContent?.referenceId || event.MessageId;
 
         if (id) getChatArchive(config).invalidate({ platform: event.Platform, channelId }, id);
-        if (event.name.endsWith('.update')) archiveIncoming(config, event);
+        if (event.name.endsWith('.update')) archiveIncoming(config, event, event.IsPrivate && (await canPrivateChatWithKey(event, config.privateChatAccess)));
       }
       if (channelId) {
         await new SessionRegistry(getDSHConfig()).clearRecent(channelId).catch(() => logger.warn('Event recent-context cleanup failed'));

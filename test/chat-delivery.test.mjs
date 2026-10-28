@@ -64,6 +64,27 @@ test('cancelling output discards buffered and queued tails, including late model
   assert.deepEqual(sent, ['第一段。']);
 });
 
+test('chat replies honor explicit ||| bubbles and cap a long reply at five messages', async () => {
+  const sent = [];
+  const output = new StreamOutput(async text => sent.push(text), 1000, 10000, assert.fail);
+  output.append('第一句|||第二句|||第三句');
+  assert.equal(await output.close(), true);
+  assert.deepEqual(sent, ['第一句', '第二句', '第三句']);
+
+  const capped = [];
+  const long = new StreamOutput(async text => capped.push(text), 1000, 10000, assert.fail, 5);
+  long.append(Array.from({ length: 10 }, (_, index) => `第${index + 1}句`).join('\n'));
+  assert.equal(await long.close(), true);
+  assert.equal(capped.length, 5);
+  assert.match(capped[4], /第5句[\s\S]*第10句/);
+
+  const code = [];
+  const fenced = new StreamOutput(async text => code.push(text), 1000, 10000, assert.fail);
+  fenced.append('说明\n```js\nconst a = 1;\nconst b = 2;\n```');
+  assert.equal(await fenced.close(), true);
+  assert.deepEqual(code, ['说明\n```js\nconst a = 1;\nconst b = 2;\n```']);
+});
+
 test('tiny message limits never produce oversized code wrappers or split emoji', async () => {
   const sent = [];
   const output = new StreamOutput(

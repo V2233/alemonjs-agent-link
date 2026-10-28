@@ -1,6 +1,7 @@
-import { Format, logger, useEvent, useMessage } from 'alemonjs';
+import { logger, useEvent, useMessage } from 'alemonjs';
+import { noticeBubble } from '../bubble';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
-import { canReset, getSessionId, getConversationId, canPrivateChat } from '@src/response/dsh/util';
+import { canReset, getSessionId, getConversationId, canPrivateChatWithKey } from '@src/response/dsh/util';
 import { resetGroupSession } from '@src/dsh/orchestrator';
 
 export default async (): Promise<void> => {
@@ -12,9 +13,9 @@ export default async (): Promise<void> => {
 
   const event = eventContext.current;
   const [message] = useMessage();
-  const reply = async (text: string): Promise<unknown> =>
+  const reply = async (text: string, actions: { label: string; command: string }[] = []): Promise<unknown> =>
     await message.send({
-      format: Format.create().addText(text)
+      format: noticeBubble(text, { platform: event.Platform, title: '新会话', actions })
     });
 
   const channelId = getConversationId(event);
@@ -36,13 +37,16 @@ export default async (): Promise<void> => {
   try {
     const config = getDSHConfig();
 
-    if (event.IsPrivate && !canPrivateChat(event, config.privateChatAccess)) {
+    if (event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))) {
       await reply('仅机器人主人可在私聊中使用 Agent。');
 
       return;
     }
     await resetGroupSession(channelId, config);
-    await reply(event.IsPrivate ? '已开始新话题，长期记忆和聊天记录保留。' : '本群已开始新话题，长期记忆和聊天记录保留。');
+    await reply(event.IsPrivate ? '已开始新话题，长期记忆和聊天记录保留。' : '本群已开始新话题，长期记忆和聊天记录保留。', [
+      { label: '帮助', command: '/帮助 聊天' },
+      { label: '查看额度', command: '/额度' }
+    ]);
   } catch (error) {
     logger.error({ err: error, sessionId }, 'DSH session clear failed');
     await reply(toUserMessage(error));

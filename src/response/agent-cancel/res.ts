@@ -1,4 +1,5 @@
-import { Format, useEvent, useMessage } from 'alemonjs';
+import { useEvent, useMessage } from 'alemonjs';
+import { noticeBubble } from '../bubble';
 import { canReset, getConversationId } from '@src/response/dsh/util';
 import { cancelChatForUser } from '@src/dsh/orchestrator';
 import { groupConversations } from '../../social/groups';
@@ -35,5 +36,14 @@ export default async (): Promise<void> => {
     forbidden: '这是其他成员的请求，请由本人或管理员取消。'
   }[result];
 
-  await message.send({ format: Format.create().addText(text) });
+  await message.send({
+    format: noticeBubble(text, {
+      platform: eventContext.current.Platform,
+      title: '取消',
+      actions: [
+        { label: '重新提问', command: '/提问' },
+        { label: '帮助', command: '/帮助 聊天' }
+      ]
+    })
+  });
 };

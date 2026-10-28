@@ -1,4 +1,5 @@
-import { Format, logger, useEvent, useMessage, useRoute } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { logger, useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { purgeGroupSession } from '@src/dsh/orchestrator';
 
@@ -16,13 +17,18 @@ export default async (): Promise<void> => {
   const event = eventContext.current;
 
   if (event.IsPrivate) {
-    await message.send({ format: Format.create().addText('请到需要清理的目标群里使用 /清除群数据。') });
+    await message.send({
+      format: commandBubble('请到需要清理的目标群里使用 /清除群数据。', '清除群数据', {
+        platform: event.Platform,
+        actions: [{ label: '清除群数据', command: '/清除群数据' }]
+      })
+    });
 
     return;
   }
 
   if (!event.ChannelId || !event.IsMaster) {
-    await message.send({ format: Format.create().addText('仅机器人主人可清除群数据。') });
+    await message.send({ format: commandBubble('仅机器人主人可清除群数据。', '清除群数据', { platform: event.Platform }) });
 
     return;
   }
@@ -34,7 +40,13 @@ export default async (): Promise<void> => {
   if (!confirmed) {
     confirmations.set(event.ChannelId, { actor, expiresAt: Date.now() + confirmationTtlMs });
     await message.send({
-      format: Format.create().addText('将永久删除本群会话、文件、聊天记录、记忆及本群人格和心情设置，无法恢复。\n请本人在60秒内发送 /清除群数据 确认。')
+      format: commandBubble('将永久删除本群会话、文件、聊天记录、记忆及本群人格和心情设置，无法恢复。\n请本人在60秒内发送 /清除群数据 确认。', '清除群数据', {
+        platform: event.Platform,
+        actions: [
+          { label: '确认清除', command: '/清除群数据 确认' },
+          { label: '取消', command: '/取消' }
+        ]
+      })
     });
 
     return;
@@ -42,7 +54,12 @@ export default async (): Promise<void> => {
 
   if (confirmation?.actor !== actor || (confirmation?.expiresAt ?? 0) < Date.now()) {
     confirmations.delete(event.ChannelId);
-    await message.send({ format: Format.create().addText('确认已过期或不匹配。请先重新发送 /清除群数据。') });
+    await message.send({
+      format: commandBubble('确认已过期或不匹配。请先重新发送 /清除群数据。', '清除群数据', {
+        platform: event.Platform,
+        actions: [{ label: '重新发起', command: '/清除群数据' }]
+      })
+    });
 
     return;
   }
@@ -53,9 +70,14 @@ export default async (): Promise<void> => {
     const config = getDSHConfig();
 
     await purgeGroupSession(event.ChannelId, config);
-    await message.send({ format: Format.create().addText('本群数据已彻底清除。') });
+    await message.send({ format: commandBubble('本群数据已彻底清除。', '清除群数据') });
   } catch (error) {
     logger.error({ err: error }, 'Agent group data purge failed');
-    await message.send({ format: Format.create().addText('清理未完成，请核对后重试。') });
+    await message.send({
+      format: commandBubble('清理未完成，请核对后重试。', '清除群数据', {
+        platform: event.Platform,
+        actions: [{ label: '重试清除', command: '/清除群数据' }]
+      })
+    });
   }
 };

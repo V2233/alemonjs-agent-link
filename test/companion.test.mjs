@@ -31,7 +31,7 @@ const fixture = async run => {
         stateBackend: 'local',
         workspaceRoot: join(root, 'work'),
         dshHomeRoot: join(root, 'home'),
-        modules: { settings: { memory: { automatic: false } } }
+        modules: { settings: { memory: { automatic: false }, mood: { modelJudge: false } } }
       }
     }
   };
@@ -218,6 +218,26 @@ test('mood keyword rules do not punish user distress, quotations, negations or c
   assert.throws(() => moodOptions({ modules: { settings: { mood: { baseline: 101 } } } }));
 });
 
+test('ordinary mood stays out of the prompt while an expressive mood gently changes tone', () =>
+  fixture(async ({ config }) => {
+    const neutral = new ModuleRuntime(config, [moodModule(config)]);
+    const upbeatConfig = { ...config, modules: { settings: { mood: { baseline: 80 } } } };
+    const upbeat = new ModuleRuntime(upbeatConfig, [moodModule(upbeatConfig)]);
+    const a = await neutral.acquire();
+    const b = await upbeat.acquire();
+    try {
+      assert.equal(await a.context(context({ channelId: 'neutral', inputId: 'a', userText: '你好' })), '');
+      const prompt = await b.context(context({ channelId: 'upbeat', inputId: 'b', userText: '你好' }));
+      assert.match(prompt, /轻快/);
+      assert.doesNotMatch(prompt, /100|心情值/);
+    } finally {
+      await a.release();
+      await b.release();
+      await neutral.close();
+      await upbeat.close();
+    }
+  }));
+
 test('optional mood judge uses a bounded model request without tools and discards an outdated input judgment', () =>
   fixture(async ({ config }) => {
     const judged = { ...config, modules: { settings: { mood: { modelJudge: true } } } };
@@ -244,7 +264,7 @@ test('optional mood judge uses a bounded model request without tools and discard
       await started;
       await lease.context(context({ inputId: 'new', requestId: 'new', userText: '喝茶吗' }));
       respond();
-      await new Promise(resolve => setTimeout(resolve, 20));
+      await new Promise(resolve => setTimeout(resolve, 120));
       const { getMoodStore } = await import('../lib/companion/mood.js');
       assert.ok(getMoodStore(config).snapshot(scope, options).value < 65, 'stale model output must not change the newer input');
     } finally {
@@ -256,7 +276,8 @@ test('optional mood judge uses a bounded model request without tools and discard
 test('expression decisions require configuration, remain stable on retry and do not override hourly or quiet limits', () =>
   fixture(async ({ config }) => {
     const media = { tts: { model: 'test', voice: 'voice' }, stickerRoot: '/stickers' };
-    assert.deepEqual(planExpression(config, scope, 'm', media), { voice: false, sticker: false, delayMs: 0 });
+    const off = { ...config, modules: { settings: { expression: { automatic: false } } } };
+    assert.deepEqual(planExpression(off, scope, 'm', media), { voice: false, sticker: false, delayMs: 0 });
     const configured = { ...config, modules: { settings: { expression: { automatic: true, voiceChance: 1, stickerChance: 1, delayMs: [100, 200] } } } };
     const plan = planExpression(configured, scope, 'm', media);
     assert.equal(plan.voice, true);
@@ -292,7 +313,7 @@ test('actual expression delivery sends automatic audio, falls back to text on TT
     const { runDSHChat } = await import('../lib/response/dsh/chat.js');
     const { ResultCode } = await import('alemonjs');
     Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
-      modules: { settings: { memory: { automatic: false }, expression: { automatic: true, voiceChance: 1, stickerChance: 0 } } },
+      modules: { settings: { memory: { automatic: false }, mood: { modelJudge: false }, expression: { automatic: true, voiceChance: 1, stickerChance: 0 } } },
       media: { speech: { engine: 'openai', fallback: false }, tts: { baseUrl: 'https://speech.test', apiKey: 'test', model: 'tts', voice: 'voice' } }
     });
     let audioFailure = false,
@@ -355,7 +376,7 @@ test('optional sticker receipt failure does not invalidate delivered text or cau
     await writeFile(join(stickerRoot, 'manifest.json'), JSON.stringify([{ id: 'tea', file: 'tea.png', tags: ['喝茶'] }]));
     await writeFile(join(stickerRoot, 'tea.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
-      modules: { settings: { memory: { automatic: false }, expression: { automatic: true, voiceChance: 0, stickerChance: 1 } } },
+      modules: { settings: { memory: { automatic: false }, mood: { modelJudge: false }, expression: { automatic: true, voiceChance: 0, stickerChance: 1 } } },
       media: { stickerRoot }
     });
     let modelCalls = 0;

@@ -1,4 +1,5 @@
-import { Format, useEvent, useMessage, useMedia, useRoute } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { useEvent, useMessage, useMedia, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/runtime-config';
 import { getMediaConfig } from '../../media/config';
 import { renderSpeech, speechStatus, installSpeech } from '../../media/speech';
@@ -18,7 +19,18 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
   const [media] = useMedia();
   const reply = async (text: string): Promise<void> => {
-    assertMessageDelivered(await message.send({ format: Format.create().addText(text) }));
+    assertMessageDelivered(
+      await message.send({
+        format: commandBubble(text, '语音服务', {
+          platform: event.Platform,
+          actions: [
+            { label: '引擎状态', command: '/语音引擎 状态' },
+            { label: '安装引擎', command: '/语音引擎 安装' },
+            { label: '试听', command: '/语音引擎 试听 你好' }
+          ]
+        })
+      })
+    );
   };
 
   if (!event.IsMaster) {
@@ -71,7 +83,7 @@ export default async (): Promise<void> => {
             const settings = getMediaConfig();
 
             await reply(
-              `语音引擎：${settings.speech?.engine || 'auto'}\n系统：${status.system}；edge-tts：${status.edge ? '组件已就绪' : '未安装'}\n兼容接口：${settings.tts?.voice ? '已配置' : '未配置'}\n/语音引擎 安装；/语音引擎 试听 [文本]\n实际可用性请试听确认。`
+              `语音引擎：${settings.speech?.engine || 'auto'}\n系统：${status.system}；edge-tts：${status.edge ? '已就绪' : '未安装'}\n兼容接口：${settings.tts?.voice ? '已配置' : '未配置'}\n实际可用性请试听确认。`
             );
           }
         }

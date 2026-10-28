@@ -1,7 +1,9 @@
 import { SessionRegistry } from '../../state/registry';
 import { aiDisabledMessage } from '../../dsh/ai-switch';
 import { readMessageContext } from '../../social/message-context';
-import { Format, logger, useEvent, useMessage, useMedia } from 'alemonjs';
+import { logger, useEvent, useMessage, useMedia } from 'alemonjs';
+import { noticeBubble } from '../bubble';
+import { budgetNoticeActions } from '../../billing/help';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { extractPrompt, extractWakePrompt } from '@src/response/dsh/util';
 import { groupConversations, scopedGroupPolicy } from '../../social/groups';
@@ -45,7 +47,13 @@ export default async (): Promise<void> => {
       prompt = event.MessageText || '用户引用了你的消息，请结合原文回应。';
     }
   } catch (error) {
-    await message.send({ format: Format.create().addText(toUserMessage(error)) });
+    await message.send({
+      format: noticeBubble(toUserMessage(error), {
+        platform: event.Platform,
+        title: '服务提示',
+        actions: [{ label: '密钥配置', command: '/密钥配置' }, ...budgetNoticeActions(false)]
+      })
+    });
 
     return;
   }
@@ -53,13 +61,13 @@ export default async (): Promise<void> => {
     prompt = '用户 @ 了你，没有附带文字。';
   }
 
-  const reply = async (text: string): Promise<unknown> =>
+  const reply = async (text: string, actions: { label: string; command: string }[] = []): Promise<unknown> =>
     await message.send({
-      format: Format.create().addText(text)
+      format: noticeBubble(text, { platform: event.Platform, title: '群聊', actions })
     });
 
   if (prompt === '/new' || prompt === '/新会话') {
-    await reply('请直接发送 /新会话 开始新的群会话。');
+    await reply('请直接发送 /新会话 开始新的群会话。', [{ label: '新会话', command: '/新会话' }]);
 
     return;
   }
@@ -75,7 +83,16 @@ export default async (): Promise<void> => {
 
   if (config.aiEnabled === false) {
     if (await new SessionRegistry(config).claimDisabledNotice(event.Platform || '', event.ChannelId, false)) {
-      await message.send({ format: Format.create().addText(aiDisabledMessage(config)) });
+      await message.send({
+        format: noticeBubble(aiDisabledMessage(config), {
+          platform: event.Platform,
+          title: 'AI 已关闭',
+          actions: [
+            { label: '服务状态', command: '/状态' },
+            { label: '管理说明', command: '/帮助 管理' }
+          ]
+        })
+      });
     }
 
     return;

@@ -7,8 +7,81 @@ import { getDSHConfig } from '../lib/dsh/client.js';
 import { getModuleRuntime } from '../lib/agent/modules.js';
 import { runCoordinatedChat } from '../lib/dsh/orchestrator.js';
 import { SessionRegistry } from '../lib/state/registry.js';
-import { setDSHBridgeForTesting } from '../lib/dsh/supervisor.js';
+import { setDSHBridgeForTesting, DSHSupervisor } from '../lib/dsh/supervisor.js';
 import { runModuleTurn } from '../lib/agent/turn.js';
+
+test('text model replies without waiting for a cold strict sandbox; workspace tool remains available for on-demand preparation', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'agent-cold-sandbox-'));
+  const original = { config: globalThis.__config, fetch: globalThis.fetch, prepare: DSHSupervisor.prototype.prepareForChat };
+  globalThis.__config = {
+    value: {
+      'alemonjs-agent-link': {
+        apiKey: 'test',
+        model: 'test',
+        runtimeMode: 'sandbox',
+        stateBackend: 'local',
+        workspaceRoot: join(root, 'work'),
+        dshHomeRoot: join(root, 'home')
+      }
+    }
+  };
+  const config = getDSHConfig();
+  let prepared = false;
+  let release;
+  const preparation = new Promise(resolve => {
+    release = resolve;
+  });
+  DSHSupervisor.prototype.prepareForChat = async function () {
+    await preparation;
+    prepared = true;
+  };
+  globalThis.fetch = async (_url, init) => {
+    assert.equal(prepared, false);
+    assert.ok(JSON.parse(init.body).tools.some(tool => tool.function.name === 'agent_workspace'));
+    return Response.json({ choices: [{ message: { content: '先回复你的问题。' } }] });
+  };
+  const events = [];
+  const controller = new AbortController();
+  let timer;
+  const turn = runModuleTurn({
+    config,
+    sessionId: 'cold-sandbox',
+    input: '你在吗',
+    context: {
+      channelId: 'cold',
+      platform: 'qq-bot',
+      userId: 'one',
+      private: false,
+      owner: false,
+      userText: '你在吗',
+      capabilities: { chat: true, web: true, files: false, terminal: false },
+      signal: controller.signal
+    },
+    onEvent: async event => {
+      events.push(event);
+    }
+  });
+  try {
+    await Promise.race([
+      turn,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('ordinary chat waited for sandbox preparation')), 2000);
+      })
+    ]);
+    assert.ok(events.some(event => event.type === 'content' && event.content.includes('先回复')));
+    assert.equal(prepared, false);
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+    release();
+    await turn.catch(() => undefined);
+    await (await getModuleRuntime(config)).close();
+    DSHSupervisor.prototype.prepareForChat = original.prepare;
+    globalThis.fetch = original.fetch;
+    globalThis.__config = original.config;
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('image turn without modules sends bytes to the model instead of DSH text projection', async () => {
   const root = await mkdtemp(join(tmpdir(), 'agent-image-turn-'));

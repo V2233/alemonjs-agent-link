@@ -22,3 +22,14 @@ test('four delivered turns per peer trip a bounded circuit even with changing te
   assert.equal(guard.allows('two', '又一个新问题', 1010), true);
   assert.equal(guard.allows('one', '又一个新问题', 122000), true);
 });
+
+test('explicit human calls bypass the four-turn heuristic while repeated prompts still trip the circuit', () => {
+  const guard = new LoopGuard();
+  for (let i = 0; i < 4; i++) guard.delivered('one', `不同的问题${i}`, `回答${i}`, 1000 + i);
+  assert.equal(guard.allows('one', '第五个完全不同的问题', 1010), false);
+  assert.equal(guard.allows('one', '明确呼唤的第五个问题', 1011, false, true), true);
+  assert.equal(guard.allows('one', '明确呼唤的第五个问题', 1011, true, true), false);
+  guard.delivered('one', '明确呼唤的第五个问题', '回答', 1012);
+  assert.equal(guard.allows('one', '明确呼唤的第五个问题', 1013, false, true), false);
+  assert.equal(guard.allows('one', '另一个明确呼唤', 1014, false, true), false);
+});

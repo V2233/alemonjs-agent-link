@@ -5,12 +5,21 @@ import { getDSHConfig } from '../../dsh/client';
 import { archiveIncoming } from '../../history/capture';
 import { observeProactiveInput } from '../../proactive/observe';
 import { autoStickerCollector } from '../../media/sticker-auto';
+import { rememberRecentMedia } from '../../media/recent';
+import { ensureProactiveSubscription } from '../../proactive/auto';
+import { canPrivateChatWithKey } from '../dsh/util';
 
 export default async (): Promise<void> => {
   const [context, next] = useEvent({ selects: ['message.create', 'private.message.create'] });
 
   try {
     if (context.match.selects && !isPersonalKeyCommand(context.current.MessageText)) {
+      rememberRecentMedia(context.current);
+      try {
+        ensureProactiveSubscription(getDSHConfig(), context.current);
+      } catch {
+        logger.warn('Automatic proactive subscription failed');
+      }
       try {
         autoStickerCollector.enqueue(context.current);
       } catch {
@@ -18,7 +27,9 @@ export default async (): Promise<void> => {
       }
       observeProactiveInput(getDSHConfig(), context.current);
       await messageReferences.capture(context.current).catch(() => logger.warn('Message reference capture failed'));
-      archiveIncoming(getDSHConfig(), context.current);
+      const config = getDSHConfig();
+
+      archiveIncoming(config, context.current, context.current.IsPrivate && (await canPrivateChatWithKey(context.current, config.privateChatAccess)));
     }
   } catch {
     logger.error('聊天历史采集失败，请检查归档配置。');

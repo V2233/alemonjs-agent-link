@@ -4,6 +4,7 @@ import { dafeiyuPrompt } from './persona';
 import { DSHError } from './errors';
 import type { ModuleConfig } from '../agent/types';
 import { getGroupChatPolicy, type GroupChatConfig } from '../social/group-policy';
+import { parseModelPool, type ModelPoolConfig } from '../model-pool/config';
 
 export type AgentConfig = Partial<DSHBridgeConfig> & { baseUrl?: string; apiKey?: string };
 export type ConfigContext = { cwd?: string; configPath?: string; dataRoot?: string; hasRedis?: boolean };
@@ -37,6 +38,7 @@ export type DSHBridgeConfig = {
   defaultSystemPrompt: string;
   maxMessageLength: number;
   streamFlushIntervalMs: number;
+  bubbleDelayMs: number;
   requestTimeoutMs: number;
   startupTimeoutMs: number;
   preparationTimeoutMs?: number;
@@ -52,6 +54,7 @@ export type DSHBridgeConfig = {
   recentChatWindowSeconds: number;
   recentChatMaxChars: number;
   recentChatSummaryMaxChars: number;
+  modelPool?: ModelPoolConfig;
 };
 
 export type AgentCapabilities = { chat: boolean; web: boolean; files: boolean; terminal: boolean };
@@ -93,7 +96,7 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
       'agentlink',
       'agent link'
     ],
-    privateChatAccess: 'owner',
+    privateChatAccess: 'all',
     privateAutoReply: true,
     persona: 'dafeiyu',
     privateHistoryMaxTurns: 10,
@@ -112,6 +115,7 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     defaultSystemPrompt: '你是一个友好、可靠的助手。',
     maxMessageLength: 1000,
     streamFlushIntervalMs: 500,
+    bubbleDelayMs: 250,
     requestTimeoutMs: 120000,
     startupTimeoutMs: 30000,
     preparationTimeoutMs: 120000,
@@ -164,6 +168,7 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     privateHistoryMaxChars: [1, 100000],
     maxMessageLength: [1, 10000],
     streamFlushIntervalMs: [1, 10000],
+    bubbleDelayMs: [0, 5000],
     requestTimeoutMs: [1, 300000],
     preparationTimeoutMs: [1000, 600000],
     startupTimeoutMs: [1, 300000],
@@ -255,6 +260,7 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     config.privateHistoryMaxChars,
     config.maxMessageLength,
     config.streamFlushIntervalMs,
+    config.bubbleDelayMs,
     config.requestTimeoutMs,
     config.startupTimeoutMs,
     config.bridgePort,
@@ -316,6 +322,8 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     config.maxMessageLength > 10_000 ||
     config.streamFlushIntervalMs < 1 ||
     config.streamFlushIntervalMs > 10_000 ||
+    config.bubbleDelayMs < 0 ||
+    config.bubbleDelayMs > 5000 ||
     config.requestTimeoutMs < 1 ||
     config.requestTimeoutMs > 300_000 ||
     config.recentChatMaxMessages < 0 ||
@@ -345,6 +353,17 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
   }
 
   getGroupChatPolicy(config.groupChat);
+
+  try {
+    config.modelPool = parseModelPool(agentLink?.modelPool, {
+      provider: config.provider,
+      baseUrl: typeof agentLink?.baseUrl === 'string' ? agentLink.baseUrl : undefined,
+      model: config.model,
+      apiKey: typeof agentLink?.apiKey === 'string' ? agentLink.apiKey : undefined
+    });
+  } catch (error) {
+    throw new DSHError('protocol', error instanceof Error ? error.message : 'modelPool 配置无效。');
+  }
 
   return config;
 };

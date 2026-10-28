@@ -1,6 +1,8 @@
-import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/runtime-config';
-import { proactiveOptions, proactiveEnabled, localDay } from '../../proactive/options';
+import { proactiveOptions, proactiveEnabled, localDay, entitledProactiveOptions } from '../../proactive/options';
+import { personalKeyEntitled } from '../../credentials/personal';
 import { getProactiveStore } from '../../proactive/store';
 import { ProactiveWorker } from '../../proactive/worker';
 import { assertMessageDelivered } from '../../dsh/output';
@@ -17,9 +19,26 @@ export default async (): Promise<void> => {
   let limit = 900;
   const reply = async (text: string): Promise<void> => {
     const chars = Array.from(text);
+    const chunks: string[] = [];
 
-    for (let i = 0; i < chars.length; i += limit) {
-      assertMessageDelivered(await message.send({ format: Format.create().addText(chars.slice(i, i + limit).join('')) }));
+    for (let i = 0; i < chars.length; i += limit) chunks.push(chars.slice(i, i + limit).join(''));
+    for (const [index, chunk] of chunks.entries()) {
+      assertMessageDelivered(
+        await message.send({
+          format: commandBubble(chunk, '主动搭话', {
+            platform: event.Platform,
+            actions:
+              index === chunks.length - 1
+                ? [
+                    { label: '订阅状态', command: '/主动搭话 状态' },
+                    { label: '开启订阅', command: '/主动搭话 开启' },
+                    { label: '关闭订阅', command: '/主动搭话 关闭' },
+                    { label: '立即尝试', command: '/主动搭话 现在' }
+                  ]
+                : []
+          })
+        })
+      );
     }
   };
 
@@ -37,7 +56,17 @@ export default async (): Promise<void> => {
     const config = getDSHConfig();
 
     limit = Math.min(900, config.maxMessageLength);
-    const options = proactiveOptions(config);
+    let options = proactiveOptions(config);
+    let elevated = false;
+
+    try {
+      if (await personalKeyEntitled({ platform: event.Platform, userId: event.UserId })) {
+        options = entitledProactiveOptions(options);
+        elevated = Boolean(options.flexible);
+      }
+    } catch {
+      // 权益查询失败时按普通参数展示与订阅，不影响原有能力。
+    }
     const store = getProactiveStore(config);
     const scope = { platform: event.Platform, botId: event.BotId, userId: event.UserId };
     const args = route.rawArgs.join(' ').trim();
@@ -92,7 +121,8 @@ export default async (): Promise<void> => {
             `主动搭话：${row.enabled ? '开启' : '关闭'}；模块：${proactiveEnabled(config) ? '启用' : '停用'}。`,
             `暂停：${row.pausedUntil >= Number.MAX_SAFE_INTEGER ? '等待核查发送结果' : row.pausedUntil > Date.now() ? time(row.pausedUntil) : '无'}。`,
             `今日初次搭话 ${row.day === localDay(Date.now(), options.timezone) ? row.count : 0}/${options.maxPerDay}；未回复连发 ${row.unanswered}/${options.maxUnanswered}。`,
-            `最早下次：${time(row.nextAt)}（遵守免打扰与空闲限制）`,
+            `最早下次：${time(row.nextAt)}（受免打扰与空闲限制）`,
+            ...(elevated ? ['自带 Key：主动搭话已拉满（空闲 20 分钟、每天最多 10 次），免打扰仍按配置。'] : []),
             ...(args === '状态'
               ? attempts.map(
                   attempt =>

@@ -1,6 +1,9 @@
+import { commandBubble } from '../bubble';
 import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
-import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { groupKeyStatus, issueGroupKeyCode, redeemGroupKeyCode, type GroupKeyAction } from '../../credentials/group';
+import { getGroupChatPolicy } from '../../social/group-policy';
+import { getDSHConfig } from '../../dsh/client';
 import { getConversationId } from '../dsh/util';
 import { DSHError } from '../../dsh/errors';
 import { groupKeyGuide } from '../../billing/help';
@@ -25,8 +28,14 @@ export default async (): Promise<void> => {
       if (!isAdmin) throw new DSHError('budget', '平台未确认你是本群管理员，无法管理群 Key。请确认管理员身份或成员查询权限。');
       if (args.length === 0 || (args.length === 1 && args[0] === '状态')) {
         const status = await groupKeyStatus({ platform: event.Platform || '', channelId: event.ChannelId || '' });
+        const elevated = status.enabled && getGroupChatPolicy(getDSHConfig().groupChat, event.ChannelId || '').boundKeyElevation !== false;
+        const rights = !status.bound
+          ? ''
+          : elevated
+            ? '\n\n自带 Key 权益：参与强度已拉满（不经过感知判断、冷却 0 秒、每小时最多 60 次），网页与文件工具自动开放；终端始终禁止，夜间静默仍按 groupChat 配置。'
+            : '\n\n自带 Key 权益：本群已按配置关闭（boundKeyElevation: false），按普通群策略运行。';
 
-        text = `本群密钥：${!status.bound ? '未绑定' : status.enabled ? '已启用' : status.reason === 'balance' ? '余额不足，已自动停用' : '已停用'}。\n\n${groupKeyGuide}\n\n已有密钥充值后，在群里发送 /群密钥 启用 申请新的临时码，再按提示私聊确认。\n停用或移除时，在群里发送 /群密钥 停用 或 /群密钥 移除。`;
+        text = `本群密钥：${!status.bound ? '未绑定' : status.enabled ? '已启用' : status.reason === 'balance' ? '余额不足，已自动停用' : '已停用'}。${rights}\n\n${groupKeyGuide}\n\n已有密钥充值后，在群里发送 /群密钥 启用 申请新的临时码，再按提示私聊确认。\n停用或移除时，在群里发送 /群密钥 停用 或 /群密钥 移除。`;
       } else {
         const action = actions[args[0]];
 
@@ -68,5 +77,15 @@ export default async (): Promise<void> => {
     // Only our fixed validation text is public. Never include arguments or provider/storage errors.
     text = error instanceof DSHError ? error.message : '群 Key 操作失败，请重新申请临时码；仍失败请联系主人。';
   }
-  await message.send({ format: Format.create().addText(text) });
+  await message.send({
+    format: commandBubble(text, '群密钥', {
+      platform: event.Platform,
+      actions: [
+        { label: '群密钥状态', command: '/群密钥 状态' },
+        { label: '启用密钥', command: '/群密钥 启用' },
+        { label: '停用密钥', command: '/群密钥 停用' },
+        { label: '额度教程', command: '/帮助 额度' }
+      ]
+    })
+  });
 };

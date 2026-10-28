@@ -187,7 +187,80 @@ export class OneBotActions {
       const [args = {}] = payload.params || [];
       let data: unknown;
 
-      if (payload.key === 'agentLink.capabilities') {
+      if (payload.key === 'agentLink.stickerFavorites') {
+        if (!event.IsMaster) throw new Error('只有主人能读取 QQ 收藏表情。');
+        const count = args.count;
+
+        if (!Number.isSafeInteger(count) || count < 1 || count > 500) throw new Error('收藏表情数量无效。');
+        numericId(event.UserId);
+        if (!event.IsPrivate) numericId(event.ChannelId);
+        const result: unknown = await this.connection.call('fetch_custom_face', { count });
+        const rows: unknown[] = Array.isArray(result)
+          ? result
+          : result && typeof result === 'object' && 'data' in result && Array.isArray(result.data)
+            ? result.data
+            : [];
+        const urls = rows
+          .map(row => {
+            if (typeof row === 'string') return row;
+            if (row && typeof row === 'object' && 'url' in row && typeof row.url === 'string') return row.url;
+
+            return '';
+          })
+          .filter(url => url.length > 0 && url.length <= 2048 && /^https:\/\//u.test(url) && !/[\0\r\n]/u.test(url));
+
+        data = { urls };
+      } else if (payload.key === 'agentLink.stickerFavoriteAdd') {
+        if (!event.IsMaster) throw new Error('只有主人能写入 QQ 收藏表情。');
+        const encoded = args.data;
+        const name = args.name;
+
+        if (
+          typeof encoded !== 'string' ||
+          !encoded ||
+          encoded.length > Math.ceil((5 * 1024 * 1024 * 4) / 3) + 4 ||
+          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)
+        ) {
+          throw new Error('收藏表情图片编码无效或过大。');
+        }
+        if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.trim().length > 20)) throw new Error('收藏表情名称无效。');
+        numericId(event.UserId);
+        if (!event.IsPrivate) numericId(event.ChannelId);
+        const result = (await this.connection.call('add_custom_face', { file: `base64://${encoded}` })) as
+          (Record<string, unknown> & { data?: Record<string, unknown> }) | string | undefined;
+        const nested = typeof result === 'object' ? result?.data : undefined;
+        const rawId =
+          typeof result === 'string'
+            ? result
+            : ([result?.emoji_id, result?.emojiId, result?.id, nested?.emoji_id, nested?.emojiId, nested?.id]
+                .find(value => typeof value === 'string' || typeof value === 'number')
+                ?.toString() ?? '');
+        const emojiId = /^[A-Za-z0-9_-]{1,64}$/u.test(rawId) ? rawId : '';
+
+        if (!emojiId) throw new OneBotError('收藏表情未返回可核对的标识。');
+        data = { emojiId };
+      } else if (payload.key === 'agentLink.stickerFavoriteRename') {
+        if (!event.IsMaster) throw new Error('只有主人能修改 QQ 收藏表情。');
+        const emojiId = args.emojiId;
+        const name = args.name;
+
+        if (typeof emojiId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/u.test(emojiId) || typeof name !== 'string' || !name.trim() || name.trim().length > 20) {
+          throw new Error('收藏表情标识或名称无效。');
+        }
+        numericId(event.UserId);
+        if (!event.IsPrivate) numericId(event.ChannelId);
+        await this.connection.call('modify_custom_face', { emoji_id: emojiId, desc: name.trim() });
+        data = { emojiId };
+      } else if (payload.key === 'agentLink.stickerFavoriteDelete') {
+        if (!event.IsMaster) throw new Error('只有主人能删除 QQ 收藏表情。');
+        const emojiId = args.emojiId;
+
+        if (typeof emojiId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/u.test(emojiId)) throw new Error('收藏表情标识无效。');
+        numericId(event.UserId);
+        if (!event.IsPrivate) numericId(event.ChannelId);
+        await this.connection.call('delete_custom_face', { emoji_id: emojiId });
+        data = { emojiId };
+      } else if (payload.key === 'agentLink.capabilities') {
         data = {
           ...this.connection.status(),
           botId: this.connection.config.selfId,

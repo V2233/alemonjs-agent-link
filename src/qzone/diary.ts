@@ -21,23 +21,27 @@ export const diaryOptions = (settings: Readonly<Record<string, unknown>>): Optio
 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('空间日记配置无效。');
   const values = raw as Partial<Options>;
+  const requested = values.enabled ?? true;
+  const botId = values.botId ?? '';
+  const ownerId = values.ownerId ?? '';
+  const validId = (value: string): boolean => /^[1-9]\d{0,15}$/u.test(value) && Number.isSafeInteger(Number(value));
+
+  // Auto diary is on by default, but it cannot run without the two account IDs.
+  // Empty IDs keep it idle; a provided-but-invalid ID is still a configuration error.
   const result = {
-    enabled: values.enabled ?? false,
-    botId: values.botId ?? '',
-    ownerId: values.ownerId ?? '',
+    enabled: Boolean(requested && validId(botId) && validId(ownerId)),
+    botId,
+    ownerId,
     hour: values.hour ?? 20,
     timezone: values.timezone ?? 'Asia/Shanghai'
   };
 
   if (
+    typeof requested !== 'boolean' ||
     typeof result.enabled !== 'boolean' ||
     typeof result.botId !== 'string' ||
     typeof result.ownerId !== 'string' ||
-    (result.enabled &&
-      (!/^[1-9]\d{0,15}$/u.test(result.botId) ||
-        !/^[1-9]\d{0,15}$/u.test(result.ownerId) ||
-        !Number.isSafeInteger(Number(result.botId)) ||
-        !Number.isSafeInteger(Number(result.ownerId)))) ||
+    (requested && ((result.botId && !validId(result.botId)) || (result.ownerId && !validId(result.ownerId)))) ||
     !Number.isSafeInteger(result.hour) ||
     result.hour < 0 ||
     result.hour > 23 ||

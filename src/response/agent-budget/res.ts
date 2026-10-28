@@ -1,11 +1,19 @@
+import { commandBubble } from '../bubble';
 import { groupKeyStatus } from '../../credentials/group';
 import { personalKeyStatus } from '../../credentials/personal';
-import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { budgetEnabled, budgetStatus, replyGateBudgetStatus, manageBudget, budgetAdjustments } from '../../billing/budget';
 import { getDSHConfig, toUserMessage } from '../../dsh/client';
 import { getConversationId } from '../dsh/util';
 import { parseBudgetCommand, budgetHelp } from '../../billing/commands';
 import { insufficientBudgetHelp, groupKeyGuide } from '../../billing/help';
+
+const budgetActions = (event: { IsMaster?: boolean; IsPrivate?: boolean }): { label: string; command: string }[] => [
+  { label: '重新查询', command: '/额度' },
+  ...(event.IsMaster ? [{ label: '调整记录', command: '/额度 记录' }] : []),
+  event.IsPrivate ? { label: '个人密钥', command: '/个人密钥' } : { label: '群密钥', command: '/群密钥 状态' },
+  { label: '额度教程', command: '/帮助 额度' }
+];
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: ['message.create', 'private.message.create'] });
@@ -22,7 +30,7 @@ export default async (): Promise<void> => {
       const command = parseBudgetCommand(route.rawArgs.map(String), event);
 
       if (command.action === 'help') {
-        await message.send({ format: Format.create().addText(budgetHelp) });
+        await message.send({ format: commandBubble(budgetHelp, '今日额度', { platform: event.Platform, actions: budgetActions(event) }) });
 
         return;
       }
@@ -52,7 +60,7 @@ export default async (): Promise<void> => {
         const rows = await budgetAdjustments(command.scope, Boolean(event.IsMaster));
 
         await message.send({
-          format: Format.create().addText(
+          format: commandBubble(
             rows.length
               ? rows
                   .map(
@@ -60,7 +68,9 @@ export default async (): Promise<void> => {
                       `${new Date(row.at * 1000).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} 主人 ${row.actor}：${row.operation === 'add' ? '增加' : '设置'} ${(row.amount / 1_000_000).toFixed(2)} 元，${row.ledger === 'paidLimit' ? `${rechargeLabel}额度` : freeLabel} ${(row.before / 1_000_000).toFixed(2)} → ${(row.after / 1_000_000).toFixed(2)} 元`
                   )
                   .join('\n')
-              : '今天没有手动额度调整记录。'
+              : '今天没有手动额度调整记录。',
+            '今日额度',
+            { platform: event.Platform, actions: budgetActions(event) }
           )
         });
 
@@ -78,14 +88,14 @@ export default async (): Promise<void> => {
       text = [
         notice,
         `${target} · ${value.day}`,
-        groupKey?.enabled ? '付款顺序：群 Key → 群充值 → 个人免费；后台判断最后走群感知预算。' : '',
-        personal ? `当前模式：${personal.enabled ? '个人 Key 优先（不扣以下额度）' : '额度模式'}；/个人密钥 查看绑定状态。` : '',
+        groupKey?.enabled ? '付费顺序：群 Key → 群充值 → 个人免费；感知判断另计。' : '',
+        personal ? `当前模式：${personal.enabled ? '个人 Key 优先（不扣额度）' : '额度模式'}；/个人密钥 查看。` : '',
         gate ? `群感知：免费已用 ${gate.freeUsed.toFixed(4)} / ${gate.limit.toFixed(2)} 元，剩余 ${gate.freeRemaining.toFixed(4)} 元` : '',
         `${rechargeLabel}：已用 ${value.paidUsed.toFixed(4)} / ${value.paidLimit.toFixed(2)} 元，剩余 ${value.paidRemaining.toFixed(4)} 元（优先使用，不扣免费）`,
         isPrivate || command.scope.channelId === getConversationId(event)
           ? `个人免费（跨群和私聊共享）：已用 ${value.personalUsed.toFixed(4)} / ${value.personalLimit.toFixed(2)} 元，剩余 ${value.personalRemaining.toFixed(4)} 元\n聊天本次可用：${value.available.toFixed(4)} 元`
           : '',
-        '北京时间零点重置。群聊没有共享的免费聊天额度。',
+        '北京时间零点重置；群聊没有共享免费额度。',
         value.blocked && !groupKey?.enabled && !personal?.enabled
           ? `\n${insufficientBudgetHelp(isPrivate)}`
           : gate?.blocked && !groupKey?.enabled
@@ -99,5 +109,5 @@ export default async (): Promise<void> => {
       text = toUserMessage(error);
     }
   }
-  await message.send({ format: Format.create().addText(text) });
+  await message.send({ format: commandBubble(text, '今日额度', { platform: event.Platform, actions: budgetActions(event) }) });
 };

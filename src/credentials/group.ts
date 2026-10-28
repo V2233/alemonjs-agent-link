@@ -158,9 +158,10 @@ export const getGroupCredential = async (): Promise<PersonalCredential | null> =
   const scope = getBudgetScope();
 
   if (!scope?.channelId || scope.channelId.startsWith('private:')) return null;
+  if (!getConfigValue<{ db?: { redis?: unknown } }>()?.db?.redis) return null;
   const key = await encryptionKey();
 
-  if (!key && !getConfigValue<{ db?: { redis?: unknown } }>()?.db?.redis) return null;
+  if (!key) return null;
   const raw = await (await budgetRedis()).get(keyFor(scope));
   const value = raw ? (JSON.parse(raw) as RecordValue) : null;
 

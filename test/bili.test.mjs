@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { getDSHConfig } from '../lib/dsh/client.js';
 import { getModuleRuntime } from '../lib/agent/modules.js';
 import { runModuleTurn } from '../lib/agent/turn.js';
+import { getMemoryStore } from '../lib/memory/store.js';
 
 const bv = 'BV1234567890';
 const nav = { data: { wbi_img: { img_url: `https://i0.hdslb.com/${'a'.repeat(32)}.png`, sub_url: `https://i0.hdslb.com/${'b'.repeat(32)}.png` } } };
@@ -76,13 +77,20 @@ test('short-link destinations are checked and partial sources never masquerade a
   await assert.rejects(cancellingClient.watch(bv, aborted.signal));
 });
 
-test('module is opt-in and tools are unavailable for autonomous turns', () => {
+test('module is on by default, can be turned off, and stays read-only outside owner turns', () => {
   const tools = [];
   biliModule().setup({ settings: {}, tool: item => tools.push(item) });
-  assert.equal(tools.length, 0);
-  biliModule().setup({ settings: { enabled: true }, tool: item => tools.push(item) });
   assert.deepEqual(tools.map(item => item.name), ['bili_watch', 'bili_search']);
+  const off = [];
+  biliModule().setup({ settings: { enabled: false }, tool: item => off.push(item) });
+  assert.equal(off.length, 0);
   assert.ok(tools.every(item => item.readOnly && !item.available({ autonomous: true })));
+  const allowed = [];
+  biliModule().setup({ settings: { enabled: true, allowProactiveBrowse: true }, tool: item => allowed.push(item) });
+  assert.ok(allowed.every(item => item.available({ autonomous: true, private: true, owner: true })));
+  assert.ok(allowed.every(item => !item.available({ autonomous: true, private: false, owner: true })));
+  assert.ok(allowed.every(item => !item.available({ autonomous: true, private: true, owner: false })));
+  assert.throws(() => biliOptions({ enabled: true, allowProactiveBrowse: 'yes' }));
 });
 
 test('model reads the actual Bilibili result through a normal tool turn', async () => {
@@ -98,33 +106,173 @@ test('model reads the actual Bilibili result through a normal tool turn', async 
   let answer = '';
   globalThis.fetch = async (url, init) => {
     if (String(url).endsWith('/nav')) return Response.json(nav);
-    if (String(url).includes('/wbi/view')) return ok({ bvid: bv, aid: 123, cid: 456, title: '真实标题' });
+    if (String(url).includes('/wbi/view')) return ok({ bvid: bv, aid: 123, cid: 456, title: '真实标题', desc: '实测鲸鱼资料' });
     if (String(url).includes('/player/')) return ok({ subtitle: { subtitles: [] } });
-    if (String(url).includes('/reply/')) return ok({ replies: [] });
+    if (String(url).includes('/reply/')) return ok({ replies: [{ member: { uname: '观众' }, content: { message: '这是条蓝鲸' } }] });
     calls++;
     const request = JSON.parse(init.body);
     assert.ok(request.tools.some(tool => tool.function.name === 'bili_watch'));
     if (calls === 1) return Response.json({ choices: [{ message: { content: null, tool_calls: [
       { id: 'watch', type: 'function', function: { name: 'bili_watch', arguments: JSON.stringify({ link: bv }) } }
     ] } }] });
-    const result = JSON.parse(request.messages.find(item => item.role === 'tool').content);
-    assert.equal(result.video.title, '真实标题');
-    assert.equal(result.subtitles.status, 'not_available');
+    if (calls === 2) {
+      const result = JSON.parse(request.messages.find(item => item.role === 'tool').content);
+      assert.equal(result.video.title, '真实标题');
+      assert.equal(result.subtitles.status, 'not_available');
+    } else {
+      assert.match(JSON.stringify(request.messages), /近期经历/);
+      assert.match(JSON.stringify(request.messages), /真实标题/);
+      assert.match(JSON.stringify(request.messages), /没有读取视频画面或声音/);
+    }
     return Response.json({ choices: [{ message: { content: '标题是真实标题，未获取到字幕。' } }] });
   };
   try {
     await runModuleTurn({
       config, sessionId: 'bili-test', input: `看看${bv}`,
-      context: { channelId: 'private:test', userId: '1', platform: 'onebot', private: true, owner: false,
+      context: { channelId: 'private:test', userId: '1', botId: '900', inputId: 'message-1', platform: 'onebot', private: true, owner: false,
         userText: `看看${bv}`, capabilities: { chat: true, web: false, files: false, terminal: false }, signal: signal() },
       onEvent: async event => { if (event.type === 'content') answer += event.content; }
     });
     assert.equal(calls, 2);
     assert.equal(answer, '标题是真实标题，未获取到字幕。');
+    const store = getMemoryStore(config);
+    const scope = { platform: 'onebot', channelId: 'private:test' };
+    const experiences = store.list(scope, { status: 'active', subjectId: '900' });
+    assert.equal(experiences.length, 1);
+    assert.equal(experiences[0].origin, 'event');
+    assert.match(experiences[0].text, /真实标题/);
+    assert.match(experiences[0].text, /实测鲸鱼资料/);
+    assert.match(experiences[0].text, /这是条蓝鲸/);
+    assert.deepEqual(store.list({ ...scope, channelId: 'private:other' }), []);
+    await runModuleTurn({ config, sessionId: 'bili-next', input: '刚刚聊了什么', context: { channelId: 'private:test', userId: '1', botId: '900', inputId: 'message-2', platform: 'onebot', private: true, owner: false,
+      userText: '刚刚聊了什么', capabilities: { chat: true, web: false, files: false, terminal: false }, signal: signal() }, onEvent: async () => {} });
+    assert.equal(calls, 3);
+    assert.equal(store.forget(scope, experiences[0].id, 0), true);
+    assert.deepEqual(store.list(scope, { subjectId: '900' }), []);
   } finally {
     await (await getModuleRuntime(config)).close();
     globalThis.__config = previous;
     globalThis.fetch = oldFetch;
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('opt-in proactive turn searches and reads Bilibili with per-turn bounds and no comment tool', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bili-autonomous-'));
+  const previous = globalThis.__config;
+  const oldFetch = globalThis.fetch;
+  const bili = { enabled: true, allowProactiveBrowse: true, allowComments: true };
+  globalThis.__config = { value: { 'alemonjs-agent-link': { apiKey: 'test', model: 'test', runtimeMode: 'chat-only', stateBackend: 'local',
+    workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), modules: { settings: { bili } } } } };
+  const config = getDSHConfig();
+  let modelCalls = 0, searches = 0, watched = 0;
+  globalThis.fetch = async (url, init) => {
+    const address = String(url);
+    if (address.endsWith('/nav')) return Response.json(nav);
+    if (address.includes('/search/type')) { searches++; return ok({ result: [{ bvid: bv, title: '小鲸鱼', author: '作者' }] }); }
+    if (address.includes('/wbi/view')) { watched++; return ok({ bvid: bv, aid: 123, cid: 456, title: '小鲸鱼', desc: '讲鲸鱼的生态' }); }
+    if (address.includes('/player/')) return ok({ subtitle: { subtitles: [] } });
+    if (address.includes('/reply/')) return ok({ replies: [] });
+    const request = JSON.parse(init.body);
+    modelCalls++;
+    const names = request.tools.map(tool => tool.function.name);
+    assert.ok(names.includes('bili_search') && names.includes('bili_watch'));
+    assert.equal(names.includes('bili_comment'), false);
+    if (modelCalls === 1) return Response.json({ choices: [{ message: { content: null, tool_calls: [
+      { id: 's1', type: 'function', function: { name: 'bili_search', arguments: '{"keyword":"鲸鱼"}' } },
+      { id: 's2', type: 'function', function: { name: 'bili_search', arguments: '{"keyword":"海洋"}' } }
+    ] } }] });
+    if (modelCalls === 2) {
+      const results = request.messages.filter(message => message.role === 'tool').map(message => JSON.parse(message.content));
+      assert.equal(results[0].ok, true);
+      assert.equal(results[1].ok, false);
+      return Response.json({ choices: [{ message: { content: null, tool_calls: [{ id: 'w1', type: 'function', function: { name: 'bili_watch', arguments: JSON.stringify({ link: bv }) } }] } }] });
+    }
+    return Response.json({ choices: [{ message: { content: '刚看到一条讲鲸鱼生态的视频，标题挺有意思。' } }] });
+  };
+  try {
+    await runModuleTurn({ config, sessionId: 'bili-auto', input: '主动聊个话题', context: { channelId: 'private:owner', userId: '100', botId: '900',
+      inputId: 'proactive:1', platform: 'onebot', private: true, owner: true, autonomous: true, userText: '',
+      capabilities: { chat: true, web: false, files: false, terminal: false }, signal: signal() }, onEvent: async () => {} });
+    assert.equal(modelCalls, 3);
+    assert.equal(searches, 1);
+    assert.equal(watched, 1);
+    const events = getMemoryStore(config).list({ platform: 'onebot', channelId: 'private:owner' }, { subjectId: '900' });
+    assert.equal(events.length, 1);
+    assert.match(events[0].text, /讲鲸鱼的生态/);
+    assert.match(events[0].text, /没有读取视频画面或声音/);
+  } finally { await (await getModuleRuntime(config)).close(); globalThis.__config = previous; globalThis.fetch = oldFetch; await rm(root, { recursive: true, force: true }); }
+});
+
+test('disabling proactive browsing during a turn blocks later calls', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bili-autonomous-disable-'));
+  const previous = globalThis.__config;
+  const oldFetch = globalThis.fetch;
+  const enabled = { enabled: true, allowProactiveBrowse: true };
+  globalThis.__config = { value: { 'alemonjs-agent-link': { stateBackend: 'local', workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), modules: { settings: { bili: enabled } } } } };
+  const config = getDSHConfig();
+  let requests = 0;
+  globalThis.fetch = async () => { requests++; throw new Error('unexpected'); };
+  try {
+    const tools = [];
+    biliModule(config).setup({ settings: enabled, tool: tool => tools.push(tool) });
+    globalThis.__config.value['alemonjs-agent-link'].modules.settings.bili = { ...enabled, allowProactiveBrowse: false };
+    const context = { platform: 'onebot', channelId: 'private:owner', userId: '100', owner: true, private: true, autonomous: true, signal: signal() };
+    const result = await tools.find(tool => tool.name === 'bili_search').execute({ keyword: '鲸鱼' }, context);
+    assert.equal(result.ok, false);
+    assert.equal(requests, 0);
+  } finally { globalThis.__config = previous; globalThis.fetch = oldFetch; await rm(root, { recursive: true, force: true }); }
+});
+
+test('Bilibili experience is not recorded when automatic memory or chat history is disabled', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bili-no-experience-'));
+  const originalConfig = globalThis.__config;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => {
+    if (String(url).endsWith('/nav')) return Response.json(nav);
+    if (String(url).includes('/wbi/view')) return ok({ bvid: bv, aid: 123, cid: 456, title: '标题' });
+    if (String(url).includes('/player/')) return ok({ subtitle: { subtitles: [] } });
+    if (String(url).includes('/reply/')) return ok({ replies: [] });
+    throw new Error('unexpected request');
+  };
+  try {
+    for (const modules of [{ settings: { memory: { automatic: false } } }, { disabled: ['chat-history'] }]) {
+      globalThis.__config = { value: { 'alemonjs-agent-link': { runtimeMode: 'chat-only', stateBackend: 'local', workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), modules } } };
+      const config = getDSHConfig();
+      const tools = [];
+      biliModule(config).setup({ settings: { enabled: true }, tool: item => tools.push(item) });
+      const context = { channelId: 'private:disabled', userId: '1', botId: '900', inputId: 'm1', platform: 'onebot', autonomous: false, signal: signal() };
+      assert.equal((await tools.find(tool => tool.name === 'bili_watch').execute({ link: bv }, context)).ok, true);
+      assert.deepEqual(getMemoryStore(config).list(context), []);
+    }
+  } finally { globalThis.__config = originalConfig; globalThis.fetch = originalFetch; await rm(root, { recursive: true, force: true }); }
+});
+
+test('clearing memory during a Bilibili read prevents its late experience from reappearing', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bili-forget-race-'));
+  const originalConfig = globalThis.__config;
+  const originalFetch = globalThis.fetch;
+  globalThis.__config = { value: { 'alemonjs-agent-link': { runtimeMode: 'chat-only', stateBackend: 'local', workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home') } } };
+  const config = getDSHConfig();
+  let started, release;
+  const ready = new Promise(resolve => { started = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  globalThis.fetch = async url => {
+    if (String(url).endsWith('/nav')) return Response.json(nav);
+    if (String(url).includes('/wbi/view')) { started(); await gate; return ok({ bvid: bv, aid: 123, cid: 456, title: '旧视频' }); }
+    if (String(url).includes('/player/')) return ok({ subtitle: { subtitles: [] } });
+    if (String(url).includes('/reply/')) return ok({ replies: [] });
+    throw new Error('unexpected request');
+  };
+  try {
+    const tools = [];
+    biliModule(config).setup({ settings: { enabled: true }, tool: item => tools.push(item) });
+    const context = { channelId: 'private:race', userId: '1', botId: '900', inputId: 'm1', platform: 'onebot', autonomous: false, signal: signal() };
+    const pending = tools.find(tool => tool.name === 'bili_watch').execute({ link: bv }, context);
+    await ready;
+    getMemoryStore(config).clear(context, 0);
+    release();
+    assert.equal((await pending).ok, true);
+    assert.deepEqual(getMemoryStore(config).list(context), []);
+  } finally { release?.(); globalThis.__config = originalConfig; globalThis.fetch = originalFetch; await rm(root, { recursive: true, force: true }); }
 });

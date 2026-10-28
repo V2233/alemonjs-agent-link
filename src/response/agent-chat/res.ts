@@ -1,4 +1,5 @@
-import { Format, useEvent, useMessage, useRoute, useMedia } from 'alemonjs';
+import { useEvent, useMessage, useRoute, useMedia } from 'alemonjs';
+import { noticeBubble } from '../bubble';
 import { runDSHChat } from '@src/response/dsh/chat';
 import { submitGroupChat } from '../../social/respond';
 
@@ -19,7 +20,14 @@ export default async (): Promise<void> => {
 
   if (!prompt && !eventContext.current.MessageMedia?.length && !eventContext.current.ReplyId && !eventContext.current.MessageContent?.replyReferenceId) {
     await message.send({
-      format: Format.create().addText('想问什么？例如：/提问 帮我总结刚才的讨论。')
+      format: noticeBubble('想问什么？例如：/提问 帮我总结刚才的讨论。', {
+        platform: eventContext.current.Platform,
+        title: '提问',
+        actions: [
+          { label: '帮助', command: '/帮助 聊天' },
+          { label: '新会话', command: '/新会话' }
+        ]
+      })
     });
 
     return;
@@ -33,7 +41,16 @@ export default async (): Promise<void> => {
     try {
       await submitGroupChat(eventContext.current, prompt, { message, media });
     } catch {
-      await message.send({ format: Format.create().addText('群聊消息暂时无法处理，请稍后重试。') });
+      await message.send({
+        format: noticeBubble('群聊消息暂时无法处理，请稍后重试。', {
+          platform: eventContext.current.Platform,
+          title: '暂时不可用',
+          actions: [
+            { label: '重试提问', command: '/提问' },
+            { label: '服务状态', command: '/状态' }
+          ]
+        })
+      });
     }
   }
 };

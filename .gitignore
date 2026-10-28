@@ -12,6 +12,7 @@ node_modules
 .env.*
 alemon*.env
 alemon*.yaml
+!alemon.config.example.yaml
 *.logs.ts
 yarn.lock
 custom.properties

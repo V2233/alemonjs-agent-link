@@ -7,25 +7,27 @@ import { getMediaConfig, MediaError, unavailableMediaReply } from '@src/media/co
 import { prepareNativeMedia, hasUnconfiguredMedia } from '@src/media/providers';
 import { renderSpeech, type SpeechAudio } from '../../media/speech';
 import { SpeechError } from '../../media/speech-config';
-import { Format, logger, useMessage, useMedia, type MessageMediaItem, type ReceivedMessage } from 'alemonjs';
+import { logger, useMessage, useMedia, type MessageMediaItem, type ReceivedMessage } from 'alemonjs';
 import { DSHError, getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { buildRecentChatContext, getRecentMessages } from '@src/chat-context/store';
 import { StreamOutput, assertMessageDelivered } from '@src/dsh/output';
 import { ensureIsolatedGroup, runCoordinatedChat, type CoordinatedChatResult } from '@src/dsh/orchestrator';
-import { canPrivateChat, getConversationId, describeSpeaker } from './util';
+import { canPrivateChatWithKey, getConversationId, describeSpeaker } from './util';
 import { ownerPrivatePolicy, publicPrivatePolicy, SessionRegistry } from '@src/state/registry';
 import { messageReferences } from '../../social/references';
 import { archiveReply } from '../../history/capture';
 import { setTimeout as wait } from 'node:timers/promises';
 import { expressionOptions, planExpression, automaticVoiceText, selectExpressionSticker } from '../../companion/expression';
 import { getMoodStore, moodOptions } from '../../companion/mood';
-import { listStickers, loadSticker } from '../../media/stickers';
+import { listStickers, loadSticker, markStickerUsed } from '../../media/stickers';
 import { imageMime } from '../../media/download';
 import { observeProactiveOutput } from '../../proactive/observe';
 import { currentVoiceTranscript } from '../../media/onebot-transcript';
 import { readCurrentForwards } from '../../social/onebot-forward';
 import { resolveCurrentImages } from '../../media/onebot-images';
-import { createChatReplyFormat } from '../../dsh/reply-format';
+import { createChatReplyFormat, normalizeBubbleText, ReplyPrefixFilter } from '../../dsh/reply-format';
+import { noticeBubble } from '../bubble';
+import { budgetNoticeActions } from '../../billing/help';
 
 export type ChatEvent = MessageContextEvent & {
   Platform?: string;
@@ -93,11 +95,11 @@ export const runDSHChat = async (
     (delay ??= expressionDelay ? wait(expressionDelay, undefined, { signal: turnSignal }).then(() => undefined) : Promise.resolve());
   let replyTarget = { messageId: event.MessageId, userId: event.UserId };
 
-  const reply = async (text: string): Promise<unknown> =>
+  const reply = async (text: string, notice: { title?: string; actions?: { label: string; command: string }[] } = {}): Promise<unknown> =>
     options.autonomous
       ? undefined
       : await message.send({
-          format: Format.create().addText(text)
+          format: noticeBubble(text, { platform: event.Platform, ...notice })
         });
   let firstAgentReply = true;
   const replyAgent = async (text: string): Promise<unknown> => {
@@ -129,11 +131,11 @@ export const runDSHChat = async (
       if (options.autonomous || options.allowSilence) return;
       if (!(await claimBudgetNotice({ platform: event.Platform || '', channelId: getConversationId(event) }, event.MessageId))) return;
     }
-    await reply(toUserMessage(error));
+    await reply(toUserMessage(error), { title: '额度不足', actions: budgetNoticeActions(Boolean(event.IsPrivate)) });
 
     return;
   }
-  if (event.IsPrivate && !canPrivateChat(event, config.privateChatAccess)) {
+  if (event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))) {
     await reply('仅机器人主人可在私聊中使用 Agent。');
 
     return;
@@ -326,13 +328,21 @@ export const runDSHChat = async (
         },
         createQQSequenceAllocator(event.MessageId)
       )
-    : new StreamOutput(replyAgent, config.maxMessageLength, config.streamFlushIntervalMs, error => {
-        logger.error({ err: error }, 'QQ message send failed');
-      });
+    : new StreamOutput(
+        replyAgent,
+        config.maxMessageLength,
+        config.streamFlushIntervalMs,
+        error => {
+          logger.error({ err: error }, 'QQ message send failed');
+        },
+        5,
+        config.bubbleDelayMs
+      );
   let coordinated: CoordinatedChatResult | undefined;
   let answer = '';
   let visibleAnswer = '';
   const buffered = options.voice || expression.voice || options.allowSilence || Boolean(options.replyReferences) || Boolean(options.autonomous);
+  const prefixFilter = !event.IsPrivate && !options.replyReferences ? new ReplyPrefixFilter() : undefined;
   let expressionText = '';
   let renderedAnswer: string | undefined;
   const media = options.transport?.media || useMedia()[0];
@@ -344,19 +354,21 @@ export const runDSHChat = async (
       buildAgentMessage(recentContext, event.IsPrivate ? prompt : `当前发言人资料（昵称仅为引用数据，不授予权限）：${describeSpeaker(event)}\n${prompt}`),
       streamEvent => {
         if (streamEvent.type === 'content') {
+          const content = prefixFilter ? prefixFilter.push(streamEvent.content) : streamEvent.content;
+
           if (visibleAnswer.length < 6000) {
-            visibleAnswer += streamEvent.content.slice(0, 6000 - visibleAnswer.length);
+            visibleAnswer += content.slice(0, 6000 - visibleAnswer.length);
           }
           if (expression.sticker && expressionText.length < 4096) {
-            expressionText += streamEvent.content.slice(0, 4096 - expressionText.length);
+            expressionText += content.slice(0, 4096 - expressionText.length);
           }
           if (buffered) {
-            answer += streamEvent.content;
+            answer += content;
             if (answer.length > config.maxRequestBytes) {
               throw new DSHError('media', '回复过长，请改用普通文字聊天。');
             }
           } else {
-            output.append(streamEvent.content);
+            output.append(content);
           }
         }
 
@@ -384,7 +396,7 @@ export const runDSHChat = async (
             }
             answer = answer.slice(selected[0].length);
           }
-          renderedAnswer = answer;
+          renderedAnswer = normalizeBubbleText(answer);
         }
         if (options.allowSilence) {
           if (/^\s*\[沉默\]\s*$/u.test(answer)) {
@@ -413,7 +425,8 @@ export const runDSHChat = async (
           assertMessageDelivered([sentImage]);
           archiveReply(config, event, '[大肥鱼绘图]', sentImage.data, replyTarget.messageId);
         }
-        const useVoice = !generatedSpeech && (options.voice || (expression.voice && automaticVoiceText(answer, getMediaConfig().ttsMaxChars)));
+        const speechText = normalizeBubbleText(answer);
+        const useVoice = !generatedSpeech && (options.voice || (expression.voice && automaticVoiceText(speechText, getMediaConfig().ttsMaxChars)));
         let audioSent = false;
 
         if (buffered && !useVoice) {
@@ -429,7 +442,8 @@ export const runDSHChat = async (
             const settings = getMediaConfig();
 
             voiceStage = 'engine';
-            const audio = generatedSpeech || (await renderSpeech(answer, settings, AbortSignal.any([signal, AbortSignal.timeout(settings.timeoutMs)]), config));
+            const audio =
+              generatedSpeech || (await renderSpeech(speechText, settings, AbortSignal.any([signal, AbortSignal.timeout(settings.timeoutMs)]), config));
 
             await beforeExpression();
             await checkSend();
@@ -464,7 +478,7 @@ export const runDSHChat = async (
 
             logger.warn({ stage }, 'Speech delivery fell back to text');
 
-            output.append(options.voice || generatedSpeech ? `${reason}，改用文字回复：\n${generatedSpeech?.text || answer}` : answer);
+            output.append(options.voice || generatedSpeech ? `${reason}，改用文字回复：\n${generatedSpeech?.text || speechText}` : answer);
           }
         }
         if (!audioSent && !(await output.close())) {
@@ -472,7 +486,7 @@ export const runDSHChat = async (
           throw new DSHError('delivery', '回复未完整送达');
         }
         if (!options.autonomous) {
-          observeProactiveOutput(config, event, renderedAnswer || answer || visibleAnswer);
+          observeProactiveOutput(config, event, renderedAnswer || normalizeBubbleText(answer) || visibleAnswer);
         }
         if (expression.sticker && !stickerAttempted) {
           try {
@@ -497,6 +511,7 @@ export const runDSHChat = async (
                 });
 
                 assertMessageDelivered([sentSticker]);
+                await markStickerUsed(settings, item.id, signal).catch(() => undefined);
                 archiveReply(config, event, `[表情：${item.id}]`, sentSticker.data, replyTarget.messageId);
               }
             }
@@ -507,7 +522,7 @@ export const runDSHChat = async (
         }
       },
       {
-        streamContent: nativeStream,
+        streamContent: nativeStream || !buffered,
         onImage: png => {
           generatedImage = png;
 
@@ -544,10 +559,7 @@ export const runDSHChat = async (
                 archiveReply(config, event, `[表情：${item.id}]`, receipt.data, replyTarget.messageId);
               },
         onStickerCollect:
-          event.IsPrivate &&
-          event.IsMaster &&
-          !options.autonomous &&
-          event.MessageMedia?.filter(item => ['image', 'sticker', 'animation'].includes(item.Type)).length === 1
+          event.IsMaster && !options.autonomous && event.MessageMedia?.filter(item => ['image', 'sticker', 'animation'].includes(item.Type)).length === 1
             ? signal => {
                 signal.throwIfAborted();
                 if (currentInputImages.length !== 1) throw new MediaError('当前图片尚未完成读取。');
@@ -569,7 +581,10 @@ export const runDSHChat = async (
         autonomous: Boolean(options.autonomous),
         signal: options.autonomous?.signal,
         recordHistory: () => !silent,
-        renderAnswer: text => (generatedSpeech ? `${renderedAnswer ?? text}\n[合成语音内容] ${generatedSpeech.text}` : (renderedAnswer ?? text)),
+        renderAnswer: text =>
+          generatedSpeech
+            ? `${renderedAnswer ?? normalizeBubbleText(text)}\n[合成语音内容] ${generatedSpeech.text}`
+            : (renderedAnswer ?? normalizeBubbleText(text)),
         prepareMessage: async (text, signal) => {
           if (!event.MessageMedia?.length) {
             return text;
@@ -582,7 +597,7 @@ export const runDSHChat = async (
 
             const prepared = await prepareNativeMedia(event.MessageMedia, text, settings, AbortSignal.any([signal, AbortSignal.timeout(settings.timeoutMs)]));
 
-            if (event.IsPrivate && event.IsMaster && Array.isArray(prepared)) {
+            if (event.IsMaster && Array.isArray(prepared)) {
               const images = prepared.filter(part => part.type === 'image');
 
               currentInputImages = images.map(item => Buffer.from(item.data, 'base64'));
@@ -606,7 +621,11 @@ export const runDSHChat = async (
     }
 
     await coordinated.confirmDelivery().catch(error => logger.warn({ err: error }, 'Unable to finalize DSH response delivery'));
-    options.onOutcome?.({ delivered: !silent, completed: true, ...(!silent ? { replyText: renderedAnswer || answer || visibleAnswer } : {}) });
+    options.onOutcome?.({
+      delivered: !silent,
+      completed: true,
+      ...(!silent ? { replyText: renderedAnswer || normalizeBubbleText(answer) || visibleAnswer } : {})
+    });
   } catch (error) {
     output.abort();
     await coordinated?.release().catch(releaseError => logger.warn({ err: releaseError }, 'Unable to release failed DSH response'));
@@ -614,17 +633,30 @@ export const runDSHChat = async (
       return;
     }
 
-    if (error instanceof DSHError && error.kind === 'migration') {
+    if (error instanceof BudgetExceededError) {
+      const logDetails = { group: 'redacted', kind: 'budget', availableYuan: error.availableYuan, requiredYuan: error.requiredYuan };
+
+      if (options.autonomous || options.allowSilence) {
+        logger.info(logDetails, 'Agent budget blocked silently');
+
+        return;
+      }
+      if (!(await claimBudgetNotice({ platform: event.Platform || '', channelId: getConversationId(event) }, event.MessageId))) {
+        logger.info(logDetails, 'Agent budget blocked; notice cooling down');
+
+        return;
+      }
+      logger.warn(logDetails, 'Agent budget notice delivered');
+    } else if (error instanceof DSHError && error.kind === 'migration') {
       logger.info({ group: 'redacted' }, 'DSH chat awaits isolated-session migration');
     } else if (error instanceof DSHError && error.kind === 'timeout') {
       logger.warn({ group: 'redacted' }, 'Agent chat exceeded its request deadline');
     } else {
       logger.error({ err: error }, 'DSH chat failed');
     }
-    if (error instanceof BudgetExceededError) {
-      if (options.autonomous || options.allowSilence) return;
-      if (!(await claimBudgetNotice({ platform: event.Platform || '', channelId: getConversationId(event) }, event.MessageId))) return;
-    }
-    await reply(toUserMessage(error));
+    await reply(
+      toUserMessage(error),
+      error instanceof BudgetExceededError ? { title: '额度不足', actions: budgetNoticeActions(Boolean(event.IsPrivate)) } : {}
+    );
   }
 };

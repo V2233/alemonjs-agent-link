@@ -96,7 +96,7 @@ export class ProactiveStore {
     return Boolean(
       nudge ||
       ((sameDay ? row.count : 0) < options.maxPerDay &&
-        (manual || (now >= row.nextAt && now - Math.max(row.lastInputAt, row.lastOutputAt) >= options.idleMinutes * 60000)))
+        (manual || ((options.flexible === true || now >= row.nextAt) && now - Math.max(row.lastInputAt, row.lastOutputAt) >= options.idleMinutes * 60000)))
     );
   }
   recover(): void {
@@ -271,7 +271,7 @@ export class ProactiveStore {
         kind = 'nudge';
       } else if (
         count >= options.maxPerDay ||
-        (!manual && (now < row.nextAt || now - Math.max(row.lastInputAt, row.lastOutputAt) < options.idleMinutes * 60000))
+        (!manual && ((options.flexible !== true && now < row.nextAt) || now - Math.max(row.lastInputAt, row.lastOutputAt) < options.idleMinutes * 60000))
       ) {
         this.db.exec('COMMIT');
 

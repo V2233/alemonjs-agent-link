@@ -1,6 +1,6 @@
 # 模块与业务工具
 
-内置 `platform` 提供 OneBot 连接查询及当前发言人回戳；`group-admin` 在配置白名单且本轮发言人为主人时提供群管理工具，执行时由适配器重新核对权限。连接配置、回执和未知状态语义见 [OneBot 接入](onebot.md)。
+内置 `platform` 提供 OneBot 连接查询及当前发言人回戳；`group-admin` 默认对所有群、在本轮发言人为主人时提供群管理工具，执行时由适配器重新核对权限；设 `allGroups: false` 后才使用白名单。连接配置、回执和未知状态语义见 [OneBot 接入](onebot.md)。
 
 AgentLink 在排队请求实际执行时加载模块。模块可以提供模型可调用的业务工具、每轮参考上下文、消息输入转换、完整回复转换，以及发送成功后的活动处理。模块文件由服务器管理员维护，是拥有 Node.js 权限的本机代码。
 
@@ -25,7 +25,31 @@ alemonjs-agent-link:
 
 内置 `memory` 模块默认启用。明确保存工具仅向私聊提供；当前会话还可检索自动整理的资料、核对来源与人物档案。停用该模块使用 `disabled: [memory]`，已有记忆及手动命令继续保留。自动整理、版本恢复和删除语义见[长期记忆](memory.md)。
 
-内置 `stickers` 模块提供 `list_stickers`、`send_sticker`、`collect_sticker` 和 `manage_sticker`。查询及发送支持按编号或标签查找；收藏当前附件、修改标签和移除清单仅对主人私聊开放，须有明确请求。发送每轮最多尝试一次，与命令及自动表情共用冷却。素材目录和收藏限制见[媒体能力](media.md)。`modules.disabled: [stickers]` 停用模型工具，不影响手动命令或自动表达；后台自主搭话不开放这些工具。
+内置 `stickers` 模块提供 `list_stickers`、`send_sticker`、`make_sticker`、`collect_sticker` 和 `manage_sticker`。查询及发送支持按编号或标签查找；收藏当前附件对主人在私聊和群聊开放，修改名称/标签和移除清单仅对主人私聊开放，均须有明确请求。`make_sticker` 把本轮唯一图片或素材库表情裁成方形 PNG，可上下配字并默认同轮发送；动图只取第一帧。发送每轮最多尝试一次，与命令及自动表情共用冷却。素材目录、收藏与二创限制见[媒体能力](media.md)。`modules.disabled: [stickers]` 停用模型工具，不影响手动命令或自动表达；后台自主搭话不开放这些工具。
+
+### 私聊主动搭话
+
+```yaml
+alemonjs-agent-link:
+  modules:
+    settings:
+      proactive:
+        enabled: true
+        idleMinutes: 40
+        minIntervalMinutes: 60
+        maxIntervalMinutes: 180
+        maxPerDay: 4
+        nudge: true
+        maxNudgesPerDay: 4
+        maxUnanswered: 2
+        quietHours: [23, 8]
+        maxChars: 300
+        ownKeyMax: true # 绑定个人 Key 的私聊自动拉满
+```
+
+主人首次私聊会自动订阅；用 `/主动搭话 关闭` 停止，`/主动搭话 开启|状态|现在|暂停 分钟|恢复` 可管理。普通参数是空闲 40 分钟后、间隔 60–180 分钟随机、每天最多 4 次；追问和连发另有上限。
+
+`ownKeyMax: true`（默认）时，绑定了**已启用个人 Key** 的主人私聊按拉满参数运行：空闲 20 分钟即可、不受下一次随机间隔限制、每天最多 10 次搭话、未回复连发上限 3、追问概率 0.7、每天追问 6 次。免打扰时段、平台在线与回执、暂停与取消等约束不变；个人 Key 查询失败时按普通参数运行，不会阻塞搭话。
 
 ### B 站只读工具
 
@@ -36,8 +60,9 @@ alemonjs-agent-link:
       bili:
         enabled: true
         timeoutMs: 20000
-        allowComments: false
-        dryRun: true
+        allowComments: true
+        allowProactiveBrowse: true # 允许已订阅的主人私聊主动搭话时只读搜索、读取视频资料
+        dryRun: false
         maxCommentsPerDay: 5
         commentCooldownSeconds: 60
         # 可选，填写到本机配置中；不要提交、发到聊天或日志。
@@ -46,9 +71,9 @@ alemonjs-agent-link:
 
 启用后，`bili_search` 可搜索视频；`bili_watch` 可读取 BV、av、B 站链接和 b23.tv 短链的标题、简介、作者、字幕及热评。字幕或评论不可获取时分别标明状态，不把元数据当作观看视频画面或音频。登录可影响部分内容可见性；接口风控和 Cookie 过期以服务端结果为准。短链只接受跳转至 B 站页面，字幕只从指定 B 站域名下载，遵守公网地址与大小限制。来自视频及评论的文字均为不可信资料。
 
-`bili_watch` 和 `bili_search` 为只读。可选 `allowComments: true` 开放 `bili_comment`：仅验证过的机器人主人本轮明确要求发评论时可调用，需要 Cookie 中的 `SESSDATA` 和 `bili_jct`。默认 `dryRun: true`，只预览目标和文字；切为 false 才允许发布。执行前确认账号及目标视频，持久记录每轮评论请求、按 B 站账号限制每天次数和冷却；请求中断或响应不明确时返回 unknown，须先到 B 站核查，不会自动重试。拒绝、未知和成功的尝试都计入当天上限，预演不计入。账本只保存账号和评论的哈希，不存 Cookie 和评论原文。
+`bili_watch` 和 `bili_search` 为只读。默认 `allowComments: true` 开放 `bili_comment`：仅验证过的机器人主人本轮明确要求发评论时可调用，需要 Cookie 中的 `SESSDATA` 和 `bili_jct`。默认 `dryRun: false`，会真实发布；如需只预览，显式设 `dryRun: true`。执行前确认账号及目标视频，持久记录每轮评论请求、按 B 站账号限制每天次数和冷却；请求中断或响应不明确时返回 unknown，须先到 B 站核查，不会自动重试。拒绝、未知和成功的尝试都计入当天上限，预演不计入。账本只保存账号和评论的哈希，不存 Cookie 和评论原文。
 
-这些工具不在后台主动搭话中开放。自动浏览、自动评论和回复等功能尚未实现；评论测试使用模拟 B 站接口，未向真实账号发布。真实账号、字幕 CDN 和线上风控仍需验收。
+默认允许主动搭话访问 B 站；`allowProactiveBrowse: true` 且主人已订阅主动搭话后，肥鱼可以在主动开启话题时选择只读搜索和读取视频资料，每轮各最多一次；不是定时独立刷站。只读结果可成为当前会话的真实经历，是否发送聊天仍由主动搭话的开关、免打扰与平台回执决定。主动任务不能调用 `bili_comment`，自动评论和回复尚未实现；评论及主动浏览测试使用模拟接口，真实账号、字幕 CDN 和线上风控仍需验收。
 
 ### QQ 空间
 
@@ -61,9 +86,9 @@ alemonjs-agent-link:
     settings:
       qzone:
         enabled: true
-        allowPost: false
-        allowInteract: false
-        dryRun: true
+        allowPost: true
+        allowInteract: true
+        dryRun: false
         visibility: friends # all、friends 或 self
         maxPostsPerDay: 5
         maxInteractionsPerDay: 10
@@ -78,13 +103,13 @@ alemonjs-agent-link:
 
 主人在 OneBot 私聊中可使用模型工具 `qzone_read` 查看机器人自己的说说或可访问的好友动态。空间扩展不是 OneBot v11 的通用保证：服务须分别支持 `get_qzone_msg_list` 和 `get_qzone_feeds`，返回值以平台为准。
 
-启用 `allowPost` 后，`qzone_post` 可以处理主人本轮明确要求发布的文字说说；默认 `dryRun: true` 仅预览。设为 false 后适配器再次核对主人身份、开关和参数，再调用 `send_qzone_msg`。可见范围来自主人的明确要求，否则使用配置默认值。每轮一次，持久限制账号的每日次数和冷却；平台未返回可核验的说说 ID 或发送中断时标记为 unknown，先到空间核查，不会自动重试。尝试结果的账本只保存哈希，不保存正文。
+启用 `allowPost` 后，`qzone_post` 可以处理主人本轮明确要求发布的文字说说；默认 `dryRun: false` 会真实发布，设为 `true` 可只预览。设为 false 后适配器再次核对主人身份、开关和参数，再调用 `send_qzone_msg`。可见范围来自主人的明确要求，否则使用配置默认值。每轮一次，持久限制账号的每日次数和冷却；平台未返回可核验的说说 ID 或发送中断时标记为 unknown，先到空间核查，不会自动重试。尝试结果的账本只保存哈希，不保存正文。
 
 `qzone_detail` 可读取最近通过 `qzone_read` 获得的动态详情和评论。启用 `allowInteract` 后，主人本轮明确要求时可用 `qzone_interact` 评论或点赞；需要 OneBot 服务支持 `get_qzone_msg_detail`、`comment_qzone` 和 `like_qzone`。只能操作同一主人私聊中最近 15 分钟读到、且平台提供了作者账号的说说；好友动态须由平台标为说说类型（appid 311），点赞还要求发布时间。目标缓存只在进程内保存，重启或模块重载后需重新读取。互动遵守同一试运行设置，按机器人账号单独限制每日次数和冷却；结果不明时应核查，不能自动重试。空间评论是对说说发表评论，尚未支持按评论 ID 精确回复。
 
 主人明确要求配图时，可使用本轮消息或引用中已读取的图片，最多 4 张，每张不超过 8 MiB，编码后合计不超过 28 MiB；图片获取或校验失败时不会退化为只发布文字。图片仍受媒体输入的下载限制。
 
-可选开启 `diary.enabled`：每天到达配置时区的整点后，从机器人与指定主人私聊的当日归档中取最近最多 20 条文字，交给已配置的聊天模型生成日记；没有内容或模型决定沉默则跳过。目前不读取群聊，也不自动配图。默认 `dryRun: true` 只保存预览；要实际发布还需 `allowPost: true` 和 `dryRun: false`。可在主人私聊中询问自动日记状态，模型可调用 `qzone_diary_status` 查看最近结果与预览。每天按机器人账号持久领取一次，生成失败、预览、重启或发布结果不明都不会当天自动重试；`claimed` 可能代表仍在处理，也可能是中断后的未确认状态。自动与手动发布共享账号日限额和冷却。日记正文与状态保存在本机 SQLite，按配置的保留天数清理。
+可选开启 `diary.enabled`：每天到达配置时区的整点后，从机器人与指定主人私聊的当日归档中取最近最多 20 条文字，交给已配置的聊天模型生成日记；没有内容或模型决定沉默则跳过。目前不读取群聊，也不自动配图。默认 `dryRun: false`；如果只想预览，设 `dryRun: true`，并保持 `allowPost: true`。可在主人私聊中询问自动日记状态，模型可调用 `qzone_diary_status` 查看最近结果与预览。每天按机器人账号持久领取一次，生成失败、预览、重启或发布结果不明都不会当天自动重试；`claimed` 可能代表仍在处理，也可能是中断后的未确认状态。自动与手动发布共享账号日限额和冷却。日记正文与状态保存在本机 SQLite，按配置的保留天数清理。
 
 日记会根据私聊记录生成对外内容；模型不能保证完全去除私人细节，启用真实发布前应先通过预演检查内容和可见范围。
 
@@ -177,7 +202,7 @@ export default {
 
 三项均支持 qq-bot 和 OneBot；平台权限是否允许仍以真实回执为准。机器人和群 ID 从可信会话注入，模型不能传入其他群号。成员数据仅返回 ID、昵称和角色，不透传 UnionId 等原始字段。分页的未知值使用 null，不把单页长度作为总人数。QQ 平台若忽略页大小且单页超过 100 条，返回 truncated=true，不能声称名单完整；OneBot 原生接口返回全量名单，适配器按偏移量分页输出，但每页仍需要调用原生全量接口，动态名单可能发生变化。
 
-这不是自动开放框架的全部方法。平台尚未实现的动作仍需适配；新增接口需在登记表中明确 schema 和范围。群管理等写操作继续使用原有主人权限、白名单与执行账本，不经过只读查询入口。由 AgentLink 发起的 DSH 工作区请求也可以通过 MCP 发现和调用本轮开放的工具。
+这不是自动开放框架的全部方法。平台尚未实现的动作仍需适配；新增接口需在登记表中明确 schema 和范围。群管理等写操作继续使用原有主人权限、全群/白名单与执行账本，不经过只读查询入口。由 AgentLink 发起的 DSH 工作区请求也可以通过 MCP 发现和调用本轮开放的工具。
 
 ### DSH 能力发现与统一调用
 
@@ -189,7 +214,7 @@ AgentLink 发起 `agent_workspace` 请求时，为本轮创建仅监听 127.0.0.
 
 目录来自本轮模块租约中实际注册并通过 `available(context)` 的工具，包含平台查询及其他已开放业务能力，自动排除 `agent_workspace` 防止递归。新增模块工具无需另外编写 DSH 工具适配；未登记的框架底层方法不会被任意反射暴露。目录只表示本轮允许尝试，不表示平台账号权限已核验，也不是 AlemonJS 全部 API 的清单。
 
-DSH 的每次模型请求只增加两个工具定义，完整能力 schema 按需读取。Node 在原有异步运行上下文中执行，复用 `executeTool` 的参数校验、可用性检查和主动消息限制；群管理继续使用主人校验、白名单与账本。模型不能传入或覆盖可信会话身份。单轮最多执行 16 次业务调用，不允许并行重入；结束或取消后撤销入口。Python 中转仅接受当前回合的独立框架凭证，转发地址必须是经过主服务鉴权提交的固定格式回环地址，不跟随重定向。
+DSH 的每次模型请求只增加两个工具定义，完整能力 schema 按需读取。Node 在原有异步运行上下文中执行，复用 `executeTool` 的参数校验、可用性检查和主动消息限制；群管理继续使用主人校验、全群/白名单与账本。模型不能传入或覆盖可信会话身份。单轮最多执行 16 次业务调用，不允许并行重入；结束或取消后撤销入口。Python 中转仅接受当前回合的独立框架凭证，转发地址必须是经过主服务鉴权提交的固定格式回环地址，不跟随重定向。
 
 验证：`node --test --test-force-exit test/framework-mcp.test.mjs test/group-info.test.mjs test/onebot.test.mjs`；Python 桥测试使用 `python3 -m unittest scripts/test_dsh_bridge.py scripts/test_dsh_worker.py`。安装本地 DSH 虚拟环境并完成构建后，可运行 `node scripts/test_framework_runtime.mjs`，使用真实 DSH Runtime、OS 沙箱、Python 中转与本地模型测试桩验证发现→schema→调用→回执→回答，不消耗在线模型额度或发送 QQ 消息。真实 QQ 账号的接口权限仍需部署环境验证。
 

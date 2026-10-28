@@ -1,7 +1,8 @@
-import { Format, useEvent, useMessage } from 'alemonjs';
+import { commandBubble } from '../bubble';
+import { useEvent, useMessage } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
 import { getMoodStore, moodOptions } from '../../companion/mood';
-import { canPrivateChat, getConversationId } from '../dsh/util';
+import { canPrivateChatWithKey, getConversationId } from '../dsh/util';
 import { assertMessageDelivered } from '../../dsh/output';
 
 export default async (): Promise<void> => {
@@ -13,7 +14,7 @@ export default async (): Promise<void> => {
   const event = context.current;
   const config = getDSHConfig();
 
-  if (event.IsPrivate && !canPrivateChat(event, config.privateChatAccess)) {
+  if (event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))) {
     return;
   }
   const channelId = getConversationId(event);
@@ -36,8 +37,24 @@ export default async (): Promise<void> => {
       ].join('\n');
   const [message] = useMessage();
   const chars = Array.from(text);
+  const chunks: string[] = [];
 
-  for (let i = 0; i < chars.length; i += config.maxMessageLength) {
-    assertMessageDelivered(await message.send({ format: Format.create().addText(chars.slice(i, i + config.maxMessageLength).join('')) }));
+  for (let i = 0; i < chars.length; i += config.maxMessageLength) chunks.push(chars.slice(i, i + config.maxMessageLength).join(''));
+  for (const [index, chunk] of chunks.entries()) {
+    assertMessageDelivered(
+      await message.send({
+        format: commandBubble(chunk, '肥鱼的心情', {
+          platform: event.Platform,
+          actions:
+            index === chunks.length - 1
+              ? [
+                  { label: '刷新心情', command: '/心情' },
+                  { label: '人格列表', command: '/人格' },
+                  { label: '人格帮助', command: '/人格 帮助' }
+                ]
+              : []
+        })
+      })
+    );
   }
 };

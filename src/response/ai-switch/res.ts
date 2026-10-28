@@ -1,4 +1,5 @@
-import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { useEvent, useMessage, useRoute } from 'alemonjs';
+import { noticeBubble } from '../bubble';
 import { setAIEnabled } from '../../dsh/ai-switch';
 
 export default async (): Promise<void> => {
@@ -20,5 +21,19 @@ export default async (): Promise<void> => {
         ? error.message
         : 'AI 开关未能保存，请检查服务器配置文件。';
   }
-  await message.send({ format: Format.create().addText(text) });
+  await message.send({
+    format: noticeBubble(text, {
+      platform: event.Platform,
+      title: enabled ? '已开启' : '已关闭',
+      actions: enabled
+        ? [
+            { label: '服务状态', command: '/状态' },
+            { label: '管理说明', command: '/帮助 管理' }
+          ]
+        : [
+            { label: '恢复请求', command: '/开启' },
+            { label: '服务状态', command: '/状态' }
+          ]
+    })
+  });
 };
