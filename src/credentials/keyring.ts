@@ -86,3 +86,13 @@ return 1`,
 
   if (Number(result) !== 1) throw new DSHError('budget', Number(result) === 2 ? '本群已有钥匙，请先移除原授权。' : '状态已变更，请重试。');
 };
+
+/** 当前群管理员移除群副本，不需要知道提供者，也不触碰个人钥匙库。 */
+export const removeCurrentGroupKey = async (scope: BudgetScope): Promise<boolean> => Number(await (await budgetRedis()).del(groupStorageKey(scope))) > 0;
+
+/** 记录保留供提供者核对，群已移除或换用另一授权时标记为失效。 */
+export const grantIsCurrent = async (scope: BudgetScope, grant: Grant): Promise<boolean> => {
+  const raw = await (await budgetRedis()).get(groupStorageKey({ ...scope, channelId: grant.channelId }));
+
+  return Boolean(raw && JSON.parse(raw).grantToken === grant.token);
+};

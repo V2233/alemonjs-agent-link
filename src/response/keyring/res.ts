@@ -2,8 +2,10 @@ import { useEvent, useMessage } from 'alemonjs';
 import { commandBubble, sectionBubble } from '../bubble';
 import { getConversationId } from '../dsh/util';
 import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
-import { readKeyring, changeKeyring } from '../../credentials/keyring';
-import { bindPersonalKey, personalKeyStatus, updatePersonalKey } from '../../credentials/personal';
+import { readKeyring, keyringStorageKey, changeKeyring, removeCurrentGroupKey, grantIsCurrent } from '../../credentials/keyring';
+import { bindPersonalKey, personalStorageKey, personalKeyStatus, updatePersonalKey } from '../../credentials/personal';
+import { storedKeyBalance } from '../../credentials/key-balance';
+import { groupStorageKey, groupKeyStatus } from '../../credentials/group';
 import { DSHError } from '../../dsh/errors';
 
 export default async (): Promise<void> => {
@@ -33,8 +35,12 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
 
       return;
     }
-    if (!event.IsPrivate && !(await verifyGroupKeyAdmin(event))) throw new DSHError('budget', '仅本群管理员可查看和授权群聊钥匙。');
-    if (command === '/授权记录') {
+    if (!event.IsPrivate && !(await verifyGroupKeyAdmin(event))) throw new DSHError('budget', '仅本群管理员可查看、授权和移除群聊钥匙。');
+    if (command === '/我的钥匙' && !event.IsPrivate && args.length === 1 && args[0] === '移除') {
+      const removed = await removeCurrentGroupKey(scope);
+
+      text = removed ? '本群钥匙已移除，后续恢复群额度模式；已发出的请求可能继续完成。' : '本群尚未授权钥匙。';
+    } else if (command === '/授权记录') {
       if (!event.IsPrivate) throw new DSHError('budget', '请私聊查看授权记录。');
       if (args.length === 2 && args[0] === '移除') {
         await changeKeyring(scope, 'revoke', args[1]);
@@ -42,11 +48,12 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
       } else if (!args.length) {
         const { ring } = await readKeyring(scope);
 
+        const current = await Promise.all(ring.grants.map(item => grantIsCurrent(scope, item)));
         const sections = ring.grants.length
-          ? ring.grants.map(item => ({
+          ? ring.grants.map((item, index) => ({
               title: `记录 ${item.id}`,
-              text: `群 ${item.channelId} · 钥匙 ${item.keyId}`,
-              actions: [{ label: '移除授权', command: `/授权记录 移除 ${item.id}` }]
+              text: `群 ${item.channelId} · 钥匙 ${item.keyId} · ${current[index] ? '授权有效' : '授权已失效'}`,
+              actions: [{ label: current[index] ? '移除授权' : '清理记录', command: `/授权记录 移除 ${item.id}` }]
             }))
           : [
               {
@@ -75,7 +82,9 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
       } else {
         const status = await personalKeyStatus(scope);
 
-        text = `${status.bound ? `私聊钥匙 1：${status.enabled ? '启用' : '停用'}` : '暂无私聊钥匙'}\n/我的钥匙 私聊 添加 sk-你的Key\n/我的钥匙 私聊 启用（或停用、移除）`;
+        const balance = status.bound ? await storedKeyBalance(personalStorageKey(scope), scope) : '未绑定';
+
+        text = `剩余额度：${balance}\n${status.bound ? `私聊钥匙 1：${status.enabled ? '启用' : '停用'}` : '暂无私聊钥匙'}\n/我的钥匙 私聊 添加 sk-你的Key\n/我的钥匙 私聊 启用（或停用、移除）`;
         actions = status.bound
           ? [
               { label: status.enabled ? '停用' : '启用', command: `/我的钥匙 私聊 ${status.enabled ? '停用' : '启用'}` },
@@ -93,10 +102,15 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
       actions = [{ label: '我的钥匙', command: '/我的钥匙' }];
     } else if (!args.length || (event.IsPrivate && args.length === 1 && args[0] === '群聊')) {
       const { ring } = await readKeyring(scope);
+      const balances: string[] = [];
+
+      for (const item of ring.keys) {
+        balances.push(event.IsPrivate ? await storedKeyBalance(keyringStorageKey(scope), scope, item.value) : '');
+      }
       const sections = ring.keys.length
-        ? ring.keys.map(item => ({
+        ? ring.keys.map((item, index) => ({
             title: `钥匙 ${item.id}`,
-            text: item.value.auth === 'account' ? '群聊专用 · 扫码账户' : '群聊专用',
+            text: `${item.value.auth === 'account' ? '群聊专用 · 扫码账户' : '群聊专用'}${event.IsPrivate ? `\n剩余额度：${balances[index]}` : ''}`,
             actions: event.IsPrivate ? [] : [{ label: '授权钥匙', command: `/授权钥匙 ${item.id}` }]
           }))
         : [
@@ -107,7 +121,25 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
             }
           ];
 
+      if (!event.IsPrivate) {
+        const status = await groupKeyStatus(scope);
+
+        sections.unshift({
+          title: '本群钥匙',
+          text: status.bound
+            ? `${status.enabled ? '已授权，使用中' : '已授权，已停用'}\n剩余额度：${await storedKeyBalance(groupStorageKey(scope), scope)}`
+            : '尚未授权',
+          actions: status.bound ? [{ label: '移除', command: '/我的钥匙 移除' }] : []
+        });
+      }
       if (event.IsPrivate) {
+        const personal = await personalKeyStatus(scope);
+
+        sections.unshift({
+          title: '私聊钥匙 1',
+          text: personal.bound ? `剩余额度：${await storedKeyBalance(personalStorageKey(scope), scope)}` : '未绑定',
+          actions: [{ label: '私聊钥匙', command: '/我的钥匙 私聊' }]
+        });
         sections.push({
           title: '添加或登录',
           text: '扫码可同时准备私聊和群聊钥匙。',
@@ -120,7 +152,9 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
       }
 
       await message.send({
-        format: sectionBubble('我的钥匙', event.IsPrivate ? '仅本人可查。' : '仅显示你的群聊钥匙编号。', sections, { platform: event.Platform })
+        format: sectionBubble('我的钥匙', event.IsPrivate ? '仅本人可查。' : '本群管理员可移除本群钥匙；下方仅列出你可授权的钥匙编号。', sections, {
+          platform: event.Platform
+        })
       });
 
       return;

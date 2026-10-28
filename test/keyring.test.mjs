@@ -5,7 +5,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Redis from 'ioredis';
-import { changeKeyring, readKeyring } from '../lib/credentials/keyring.js';
+import { storedKeyBalance } from '../lib/credentials/key-balance.js';
+import { keyringStorageKey, changeKeyring, readKeyring } from '../lib/credentials/keyring.js';
 import { bindPersonalKey, getPersonalCredential, isPersonalKeyCommand } from '../lib/credentials/personal.js';
 import { getGroupCredential, groupStorageKey, updateGroupKey } from '../lib/credentials/group.js';
 import { withBudgetScope } from '../lib/billing/budget.js';
@@ -20,21 +21,22 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
   });
   const redis = new Redis({ path: socket, retryStrategy: () => 20 });
   redis.on('error', () => {});
-  const previous = { redis: globalThis.ioRedis, config: globalThis.__config, key: process.env.AGENT_LINK_PERSONAL_KEY_FILE };
+  const previous = { fetch: globalThis.fetch, redis: globalThis.ioRedis, config: globalThis.__config, key: process.env.AGENT_LINK_PERSONAL_KEY_FILE };
   try {
     await Promise.race([redis.ping(), new Promise((_, reject) => setTimeout(() => reject(new Error('temporary Redis startup timeout')), 5000).unref())]);
+    globalThis.fetch = async () => Response.json({ balance_infos: [{ currency: 'CNY', total_balance: '12.3456' }] });
     globalThis.ioRedis = redis;
     globalThis.__config = { value: { db: { redis: { path: socket } }, 'alemonjs-agent-link': {} } };
     process.env.AGENT_LINK_PERSONAL_KEY_FILE = join(dir, 'master.key');
-    const own = { platform: 'test', userId: 'alice', channelId: 'private:["test","alice"]' };
+    const own = { platform: 'qq-bot', userId: 'alice', channelId: 'private:["qq-bot","alice"]' };
     const group = { ...own, channelId: 'group1' };
-    const other = { platform: 'test', userId: 'bob', channelId: 'private:["test","bob"]' };
+    const other = { platform: 'qq-bot', userId: 'bob', channelId: 'private:["qq-bot","bob"]' };
     const secret = 'sk-group-fixture123';
     const credential = scope => withBudgetScope(scope, getGroupCredential);
     const command = async (text, options = {}) => {
       const output = [];
       await handleKeyringCommand(
-        { Platform: 'test', UserId: 'alice', ChannelId: 'group1', IsPrivate: false, IsAdmin: true, MessageText: text, ...options },
+        { Platform: 'qq-bot', UserId: 'alice', ChannelId: 'group1', IsPrivate: false, IsAdmin: true, MessageText: text, ...options },
         { send: async value => output.push(value.format.value) }
       );
       return JSON.stringify(output);
@@ -49,6 +51,32 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
       await assert.rejects(changeKeyring(group, 'add', secret));
       await assert.rejects(changeKeyring({ ...own, channelId: other.channelId }, 'add', secret));
       await assert.rejects(changeKeyring(own, 'grant', '1'));
+    });
+    await t.test('balances display exact amounts and currencies; failures never disable keys', async () => {
+      const original = globalThis.fetch;
+      const record = (await readKeyring(own)).ring.keys[0].value;
+      try {
+        assert.match(await command('/我的钥匙', { IsPrivate: true }), /12.3456 元/);
+        assert.match(await command('/我的钥匙 私聊', { IsPrivate: true }), /12.3456 元/);
+        globalThis.fetch = async () =>
+          Response.json({
+            balance_infos: [
+              { currency: 'USD', total_balance: '0.0001' },
+              { currency: 'CNY', total_balance: '0.00' }
+            ]
+          });
+        assert.equal(await storedKeyBalance(keyringStorageKey(own), own, record), '0.0001 美元 / 0.00 元');
+        globalThis.fetch = async () => Response.json({ balance_infos: [{ currency: 'CNY', total_balance: 'secret-invalid' }] });
+        assert.equal(await storedKeyBalance(keyringStorageKey(own), own, record), '暂未取得余额');
+        globalThis.fetch = async () => {
+          throw new Error('private-provider-secret');
+        };
+        assert.equal(await storedKeyBalance(keyringStorageKey(own), own, record), '查询失败，请稍后刷新');
+        assert.equal((await readKeyring(own)).ring.keys[0].value.enabled, true);
+        assert.equal(await storedKeyBalance(keyringStorageKey(own), own, { ...record, auth: 'account' }), '扫码账户暂不支持金额查询');
+      } finally {
+        globalThis.fetch = original;
+      }
     });
     await t.test('only current group admins can list or grant; old routes do not mutate', async () => {
       for (const text of ['/我的钥匙', '/授权钥匙 1']) {
@@ -113,6 +141,31 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
       assert.equal((await readKeyring(own)).ring.keys.length, 1);
       assert.match(await command('/我的钥匙 私聊 移除', { IsPrivate: true }), /暂无私聊钥匙/);
     });
+    await t.test('another group administrator can remove current copy without owning a key', async () => {
+      const target = { ...group, channelId: 'group3' };
+      await changeKeyring(target, 'grant', '1');
+      const grant = (await readKeyring(own)).ring.grants.find(item => item.channelId === 'group3');
+      const options = { ChannelId: 'group3', UserId: 'bob' };
+      const view = await command('/我的钥匙', options);
+      assert.match(view, /本群钥匙/);
+      assert.match(view, /我的钥匙 移除/);
+      assert.doesNotMatch(view, /alice|sk-/);
+      assert.match(await command('/我的钥匙 移除', { ...options, IsAdmin: false, Role: 'member', IsMaster: true }), /仅本群管理员/);
+      await command('/我的钥匙 移除', { ...options, IsPrivate: true });
+      assert.equal((await credential(target)).apiKey, secret);
+      await updateGroupKey(target, (await credential(target)).revision);
+      assert.match(await command('/我的钥匙 移除', options), /本群钥匙已移除/);
+      assert.equal(await redis.get(groupStorageKey(target)), null);
+      assert.equal((await credential({ ...group, channelId: 'group2' })).apiKey, secret);
+      assert.equal((await readKeyring(own)).ring.keys.length, 1);
+      assert.match(await command('/授权记录', { IsPrivate: true }), /授权已失效/);
+      assert.match(await command('/我的钥匙 移除', options), /尚未授权/);
+      await changeKeyring(target, 'grant', '1');
+      await changeKeyring(own, 'revoke', String(grant.id));
+      assert.equal((await credential(target)).apiKey, secret, 'old owner record cannot remove a later grant');
+      const latest = (await readKeyring(own)).ring.grants.find(item => item.channelId === 'group3');
+      await changeKeyring(own, 'revoke', String(latest.id));
+    });
     await t.test('stale grant cannot delete a replacement copy', async () => {
       const target = { ...group, channelId: 'group2' };
       const grant = (await readKeyring(own)).ring.grants[0];
@@ -124,6 +177,7 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
       assert.equal((await readKeyring(own)).ring.grants.length, 0);
     });
   } finally {
+    globalThis.fetch = previous.fetch;
     globalThis.ioRedis = previous.redis;
     globalThis.__config = previous.config;
     if (previous.key === undefined) delete process.env.AGENT_LINK_PERSONAL_KEY_FILE;

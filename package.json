@@ -88,6 +88,12 @@
     ]
   },
   "alemonjs": {
+    "web": {
+      "config": {
+        "serverPort": true
+      },
+      "root": "dist"
+    },
     "config": [
       {
         "name": "transport",
