@@ -13,6 +13,7 @@ import { runModuleTurn } from '../lib/agent/turn.js';
 import { getModuleRuntime } from '../lib/agent/modules.js';
 
 const ownerEvent = { Platform: 'onebot', BotId: '900', IsPrivate: true, UserId: '100' };
+const photo = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
 const context = (id, changes = {}) => ({ platform: 'onebot', botId: '900', channelId: 'private:100', userId: '100',
   private: true, owner: true, inputId: id, userText: '帮我发一条空间说说', autonomous: false,
   capabilities: { chat: true, web: false, files: false, terminal: false }, signal: new AbortController().signal, ...changes });
@@ -241,4 +242,81 @@ test('model reads a feed then comments through the OneBot bridge', async () => {
     globalThis.fetch = oldFetch;
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('space images require owner intent and actual valid current attachments', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'qzone-images-'));
+  const config = getDSHConfig({ workspaceRoot: join(root, 'work'), stateBackend: 'local' });
+  const seen = [];
+  const client = () => ({ qzonePost: async (_text, _visibility, images) => { seen.push(images); return { id: 't1' }; } });
+  const tools = [];
+  qzoneModule(config, client).setup({ settings: { enabled: true, allowPost: true, dryRun: false, cooldownSeconds: 0 }, tool: tool => tools.push(tool) });
+  const post = tools.find(tool => tool.name === 'qzone_post');
+  const withImages = context('img', { userText: '发一条空间说说，带上这张图片', onCurrentImages: async () => [photo] });
+  try {
+    assert.equal((await post.execute({ content: '好看', includeImages: true }, context('no-ask', { onCurrentImages: async () => [photo] }))).state, 'rejected');
+    assert.equal((await post.execute({ content: '好看', includeImages: true }, context('describe-only', { userText: '发一条空间说说，讲讲这张图片', onCurrentImages: async () => [photo] }))).state, 'rejected');
+    assert.equal((await post.execute({ content: '好看' }, { ...withImages, inputId: 'missing', onCurrentImages: async () => [] })).state, 'rejected');
+    assert.equal((await post.execute({ content: '好看' }, { ...withImages, inputId: 'invalid', onCurrentImages: async () => [Buffer.from('not image')] })).state, 'rejected');
+    assert.equal(seen.length, 0);
+    assert.equal((await post.execute({ content: '好看', includeImages: false }, withImages)).state, 'confirmed');
+    assert.deepEqual(seen[0], [photo]);
+    assert.equal((await post.execute({ content: '好看' }, withImages)).state, 'confirmed');
+    const different = Buffer.concat([photo, Buffer.from('changed')]);
+    assert.equal((await post.execute({ content: '好看' }, { ...withImages, onCurrentImages: async () => [different] })).state, 'rejected');
+    assert.equal(seen.length, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('model posts actual current attachment bytes through OneBot', async () => {
+  const { runtimeScope } = await import(new URL('./common/runtime-scope.js', import.meta.resolve('alemonjs')));
+  const root = await mkdtemp(join(tmpdir(), 'qzone-image-model-'));
+  const oldFetch = globalThis.fetch;
+  const qzone = { enabled: true, allowPost: true, dryRun: false, cooldownSeconds: 0 };
+  let posts = 0;
+  let rounds = 0;
+  const connection = { config: { selfId: '900' }, call: async (action, args) => {
+    assert.equal(action, 'send_qzone_msg');
+    assert.deepEqual(args, { content: '今天很开心', ugc_right: 4, images: [`base64://${photo.toString('base64')}`] });
+    posts++;
+    return { tid: 'post-image' };
+  } };
+  const adapter = new OneBotActions(connection, () => ({ owner: id => id === '100', groups: [], disabled: [], qzone }));
+  const runtime = { resources: new Map(), cleanups: new Set(), disposed: false, now: Date.now, api: frame => adapter.api(frame) };
+  globalThis.fetch = async (_url, init) => {
+    const request = JSON.parse(init.body);
+    rounds++;
+    if (rounds === 1) return Response.json({ choices: [{ message: { content: null, tool_calls: [
+      { id: 'post', type: 'function', function: { name: 'qzone_post', arguments: '{"content":"今天很开心","includeImages":true}' } }
+    ] } }] });
+    assert.equal(JSON.parse(request.messages.find(message => message.role === 'tool').content).state, 'confirmed');
+    return Response.json({ choices: [{ message: { content: '已发布。' } }] });
+  };
+  let config;
+  try {
+    await runtimeScope.run(runtime, async () => {
+      getConfig().saveValue({ 'alemonjs-agent-link': { apiKey: 'test', model: 'test', runtimeMode: 'chat-only', stateBackend: 'local',
+        workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), modules: { settings: { qzone } } } });
+      config = getDSHConfig();
+      await runModuleTurn({ config, sessionId: 'qzone-image', input: '发一条空间说说，带上这张图片',
+        context: context('image-turn', { userText: '发一条空间说说，带上这张图片' }), onCurrentImages: async () => [photo], onEvent: async () => {} });
+      assert.equal(posts, 1);
+      assert.equal(rounds, 2);
+    });
+  } finally {
+    if (config) await (await getModuleRuntime(config)).close();
+    globalThis.fetch = oldFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('OneBot rejects invalid or oversized encoded space images before sending', async () => {
+  let calls = 0;
+  const connection = { config: { selfId: '900' }, call: async () => { calls++; return { tid: 'ok' }; } };
+  const adapter = new OneBotActions(connection, () => ({ owner: id => id === '100', groups: [], disabled: [], qzone: { enabled: true, allowPost: true, dryRun: false } }));
+  const post = images => adapter.api({ payload: { event: ownerEvent, key: 'agentLink.qzonePost', params: [{ content: 'a', visibility: 'friends', images }] } });
+  assert.notEqual((await post([Buffer.from('not image').toString('base64')]))[0].code, ResultCode.Ok);
+  assert.notEqual((await post(['bad!']))[0].code, ResultCode.Ok);
+  assert.notEqual((await post(Array(5).fill(photo.toString('base64'))))[0].code, ResultCode.Ok);
+  assert.equal(calls, 0);
 });

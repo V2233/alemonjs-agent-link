@@ -95,15 +95,35 @@ export const normalizeOneBotEvent = (raw: Record<string, any>, selfId: string, o
     return;
   }
   const segments = notice ? [] : parseSegments(raw.message);
-  const text = segments.map(item => (item.type === 'text' ? String(item.data.text || '') : item.type === 'at' ? `<@${item.data.qq}>` : '')).join('');
+  const text = segments
+    .map(item =>
+      item.type === 'text' ? String(item.data.text || '') : item.type === 'at' ? `<@${item.data.qq}>` : item.type === 'forward' ? '[合并转发]' : ''
+    )
+    .join('');
   const role = ['member', 'admin', 'owner'].includes(raw.sender?.role) ? raw.sender.role : undefined;
   const media = segments.flatMap(item => {
-    if (!['image', 'record', 'video'].includes(item.type)) {
+    if (!['image', 'mface', 'record', 'video'].includes(item.type)) {
       return [];
     }
 
     return [
-      { Type: item.type === 'record' ? 'audio' : item.type === 'video' ? 'video' : 'image', Url: typeof item.data.url === 'string' ? item.data.url : undefined }
+      {
+        Type:
+          item.type === 'record'
+            ? 'audio'
+            : item.type === 'video'
+              ? 'video'
+              : item.type === 'mface' || String(item.data.sub_type ?? item.data.subType ?? '') === '1' || item.data.emoji_id || item.data.emojiId
+                ? 'sticker'
+                : 'image',
+        Url: typeof item.data.url === 'string' ? item.data.url : undefined,
+        ...(item.type === 'record' && typeof item.data.file === 'string' && item.data.file.length <= 2048 && !/[\0\r\n]/u.test(item.data.file)
+          ? { _onebotRecordFile: item.data.file }
+          : {}),
+        ...(['image', 'mface'].includes(item.type) && typeof item.data.file === 'string' && item.data.file.length <= 2048 && !/[\0\r\n]/u.test(item.data.file)
+          ? { _onebotImageFile: item.data.file }
+          : {})
+      }
     ];
   });
   const reply = segments.find(item => item.type === 'reply');

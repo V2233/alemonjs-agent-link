@@ -14,7 +14,7 @@ type Bridge = {
     groupRole(args: { groupId?: string }): Promise<unknown>;
     manageGroup(args: GroupOperation): Promise<unknown>;
     qzoneRead(args: { kind: 'own' | 'feed' }): Promise<unknown>;
-    qzonePost(args: { content: string; visibility: 'all' | 'friends' | 'self' }): Promise<unknown>;
+    qzonePost(args: { content: string; visibility: 'all' | 'friends' | 'self'; images?: string[] }): Promise<unknown>;
     qzoneDetail(args: { id: string; authorId: string }): Promise<unknown>;
     qzoneInteract(args: { id: string; authorId: string; action: 'comment' | 'like'; content?: string; time?: number }): Promise<unknown>;
   };
@@ -52,7 +52,10 @@ export const platformClient = (context: TurnContext) => {
       checked<{ items: { id: string; author: string; authorId: string | null; interactable: boolean; content: string; time: number | null }[] }>(() =>
         client.agentLink.qzoneRead({ kind })
       ),
-    qzonePost: (content: string, visibility: 'all' | 'friends' | 'self') => checked<{ id: string }>(() => client.agentLink.qzonePost({ content, visibility })),
+    qzonePost: (content: string, visibility: 'all' | 'friends' | 'self', images: Buffer[] = []) =>
+      checked<{ id: string }>(() =>
+        client.agentLink.qzonePost({ content, visibility, ...(images.length ? { images: images.map(image => image.toString('base64')) } : {}) })
+      ),
     qzoneDetail: (id: string, authorId: string) => checked<{ content: string; comments: unknown[] }>(() => client.agentLink.qzoneDetail({ id, authorId })),
     qzoneInteract: (args: { id: string; authorId: string; action: 'comment' | 'like'; content?: string; time?: number }) =>
       checked<{ ok: boolean }>(() => client.agentLink.qzoneInteract(args))

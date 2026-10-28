@@ -20,6 +20,7 @@ export type GroupMessage = {
   direct: boolean;
   media?: MessageMediaItem[];
   referenceContext?: string;
+  forwardIds?: string[];
   messageContext?: MessageContext;
   voice?: boolean;
   explicitCommand?: boolean;

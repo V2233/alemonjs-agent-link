@@ -4,12 +4,18 @@ import { logger, useEvent } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
 import { archiveIncoming } from '../../history/capture';
 import { observeProactiveInput } from '../../proactive/observe';
+import { autoStickerCollector } from '../../media/sticker-auto';
 
 export default async (): Promise<void> => {
   const [context, next] = useEvent({ selects: ['message.create', 'private.message.create'] });
 
   try {
     if (context.match.selects && !isPersonalKeyCommand(context.current.MessageText)) {
+      try {
+        autoStickerCollector.enqueue(context.current);
+      } catch {
+        logger.warn('Automatic sticker collection settings invalid');
+      }
       observeProactiveInput(getDSHConfig(), context.current);
       await messageReferences.capture(context.current).catch(() => logger.warn('Message reference capture failed'));
       archiveIncoming(getDSHConfig(), context.current);

@@ -3,6 +3,9 @@ import type { OneBotConnection } from './connection';
 import { OneBotError } from './connection';
 import { numericId } from './config';
 import { parseSegments, validMessageId, type Segment } from './events';
+import { audioFormat, imageMime } from '../media/download';
+import { isPersonalKeyCommand } from '../credentials/personal';
+import { readImageFile, readRecordFile } from './record-file';
 
 type Frame = { action?: string; payload: Record<string, any> };
 export type GroupOperation = { action: 'mute' | 'unmute' | 'kick' | 'title' | 'notice'; groupId: string; userId?: string; seconds?: number; text?: string };
@@ -190,6 +193,179 @@ export class OneBotActions {
           botId: this.connection.config.selfId,
           capabilities: ['message', 'media', 'poke', 'group-role', 'group-info', 'member-info', 'member-list', 'group-admin', 'message-read']
         };
+      } else if (payload.key === 'agentLink.readCurrentForward') {
+        const id = args.id;
+
+        if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,200}$/u.test(id) || !Array.isArray(event._ForwardIds) || !event._ForwardIds.slice(0, 3).includes(id)) {
+          throw new Error('转发标识不属于当前消息。');
+        }
+        numericId(event.UserId);
+        if (!event.IsPrivate) numericId(event.ChannelId);
+        const result = (await this.connection.call('get_forward_msg', { id })) as { messages?: unknown };
+
+        if (!Array.isArray(result?.messages)) throw new OneBotError('protocol');
+        let remaining = 6000;
+        const rows = [];
+
+        for (const node of result.messages.slice(0, 24)) {
+          if (!node || typeof node !== 'object' || remaining <= 0) break;
+          const row = node as Record<string, any>;
+          const sender = String(row.sender?.card || row.sender?.nickname || row.sender?.user_id || row.user_id || '未知发言人').slice(0, 80);
+          let segments: Segment[];
+
+          try {
+            segments = parseSegments(row.message ?? row.content ?? []);
+          } catch {
+            continue;
+          }
+          const text = segments
+            .filter(segment => segment.type === 'text')
+            .map(segment => String(segment.data.text || ''))
+            .join('')
+            .slice(0, Math.min(1000, remaining));
+          const attachments = segments
+            .filter(segment => ['image', 'mface', 'record', 'video', 'forward'].includes(segment.type))
+            .slice(0, 3)
+            .map(segment => segment.type);
+
+          if (text || attachments.length) {
+            rows.push({
+              sender,
+              text: isPersonalKeyCommand(text) ? '[个人密钥管理消息已隐藏]' : text.replace(/sk-[A-Za-z0-9_-]{8,240}/gu, '[密钥已隐藏]'),
+              attachments
+            });
+            remaining -= text.length;
+          }
+        }
+        data = { rows };
+      } else if (payload.key === 'agentLink.resolveQuotedImage') {
+        const id = validMessageId(event.MessageContent?.replyReferenceId || event.ReplyId);
+
+        if (!id || !Number.isSafeInteger(args.index) || args.index < 0 || args.index >= 5) throw new Error('引用图片标识无效。');
+        const quote = await this.api({ payload: { event, key: 'agentLink.readCurrentQuote', params: [{ messageId: id }] } });
+
+        if (
+          quote.length !== 1 ||
+          quote[0].code !== ResultCode.Ok ||
+          !Array.isArray(quote[0].data?.attachments) ||
+          typeof args.file !== 'string' ||
+          quote[0].data.attachments[args.index]?._onebotImageFile !== args.file
+        )
+          throw new OneBotError('protocol');
+
+        return await this.api({
+          payload: {
+            event: { ...event, MessageId: id, MessageMedia: quote[0].data.attachments },
+            key: 'agentLink.resolveCurrentImage',
+            params: [{ index: args.index }]
+          }
+        });
+      } else if (payload.key === 'agentLink.resolveCurrentImage') {
+        const index = args.index;
+        const media = event.MessageMedia;
+        const item = Array.isArray(media) && Number.isSafeInteger(index) && index >= 0 && index < Math.min(media.length, 5) ? media[index] : undefined;
+        const file = item?._onebotImageFile;
+
+        if (
+          !validMessageId(event.MessageId) ||
+          !['image', 'sticker', 'animation'].includes(item?.Type) ||
+          typeof file !== 'string' ||
+          !file ||
+          file.length > 2048 ||
+          /[\0\r\n]/u.test(file)
+        ) {
+          throw new Error('当前消息没有可获取的图片。');
+        }
+        numericId(event.UserId);
+        if (!event.IsPrivate) numericId(event.ChannelId);
+        const result = file.startsWith('base64://')
+          ? { file }
+          : ((await this.connection.call('get_image', { file })) as { base64?: unknown; file?: unknown; url?: unknown });
+        const encoded =
+          typeof result?.base64 === 'string'
+            ? result.base64
+            : typeof result?.file === 'string' && result.file.startsWith('base64://')
+              ? result.file.slice(9)
+              : undefined;
+
+        if (encoded !== undefined) {
+          if (encoded.length > Math.ceil((10 * 1024 * 1024 * 4) / 3) + 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded))
+            throw new OneBotError('protocol');
+          const bytes = Buffer.from(encoded, 'base64');
+
+          if (!bytes.length || bytes.length > 10 * 1024 * 1024 || !imageMime(bytes)) throw new OneBotError('protocol');
+          data = { base64: encoded };
+        } else if (typeof result?.file === 'string' && !/^https?:\/\//iu.test(result.file)) {
+          try {
+            const bytes = await readImageFile(this.connection.config.imageDirectory, result.file);
+
+            data = { base64: bytes.toString('base64') };
+          } catch (error) {
+            if (typeof result.url !== 'string' || result.url.length > 2048) throw error;
+            data = { url: result.url };
+          }
+        } else if (typeof (result?.url || result?.file) === 'string' && String(result.url || result.file).length <= 2048) {
+          data = { url: result.url || result.file };
+        } else throw new OneBotError('protocol');
+      } else if (payload.key === 'agentLink.convertCurrentVoice') {
+        const media = event.MessageMedia;
+        const audio = Array.isArray(media) ? media.filter(item => item?.Type === 'audio') : [];
+        const file = audio[0]?._onebotRecordFile;
+
+        if (!validMessageId(event.MessageId) || audio.length !== 1 || typeof file !== 'string' || !file || file.length > 2048 || /[\0\r\n]/u.test(file)) {
+          throw new Error('当前消息没有可转换的单条语音。');
+        }
+        numericId(event.UserId);
+        if (!event.IsPrivate) numericId(event.ChannelId);
+        const result = (await this.connection.call('get_record', { file, out_format: 'wav' })) as { base64?: unknown; url?: unknown; file?: unknown };
+        const encoded =
+          typeof result?.base64 === 'string'
+            ? result.base64
+            : typeof result?.file === 'string' && result.file.startsWith('base64://')
+              ? result.file.slice(9)
+              : undefined;
+
+        if (
+          typeof encoded === 'string' &&
+          encoded.length <= Math.ceil((10 * 1024 * 1024 * 4) / 3) + 4 &&
+          /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)
+        ) {
+          const audio = Buffer.from(encoded, 'base64');
+
+          if (!audio.length || audio.length > 10 * 1024 * 1024 || audioFormat(audio)?.extension !== 'wav') throw new OneBotError('protocol');
+          data = { base64: encoded };
+        } else if (encoded !== undefined) {
+          throw new OneBotError('protocol');
+        } else if (typeof result?.file === 'string' && !/^https?:\/\//iu.test(result.file)) {
+          try {
+            const bytes = await readRecordFile(this.connection.config.recordDirectory, result.file);
+
+            data = { base64: bytes.toString('base64') };
+          } catch (error) {
+            if (typeof result.url !== 'string' || result.url.length > 2048) throw error;
+            data = { url: result.url };
+          }
+        } else if (typeof (result?.url || result?.file) === 'string' && String(result.url || result.file).length <= 2048) {
+          data = { url: result.url || result.file };
+        } else throw new OneBotError('protocol');
+      } else if (payload.key === 'agentLink.transcribeCurrentVoice') {
+        const id = validMessageId(event.MessageId);
+        const media = event.MessageMedia;
+
+        if (
+          !id ||
+          !Array.isArray(media) ||
+          media.filter(item => item?.Type === 'audio').length !== 1 ||
+          media.some(item => item?.Type === 'audio' && item.Transcript?.trim())
+        ) {
+          throw new Error('当前消息不是可转写的单条语音。');
+        }
+        numericId(event.UserId);
+        if (!event.IsPrivate) numericId(event.ChannelId);
+        const result = (await this.connection.call('fetch_ptt_text', { message_id: Number(id) })) as { text?: unknown };
+
+        if (typeof result?.text !== 'string' || !result.text.trim() || result.text.length > 12000) throw new OneBotError('protocol');
+        data = { text: result.text.trim() };
       } else if (payload.key === 'agentLink.poke') {
         if (this.policy().disabled.includes('platform')) {
           throw new Error('平台表达模块已停用。');
@@ -260,10 +436,31 @@ export class OneBotActions {
           if (typeof args.content !== 'string' || !args.content.trim() || Array.from(args.content).length > 2000 || !Object.hasOwn(rights, args.visibility)) {
             throw new Error('空间内容或可见范围无效。');
           }
-          const result = (await this.connection.call('send_qzone_msg', { content: args.content.trim(), ugc_right: rights[args.visibility] })) as Record<
-            string,
-            unknown
-          >;
+          const images = args.images ?? [];
+
+          if (
+            !Array.isArray(images) ||
+            images.length > 4 ||
+            images.some(
+              image =>
+                typeof image !== 'string' ||
+                image.length > Math.ceil((8 * 1024 * 1024 * 4) / 3) + 4 ||
+                !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(image)
+            ) ||
+            images.reduce((sum, image) => sum + image.length, 0) > 28 * 1024 * 1024
+          ) {
+            throw new Error('空间图片编码或大小无效。');
+          }
+          for (const image of images) {
+            const data = Buffer.from(image, 'base64');
+
+            if (data.length > 8 * 1024 * 1024 || !imageMime(data)) throw new Error('空间图片格式或大小无效。');
+          }
+          const result = (await this.connection.call('send_qzone_msg', {
+            content: args.content.trim(),
+            ugc_right: rights[args.visibility],
+            ...(images.length ? { images: images.map(image => `base64://${image}`) } : {})
+          })) as Record<string, unknown>;
           const id = String(result?.tid ?? result?.id ?? (typeof result === 'string' ? result : ''));
 
           if (!id || id.length > 200) throw new OneBotError('protocol');
@@ -306,6 +503,56 @@ export class OneBotActions {
             data = { ok: true };
           }
         }
+      } else if (payload.key === 'agentLink.readCurrentQuote') {
+        const id = validMessageId(event.MessageContent?.replyReferenceId || event.ReplyId);
+
+        if (!id || id !== validMessageId(args.messageId)) throw new Error('引用编号不属于当前消息。');
+        const currentUser = numericId(event.UserId);
+        const message = (await this.connection.call('get_msg', { message_id: Number(id) })) as Record<string, any>;
+
+        if (!message || (message.message_id !== undefined && validMessageId(message.message_id) !== id)) throw new OneBotError('protocol');
+        const sender = numericId(message.sender?.user_id ?? message.user_id);
+
+        if (event.IsPrivate) {
+          const target = message.target_id ?? message.peer_id;
+          const incoming = sender === currentUser && (target === undefined || String(target) === this.connection.config.selfId);
+          const outgoing =
+            sender === this.connection.config.selfId && (target === undefined ? String(message.user_id ?? '') === currentUser : String(target) === currentUser);
+
+          if (message.message_type !== 'private' || (!incoming && !outgoing)) throw new Error('这条消息不属于当前私聊。');
+        } else if (String(message.group_id) !== numericId(event.ChannelId) || (message.message_type && message.message_type !== 'group')) {
+          throw new Error('这条消息不属于当前群聊。');
+        }
+        const segments = parseSegments(message.message);
+        const rawText = segments
+          .filter(item => item.type === 'text')
+          .map(item => String(item.data.text || ''))
+          .join('')
+          .slice(0, 3000);
+        const attachments = segments
+          .filter(item => ['image', 'mface', 'record', 'video'].includes(item.type))
+          .slice(0, 8)
+          .map(item => ({
+            Type: item.type === 'record' ? 'audio' : item.type === 'video' ? 'video' : item.type === 'mface' ? 'sticker' : 'image',
+            ...(typeof item.data.url === 'string' && item.data.url.length <= 2048 ? { Url: item.data.url } : {}),
+            ...(['image', 'mface'].includes(item.type) &&
+            typeof item.data.file === 'string' &&
+            item.data.file.length <= 2048 &&
+            !/[\0\r\n]/u.test(item.data.file)
+              ? { _onebotImageFile: item.data.file }
+              : {})
+          }));
+
+        data = {
+          id,
+          referenceId: id,
+          userId: sender,
+          userName: String(message.sender?.card || message.sender?.nickname || sender).slice(0, 80),
+          text: isPersonalKeyCommand(rawText) ? '[个人密钥管理消息已隐藏]' : rawText.replace(/sk-[A-Za-z0-9_-]{8,240}/gu, '[密钥已隐藏]'),
+          timestamp: Number.isFinite(message.time) && message.time >= 0 && message.time <= 8640000000000 ? message.time * 1000 : null,
+          isBot: sender === this.connection.config.selfId,
+          attachments
+        };
       } else if (payload.key === 'agentLink.readMessage') {
         const id = validMessageId(args.messageId);
 

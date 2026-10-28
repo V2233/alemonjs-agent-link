@@ -12,6 +12,8 @@ import { respondToGroupBatch, submitGroupChat } from '../lib/social/respond.js';
 import { messageReferences } from '../lib/social/references.js';
 
 test('group batch reaches the actual model once, quotes a selected participant and saves rendered history', async () => {
+  // Production keeps the bot process alive; the coordinator deliberately unrefs its timers.
+  const keepAlive = setInterval(() => {}, 1000);
   const root = await mkdtemp(join(tmpdir(), 'group-chat-'));
   const oldConfig = globalThis.__config;
   const oldFetch = globalThis.fetch;
@@ -94,6 +96,7 @@ test('group batch reaches the actual model once, quotes a selected participant a
     assert.equal(sends.length, 2);
     assert.equal(sends[1].replyId, 'c');
   } finally {
+    clearInterval(keepAlive);
     groupConversations.clear('group');
     await messageReferences.clear('group');
     await (await getModuleRuntime(config)).close();

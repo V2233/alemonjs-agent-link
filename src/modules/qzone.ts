@@ -1,20 +1,12 @@
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
+import { createHash } from 'node:crypto';
 import type { AgentModule } from '../agent/types';
 import type { DSHBridgeConfig } from '../dsh/config';
-import { BiliCommentLedger } from '../bili/comment-ledger';
+import { qzoneLedger } from '../qzone/ledger';
+import { DiaryWorker, diaryOptions } from '../qzone/diary';
 import { platformClient, PlatformOperationError } from '../platform/client';
-
-const stores = new Map<string, BiliCommentLedger>();
-const ledger = (root: string): BiliCommentLedger => {
-  let store = stores.get(root);
-
-  if (!store) {
-    store = new BiliCommentLedger(join(root, 'qzone'));
-    stores.set(root, store);
-  }
-
-  return store;
-};
+import { imageMime } from '../media/download';
+import { logger } from 'alemonjs';
 
 export const qzoneModule = (config: DSHBridgeConfig, client = platformClient): AgentModule => ({
   id: 'qzone',
@@ -52,6 +44,31 @@ export const qzoneModule = (config: DSHBridgeConfig, client = platformClient): A
     )
       throw new Error('QQ 空间设置无效。');
     if (!enabled) return;
+    const diary = diaryOptions(api.settings);
+
+    if (diary.enabled) {
+      const worker = new DiaryWorker({ ...config, modules: { ...config.modules, settings: { ...config.modules?.settings, qzone: { ...api.settings } } } });
+      const timer = setInterval(() => {
+        void worker.tick().catch(() => logger.warn('QQ space diary task failed'));
+      }, 60000);
+
+      timer.unref();
+      api.onDispose(() => {
+        clearInterval(timer);
+        worker.stop();
+      });
+      api.tool({
+        name: 'qzone_diary_status',
+        readOnly: true,
+        description: '查看 QQ 空间自动日记最近的生成、试运行或发布结果。',
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+        available: context => context.platform === 'onebot' && context.private && context.owner && !context.autonomous,
+        execute: (_args, context) =>
+          Promise.resolve(
+            context.userId === diary.ownerId && context.botId === diary.botId ? worker.status() : { ok: false, message: '当前会话不是自动日记配置的主人。' }
+          )
+      });
+    }
     const available = (context: import('../agent/types').TurnContext) =>
       context.platform === 'onebot' && context.private && context.owner && !context.autonomous;
 
@@ -126,15 +143,15 @@ export const qzoneModule = (config: DSHBridgeConfig, client = platformClient): A
       api.tool({
         name: 'qzone_post',
         description:
-          '仅按主人本轮明确要求发布 QQ 空间说说。正文由你编写，可见范围由主人原话或配置决定；preview 是试运行，没有发布，unknown 需主人核查且不能自动重试。只支持文字。',
+          '仅按主人本轮明确要求发布 QQ 空间说说。正文由你编写，可见范围由主人原话或配置决定；主人明确要求带图时使用本轮附件。preview 是试运行，没有发布，unknown 需主人核查且不能自动重试。',
         parameters: {
           type: 'object',
-          properties: { content: { type: 'string', minLength: 1, maxLength: 2000 } },
+          properties: { content: { type: 'string', minLength: 1, maxLength: 2000 }, includeImages: { type: 'boolean' } },
           required: ['content'],
           additionalProperties: false
         },
         available,
-        execute: async ({ content }, context) => {
+        execute: async ({ content, includeImages }, context) => {
           const input = context.userText || '';
           const asked = /(?:发|写|发布|发表).{0,16}(?:说说|动态|空间|日记)|(?:空间|说说).{0,8}(?:发|写|发布)/u.test(input);
           const denied =
@@ -142,6 +159,11 @@ export const qzoneModule = (config: DSHBridgeConfig, client = platformClient): A
               input
             );
           const text = String(content).trim();
+          const imagesRequested =
+            /配图|带图|附图|图文|(?:带上|附上|加上|配上|放上).{0,8}(?:图片|照片|图)|(?:发送|发布|发)(?:这张|这些|一张|几张)?(?:图片|照片|图)|(?:这张图|这些图|图片|照片).{0,8}(?:发到|一起发|带上|作为配图)/u.test(
+              input
+            );
+          const imagesDenied = /(?:不要|不用|别|不必|不能).{0,8}(?:配图|带图|附图|图片|照片|这张图)/u.test(input);
           const audience = (
             /仅自己|仅我|自己可见|私密/u.test(input)
               ? 'self'
@@ -163,16 +185,42 @@ export const qzoneModule = (config: DSHBridgeConfig, client = platformClient): A
           ) {
             return { ok: false, state: 'rejected', message: '需要主人在 OneBot 私聊中明确要求发布。' };
           }
-          if (dryRun) return { ok: true, state: 'preview', content: text, visibility: audience, message: '试运行：未发布空间说说。' };
+          if (includeImages && (!imagesRequested || imagesDenied)) return { ok: false, state: 'rejected', message: '主人没有明确要求附图。' };
+          let images: Buffer[] = [];
+
+          if (imagesRequested && !imagesDenied) {
+            if (!context.onCurrentImages) return { ok: false, state: 'rejected', message: '当前回合没有可用的图片。' };
+            try {
+              images = await context.onCurrentImages(context.signal);
+              if (
+                !Array.isArray(images) ||
+                images.length < 1 ||
+                images.length > 4 ||
+                images.some(image => !Buffer.isBuffer(image) || image.length > 8 * 1024 * 1024 || !imageMime(image)) ||
+                images.reduce((sum, image) => sum + Math.ceil(image.length / 3) * 4, 0) > 28 * 1024 * 1024
+              ) {
+                return { ok: false, state: 'rejected', message: '需要 1–4 张符合大小限制的当前图片，未发布说说。' };
+              }
+            } catch {
+              context.signal.throwIfAborted();
+
+              return { ok: false, state: 'rejected', message: '读取当前图片失败，未发布说说。' };
+            }
+          }
+          if (dryRun)
+            return { ok: true, state: 'preview', content: text, visibility: audience, imageCount: images.length, message: '试运行：未发布空间说说。' };
           try {
-            const outcome = await ledger(dirname(config.workspaceRoot)).run(
+            const outcome = await qzoneLedger(dirname(config.workspaceRoot)).run(
               context,
               `qzone:${context.botId}`,
-              { aid: { all: 1, friends: 4, self: 64 }[audience], text },
+              {
+                aid: { all: 1, friends: 4, self: 64 }[audience],
+                text: JSON.stringify([text, images.map(image => createHash('sha256').update(image).digest('hex'))])
+              },
               { max: Number(maxPostsPerDay), cooldown: Number(cooldownSeconds) },
               async () => {
                 try {
-                  await client(context).qzonePost(text, audience);
+                  await client(context).qzonePost(text, audience, images);
 
                   return 'confirmed';
                 } catch (error) {
@@ -239,7 +287,7 @@ export const qzoneModule = (config: DSHBridgeConfig, client = platformClient): A
           }
           if (dryRun) return { ok: true, state: 'preview', action, id: item.id, ...(isComment ? { content: text } : {}), message: '试运行：未执行空间互动。' };
           try {
-            const result = await ledger(dirname(config.workspaceRoot)).run(
+            const result = await qzoneLedger(dirname(config.workspaceRoot)).run(
               context,
               `qzone-interact:${context.botId}`,
               { aid: isComment ? 1 : 2, text: JSON.stringify([item.id, item.authorId, text]) },

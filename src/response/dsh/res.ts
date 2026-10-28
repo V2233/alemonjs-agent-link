@@ -98,6 +98,7 @@ export default async (): Promise<void> => {
         controlText: mentionedBot ? prompt : undefined,
         media: references.media,
         referenceContext,
+        forwardIds: (event as typeof event & { _ForwardIds?: string[] })._ForwardIds,
         messageContext
       },
       scopedGroupPolicy(event.ChannelId, event.Platform),

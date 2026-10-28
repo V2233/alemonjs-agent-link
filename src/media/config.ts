@@ -92,7 +92,7 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
     stickerRoot: raw.stickerRoot,
     stickerCooldownSeconds: raw.stickerCooldownSeconds ?? 30,
     vision: provider(raw.vision),
-    asr: provider(raw.asr),
+    asr: provider(raw.asr, true),
     tts: provider(raw.tts, true),
     imageGen: imageProvider(raw.imageGen),
     speech: speechOptions(raw.speech)

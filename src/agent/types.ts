@@ -10,6 +10,8 @@ export type TurnContext = {
   autonomous?: boolean;
   onSpeech?: (audio: SpeechAudio) => Promise<void>;
   onSticker?: (item: import('../media/stickers').Sticker, data: Buffer) => Promise<void>;
+  onStickerCollect?: (signal: AbortSignal) => Promise<Buffer>;
+  onCurrentImages?: (signal: AbortSignal) => Promise<Buffer[]>;
   channelId: string;
   userId: string;
   platform: string;

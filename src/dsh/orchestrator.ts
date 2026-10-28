@@ -254,6 +254,8 @@ const runCoordinatedChatInner = async (
     onImage?: (png: Buffer) => Promise<void>;
     onSpeech?: import('../agent/types').TurnContext['onSpeech'];
     onSticker?: import('../agent/types').TurnContext['onSticker'];
+    onStickerCollect?: import('../agent/types').TurnContext['onStickerCollect'];
+    onCurrentImages?: import('../agent/types').TurnContext['onCurrentImages'];
     prepareMessage?: (text: string, signal: AbortSignal) => Promise<ChatInput>;
     execute?: (signal: AbortSignal) => Promise<void>;
     userText?: string;
@@ -321,6 +323,8 @@ const runCoordinatedChatInner = async (
               onImage: mediaTask?.onImage,
               onSpeech: mediaTask?.onSpeech,
               onSticker: mediaTask?.onSticker,
+              onStickerCollect: mediaTask?.onStickerCollect,
+              onCurrentImages: mediaTask?.onCurrentImages,
               context: {
                 requestId: duplicate.requestId,
                 inputId: mediaTask?.inputId || event.MessageId || duplicate.requestId,

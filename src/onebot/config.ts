@@ -1,4 +1,14 @@
-export type OneBotConfig = { url: string; selfId: string; accessToken?: string; timeoutMs: number; maxPayloadBytes: number };
+import { isAbsolute } from 'node:path';
+
+export type OneBotConfig = {
+  url: string;
+  selfId: string;
+  accessToken?: string;
+  timeoutMs: number;
+  maxPayloadBytes: number;
+  recordDirectory?: string;
+  imageDirectory?: string;
+};
 export const numericId = (value: unknown): string => {
   if (typeof value === 'number' && !Number.isSafeInteger(value)) {
     throw new Error('平台编号必须精确。');
@@ -40,6 +50,16 @@ export const resolveOneBotConfig = (value: unknown): OneBotConfig => {
   const maxPayloadBytes = raw.maxPayloadBytes ?? 8 * 1024 * 1024;
 
   if (
+    raw.recordDirectory !== undefined &&
+    (typeof raw.recordDirectory !== 'string' || !isAbsolute(raw.recordDirectory) || /[\0\r\n]/u.test(raw.recordDirectory))
+  ) {
+    throw new Error('OneBot recordDirectory 必须是本机绝对目录。');
+  }
+  if (raw.imageDirectory !== undefined && (typeof raw.imageDirectory !== 'string' || !isAbsolute(raw.imageDirectory) || /[\0\r\n]/u.test(raw.imageDirectory))) {
+    throw new Error('OneBot imageDirectory 必须是本机绝对目录。');
+  }
+
+  if (
     !Number.isSafeInteger(timeoutMs) ||
     timeoutMs < 100 ||
     timeoutMs > 60000 ||
@@ -50,5 +70,13 @@ export const resolveOneBotConfig = (value: unknown): OneBotConfig => {
     throw new Error('OneBot 超时或消息大小限制无效。');
   }
 
-  return { url: url.toString(), selfId: numericId(raw.selfId), accessToken: raw.accessToken, timeoutMs, maxPayloadBytes };
+  return {
+    url: url.toString(),
+    selfId: numericId(raw.selfId),
+    accessToken: raw.accessToken,
+    timeoutMs,
+    maxPayloadBytes,
+    ...(raw.recordDirectory ? { recordDirectory: raw.recordDirectory } : {}),
+    ...(raw.imageDirectory ? { imageDirectory: raw.imageDirectory } : {})
+  };
 };

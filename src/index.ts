@@ -13,6 +13,7 @@ import { getMoodStore } from './companion/mood';
 import { getPlatformLedger } from './platform/ledger';
 import { getProactiveStore } from './proactive/store';
 import { interruptAllProactive } from './proactive/control';
+import { autoStickerCollector } from './media/sticker-auto';
 let stopModuleConfigWatch: (() => void) | undefined;
 
 export default defineChildren({
@@ -39,6 +40,7 @@ export default defineChildren({
       stopModuleConfigWatch?.();
       stopModuleConfigWatch = watchDSHConfig(() => {
         interruptAllProactive();
+        autoStickerCollector.reset();
         try {
           void getModuleRuntime(getDSHConfig())
             .then(runtime => runtime.refresh())
@@ -102,6 +104,7 @@ export default defineChildren({
   },
   onDispose() {
     interruptAllProactive();
+    autoStickerCollector.reset();
     stopModuleConfigWatch?.();
     stopModuleConfigWatch = undefined;
 

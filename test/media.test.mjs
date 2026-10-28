@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, mkdir, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { getMediaConfig, MediaError } from '../lib/media/config.js';
 import { attachmentUrl, isPublicAddress, imageMime, audioFormat, downloadAttachment } from '../lib/media/download.js';
 import { prepareNativeMedia, understandMedia, synthesizeSpeech, readBounded, hasUnconfiguredMedia } from '../lib/media/providers.js';
@@ -124,6 +126,42 @@ test('audio uses platform transcript or multipart upload, and does not pretend S
     assert.equal(audioFormat(Buffer.from([255, 241, 0, 0])), undefined);
   } finally {
     globalThis.fetch = oldFetch;
+  }
+});
+
+test('local ASR accepts a real multipart request and returns transcription without a remote key', async () => {
+  let calls = 0;
+  const server = createServer(async (req, res) => {
+    try {
+      calls++;
+      assert.equal(req.url, '/v1/audio/transcriptions');
+      assert.equal(req.headers.authorization, undefined);
+      const form = await new Request('http://127.0.0.1/', { method: 'POST', headers: req.headers, body: req, duplex: 'half' }).formData();
+      assert.equal(form.get('model'), 'whisper-local');
+      assert.equal(form.get('response_format'), 'json');
+      assert.deepEqual(Buffer.from(await form.get('file').arrayBuffer()), mp3);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ text: '本地语音识别完成' }));
+    } catch (error) {
+      res.writeHead(500);
+      res.end();
+      server.testError = error;
+    }
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const local = getMediaConfig({ media: { asr: { baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: 'whisper-local' } } });
+    const result = await prepareNativeMedia([{ Type: 'audio', Url: 'https://cdn.test/audio' }], '请回答', local, signal(), async () => mp3);
+    if (server.testError) throw server.testError;
+    assert.match(result, /本地语音识别完成/);
+    assert.equal(calls, 1);
+    assert.throws(() => getMediaConfig({ media: { asr: { baseUrl: 'http://192.168.1.2:8000/v1', model: 'x' } } }), MediaError);
+    assert.throws(() => getMediaConfig({ media: { asr: { baseUrl: 'https://asr.example/v1', model: 'x' } } }), MediaError);
+    assert.throws(() => getMediaConfig({ media: { asr: { baseUrl: 'http://127.0.0.1:8000/v1?token=secret', model: 'x' } } }), MediaError);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
   }
 });
 

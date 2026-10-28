@@ -3,6 +3,7 @@ import { getDSHConfig } from '../dsh/client';
 import { getChatArchive, historyEnabled } from '../history/store';
 import { canPrivateChat, getConversationId } from '../response/dsh/util';
 import { eventTime, type MessageContextEvent } from './message-context';
+import { SessionRegistry } from '../state/registry';
 import {
   createConversationService,
   conversationIdentity,
@@ -10,7 +11,9 @@ import {
   type ConversationEvent,
   type ReceivedMessage,
   type MessageReceipt,
-  type MessageMediaItem
+  type MessageMediaItem,
+  useClient,
+  ResultCode
 } from 'alemonjs';
 
 export type ReferenceEvent = MessageContextEvent & {
@@ -119,13 +122,70 @@ export class MessageReferences {
         /* Missing archive remains an explicitly unavailable quote. */
       }
     }
+    if (referenceId && !references.quote && event.Platform === 'onebot') {
+      try {
+        const config = getDSHConfig();
+        const channelId = getConversationId(event);
+        const allowed =
+          config.aiEnabled !== false &&
+          channelId &&
+          (event.IsPrivate ? canPrivateChat(event, config.privateChatAccess) : (await new SessionRegistry(config).policy(channelId)).chat);
+
+        if (allowed) {
+          const [client] = useClient<{ agentLink: { readCurrentQuote(args: { messageId: string }): Promise<unknown> } }>(event as never);
+          const result = (await client.agentLink.readCurrentQuote({ messageId: referenceId })) as {
+            code: number;
+            data?: ConversationEntry & { timestamp: number | null };
+          }[];
+          const quote = result?.length === 1 && result[0].code === ResultCode.Ok ? result[0].data : undefined;
+
+          if (quote?.id === referenceId && Array.isArray(quote.attachments)) {
+            references.quote = { ...quote, timestamp: typeof quote.timestamp === 'number' ? quote.timestamp : Number.NaN };
+          }
+        }
+      } catch {
+        /* Keep unavailable if the platform cannot verify the quote and its scope. */
+      }
+    }
     const media = [...(event.MessageMedia || [])];
-    const attachments = (references.quote?.attachments || []).map(item => {
-      const image = ['image', 'sticker', 'animation'].includes(item.Type) && Boolean(item.Url);
-      let index = image ? media.findIndex(existing => existing.Type === item.Type && existing.Url === item.Url) : -1;
+    const attachments = (references.quote?.attachments || []).map((item, sourceIndex) => {
+      const file = (item as MessageMediaItem & { _onebotImageFile?: unknown })._onebotImageFile;
+      const image =
+        ['image', 'sticker', 'animation'].includes(item.Type) &&
+        (Boolean(item.Url) || (event.Platform === 'onebot' && typeof file === 'string' && sourceIndex < 5));
+      let index = image
+        ? media.findIndex(
+            existing =>
+              existing.Type === item.Type &&
+              ((item.Url && existing.Url === item.Url) || (file && (existing as MessageMediaItem & { _onebotImageFile?: unknown })._onebotImageFile === file))
+          )
+        : -1;
 
       if (image && index < 0) {
-        index = media.push(item) - 1;
+        let input = item;
+
+        if (event.Platform === 'onebot' && typeof file === 'string' && referenceId && sourceIndex < 5) {
+          const resolve = async (): Promise<MessageMediaItem> => {
+            try {
+              const [client] = useClient<{ agentLink: { resolveQuotedImage(args: { index: number; file: string }): Promise<unknown> } }>(event as never);
+              const result = (await client.agentLink.resolveQuotedImage({ index: sourceIndex, file })) as {
+                code: number;
+                data?: { base64?: unknown; url?: unknown };
+              }[];
+              const value = result?.length === 1 && result[0].code === ResultCode.Ok ? result[0].data : undefined;
+
+              if (typeof value?.base64 === 'string') return { ...item, _onebotImage: value.base64 };
+              if (typeof value?.url === 'string') return { ...item, Url: value.url };
+            } catch {
+              /* The model receives the existing media error if lookup fails. */
+            }
+
+            return item;
+          };
+
+          input = { ...item, _onebotQuoted: true, _onebotImageFallback: resolve } as MessageMediaItem;
+        }
+        index = media.push(input) - 1;
       }
 
       return {

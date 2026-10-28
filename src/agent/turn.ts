@@ -27,6 +27,8 @@ const runModuleTurnInner = async (options: {
   onImage?: (png: Buffer) => Promise<void>;
   onSpeech?: TurnContext['onSpeech'];
   onSticker?: TurnContext['onSticker'];
+  onStickerCollect?: TurnContext['onStickerCollect'];
+  onCurrentImages?: TurnContext['onCurrentImages'];
   onEvent: (event: DSHStreamEvent) => Promise<void>;
   onCompleted?: (signal: AbortSignal) => Promise<void>;
 }): Promise<void> => {
@@ -37,7 +39,9 @@ const runModuleTurnInner = async (options: {
     ...options.context,
     capabilities: { ...options.context.capabilities, terminal: false },
     onSpeech: options.onSpeech || options.context.onSpeech,
-    onSticker: options.onSticker || options.context.onSticker
+    onSticker: options.onSticker || options.context.onSticker,
+    onStickerCollect: options.onStickerCollect || options.context.onStickerCollect,
+    onCurrentImages: options.onCurrentImages || options.context.onCurrentImages
   };
   const lease = await (await getModuleRuntime(config)).acquire();
 
