@@ -3,7 +3,7 @@ import { budgetedFetch, BudgetExceededError } from '../billing/budget';
 import { readCompletionStream } from '../dsh/completion-stream';
 import type { DSHBridgeConfig } from '../dsh/client';
 import type { DSHCredentials } from '../dsh/credentials';
-import { modelContent, MAX_IMAGE_REQUEST_BYTES, type ChatInput } from '../dsh/input';
+import { modelContent, withInputContext, MAX_IMAGE_REQUEST_BYTES, type ChatInput } from '../dsh/input';
 import type { ChatHistoryMessage } from '../state/registry';
 import type { AgentTool, TurnContext } from './types';
 import { executeTool } from './modules';
@@ -314,6 +314,11 @@ export const runToolChat = async (options: {
   if (config.inputBlockedKeywords.some(word => word && context.userText.includes(word))) {
     throw new Error('请求被输入策略拒绝。');
   }
+  // The request prefix must stay append-only so the provider's prefix cache can
+  // reuse it: system prompt, retained history, then this turn. Per-turn material
+  // (memory context) goes in the tail. Placing it second made every turn rewrite
+  // the prefix, so the whole history missed the cache it had just been billed for.
+  const turnInput = options.memoryContext ? withInputContext(input, options.memoryContext) : input;
   const messages: ModelMessage[] = [
     {
       role: 'system',
@@ -326,9 +331,8 @@ export const runToolChat = async (options: {
         '拿到足够结果就回答。发现插件能力时优先按名称或用途搜索，避免遍历无关目录；相同拒绝不要反复重试。'
       ].join('\n')
     },
-    ...(options.memoryContext ? [{ role: 'user', content: options.memoryContext }] : []),
     ...(options.history || []).map(message => (message.role === 'assistant' ? { ...message, reasoning_content: '' } : message)),
-    { role: 'user', content: modelContent(input) }
+    { role: 'user', content: modelContent(turnInput) }
   ];
   const completed = new Map<string, { signature: string; result: string }>();
   let calls = 0;

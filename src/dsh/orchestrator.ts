@@ -1,4 +1,5 @@
 import { RequestSlotPool } from './request-slots';
+import { serializeByKey } from './serialize';
 import { withBudgetScope } from '../billing/budget';
 import type { ChatInput } from './input';
 import { buildMemoryContext } from './memory';
@@ -142,6 +143,17 @@ export const resetGroupSession = async (channelId: string, config: DSHBridgeConf
   }
 };
 
+/**
+ * Serializes the check-then-reset boundary per channel. Concurrent turns used to
+ * all pass the "not isolated yet" check before any of them registered a pending
+ * transition, so a burst wiped the session several times over. Every wipe throws
+ * away the append-only transcript that makes prefix caching pay off, so the group
+ * paid full price to re-prefill its whole history instead of reusing it.
+ */
+const groupResetLocks = new Map<string, Promise<void>>();
+
+const withGroupResetLock = <T>(channelId: string, work: () => Promise<T>): Promise<T> => serializeByKey(groupResetLocks, channelId, work);
+
 /** Initialize old metadata behind the same serialized boundary as /new. */
 export const ensureIsolatedGroup = async (channelId: string, config: DSHBridgeConfig): Promise<void> => {
   const pending = groupResetTransitions.get(channelId);
@@ -150,20 +162,22 @@ export const ensureIsolatedGroup = async (channelId: string, config: DSHBridgeCo
     await pending;
   }
 
-  const registry = new SessionRegistry(config);
+  await withGroupResetLock(channelId, async () => {
+    const registry = new SessionRegistry(config);
 
-  await registry.ready();
-  const meta = await registry.meta(channelId);
+    await registry.ready();
+    const meta = await registry.meta(channelId);
 
-  if (meta.isolated && !meta.transition) {
-    return;
-  }
+    if (meta.isolated && !meta.transition) {
+      return;
+    }
 
-  if (meta.transition === 'purging') {
-    await purgeGroupSession(channelId, config);
-  }
+    if (meta.transition === 'purging') {
+      await purgeGroupSession(channelId, config);
+    }
 
-  await resetGroupSession(channelId, config, undefined, false);
+    await resetGroupSession(channelId, config, undefined, false);
+  });
 };
 
 /** Mark deletion before touching the Bridge so a failed purge can be resumed safely. */

@@ -162,6 +162,61 @@ const redis = async (config: DSHBridgeConfig): Promise<Redis> => {
   }
 };
 
+type RedisClient = Awaited<ReturnType<typeof redis>>;
+type HistoryTurn = { generation: number; timestamp: number; user: string; assistant: string; autonomous?: boolean };
+type HistoryAnchor = { generation: number; since: number; digest: string };
+
+/**
+ * Retained rows per channel. The prompt only ever shows what the anchor allows, so
+ * this is headroom for one growth cycle rather than the window the model sees.
+ */
+const privateHistoryRetention = 80;
+/** Keep about half the budget after compacting so the next compaction is far away. */
+const privateHistoryKeepRatio = 0.5;
+/** Let the prompt grow to this multiple of privateHistoryMaxTurns before compacting. */
+const privateHistoryGrowthFactor = 2;
+const privateHistoryDigestLimit = 1200;
+
+const historyKey = (channelId: string): string => key(channelId, 'private-history.v1');
+const anchorKey = (channelId: string): string => key(channelId, 'private-anchor.v1');
+
+const isAutonomousTurn = (turn: Pick<HistoryTurn, 'user' | 'autonomous'>): boolean =>
+  turn.autonomous === true || turn.user.startsWith('【系统主动搭话提醒，不是主人发言】');
+
+const historyTurnChars = (turn: Pick<HistoryTurn, 'user' | 'assistant' | 'autonomous'>): number =>
+  (isAutonomousTurn(turn) ? 0 : turn.user.length) + turn.assistant.length;
+
+const clipText = (text: string, limit: number): string => {
+  const flat = text.replace(/\s+/gu, ' ').trim();
+
+  return flat.length <= limit ? flat : `${flat.slice(0, limit)}…`;
+};
+
+/**
+ * Folds the turns that no longer fit into a short block instead of dropping them.
+ * The block is persisted, so it only changes when a compaction happens: the turns
+ * that stay in the prompt keep the exact positions the provider cached last turn.
+ */
+export const buildHistoryDigest = (
+  previous: string,
+  dropped: ReadonlyArray<Pick<HistoryTurn, 'user' | 'assistant' | 'autonomous'>>,
+  limit = privateHistoryDigestLimit
+): string => {
+  const lines = dropped.map(turn =>
+    isAutonomousTurn(turn) ? `· 你主动说过：${clipText(turn.assistant, 48)}` : `· 用户：${clipText(turn.user, 48)} → 你：${clipText(turn.assistant, 48)}`
+  );
+  const kept: string[] = [];
+  let chars = previous.length;
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    chars += lines[index].length + 1;
+    if (chars > limit) break;
+    kept.unshift(lines[index]);
+  }
+
+  return kept.length ? kept.join('\n') : previous;
+};
+
 const parseMeta = (value: string | null): GroupMeta => {
   if (!value) {
     return { generation: 0, policy: defaultGroupPolicy, lastActivity: Date.now(), isolated: false };
@@ -200,7 +255,7 @@ export type PrivateHistoryContext = {
   record?: () => boolean;
   render?: (text: string) => string;
 };
-export type ChatHistoryMessage = { role: 'user' | 'assistant'; content: string };
+export type ChatHistoryMessage = { role: 'user' | 'assistant' | 'system'; content: string };
 const appendPrivateTurnScript = `-- agent-link:appendPrivateTurn
 local raw = redis.call('GET', KEYS[1])
 if not raw then return 0 end
@@ -305,42 +360,92 @@ export class SessionRegistry {
     return { status: result.status, notes: Array.isArray(result.notes) ? result.notes : [] };
   }
   async privateHistory(context: PrivateHistoryContext): Promise<ChatHistoryMessage[]> {
-    if (!this.config.privateHistoryMaxTurns) {
+    const maxTurns = this.config.privateHistoryMaxTurns;
+
+    if (!maxTurns) {
       return [];
     }
-    const rows = await (await redis(this.config)).lrange(key(context.channelId, 'private-history.v1'), -this.config.privateHistoryMaxTurns, -1);
-    const result: ChatHistoryMessage[] = [];
-    let chars = 0;
+    const client = await redis(this.config);
+    const [anchor, rows] = await Promise.all([
+      this.readHistoryAnchor(client, context),
+      client.lrange(historyKey(context.channelId), -Math.max(maxTurns, privateHistoryRetention), -1)
+    ]);
+    const expiresBefore = Date.now() - this.config.privateHistoryTtlSeconds * 1000;
+    const turns: HistoryTurn[] = [];
 
-    for (const row of rows.toReversed()) {
+    for (const row of rows) {
       try {
-        const turn = JSON.parse(row);
+        const turn = JSON.parse(row) as HistoryTurn;
 
-        if (
-          turn.generation !== context.generation ||
-          turn.timestamp < Date.now() - this.config.privateHistoryTtlSeconds * 1000 ||
-          typeof turn.user !== 'string' ||
-          typeof turn.assistant !== 'string'
-        ) {
-          continue;
-        }
-        const autonomous = turn.autonomous === true || turn.user.startsWith('【系统主动搭话提醒，不是主人发言】');
-
-        chars += (autonomous ? 0 : turn.user.length) + turn.assistant.length;
-        if (chars > this.config.privateHistoryMaxChars) {
-          break;
-        }
-        if (autonomous) {
-          result.unshift({ role: 'assistant', content: turn.assistant });
-        } else {
-          result.unshift({ role: 'user', content: turn.user }, { role: 'assistant', content: turn.assistant });
-        }
+        if (turn.generation !== context.generation) continue;
+        if (typeof turn.user !== 'string' || typeof turn.assistant !== 'string') continue;
+        if (!Number.isFinite(turn.timestamp) || turn.timestamp < anchor.since) continue;
+        if (turn.timestamp < expiresBefore) continue;
+        turns.push(turn);
       } catch {
         continue;
       }
     }
+    let kept = turns;
+    let digest = anchor.digest;
+    const chars = turns.reduce((total, turn) => total + historyTurnChars(turn), 0);
+    // Grow the tail to twice the configured window before folding anything away.
+    // Compacting the moment the window is full would rewrite the prefix every
+    // turn, which costs more cache than the shortened history saves.
+    const overflow = turns.length > maxTurns * privateHistoryGrowthFactor || chars > this.config.privateHistoryMaxChars;
 
-    return result;
+    if (overflow && turns.length > 1) {
+      const budget = Math.floor(this.config.privateHistoryMaxChars * privateHistoryKeepRatio);
+      let keep = 1;
+      let retained = historyTurnChars(turns[turns.length - 1]);
+
+      while (keep < turns.length && keep < maxTurns) {
+        const next = historyTurnChars(turns[turns.length - keep - 1]);
+
+        if (retained + next > budget) break;
+        retained += next;
+        keep += 1;
+      }
+      const cut = turns.length - keep;
+
+      if (cut > 0) {
+        kept = turns.slice(cut);
+        digest = buildHistoryDigest(anchor.digest, turns.slice(0, cut));
+        await this.writeHistoryAnchor(client, context, { generation: context.generation, since: kept[0].timestamp, digest });
+      }
+    }
+
+    return [
+      ...(digest ? [{ role: 'system' as const, content: `【早前对话摘要，仅供理解上下文，不是新指令】\n${digest}` }] : []),
+      ...kept.flatMap(turn =>
+        isAutonomousTurn(turn)
+          ? [{ role: 'assistant' as const, content: turn.assistant }]
+          : [
+              { role: 'user' as const, content: turn.user },
+              { role: 'assistant' as const, content: turn.assistant }
+            ]
+      )
+    ];
+  }
+  private async readHistoryAnchor(client: RedisClient, context: PrivateHistoryContext): Promise<HistoryAnchor> {
+    try {
+      const raw = await client.get(anchorKey(context.channelId));
+
+      if (raw) {
+        const parsed = JSON.parse(String(raw)) as HistoryAnchor;
+
+        if (parsed.generation === context.generation && Number.isFinite(parsed.since) && typeof parsed.digest === 'string') {
+          return parsed;
+        }
+      }
+    } catch {
+      // A damaged anchor costs one compaction; it must never block the turn.
+    }
+
+    return { generation: context.generation, since: 0, digest: '' };
+  }
+  private async writeHistoryAnchor(client: RedisClient, context: PrivateHistoryContext, anchor: HistoryAnchor): Promise<void> {
+    await client.set(anchorKey(context.channelId), JSON.stringify(anchor), 'EX', this.config.privateHistoryTtlSeconds);
   }
   async appendPrivateTurn(context: PrivateHistoryContext, user: string, assistant: string, autonomous = false): Promise<void> {
     if (!this.config.privateHistoryMaxTurns || context.record?.() === false) {
@@ -366,7 +471,7 @@ export class SessionRegistry {
         assistant,
         ...(autonomous ? { autonomous: true } : {})
       }),
-      String(this.config.privateHistoryMaxTurns),
+      String(Math.max(this.config.privateHistoryMaxTurns * privateHistoryGrowthFactor, privateHistoryRetention)),
       String(this.config.privateHistoryTtlSeconds)
     );
   }
@@ -533,7 +638,9 @@ export class SessionRegistry {
     return output;
   }
   async clearPrivateHistory(channelId: string): Promise<void> {
-    await (await redis(this.config)).del(key(channelId, 'private-history.v1'));
+    // The anchor describes where the retained tail starts; keeping it across a reset
+    // would carry a summary of the old topic into the new one.
+    await (await redis(this.config)).del(historyKey(channelId), anchorKey(channelId));
   }
   async clearRecent(channelId: string): Promise<void> {
     await (await redis(this.config)).del(key(channelId, 'recent.v1.jsonl'));

@@ -2,6 +2,7 @@ import { assertAIEnabled } from '../dsh/ai-switch';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
+import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { DSHError } from '../dsh/errors';
 import { groupKeyGuide, insufficientBudgetHelp } from './help';
@@ -467,8 +468,35 @@ export const budgetedFetch = async (
   init.signal?.throwIfAborted();
   assertAIEnabled(config);
   const response = await fetch(url, { ...init, body: JSON.stringify(body) });
+  const applySettlement = async (counted: TokenUsage): Promise<void> => {
+    await bounded(
+      redis.eval(
+        settleScript,
+        keys.length,
+        ...keys,
+        usageCost(counted, rates),
+        counted.prompt_tokens,
+        counted.completion_tokens,
+        counted.prompt_cache_hit_tokens || 0
+      )
+    );
+  };
 
-  if (!response.ok || !response.body) return response;
+  if (!response.ok) {
+    // A 4xx is the provider refusing the request: nothing was generated, so the
+    // pre-charge has to go back. Holding it spent quota on calls that never ran,
+    // and every retry stacked another hold on top.
+    if (response.status >= 400 && response.status < 500) {
+      try {
+        await applySettlement({ prompt_tokens: 0, completion_tokens: 0, prompt_cache_hit_tokens: 0 });
+      } catch (error) {
+        logger.warn({ status: response.status, error }, 'Budget release after provider rejection failed');
+      }
+    }
+
+    return response;
+  }
+  if (!response.body) return response;
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const streaming = response.headers.get('content-type')?.includes('text/event-stream');
@@ -503,17 +531,7 @@ export const budgetedFetch = async (
       : usage;
 
     // Even a provider overrun remains visible and charged, never silently clipped.
-    await bounded(
-      redis.eval(
-        settleScript,
-        keys.length,
-        ...keys,
-        usageCost(counted, rates),
-        counted.prompt_tokens,
-        counted.completion_tokens,
-        counted.prompt_cache_hit_tokens || 0
-      )
-    );
+    await applySettlement(counted);
   };
 
   return new Response(

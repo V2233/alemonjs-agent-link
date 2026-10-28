@@ -229,7 +229,7 @@ alemonjs-agent-link:
   persona: dafeiyu
   privateAutoReply: true
   privateChatAccess: all # 默认向普通用户开放私聊；普通用户可联网查询和操作个人文件目录，终端始终禁止
-  privateHistoryMaxTurns: 10 # 0 关闭纯聊天私聊记忆，最大 100
+  privateHistoryMaxTurns: 10 # 0 关闭纯聊天私聊记忆，最大 100；压缩后保留该轮数，两次压缩之间最多增长到两倍
   privateHistoryTtlSeconds: 86400 # 每轮历史最多保留 24 小时，范围 1–2592000
   privateHistoryMaxChars: 12000 # 历史总字符预算，范围 1–100000
 ```

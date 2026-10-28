@@ -484,3 +484,39 @@ test('realtime weather request is nudged to use the web workspace instead of ref
     globalThis.fetch = original;
   }
 });
+
+test('memory context rides in the tail so the cached prompt prefix stays append-only', async () => {
+  const original = globalThis.fetch;
+  let body;
+  globalThis.fetch = async (_url, init) => {
+    body = JSON.parse(init.body);
+    return Response.json({ choices: [{ message: { content: '好' } }] });
+  };
+  try {
+    const result = await runToolChat({
+      ...options([]),
+      history: [
+        { role: 'user', content: '旧问题' },
+        { role: 'assistant', content: '旧回答' }
+      ],
+      memoryContext: '记忆：用户喜欢茶'
+    });
+    assert.equal(result, '好');
+  } finally {
+    globalThis.fetch = original;
+  }
+  // Only per-turn material may change between turns; anything before it must be
+  // byte-identical to the previous turn or the provider's prefix cache misses.
+  assert.deepEqual(
+    body.messages.map(message => message.role),
+    ['system', 'user', 'assistant', 'user']
+  );
+  assert.deepEqual(
+    body.messages.slice(1, 3).map(message => message.content),
+    ['旧问题', '旧回答']
+  );
+  const tail = body.messages.at(-1).content;
+  assert.match(tail, /记忆：用户喜欢茶/u);
+  assert.match(tail, /记住我喜欢茶/u);
+  assert.ok(tail.indexOf('记忆：用户喜欢茶') < tail.indexOf('记住我喜欢茶'));
+});

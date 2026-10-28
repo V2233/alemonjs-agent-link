@@ -621,3 +621,51 @@ test('budget errors name the limit that actually blocked', () => {
   assert.match(personal, /本次请求预计需要 0\.50 元/);
   assert.doesNotMatch(personal, /全局每日上限/);
 });
+
+test('a provider rejection releases the pre-charge; a 5xx keeps it', async () => {
+  const oldRedis = globalThis.ioRedis,
+    oldFetch = globalThis.fetch;
+  const ledger = { held: 0, used: 0, reserved: 0, requests: 0, settled: 0 };
+  globalThis.ioRedis = {
+    status: 'ready',
+    ping: async () => 'PONG',
+    time: async () => [String(Math.floor(Date.now() / 1000)), '0'],
+    async eval(script, numkeys, ...rest) {
+      const argv = rest.slice(Number(numkeys));
+      if (script === reserveScript) {
+        ledger.held = Number(argv[0]);
+        ledger.used += ledger.held;
+        ledger.reserved += ledger.held;
+        ledger.requests += 1;
+        return 1;
+      }
+      if (script === settleScript) {
+        ledger.used += Number(argv[0]) - ledger.held;
+        ledger.reserved -= ledger.held;
+        ledger.held = 0;
+        ledger.settled += 1;
+        return 1;
+      }
+      return 0;
+    }
+  };
+  try {
+    globalThis.fetch = async () => new Response('{"error":{"message":"bad request"}}', { status: 400 });
+    const rejected = await withBudgetScope(scope, () => budgetedFetch(config, url, init()));
+    assert.equal(rejected.status, 400);
+    assert.equal(ledger.requests, 1);
+    assert.equal(ledger.settled, 1, 'a refused request must be settled, not left on hold');
+    assert.equal(ledger.used, 0);
+    assert.equal(ledger.reserved, 0);
+
+    // A 5xx may still have produced billable tokens, so the hold stays put.
+    globalThis.fetch = async () => new Response('{"error":"upstream"}', { status: 503 });
+    const failed = await withBudgetScope(scope, () => budgetedFetch(config, url, init()));
+    assert.equal(failed.status, 503);
+    assert.equal(ledger.settled, 1);
+    assert.ok(ledger.reserved > 0);
+  } finally {
+    globalThis.ioRedis = oldRedis;
+    globalThis.fetch = oldFetch;
+  }
+});

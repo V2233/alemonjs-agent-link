@@ -183,7 +183,7 @@
 | -------------------------- | ------- | ------- | ---------------------------------------------------------------------- |
 | `privateChatAccess`        | string  | `all`   | `owner` 仅主人可私聊；`all` 任何人可私聊（仍受额度和个人目录隔离限制） |
 | `privateAutoReply`         | boolean | `true`  | 私聊是否自动回复；关闭后仅显式指令响应                                 |
-| `privateHistoryMaxTurns`   | number  | `10`    | 0–100，纯聊天保留的轮数                                                |
+| `privateHistoryMaxTurns`   | number  | `10`    | 0–100，纯聊天保留的轮数；两次压缩之间最多增长到两倍                    |
 | `privateHistoryTtlSeconds` | number  | `86400` | 1–2592000，历史过期时间                                                |
 | `privateHistoryMaxChars`   | number  | `12000` | 1–100000，历史文本上限                                                 |
 

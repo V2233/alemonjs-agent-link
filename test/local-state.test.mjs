@@ -22,10 +22,14 @@ test('proactive replies remain assistant messages, including legacy task prompts
     await registry.appendPrivateTurn(ctx, '【系统主动搭话提醒，不是主人发言】旧任务指令', '说到刚才那只白鲸');
     await registry.appendPrivateTurn(ctx, '', '突然想起你刚才说的故事', true);
     assert.deepEqual(await registry.privateHistory(ctx), [
-      { role: 'user', content: '刚才讲了白鲸' }, { role: 'assistant', content: '嗯，有意思' },
-      { role: 'assistant', content: '说到刚才那只白鲸' }, { role: 'assistant', content: '突然想起你刚才说的故事' }
+      { role: 'user', content: '刚才讲了白鲸' },
+      { role: 'assistant', content: '嗯，有意思' },
+      { role: 'assistant', content: '说到刚才那只白鲸' },
+      { role: 'assistant', content: '突然想起你刚才说的故事' }
     ]);
-  } finally { await registry.purgeHash(await registry.groupKey(channelId)); }
+  } finally {
+    await registry.purgeHash(await registry.groupKey(channelId));
+  }
 });
 
 test('Local private history bounds, isolation, generation guard and deletion', {}, async () => {
@@ -39,19 +43,48 @@ test('Local private history bounds, isolation, generation guard and deletion', {
     await registry.appendPrivateTurn(ctx, 'a', 'b');
     await registry.appendPrivateTurn(ctx, 'c', 'd');
     await registry.appendPrivateTurn(ctx, 'e', 'f');
+    // The tail grows to twice the configured window before anything is folded away,
+    // so three turns still fit under a window of two.
     assert.deepEqual(
       (await registry.privateHistory(ctx)).map(m => m.content),
-      ['c', 'd', 'e', 'f']
+      ['a', 'b', 'c', 'd', 'e', 'f']
     );
-    const smallBudget = new SessionRegistry({ ...config, privateHistoryMaxChars: 3 });
+    // Two more turns exceed 2 * privateHistoryMaxTurns: the oldest are folded into a
+    // single digest message and only the configured window stays verbatim.
+    await registry.appendPrivateTurn(ctx, 'g', 'h');
+    await registry.appendPrivateTurn(ctx, 'i', 'j');
+    const folded = await registry.privateHistory(ctx);
+    assert.equal(folded[0].role, 'system');
     assert.deepEqual(
-      (await smallBudget.privateHistory(ctx)).map(m => m.content),
+      folded.slice(1).map(m => m.content),
+      ['g', 'h', 'i', 'j']
+    );
+    // Reading again must not move the window a second time.
+    assert.deepEqual(await registry.privateHistory(ctx), folded);
+    // A tighter character budget keeps only the newest turn and folds the rest.
+    const budgetChannel = `private:budget-${randomUUID()}`;
+    const budgetReset = await registry.beginReset(budgetChannel);
+    await registry.completeReset(budgetChannel, budgetReset.operationId);
+    const budgetCtx = { channelId: budgetChannel, generation: budgetReset.generation };
+    for (const [user, assistant] of [
+      ['a', 'b'],
+      ['c', 'd'],
+      ['e', 'f']
+    ]) {
+      await registry.appendPrivateTurn(budgetCtx, user, assistant);
+    }
+    const smallBudget = new SessionRegistry({ ...config, privateHistoryMaxChars: 3 });
+    const tightened = await smallBudget.privateHistory(budgetCtx);
+    assert.equal(tightened[0].role, 'system');
+    assert.deepEqual(
+      tightened.slice(1).map(m => m.content),
       ['e', 'f']
     );
     assert.deepEqual(await new SessionRegistry({ ...config, privateHistoryMaxTurns: 0 }).privateHistory(ctx), []);
     assert.deepEqual(await registry.privateHistory({ ...ctx, channelId: channelId + '-other' }), []);
+    // An oversized turn is dropped rather than stored truncated.
     await registry.appendPrivateTurn(ctx, 'oversized turn', 'answer');
-    assert.equal((await registry.privateHistory(ctx)).length, 4);
+    assert.equal((await registry.privateHistory(ctx)).length, 5);
     const next = await registry.beginReset(channelId);
     const duringReset = await registry.touch(channelId, ctx.generation);
     assert.equal(duringReset.generation, next.generation);

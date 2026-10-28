@@ -213,7 +213,8 @@ alemonjs-agent-link:
   privateChatAccess: 'all'
   # 私聊普通消息是否自动回应；false 时只响应显式指令。
   privateAutoReply: true
-  # 纯聊天模式下保留的对话轮数（0-100）。
+  # 纯聊天模式下保留的对话轮数（0-100）。历史在两次压缩之间只追加不裁剪，
+  # 所以最多会增长到该值的两倍，压缩后回到该轮数。
   privateHistoryMaxTurns: 10
   # 私聊历史的过期时间（秒，1-2592000，这里 24 小时）。
   privateHistoryTtlSeconds: 86400
