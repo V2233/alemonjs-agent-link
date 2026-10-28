@@ -269,7 +269,7 @@
 
 | 字段      | 类型   | 默认                                    | 说明                                                       |
 | --------- | ------ | --------------------------------------- | ---------------------------------------------------------- |
-| `model`   | string | 同源时 `deepseek-flash`，官方域固定该值 | 判断「该不该接话」的模型                                   |
+| `model`   | string | 同源时 `deepseek-flash`，官方域固定该值 | 判断「是不是在喊它」与「是不是接着它的上下文」的模型       |
 | `baseUrl` | string | 主模型地址                              | 必须是无凭证、无查询参数的 HTTPS 地址                      |
 | `apiKey`  | string | 同源时复用主密钥                        | 跨源时必须单独提供；留空且跨源会导致判断直接放弃（不接话） |
 
@@ -277,29 +277,32 @@
 
 按群覆盖：`groupChat.overrides.<channelId>` 支持表中任意字段。
 
-| 字段                  | 类型             | 默认            | 范围                 | 说明                                                                                 |
-| --------------------- | ---------------- | --------------- | -------------------- | ------------------------------------------------------------------------------------ |
-| `enabled`             | boolean          | `true`          | —                    | 群聊自主参与总开关                                                                   |
-| `replyGateEnabled`    | boolean          | `true`          | —                    | 是否调用感知模型判断该不该接话                                                       |
-| `boundKeyElevation`   | boolean          | `true`          | —                    | 群里绑定自带 Key 时是否拉满参与强度；`false` 保持普通策略                            |
-| `boundKeyTools`       | boolean          | `true`          | —                    | 自带 Key 的群是否自动开放网页与文件工具；`false` 只保留参与度提权                    |
-| `boundKey`            | boolean          | 运行时注入      | —                    | 由运行时按「本群是否绑定 Key」注入，**不是**人工配置项；手写只影响该群是否走提权分支 |
-| `batchWindowMs`       | number           | `1200`          | 0–10000              | 合并窗口，等同一批消息说完                                                           |
-| `maxBatchWaitMs`      | number           | `4000`          | 1–30000              | 合并最长等待，必须 ≥ `batchWindowMs`                                                 |
-| `maxBatchMessages`    | number           | `24`            | 1–100                | 单批最多消息数                                                                       |
-| `maxBatchChars`       | number           | `12000`         | 200–50000            | 单批最多字符数                                                                       |
-| `interjectChance`     | number           | `0.25`          | 0–1                  | 主动插话概率                                                                         |
-| `cooldownSeconds`     | number           | `60`            | 0–86400              | 两次自主发言的最小间隔                                                               |
-| `maxPerHour`          | number           | `10`            | 0–100                | 每小时自主发言上限                                                                   |
-| `quietHours`          | [number, number] | `[1, 8]`        | 0–23                 | 静默时段（可跨零点）                                                                 |
-| `timezone`            | string           | `Asia/Shanghai` | IANA 时区            | 静默时段与统计所用时区                                                               |
-| `minRecentMessages`   | number           | `3`             | 1–100                | 至少有多少条近期消息才考虑接话                                                       |
-| `activeWindowSeconds` | number           | `300`           | 1–3600               | 判定「群还活跃」的时间窗                                                             |
-| `minRelevance`        | number           | `0.2`           | 0–1                  | 话题相关度阈值                                                                       |
-| `interests`           | string[]         | 见下            | ≤100 条，每条 ≤40 字 | 兴趣词表，用于话题相关度打分                                                         |
-| `engagedSeconds`      | number           | `300`           | 0–1800               | 被点到后保持「对话中」的时长                                                         |
-| `burstMax`            | number           | `8`             | 1–100                | 连发窗口内最多条数                                                                   |
-| `burstWindowSeconds`  | number           | `120`           | 1–3600               | 连发统计窗口                                                                         |
+| 字段                  | 类型             | 默认            | 范围                  | 说明                                                                                 |
+| --------------------- | ---------------- | --------------- | --------------------- | ------------------------------------------------------------------------------------ |
+| `activity`            | string           | `active`        | quiet/balanced/active | 活跃度预设；显式数字字段优先于预设                                                   |
+| `enabled`             | boolean          | `true`          | —                     | 群聊自主参与总开关                                                                   |
+| `replyGateEnabled`    | boolean          | `true`          | —                     | 是否调用感知模型判断是不是在喊它、是不是接着它的上下文                               |
+| `boundKeyElevation`   | boolean          | `true`          | —                     | 群里绑定自带 Key 时是否拉满参与强度；`false` 保持普通策略                            |
+| `boundKeyTools`       | boolean          | `true`          | —                     | 自带 Key 的群是否自动开放网页与文件工具；`false` 只保留参与度提权                    |
+| `boundKey`            | boolean          | 运行时注入      | —                     | 由运行时按「本群是否绑定 Key」注入，**不是**人工配置项；手写只影响该群是否走提权分支 |
+| `batchWindowMs`       | number           | `1200`          | 0–10000               | 合并窗口，等同一批消息说完                                                           |
+| `maxBatchWaitMs`      | number           | `4000`          | 1–30000               | 合并最长等待，必须 ≥ `batchWindowMs`                                                 |
+| `maxBatchMessages`    | number           | `24`            | 1–100                 | 单批最多消息数                                                                       |
+| `maxBatchChars`       | number           | `12000`         | 200–50000             | 单批最多字符数                                                                       |
+| `interjectChance`     | number           | `0.45`          | 0–1                   | 主动插话概率                                                                         |
+| `cooldownSeconds`     | number           | `30`            | 0–86400               | 两次自主发言的最小间隔                                                               |
+| `maxPerHour`          | number           | `16`            | 0–100                 | 每小时自主发言上限                                                                   |
+| `quietHours`          | [number, number] | `[1, 8]`        | 0–23                  | 静默时段（可跨零点）                                                                 |
+| `timezone`            | string           | `Asia/Shanghai` | IANA 时区             | 静默时段与统计所用时区                                                               |
+| `minRecentMessages`   | number           | `2`             | 1–100                 | 至少有多少条近期消息才考虑接话                                                       |
+| `activeWindowSeconds` | number           | `300`           | 1–3600                | 判定「群还活跃」的时间窗                                                             |
+| `minRelevance`        | number           | `0.15`          | 0–1                   | 话题相关度阈值                                                                       |
+| `interests`           | string[]         | 见下            | ≤100 条，每条 ≤40 字  | 兴趣词表，用于话题相关度打分                                                         |
+| `engagedSeconds`      | number           | `600`           | 0–1800                | 被点到后保持「对话中」的时长                                                         |
+| `burstMax`            | number           | `10`            | 1–100                 | 连发窗口内最多条数                                                                   |
+| `burstWindowSeconds`  | number           | `120`           | 1–3600                | 连发统计窗口                                                                         |
+
+`quiet` 预设：插话 0.08、冷却 180 秒、每小时 4 次、近期 5 条、相关度 0.35、参与期 120 秒、突发 6 次。`balanced` 预设为旧默认（0.25 / 60 秒 / 10 次 / 3 条 / 0.2 / 300 秒 / 8 次）。显式写出的数字字段优先于预设。
 
 `interests` 默认：`吃饭`、`美食`、`游戏`、`动漫`、`猫`、`鲸鱼`、`睡觉`、`天气`、`奶茶`、`表情包`。
 
@@ -338,6 +341,8 @@
 | `intervalHours` | number  | `12`   | 1–168 | 整理间隔           |
 | `recallLimit`   | number  | `8`    | 1–20  | 每次注入的记忆条数 |
 
+`memory.embedding` 可选，字段为 `baseUrl`（HTTPS）、`apiKey`、`model`、`weight`（0–1，默认 `0.55`）、`maxItems`（100–2000，默认 `200`）、`timeoutMs`（1000–30000，默认 `8000`）。不配置时只用 BM25；配置后使用 OpenAI-compatible `POST /embeddings` 做语义重排，失败自动回退。详见[长期记忆](memory.md)。
+
 ### 8.3 `modules.settings.mood`
 
 | 字段            | 类型    | 默认   | 范围    | 说明                                 |
@@ -348,22 +353,25 @@
 
 ### 8.4 `modules.settings.proactive`
 
-| 字段                                        | 类型             | 默认            | 范围            | 说明                                                   |
-| ------------------------------------------- | ---------------- | --------------- | --------------- | ------------------------------------------------------ |
-| `enabled`                                   | boolean          | `true`          | —               | 主动搭话总开关                                         |
-| `autoSubscribe`                             | boolean          | `true`          | —               | 主人首次私聊时自动订阅主动搭话；说“别主动找我”仍会关闭 |
-| `idleMinutes`                               | number           | `40`            | 1–1440          | 空闲多久才考虑搭话                                     |
-| `minIntervalMinutes` / `maxIntervalMinutes` | number           | `60` / `180`    | 1–1440 / 1–2880 | 随机间隔区间，前者不得大于后者                         |
-| `maxPerDay`                                 | number           | `4`             | 0–20            | 每日搭话上限                                           |
-| `nudge`                                     | boolean          | `true`          | —               | 未回复时是否追问                                       |
-| `nudgeMinMinutes` / `nudgeMaxMinutes`       | number           | `15` / `40`     | 1–1440 / 1–2880 | 追问间隔，必须前小后大                                 |
-| `nudgeChance`                               | number           | `0.5`           | 0–1             | 追问概率                                               |
-| `maxNudgesPerDay`                           | number           | `4`             | 0–20            | 每日追问上限                                           |
-| `maxUnanswered`                             | number           | `2`             | 1–20            | 连续未回复多少次后停止                                 |
-| `quietHours`                                | [number, number] | `[23, 8]`       | 0–23            | 免打扰时段                                             |
-| `timezone`                                  | string           | `Asia/Shanghai` | IANA 时区       | 时段计算时区                                           |
-| `maxChars`                                  | number           | `300`           | 40–1000         | 单条主动消息长度上限                                   |
-| `ownKeyMax`                                 | boolean          | `true`          | —               | 绑定个人 Key 的私聊是否自动拉满频率                    |
+| 字段                                        | 类型             | 默认            | 范围                  | 说明                                                   |
+| ------------------------------------------- | ---------------- | --------------- | --------------------- | ------------------------------------------------------ |
+| `activity`                                  | string           | `active`        | quiet/balanced/active | 主动搭话节奏预设；显式数字字段优先                     |
+| `enabled`                                   | boolean          | `true`          | —                     | 主动搭话总开关                                         |
+| `autoSubscribe`                             | boolean          | `true`          | —                     | 主人首次私聊时自动订阅主动搭话；说“别主动找我”仍会关闭 |
+| `idleMinutes`                               | number           | `20`            | 1–1440                | 空闲多久才考虑搭话                                     |
+| `minIntervalMinutes` / `maxIntervalMinutes` | number           | `30` / `90`     | 1–1440 / 1–2880       | 随机间隔区间，前者不得大于后者                         |
+| `maxPerDay`                                 | number           | `8`             | 0–20                  | 每日搭话上限                                           |
+| `nudge`                                     | boolean          | `true`          | —                     | 未回复时是否追问                                       |
+| `nudgeMinMinutes` / `nudgeMaxMinutes`       | number           | `15` / `40`     | 1–1440 / 1–2880       | 追问间隔，必须前小后大                                 |
+| `nudgeChance`                               | number           | `0.6`           | 0–1                   | 追问概率                                               |
+| `maxNudgesPerDay`                           | number           | `6`             | 0–20                  | 每日追问上限                                           |
+| `maxUnanswered`                             | number           | `3`             | 1–20                  | 连续未回复多少次后停止                                 |
+| `quietHours`                                | [number, number] | `[23, 8]`       | 0–23                  | 免打扰时段                                             |
+| `timezone`                                  | string           | `Asia/Shanghai` | IANA 时区             | 时段计算时区                                           |
+| `maxChars`                                  | number           | `300`           | 40–1000               | 单条主动消息长度上限                                   |
+| `ownKeyMax`                                 | boolean          | `true`          | —                     | 绑定个人 Key 的私聊是否自动拉满频率                    |
+
+`quiet` 预设：空闲 90 分钟、间隔 180–360 分钟、每天 2 次、追问 1 次；`balanced` 为旧默认（40 分钟 / 60–180 / 4 次 / 2 次）。显式数字字段优先于预设。
 
 > `flexible` 是运行时派生字段（由后台根据在线状态与额度算出），**不是**可配置项，写进配置不会生效。
 
@@ -402,15 +410,16 @@
 
 ### 8.7 `modules.settings.expression`（表达方式）
 
-| 字段                  | 类型             | 默认     | 范围        | 说明                                             |
-| --------------------- | ---------------- | -------- | ----------- | ------------------------------------------------ |
-| `automatic`           | boolean          | `true`   | —           | 自动决定语音/表情；未配置媒体时回退文字          |
-| `voiceChance`         | number           | `0.1`    | 0–1         | 用语音回复的概率                                 |
-| `stickerChance`       | number           | `0.25`   | 0–1         | `both` 模式下正文后补表情的概率                  |
-| `stickerFallback`     | boolean          | `false`  | —           | `both` 模式下没有相关表情时是否随手发            |
-| `stickerIntentAlways` | boolean          | `true`   | —           | 明确意图（在不在/晚安等）优先尝试表情            |
-| `stickerMode`         | string           | `either` | either/both | either=表情优先，必要时补文字；both=正文后补一张 |
-| `delayMs`             | [number, number] | `[0, 0]` | 0–3000      | 随机停顿区间，前值不得大于后值                   |
+| 字段                  | 类型             | 默认     | 范围        | 说明                                                     |
+| --------------------- | ---------------- | -------- | ----------- | -------------------------------------------------------- |
+| `automatic`           | boolean          | `true`   | —           | 自动决定语音/表情；未配置媒体时回退文字                  |
+| `voiceChance`         | number           | `0.15`   | 0–1         | 用语音回复的概率                                         |
+| `stickerChance`       | number           | `0.35`   | 0–1         | `both` 模式下正文后补表情的概率                          |
+| `stickerFallback`     | boolean          | `false`  | —           | `both` 模式下没有相关表情时是否随手发                    |
+| `stickerIntentAlways` | boolean          | `true`   | —           | 明确意图（在不在/晚安等）优先尝试表情                    |
+| `stickerMode`         | string           | `either` | either/both | either=表情优先，必要时补文字；both=正文后补一张         |
+| `modelVoice`          | boolean          | `false`  | —           | 允许模型用 `<voice>...</voice>` 选择语音；会缓冲整段回复 |
+| `delayMs`             | [number, number] | `[0, 0]` | 0–3000      | 随机停顿区间，前值不得大于后值                           |
 
 ### 8.8 `modules.settings.persona`
 
@@ -487,6 +496,8 @@
 | `referenceText`  | string  | 无                   | 参考音频文本                                                                     |
 | `language`       | string  | `zh`                 | 语言                                                                             |
 | `urlTemplate`    | string  | 无                   | `http` 引擎拼接模板                                                              |
+
+**关于 `edge` 引擎**：需要先安装组件，私聊发送 `/语音引擎 安装`（在数据目录下创建 `speech-venv`，依赖 `python3` 与网络），装好后用 `/语音引擎 试听 你好` 验证。未安装 `edge-tts` 且没有配置 `media.tts` 时，`auto` 会落到 `system` 引擎（macOS `say`、Windows `System.Speech`、Linux `espeak-ng`），音色明显更机械。实测可用的中文音色：`zh-CN-XiaoxiaoNeural`（温暖，推荐）、`zh-CN-XiaoyiNeural`（活泼）、`zh-CN-liaoning-XiaobeiNeural`（东北话）、`zh-CN-shaanxi-XiaoniNeural`（陕西话）、`zh-TW-HsiaoChenNeural`、`zh-HK-HiuGaaiNeural`；`zh-CN-XiaohanNeural` 等旧音色已从微软接口下架，调用会报 `NoAudioReceived`，此时可继续用上一次有效的音色。
 
 ## 10. 环境变量
 

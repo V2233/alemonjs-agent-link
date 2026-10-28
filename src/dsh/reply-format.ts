@@ -32,3 +32,24 @@ export const createChatReplyFormat = (text: string, platform?: string, mentionUs
 
   return format;
 };
+
+/** Model-directed voice: the tag is transport metadata, never conversation content. */
+export const extractVoiceTag = (text: string): { text: string; voice: boolean } => {
+  const voice = /<voice>[\s\S]*?<\/voice>/u.test(text);
+
+  return { text: text.replace(/<\/?voice>/gu, '').trim(), voice };
+};
+
+/** Lightweight net-savvy eraser: only removes obvious assistant padding, never code. */
+export const polishNetSavvy = (text: string): string => {
+  if (/```|~~~/u.test(text)) return text;
+  const value = text
+    .replace(/^(\s*)作为(?:一个)?AI(?:助手)?[，,]\s*/u, '$1')
+    .replace(/^(\s*)好的主人[，,]\s*/u, '$1')
+    .replace(/(^|[。！？!?，,]\s*)我这边/gu, '$1我')
+    .replace(/我?帮你看看/gu, '我看看')
+    .replace(/(?:希望)?(?:这|以上)?(?:能|对你)?有(?:所)?帮助[。！!]?\s*$/u, '')
+    .trim();
+
+  return value || text.trim();
+};

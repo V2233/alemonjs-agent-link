@@ -78,7 +78,7 @@ test('group key grants, encrypted storage, scope isolation and quota fallback', 
     }
     if (mode === '402' && new Headers(init.headers).get('Authorization') === `Bearer ${secret}`) return Response.json({}, { status: 402 });
     return Response.json({
-      choices: [{ message: { content: '{"reply":true,"reason":"direct_call","source":"human","loopRisk":false}' } }],
+      choices: [{ message: { content: '{"addressed":"name","related":"none","source":"human","loopRisk":false}' } }],
       ...(mode === 'missing-usage' ? {} : { usage: { prompt_tokens: 100, completion_tokens: 20 } })
     });
   };

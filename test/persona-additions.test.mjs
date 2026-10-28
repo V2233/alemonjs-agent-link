@@ -37,20 +37,24 @@ test('owner additions preserve base prompts, persist, follow persona selection a
   }
 });
 
-test('expression modes default to character, persist, inherit globally and isolate overrides', async () => {
+test('expression modes default to active character, persist, inherit globally and isolate overrides', async () => {
   const root = await mkdtemp(join(tmpdir(), 'persona-modes-'));
   let store = new PersonaStore(root);
   const config = resolveDSHConfig({});
   const a = { platform: 'qq-bot', channelId: 'a', private: false, owner: true };
   const b = { ...a, channelId: 'b' };
   try {
-    assert.equal(store.expressionMode(a), '个性');
-    assert.match(await store.systemPrompt(config, a), /当前表达程度：个性/);
+    assert.equal(store.expressionMode(a), '活跃');
+    const activePrompt = await store.systemPrompt(config, a);
+    assert.match(activePrompt, /当前表达程度：活跃/);
+    assert.match(activePrompt, /\|\|\|/);
+    assert.match(activePrompt, /表情包/);
+    assert.match(activePrompt, /我这边/);
     store.append('dafeiyu', '喜欢贝壳');
     assert.throws(() => store.setExpressionMode(a, '专业', false), /主人/);
     assert.throws(() => store.setExpressionMode(undefined, '工作', false), /主人/);
     assert.throws(() => store.setExpressionMode(a, 'invalid', true), /程度/);
-    assert.equal(store.expressionMode(a), '个性');
+    assert.equal(store.expressionMode(a), '活跃');
     store.setExpressionMode(undefined, '工作', true);
     assert.equal(store.expressionMode(a), '工作');
     store.setExpressionMode(a, '专业', true);
@@ -70,11 +74,11 @@ test('expression modes default to character, persist, inherit globally and isola
     store.setExpressionMode(a, undefined, true);
     assert.equal(store.expressionMode(a), '工作');
     store.setExpressionMode(undefined, undefined, true);
-    assert.equal(store.expressionMode(a), '个性');
+    assert.equal(store.expressionMode(a), '活跃');
     const { createHash } = await import('node:crypto');
     store.setExpressionMode(a, '专业', true);
     store.purgeHash(createHash('sha256').update(a.channelId).digest('hex'));
-    assert.equal(store.expressionMode(a), '个性');
+    assert.equal(store.expressionMode(a), '活跃');
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });

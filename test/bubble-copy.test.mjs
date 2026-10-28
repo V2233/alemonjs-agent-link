@@ -72,7 +72,10 @@ test('help and configuration guidance use structured Markdown with readable step
     assert.equal(messages.length, 1);
     const items = formats.flat();
 
-    assert.ok(items.every(item => item.type === 'Markdown' || item.type === 'BT.group'), 'help cards are Markdown plus an optional keyboard group');
+    assert.ok(
+      items.every(item => item.type === 'Markdown' || item.type === 'BT.group'),
+      'help cards are Markdown plus an optional keyboard group'
+    );
     assert.ok(!items.some(item => item.type === 'BT.group'), 'detailed help keeps one inline next step, not a duplicate keyboard');
 
     assert.match(messages[0], isPrivate ? /个人密钥 绑定 sk-你的Key/ : /群密钥 绑定 临时码 sk-你的Key/);
@@ -82,7 +85,10 @@ test('help and configuration guidance use structured Markdown with readable step
   const messages = await runCommand((await import('../lib/response/agent-bind/res.js')).default, { master: false, formats });
   const bindItems = formats.flat();
 
-  assert.ok(bindItems.every(item => item.type === 'Markdown' || item.type === 'BT.group'), 'key guidance is Markdown plus an optional keyboard group');
+  assert.ok(
+    bindItems.every(item => item.type === 'Markdown' || item.type === 'BT.group'),
+    'key guidance is Markdown plus an optional keyboard group'
+  );
   assert.match(messages[0], /个人密钥 绑定/);
 });
 
@@ -99,8 +105,9 @@ test('budget errors explain the correct private or group binding workflow withou
 });
 
 test('budget errors show the shortfall above the binding guidance', () => {
-  const error = withBudgetScope({ platform: 'test', userId: 'u', channelId: 'g' }, () =>
-    new BudgetExceededError({ availableYuan: 0.1032, requiredYuan: 0.1328 })
+  const error = withBudgetScope(
+    { platform: 'test', userId: 'u', channelId: 'g' },
+    () => new BudgetExceededError({ availableYuan: 0.1032, requiredYuan: 0.1328 })
   );
 
   assert.match(error.message, /本次请求预计需要 0\.13 元，当前可用约 0\.10 元/);
@@ -112,8 +119,9 @@ test('budget errors show the shortfall above the binding guidance', () => {
   const unknown = withBudgetScope({ platform: 'test', userId: 'u', channelId: 'g' }, () => new BudgetExceededError());
   assert.doesNotMatch(unknown.message, /本次请求预计需要/);
 
-  const global = withBudgetScope({ platform: 'test', userId: 'u', channelId: 'g' }, () =>
-    new BudgetExceededError({ availableYuan: 0.5, requiredYuan: 0.13, globalBlocked: true })
+  const global = withBudgetScope(
+    { platform: 'test', userId: 'u', channelId: 'g' },
+    () => new BudgetExceededError({ availableYuan: 0.5, requiredYuan: 0.13, globalBlocked: true })
   );
   assert.match(global.message, /今日全局每日上限也已用满/);
 });
@@ -189,34 +197,44 @@ test('owner status is one short bubble and platform diagnostics are opt-in', asy
 });
 
 test('bubble copy stays inside its length budget', async () => {
-  const flatten = format => format.map(item => (item.type === 'Markdown' ? markdownToPlainText(item.value) : typeof item.value === 'string' ? item.value : '')).join('');
-  const measure = text => Array.from(text).length;
-  const budgets = [];
+  const root = await mkdtemp(join(tmpdir(), 'bubble-budget-'));
+  const previous = globalThis.__config;
 
-  for (const [topic, budget] of [
-    ['', 420],
-    ['聊天', 180],
-    ['记忆', 215],
-    ['人格', 250],
-    ['媒体', 235],
-    ['数据', 205],
-    ['管理', 380]
-  ]) {
-    assert.ok(measure(flatten(helpFormat(true, true, topic).value)) <= budget, `帮助${topic || '目录'} 超长`);
-    budgets.push([`帮助${topic || '目录'}`, budget]);
-  }
+  globalThis.__config = { value: { 'alemonjs-agent-link': { media: { stickerRoot: join(root, 'stickers') } } } };
+  try {
+    const flatten = format =>
+      format.map(item => (item.type === 'Markdown' ? markdownToPlainText(item.value) : typeof item.value === 'string' ? item.value : '')).join('');
+    const measure = text => Array.from(text).length;
+    const budgets = [];
 
-  const cards = [
-    ['隐私说明', '../lib/response/agent-privacy/res.js', 425, { private: false, master: false, key: '隐私说明' }],
-    ['清除群数据', '../lib/response/agent-purge/res.js', 110, { private: false, master: true, key: '清除群数据' }],
-    ['人格列表', '../lib/response/agent-persona/res.js', 170, { key: '人格' }],
-    ['状态', '../lib/response/agent-status/res.js', 185, { key: '状态' }],
-    ['记忆', '../lib/response/agent-memory/res.js', 130, { key: '记忆' }],
-    ['表情', '../lib/response/agent-sticker/res.js', 65, { private: false, master: false, key: '表情' }]
-  ];
-  for (const [name, path, budget, options] of cards) {
-    const messages = await runCommand((await import(path)).default, options);
+    for (const [topic, budget] of [
+      ['', 420],
+      ['聊天', 180],
+      ['记忆', 215],
+      ['人格', 250],
+      ['媒体', 235],
+      ['数据', 205],
+      ['管理', 380]
+    ]) {
+      assert.ok(measure(flatten(helpFormat(true, true, topic).value)) <= budget, `帮助${topic || '目录'} 超长`);
+      budgets.push([`帮助${topic || '目录'}`, budget]);
+    }
 
-    for (const message of messages) assert.ok(measure(message) <= budget, `${name} 超长：${measure(message)} > ${budget}`);
+    const cards = [
+      ['隐私说明', '../lib/response/agent-privacy/res.js', 425, { private: false, master: false, key: '隐私说明' }],
+      ['清除群数据', '../lib/response/agent-purge/res.js', 110, { private: false, master: true, key: '清除群数据' }],
+      ['人格列表', '../lib/response/agent-persona/res.js', 170, { key: '人格' }],
+      ['状态', '../lib/response/agent-status/res.js', 185, { key: '状态' }],
+      ['记忆', '../lib/response/agent-memory/res.js', 130, { key: '记忆' }],
+      ['表情', '../lib/response/agent-sticker/res.js', 65, { private: false, master: false, key: '表情' }]
+    ];
+    for (const [name, path, budget, options] of cards) {
+      const messages = await runCommand((await import(path)).default, options);
+
+      for (const message of messages) assert.ok(measure(message) <= budget, `${name} 超长：${measure(message)} > ${budget}`);
+    }
+  } finally {
+    globalThis.__config = previous;
+    await rm(root, { recursive: true, force: true });
   }
 });

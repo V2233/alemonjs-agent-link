@@ -3,7 +3,8 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { DSHBridgeConfig } from '../dsh/client';
-import { rankMemories } from './retrieval';
+import { rankMemories, rankMemoriesHybrid } from './retrieval';
+import type { EmbeddingClient } from './embedding';
 
 export type MemoryScope = { platform: string; channelId: string };
 export type MemorySource = { seq: number; speakerId: string; speaker: string; text: string; timestamp: number };
@@ -125,12 +126,27 @@ export class MemoryStore {
         tags TEXT NOT NULL, importance REAL NOT NULL, confidence REAL NOT NULL, status TEXT NOT NULL, origin TEXT NOT NULL,
         sources TEXT NOT NULL, supersedes TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
         last_recalled_at INTEGER NOT NULL DEFAULT 0, recall_days INTEGER NOT NULL DEFAULT 0, recall_day TEXT NOT NULL DEFAULT '',
+        embedding BLOB, embedding_model TEXT, embedding_hash TEXT,
         PRIMARY KEY(scope,id));
       CREATE INDEX IF NOT EXISTS memory_status ON memories(scope,status,subject_id);
       CREATE INDEX IF NOT EXISTS memory_groups ON memory_scopes(group_hash);
       CREATE TABLE IF NOT EXISTS memory_recalls (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL REFERENCES memory_scopes(scope) ON DELETE CASCADE,
         at INTEGER NOT NULL, ids TEXT NOT NULL);`);
+    const columns = new Set(
+      this.db
+        .prepare('PRAGMA table_info(memories)')
+        .all()
+        .map(row => String(row.name))
+    );
+
+    for (const [name, type] of [
+      ['embedding', 'BLOB'],
+      ['embedding_model', 'TEXT'],
+      ['embedding_hash', 'TEXT']
+    ] as const) {
+      if (!columns.has(name)) this.db.exec(`ALTER TABLE memories ADD COLUMN ${name} ${type}`);
+    }
   }
 
   close(): void {
@@ -287,7 +303,8 @@ export class MemoryStore {
         `INSERT INTO memories(scope,id,subject_id,subject_name,kind,text,normalized,tags,importance,confidence,status,origin,sources,supersedes,created_at,updated_at)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(scope,id) DO UPDATE SET
       text=excluded.text,normalized=excluded.normalized,tags=excluded.tags,importance=excluded.importance,
-      confidence=excluded.confidence,status=excluded.status,updated_at=excluded.updated_at`
+      confidence=excluded.confidence,status=excluded.status,updated_at=excluded.updated_at,
+      embedding=NULL,embedding_model=NULL,embedding_hash=NULL`
       )
       .run(
         scopeKey(scope),
@@ -353,35 +370,29 @@ export class MemoryStore {
     });
   }
 
-  recall(scope: MemoryScope, query: string, subjectId: string, limit = 8, record = true): (MemoryItem & { score: number })[] {
-    const key = scopeKey(scope);
-    const documents = this.db
-      .prepare(
-        `SELECT id,subject_id,text,tags,importance,confidence,updated_at,last_recalled_at,recall_days
-      FROM memories WHERE scope=? AND status='active'`
-      )
-      .all(key)
+  private activeDocuments(scope: MemoryScope): (MemoryItem & { embedding?: Buffer; embeddingModel?: string; embeddingHash?: string })[] {
+    return this.db
+      .prepare("SELECT * FROM memories WHERE scope=? AND status='active'")
+      .all(scopeKey(scope))
       .map(row => ({
-        id: String(row.id),
-        subjectId: String(row.subject_id),
-        text: String(row.text),
-        tags: JSON.parse(String(row.tags)) as string[],
-        importance: Number(row.importance),
-        confidence: Number(row.confidence),
-        updatedAt: Number(row.updated_at),
-        lastRecalledAt: Number(row.last_recalled_at),
-        recallDays: Number(row.recall_days)
+        ...this.decode(row),
+        ...(row.embedding instanceof Uint8Array ? { embedding: Buffer.from(row.embedding) } : {}),
+        embeddingModel: row.embedding_model ? String(row.embedding_model) : undefined,
+        embeddingHash: row.embedding_hash ? String(row.embedding_hash) : undefined
       }));
-    const ranked = rankMemories(documents, query, subjectId, this.now());
+  }
+
+  private finishRanked(scope: MemoryScope, ranked: (MemoryItem & { score: number })[], limit: number, record: boolean): (MemoryItem & { score: number })[] {
+    const key = scopeKey(scope);
     const unique = new Set<string>();
     const hits = ranked
       .filter(item => {
-        const key = `${item.subjectId}:${normalize(item.text)}`;
+        const identity = `${item.subjectId}:${normalize(item.text)}`;
 
-        if (unique.has(key)) {
+        if (unique.has(identity)) {
           return false;
         }
-        unique.add(key);
+        unique.add(identity);
 
         return true;
       })
@@ -391,7 +402,6 @@ export class MemoryStore {
     if (record && hits.length) {
       const now = this.now();
       const day = new Date(now).toISOString().slice(0, 10);
-      const key = scopeKey(scope);
 
       this.transaction(() => {
         for (const item of hits) {
@@ -410,6 +420,90 @@ export class MemoryStore {
     }
 
     return hits;
+  }
+
+  recall(scope: MemoryScope, query: string, subjectId: string, limit = 8, record = true): (MemoryItem & { score: number })[] {
+    const documents = this.activeDocuments(scope);
+
+    return this.finishRanked(scope, rankMemories(documents, query, subjectId, this.now()), limit, record);
+  }
+
+  /**
+   * 可选语义召回：BM25 仍负责词面命中，embedding 只把“意思相近但用词不同”的
+   * 条目补进候选。向量按模型与文本哈希缓存在本地；服务失败时退回 BM25。
+   */
+  async recallSemantic(
+    scope: MemoryScope,
+    query: string,
+    subjectId: string,
+    limit = 8,
+    options: { client: EmbeddingClient; weight: number; maxItems: number; signal: AbortSignal },
+    record = true
+  ): Promise<(MemoryItem & { score: number })[]> {
+    const documents = this.activeDocuments(scope);
+
+    if (!documents.length || !query.trim()) {
+      return this.finishRanked(scope, rankMemories(documents, query, subjectId, this.now()), limit, record);
+    }
+    const lexical = rankMemories(documents, query, subjectId, this.now());
+    const candidates = new Map<string, (typeof documents)[number]>();
+
+    for (const item of [...documents].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, options.maxItems)) {
+      candidates.set(item.id, item);
+    }
+    for (const item of lexical.slice(0, 120)) {
+      const document = documents.find(row => row.id === item.id);
+
+      if (document) candidates.set(item.id, document);
+    }
+    const selected = [...candidates.values()];
+    const vectors = new Map<string, Float32Array>();
+    const missing: (typeof documents)[number][] = [];
+
+    for (const item of selected) {
+      if (item.embedding && item.embeddingModel === options.client.model && item.embeddingHash === hash(item.text) && item.embedding.length % 4 === 0) {
+        vectors.set(item.id, new Float32Array(item.embedding.buffer.slice(item.embedding.byteOffset, item.embedding.byteOffset + item.embedding.byteLength)));
+      } else {
+        missing.push(item);
+      }
+    }
+
+    try {
+      options.signal.throwIfAborted();
+      const embedded = await options.client.embed([query, ...missing.map(item => item.text)], options.signal);
+
+      options.signal.throwIfAborted();
+      const queryVector = embedded[0];
+
+      missing.forEach((item, index) => {
+        const vector = embedded[index + 1];
+
+        if (vector) {
+          vectors.set(item.id, vector);
+        }
+      });
+      if (missing.length && vectors.size === selected.length) {
+        this.transaction(() => {
+          const statement = this.db.prepare("UPDATE memories SET embedding=?,embedding_model=?,embedding_hash=? WHERE scope=? AND id=? AND status='active'");
+          const key = scopeKey(scope);
+
+          for (const item of missing) {
+            const vector = vectors.get(item.id);
+
+            if (vector) statement.run(Buffer.from(vector.buffer), options.client.model, hash(item.text), key, item.id);
+          }
+        });
+      }
+      const hybrid = rankMemoriesHybrid(selected, lexical, queryVector, vectors, subjectId, options.weight, this.now());
+
+      return this.finishRanked(scope, hybrid, limit, record);
+    } catch (error) {
+      if (options.signal.aborted) {
+        throw error;
+      }
+
+      return this.finishRanked(scope, lexical, limit, record);
+    }
   }
 
   profile(scope: MemoryScope, subjectId: string, maxChars = 600): { facts: MemoryItem[]; text: string } {

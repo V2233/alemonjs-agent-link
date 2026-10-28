@@ -1,11 +1,12 @@
 import { MemoryQueryContext } from '../memory/query-context';
 import { SessionRegistry } from '../state/registry';
 import { getDSHConfig, type DSHBridgeConfig } from '../dsh/client';
-import type { AgentModule } from '../agent/types';
+import type { AgentModule, TurnContext } from '../agent/types';
 import { logger } from 'alemonjs';
 import { getMemoryStore } from '../memory/store';
 import { compactMemory, MemoryConsolidator, memoryOptions, memoryEnabled } from '../memory/consolidation';
 import { historyEnabled } from '../history/store';
+import { EmbeddingClient, embeddingSettings } from '../memory/embedding';
 
 export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
   id: 'memory',
@@ -24,6 +25,24 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
       }
     });
     const previousQueries = new MemoryQueryContext();
+    const recallMemories = async (context: TurnContext, query: string, subjectId: string, limit: number) => {
+      try {
+        const current = embeddingSettings(getDSHConfig());
+
+        if (!current) return store.recall(context, query, subjectId, limit);
+
+        return await store.recallSemantic(context, query, subjectId, limit, {
+          client: new EmbeddingClient(current),
+          weight: current.weight,
+          maxItems: current.maxItems,
+          signal: context.signal
+        });
+      } catch {
+        context.signal.throwIfAborted();
+
+        return store.recall(context, query, subjectId, limit);
+      }
+    };
     const timer = setInterval(() => {
       void consolidator.tick().catch(() => logger.warn('Memory background consolidation failed'));
     }, 300000);
@@ -49,7 +68,7 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
       const query = previousQueries.resolve({ ...context, generation: meta?.generation }, context.userText, !context.autonomous);
 
       const profile = store.profile(context, context.userId);
-      const items = store.recall(context, query, context.userId, settings.recallLimit).map(compactMemory);
+      const items = (await recallMemories(context, query, context.userId, settings.recallLimit)).map(compactMemory);
       const styles = store
         .list(context, { status: 'active', subjectId: context.userId, limit: 100 })
         .filter(item => item.kind === 'style' || item.kind === 'insight')
@@ -142,14 +161,18 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
         }
       },
       available: context => Boolean(context.platform && context.channelId),
-      execute: (args, context) =>
-        Promise.resolve({
-          ok: true,
-          items: store
-            .recall(context, String(args.query || context.userText), String(args.subjectId || context.userId), Number(args.limit || settings.recallLimit))
-            .map(compactMemory),
-          notice: '仅当前会话的参考资料，未检索到不代表没有发生。'
-        })
+      execute: async (args, context) => ({
+        ok: true,
+        items: (
+          await recallMemories(
+            context,
+            String(args.query || context.userText),
+            String(args.subjectId || context.userId),
+            Number(args.limit || settings.recallLimit)
+          )
+        ).map(compactMemory),
+        notice: '仅当前会话的参考资料，未检索到不代表没有发生。'
+      })
     });
     api.tool({
       name: 'inspect_memory_source',

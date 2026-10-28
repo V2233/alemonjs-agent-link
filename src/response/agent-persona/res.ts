@@ -62,7 +62,7 @@ export default async (): Promise<void> => {
 
       if (!value) {
         await reply(
-          `${global ? '全局默认' : '当前'}程度：${store.expressionMode(global ? undefined : scope)}\n主人可用 /人格 ${action} 个性|工作|专业；“默认”恢复继承。`
+          `${global ? '全局默认' : '当前'}程度：${store.expressionMode(global ? undefined : scope)}\n主人可用 /人格 ${action} 活跃|个性|工作|专业；“默认”恢复继承。`
         );
 
         return;
@@ -73,7 +73,7 @@ export default async (): Promise<void> => {
         return;
       }
       if (rest.length || (!personaModes.includes(value as PersonaMode) && value !== '默认')) {
-        await reply('可选程度：个性、工作、专业；“默认”用于恢复继承。');
+        await reply('可选程度：活跃、个性、工作、专业；“默认”用于恢复继承。');
 
         return;
       }
@@ -88,7 +88,7 @@ export default async (): Promise<void> => {
     if (args === '帮助') {
       await reply(
         event.IsPrivate && event.IsMaster
-          ? '人设管理\n/人格 程度 个性|工作|专业；/人格 全局程度 工作\n/人格 追加 编号 内容；/人格 查看追加 编号；/人格 清空追加 编号\n/人格 查看 编号；/人格 保存 编号 名称|提示词；/人格 删除 编号'
+          ? '人设管理\n/人格 程度 活跃|个性|工作|专业；/人格 全局程度 工作\n/人格 追加 编号 内容；/人格 查看追加 编号；/人格 清空追加 编号\n/人格 查看 编号；/人格 保存 编号 名称|提示词；/人格 删除 编号'
           : '用法：/人格 使用 编号或默认。群内切换需管理员或主人，会开始新话题。'
       );
 

@@ -1,4 +1,5 @@
 import { ResultCode } from 'alemonjs';
+import { polishNetSavvy } from './reply-format';
 
 // Framework sends resolve with receipts even when the adapter rejects a message.
 export const assertMessageDelivered = (receipts: unknown): void => {
@@ -261,7 +262,7 @@ export class StreamOutput {
     }
 
     try {
-      await this.send(part);
+      await this.send(polishNetSavvy(part));
       this.sentContent = true;
       this.partsSent += 1;
     } catch (error) {

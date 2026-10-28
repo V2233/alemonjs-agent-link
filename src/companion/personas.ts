@@ -217,9 +217,9 @@ export class PersonaStore {
   expressionMode(scope?: PersonaScope): PersonaMode {
     const local = scope ? this.db.prepare('SELECT mode FROM persona_modes WHERE scope=?').get(scopeKey(scope)) : undefined;
     const global = this.db.prepare("SELECT mode FROM persona_modes WHERE scope='global'").get();
-    const mode = String(local?.mode || global?.mode || '个性') as PersonaMode;
+    const mode = String(local?.mode || global?.mode || '活跃') as PersonaMode;
 
-    return personaModes.includes(mode) ? mode : '个性';
+    return personaModes.includes(mode) ? mode : '活跃';
   }
 
   setExpressionMode(scope: PersonaScope | undefined, mode: PersonaMode | undefined, owner: boolean): void {
@@ -227,7 +227,7 @@ export class PersonaStore {
       throw new Error('只有机器人主人能修改表达程度。');
     }
     if (mode !== undefined && !personaModes.includes(mode)) {
-      throw new Error('表达程度必须为个性、工作或专业。');
+      throw new Error('表达程度必须为活跃、个性、工作或专业。');
     }
     const key = scope ? scopeKey(scope) : 'global';
 

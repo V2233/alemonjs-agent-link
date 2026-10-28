@@ -10,14 +10,16 @@ export const expressionOptions = (config: DSHBridgeConfig) => {
   const raw = config.modules?.settings?.expression || {};
   const options = {
     automatic: raw.automatic ?? true,
-    voiceChance: raw.voiceChance ?? 0.1,
-    stickerChance: raw.stickerChance ?? 0.25,
+    voiceChance: raw.voiceChance ?? 0.15,
+    stickerChance: raw.stickerChance ?? 0.35,
     // 没有匹配到话题相关表情时，是否随手发一个（默认不发）。
     stickerFallback: raw.stickerFallback ?? false,
     // 识别到“在不在/晚安”等明确意图时，绕过概率抽样尝试一次匹配表情。
     stickerIntentAlways: raw.stickerIntentAlways ?? true,
     // either=只发文字或只发匹配表情；both=正文后再补一张（旧行为）。
     stickerMode: raw.stickerMode ?? 'either',
+    // 允许模型用 <voice>...</voice> 主动选择语音；默认关闭，避免所有回复被缓冲。
+    modelVoice: raw.modelVoice ?? false,
     delayMs: raw.delayMs ?? [0, 0]
   };
 
@@ -25,6 +27,7 @@ export const expressionOptions = (config: DSHBridgeConfig) => {
     typeof options.automatic !== 'boolean' ||
     typeof options.stickerFallback !== 'boolean' ||
     typeof options.stickerIntentAlways !== 'boolean' ||
+    typeof options.modelVoice !== 'boolean' ||
     !['either', 'both'].includes(String(options.stickerMode)) ||
     !Number.isFinite(options.voiceChance) ||
     Number(options.voiceChance) < 0 ||
@@ -47,6 +50,7 @@ export const expressionOptions = (config: DSHBridgeConfig) => {
     stickerFallback: options.stickerFallback,
     stickerIntentAlways: options.stickerIntentAlways,
     stickerMode: options.stickerMode as 'either' | 'both',
+    modelVoice: options.modelVoice,
     delayMs: options.delayMs as [number, number]
   };
 };

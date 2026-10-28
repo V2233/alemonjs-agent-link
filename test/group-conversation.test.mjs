@@ -186,7 +186,7 @@ test('an engaged group topic continues without a second recognition call', async
   const h = harness({
     classify: async () => {
       classified++;
-      return { reply: false, reason: 'none', source: 'human', loopRisk: false };
+      return { reply: false, addressed: 'none', related: 'none', reason: 'none', source: 'human', loopRisk: false };
     }
   });
   const p = policy({ minRecentMessages: 1, engagedSeconds: 60, interests: ['游戏'] });
@@ -205,7 +205,7 @@ test('an engaged group topic continues without a second recognition call', async
   await second;
   assert.equal(classified, 0, 'engaged continuation must not re-run the recognition model');
   assert.equal(batches[1].mode, 'engaged');
-  assert.equal(batches[1].replyReason, 'follow_up');
+  assert.equal(batches[1].replyReason, 'context');
   h.coordinator.close();
 });
 
@@ -279,7 +279,7 @@ test('semantic gate replaces random relevance and denies even explicit name call
     classify: async input => {
       classified++;
       assert.equal(input.messages[0].called, true);
-      return { reply: false, reason: 'none' };
+      return { reply: false, addressed: 'none', related: 'none', reason: 'none' };
     }
   });
   const done = h.coordinator.receive(message('gate', { text: '大肥鱼别回复' }), policy(), async () => {
@@ -293,21 +293,44 @@ test('semantic gate replaces random relevance and denies even explicit name call
   h.coordinator.close();
 });
 
-test('semantic gate admits useful messages without keyword or topic match and passes reason', async () => {
-  let batch;
-  const h = harness({ classify: async () => ({ reply: true, reason: 'open_help' }) });
+test('semantic gate does not admit unrelated help without address or context', async () => {
+  let replied = 0;
+  const h = harness({
+    classify: async () => ({ reply: false, addressed: 'none', related: 'none', reason: 'none', source: 'human', loopRisk: false })
+  });
   const done = h.coordinator.receive(
     message('help', { text: '这个报错该怎么处理', direct: false }),
     policy({ interjectChance: 0.01, interests: [], minRecentMessages: 100 }),
-    async value => {
-      batch = value;
-      return { delivered: true, replyText: '请提供报错原文' };
+    async () => {
+      replied++;
+      return { delivered: true };
     }
   );
   await h.coordinator.flush('group');
   await done;
-  assert.equal(batch.replyReason, 'open_help');
-  assert.match(buildGroupBatchPrompt(batch), /open_help/);
+  assert.equal(replied, 0);
+  h.coordinator.close();
+});
+
+test('semantic gate admits a related follow-up without a name call and passes the relation', async () => {
+  let batch;
+  const h = harness({
+    classify: async () => ({ reply: true, addressed: 'none', related: 'my_last_reply', reason: 'context', source: 'human', loopRisk: false })
+  });
+  const done = h.coordinator.receive(
+    message('follow', { text: '那这个参数呢', direct: false }),
+    policy({ interjectChance: 0.01, interests: [], minRecentMessages: 100 }),
+    async value => {
+      batch = value;
+      return { delivered: true };
+    }
+  );
+  await h.coordinator.flush('group');
+  await done;
+  assert.equal(batch.replyReason, 'context');
+  assert.equal(batch.replyAddressed, 'none');
+  assert.equal(batch.replyRelated, 'my_last_reply');
+  assert.match(buildGroupBatchPrompt(batch), /related=my_last_reply/);
   h.coordinator.close();
 });
 
@@ -353,7 +376,7 @@ test('cancel during classification prevents a late positive verdict from replyin
   const flush = h.coordinator.flush('group');
   assert.equal(h.coordinator.cancelPending('group', 'someone-else'), false);
   assert.equal(h.coordinator.cancelPending('group', 'cancel'), true);
-  resolve({ reply: true, reason: 'direct_call' });
+  resolve({ reply: true, addressed: 'direct', related: 'none', reason: 'direct' });
   await flush;
   await done;
   assert.equal(replies, 0);
@@ -441,6 +464,8 @@ test('one speaker direct replies have a fixed target; multiple speakers still su
   assert.doesNotMatch(buildGroupBatchPrompt(batch), /<reply:m1>/);
   assert.equal(needsReplySelection({ ...batch, messages: [anchor, message('two')] }), true);
   assert.equal(needsReplySelection({ ...batch, mode: 'interject' }), true);
+  assert.match(buildGroupBatchPrompt({ ...batch, styleHint: '最近 10 条群聊中位 8 字；偏短句。' }), /群聊语气参考/);
+  assert.match(buildGroupBatchPrompt({ ...batch, styleHint: '最近 10 条群聊中位 8 字；偏短句。' }), /不要照抄原句/);
 });
 
 test('latency separates local waiting, classification and response without dropping the gate', async () => {
@@ -448,7 +473,7 @@ test('latency separates local waiting, classification and response without dropp
   const h = harness({
     classify: async () => {
       h.advance(40);
-      return { reply: true, reason: 'direct_call' };
+      return { reply: true, addressed: 'direct', related: 'none', reason: 'direct' };
     },
     onTiming: value => {
       timings = value;
@@ -481,7 +506,7 @@ test('lifecycle invalidation cancels classification without re-enabling a late r
   });
   const flush = h.coordinator.flush('group');
   h.coordinator.invalidateRecent('group');
-  resolve({ reply: true, reason: 'direct_call' });
+  resolve({ reply: true, addressed: 'direct', related: 'none', reason: 'direct' });
   await flush;
   await done;
   assert.equal(replies, 0);
@@ -494,7 +519,9 @@ test('rejected partial speech is reconsidered with the same speaker continuation
   const h = harness({
     classify: async input => {
       inputs.push(input);
-      return { reply: input.messages.length > 1, reason: input.messages.length > 1 ? 'direct_call' : 'none', source: 'human', loopRisk: false };
+      return input.messages.length > 1
+        ? { reply: true, addressed: 'name', related: 'none', reason: 'name', source: 'human', loopRisk: false }
+        : { reply: false, addressed: 'none', related: 'none', reason: 'none', source: 'human', loopRisk: false };
     }
   });
   const respond = async batch => {
@@ -530,7 +557,7 @@ test('continuation arriving during classification prevents a stale answer and is
         return new Promise(resolve => {
           resolveFirst = resolve;
         });
-      return { reply: true, reason: 'direct_call', source: 'human', loopRisk: false };
+      return { reply: true, addressed: 'direct', related: 'none', reason: 'direct', source: 'human', loopRisk: false };
     }
   });
   const respond = async batch => {
@@ -540,7 +567,7 @@ test('continuation arriving during classification prevents a stale answer and is
   const first = h.coordinator.receive(message('race1', { userId: 'alice', text: '肥鱼帮我看看' }), policy(), respond);
   const flushing = h.coordinator.flush('group');
   const second = h.coordinator.receive(message('race2', { userId: 'alice', text: '还有这个条件', direct: false }), policy(), respond);
-  resolveFirst({ reply: true, reason: 'direct_call', source: 'human', loopRisk: false });
+  resolveFirst({ reply: true, addressed: 'direct', related: 'none', reason: 'direct', source: 'human', loopRisk: false });
   await flushing;
   await first;
   assert.equal(replies.length, 0);
@@ -560,7 +587,7 @@ test('wait-until-finished buffers one speaker, only that speaker releases it, an
   const h = harness({
     classify: async input => {
       inputs.push(input);
-      return { reply: true, reason: 'direct_call', source: 'human', loopRisk: false };
+      return { reply: true, addressed: 'direct', related: 'none', reason: 'direct', source: 'human', loopRisk: false };
     }
   });
   const respond = async batch => {
@@ -622,7 +649,7 @@ test('hold arriving during classification suppresses its late result and retains
         return new Promise(resolve => {
           finish = resolve;
         });
-      return { reply: true, reason: 'direct_call', source: 'human', loopRisk: false };
+      return { reply: true, addressed: 'direct', related: 'none', reason: 'direct', source: 'human', loopRisk: false };
     }
   });
   const respond = async batch => {
@@ -632,7 +659,7 @@ test('hold arriving during classification suppresses its late result and retains
   const first = h.coordinator.receive(message('before-hold', { userId: 'alice', userKey: 'alice', text: '肥鱼，先看这个问题' }), policy(), respond);
   const flush = h.coordinator.flush('group');
   await h.coordinator.receive(message('start-hold', { userId: 'alice', userKey: 'alice', text: '等我说完', direct: false }), policy(), respond);
-  finish({ reply: true, reason: 'direct_call' });
+  finish({ reply: true, addressed: 'direct', related: 'none', reason: 'direct' });
   await flush;
   await first;
   assert.equal(batches.length, 0);
@@ -651,7 +678,7 @@ test('automated and loop-risk rejections are not replayed as unfinished human fr
   const h = harness({
     classify: async input => {
       inputs.push(input);
-      return { reply: false, reason: 'none', source: 'automated', loopRisk: true };
+      return { reply: false, addressed: 'none', related: 'none', reason: 'none', source: 'automated', loopRisk: true };
     }
   });
   for (const id of ['auto1', 'auto2']) {
@@ -667,7 +694,9 @@ test('automated and loop-risk rejections are not replayed as unfinished human fr
 
 test('exhausted recognition preserves wake calls and only routes ambient messages to the notice path', async () => {
   for (const direct of [true, false]) {
-    const h = harness({ classify: async () => ({ reply: false, reason: 'none', budgetBlocked: true }) });
+    const h = harness({
+      classify: async () => ({ reply: false, addressed: 'none', related: 'none', reason: 'none', budgetBlocked: true })
+    });
     const batches = [];
     const done = h.coordinator.receive(message(`blocked-${direct}`, { direct, text: '这个报错怎么处理' }), policy(), async batch => {
       batches.push(batch);
@@ -688,7 +717,7 @@ test('explicit mentions skip reply classification while keyword calls still use 
   const h = harness({
     classify: async () => {
       classified++;
-      return { reply: false, reason: 'none' };
+      return { reply: false, addressed: 'none', related: 'none', reason: 'none' };
     }
   });
   const respond = async batch => {

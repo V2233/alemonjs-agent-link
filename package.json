@@ -17,6 +17,7 @@
     "python/dsh_worker.py",
     "python/requirements.txt",
     "python/sandbox_profile.py",
+    "scripts/replay-reply-gate.mjs",
     "README.md"
   ],
   "exports": {
@@ -44,6 +45,7 @@
     "precommit": "lint-staged",
     "init": "node bin/agent-link.cjs init",
     "doctor": "node bin/agent-link.cjs doctor",
+    "validate:gate": "node scripts/replay-reply-gate.mjs",
     "prepack": "npm run build"
   },
   "devDependencies": {
@@ -275,6 +277,7 @@
     "@resvg/resvg-js": "^2.6.2",
     "proper-lockfile": "^4.1.2",
     "qrcode": "^1.5.4",
+    "sharp": "^0.34.3",
     "ws": "8.18.1",
     "yaml": "^2.9.1"
   },

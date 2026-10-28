@@ -59,15 +59,16 @@ alemonjs-agent-link:
         modelJudge: true
       expression:
         automatic: true
-        voiceChance: 0.1
+        voiceChance: 0.15
         stickerMode: either # either=只发文字或只发匹配表情；both=正文后再补一张
-        stickerChance: 0.25 # 仅 both 模式下的补发概率
+        stickerChance: 0.35 # 仅 both 模式下的补发概率
         stickerFallback: false # both 模式下没有匹配时是否随机挑一张
         stickerIntentAlways: true # 在不在/晚安等明确意图优先尝试表情
+        modelVoice: false # 允许模型用 <voice>...</voice> 主动选择语音；开启后会缓冲整段回复
         delayMs: [0, 0] # 0–3000毫秒
 ```
 
-自动表达默认开启；未配置语音引擎或表情目录时自然回退文字。按消息编号固定抽样；愉快时选择阈值略增，低落时降低，心情变化也会改变阈值。自动语音用于最多240字符且没有代码块、网址或表格的短回复，并遵守媒体字符上限。失败回退普通正文；显式 `/语音` 保留失败提示。
+自动表达默认开启；未配置语音引擎或表情目录时自然回退文字。`modelVoice` 默认关闭：开启后模型可以把要说的内容放进 `<voice>...</voice>` 主动要求语音，标签会被移除并合成语音；未配置 TTS、合成失败或回复过长时回退文字。开启会让该会话的回复先缓冲再发送，不再走流式首字，延迟更高，按需启用。按消息编号固定抽样；愉快时选择阈值略增，低落时降低，心情变化也会改变阈值。自动语音用于最多240字符且没有代码块、网址或表格的短回复，并遵守媒体字符上限。失败回退普通正文；显式 `/语音` 保留失败提示。
 
 默认 `stickerMode: either`：**表情优先；表情能独立表达就不发文字，表情之外还有信息才补文字。**
 

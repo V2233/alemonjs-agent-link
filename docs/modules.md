@@ -34,20 +34,21 @@ alemonjs-agent-link:
   modules:
     settings:
       proactive:
+        activity: active # quiet / balanced / active；默认最积极
         enabled: true
-        idleMinutes: 40
-        minIntervalMinutes: 60
-        maxIntervalMinutes: 180
-        maxPerDay: 4
+        idleMinutes: 20
+        minIntervalMinutes: 30
+        maxIntervalMinutes: 90
+        maxPerDay: 8
         nudge: true
-        maxNudgesPerDay: 4
-        maxUnanswered: 2
+        maxNudgesPerDay: 6
+        maxUnanswered: 3
         quietHours: [23, 8]
         maxChars: 300
         ownKeyMax: true # 绑定个人 Key 的私聊自动拉满
 ```
 
-主人首次私聊会自动订阅；用 `/主动搭话 关闭` 停止，`/主动搭话 开启|状态|现在|暂停 分钟|恢复` 可管理。普通参数是空闲 40 分钟后、间隔 60–180 分钟随机、每天最多 4 次；追问和连发另有上限。
+主人首次私聊会自动订阅；用 `/主动搭话 关闭` 停止，`/主动搭话 开启|状态|现在|暂停 分钟|恢复` 可管理。默认 `activity: active`：空闲 20 分钟后、间隔 30–90 分钟随机、每天最多 8 次；`quiet` / `balanced` 预设更克制，显式数字字段优先。追问和连发另有上限。
 
 `ownKeyMax: true`（默认）时，绑定了**已启用个人 Key** 的主人私聊按拉满参数运行：空闲 20 分钟即可、不受下一次随机间隔限制、每天最多 10 次搭话、未回复连发上限 3、追问概率 0.7、每天追问 6 次。免打扰时段、平台在线与回执、暂停与取消等约束不变；个人 Key 查询失败时按普通参数运行，不会阻塞搭话。
 
@@ -71,9 +72,9 @@ alemonjs-agent-link:
 
 启用后，`bili_search` 可搜索视频；`bili_watch` 可读取 BV、av、B 站链接和 b23.tv 短链的标题、简介、作者、字幕及热评。字幕或评论不可获取时分别标明状态，不把元数据当作观看视频画面或音频。登录可影响部分内容可见性；接口风控和 Cookie 过期以服务端结果为准。短链只接受跳转至 B 站页面，字幕只从指定 B 站域名下载，遵守公网地址与大小限制。来自视频及评论的文字均为不可信资料。
 
-`bili_watch` 和 `bili_search` 为只读。默认 `allowComments: true` 开放 `bili_comment`：仅验证过的机器人主人本轮明确要求发评论时可调用，需要 Cookie 中的 `SESSDATA` 和 `bili_jct`。默认 `dryRun: false`，会真实发布；如需只预览，显式设 `dryRun: true`。执行前确认账号及目标视频，持久记录每轮评论请求、按 B 站账号限制每天次数和冷却；请求中断或响应不明确时返回 unknown，须先到 B 站核查，不会自动重试。拒绝、未知和成功的尝试都计入当天上限，预演不计入。账本只保存账号和评论的哈希，不存 Cookie 和评论原文。
+`bili_watch` 和 `bili_search` 为只读。默认 `allowComments: true` 开放 `bili_comment`：仅验证过的机器人主人本轮明确要求发评论时可调用，需要 Cookie 中的 `SESSDATA` 和 `bili_jct`。默认 `dryRun: false`，会真实发布；如需只预览，显式设 `dryRun: true`。执行前确认账号及目标视频，持久记录每轮评论请求、按 B 站账号限制每天次数和冷却；请求中断或响应不明确时返回 unknown，须先到 B 站核查，不会自动重试。拒绝、未知和成功的尝试都计入当天上限，预演不计入。账本只保存账号和评论的哈希，不存 Cookie 和评论原文；评论确认时保存平台返回的 `rpid`，主人可用 `bili_comment_replies` 读取这条评论下的回复，只读、不自动回评。
 
-默认允许主动搭话访问 B 站；`allowProactiveBrowse: true` 且主人已订阅主动搭话后，肥鱼可以在主动开启话题时选择只读搜索和读取视频资料，每轮各最多一次；不是定时独立刷站。只读结果可成为当前会话的真实经历，是否发送聊天仍由主动搭话的开关、免打扰与平台回执决定。主动任务不能调用 `bili_comment`，自动评论和回复尚未实现；评论及主动浏览测试使用模拟接口，真实账号、字幕 CDN 和线上风控仍需验收。
+默认允许主动搭话访问 B 站；`allowProactiveBrowse: true` 且主人已订阅主动搭话后，肥鱼可以在主动开启话题时选择只读搜索和读取视频资料，每轮各最多一次；不是定时独立刷站。只读结果可成为当前会话的真实经历，是否发送聊天仍由主动搭话的开关、免打扰与平台回执决定。主动任务不能调用 `bili_comment` 或 `bili_comment_replies`，自动评论和自动回复尚未实现；评论、回复读取及主动浏览测试使用模拟接口，真实账号、字幕 CDN 和线上风控仍需验收。
 
 ### QQ 空间
 
@@ -105,7 +106,7 @@ alemonjs-agent-link:
 
 启用 `allowPost` 后，`qzone_post` 可以处理主人本轮明确要求发布的文字说说；默认 `dryRun: false` 会真实发布，设为 `true` 可只预览。设为 false 后适配器再次核对主人身份、开关和参数，再调用 `send_qzone_msg`。可见范围来自主人的明确要求，否则使用配置默认值。每轮一次，持久限制账号的每日次数和冷却；平台未返回可核验的说说 ID 或发送中断时标记为 unknown，先到空间核查，不会自动重试。尝试结果的账本只保存哈希，不保存正文。
 
-`qzone_detail` 可读取最近通过 `qzone_read` 获得的动态详情和评论。启用 `allowInteract` 后，主人本轮明确要求时可用 `qzone_interact` 评论或点赞；需要 OneBot 服务支持 `get_qzone_msg_detail`、`comment_qzone` 和 `like_qzone`。只能操作同一主人私聊中最近 15 分钟读到、且平台提供了作者账号的说说；好友动态须由平台标为说说类型（appid 311），点赞还要求发布时间。目标缓存只在进程内保存，重启或模块重载后需重新读取。互动遵守同一试运行设置，按机器人账号单独限制每日次数和冷却；结果不明时应核查，不能自动重试。空间评论是对说说发表评论，尚未支持按评论 ID 精确回复。
+`qzone_detail` 可读取最近通过 `qzone_read` 获得的动态详情和评论。`qzone_activity` 汇总自己或好友最近 3 条动态下的新评论，按主人私聊记忆已读，避免重复汇报；只读，不自动回复。启用 `allowInteract` 后，主人本轮明确要求时可用 `qzone_interact` 评论或点赞；需要 OneBot 服务支持 `get_qzone_msg_detail`、`comment_qzone` 和 `like_qzone`。只能操作同一主人私聊中最近 15 分钟读到、且平台提供了作者账号的说说；好友动态须由平台标为说说类型（appid 311），点赞还要求发布时间。目标缓存只在进程内保存，重启或模块重载后需重新读取。互动遵守同一试运行设置，按机器人账号单独限制每日次数和冷却；结果不明时应核查，不能自动重试。空间评论是对说说发表评论，尚未支持按评论 ID 精确回复。
 
 主人明确要求配图时，可使用本轮消息或引用中已读取的图片，最多 4 张，每张不超过 8 MiB，编码后合计不超过 28 MiB；图片获取或校验失败时不会退化为只发布文字。图片仍受媒体输入的下载限制。
 

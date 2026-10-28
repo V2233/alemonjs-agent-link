@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import type { TurnContext } from '../agent/types';
 
 type State = 'confirmed' | 'rejected' | 'unknown';
-type Outcome = { ok: boolean; state: State; message: string };
+type Outcome = { ok: boolean; state: State; message: string; rpid?: string };
 const hash = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const day = (now: number): string => new Date(now + 8 * 3600000).toISOString().slice(0, 10);
 
@@ -29,7 +29,7 @@ export class BiliCommentLedger {
     account: string,
     operation: { aid: number; text: string },
     limits: { max: number; cooldown: number },
-    execute: () => Promise<State>
+    execute: () => Promise<State | { state: State; rpid?: string }>
   ): Promise<Outcome> {
     context.signal.throwIfAborted();
     if (!context.inputId && !context.requestId) return { ok: false, state: 'rejected', message: '缺少请求标识，无法执行评论。' };
@@ -65,15 +65,19 @@ export class BiliCommentLedger {
       throw error;
     }
     let state: State = 'unknown';
+    let rpid: string | undefined;
 
     try {
-      state = await execute();
+      const executed = await execute();
+
+      state = typeof executed === 'string' ? executed : executed.state;
+      rpid = typeof executed === 'string' ? undefined : executed.rpid;
     } catch {
       /* A lost response remains unknown. */
     }
     const outcome: Outcome =
       state === 'confirmed'
-        ? { ok: true, state, message: 'B 站已确认评论发布。' }
+        ? { ok: true, state, message: 'B 站已确认评论发布。', ...(rpid ? { rpid } : {}) }
         : state === 'rejected'
           ? { ok: false, state, message: 'B 站拒绝了评论，请检查登录状态或平台限制。' }
           : pending;

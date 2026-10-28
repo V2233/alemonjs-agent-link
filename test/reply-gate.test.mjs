@@ -2,24 +2,48 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseReplyVerdict } from '../lib/social/reply-gate.js';
 
-test('only strict boolean and consistent enumerated reason can admit a reply', () => {
-  assert.deepEqual(parseReplyVerdict('{"reply":true,"reason":"follow_up","source":"unknown","loopRisk":false}'), {
+const rejected = { reply: false, addressed: 'none', related: 'none', reason: 'none' };
+
+test('addressed or related admits a reply; neither is silence', () => {
+  assert.deepEqual(parseReplyVerdict('{"addressed":"follow_up","related":"none","source":"unknown","loopRisk":false}'), {
     reply: true,
+    addressed: 'follow_up',
+    related: 'none',
     reason: 'follow_up',
     source: 'unknown',
     loopRisk: false
   });
+  assert.deepEqual(parseReplyVerdict('{"addressed":"none","related":"my_last_reply","source":"human","loopRisk":false}'), {
+    reply: true,
+    addressed: 'none',
+    related: 'my_last_reply',
+    reason: 'context',
+    source: 'human',
+    loopRisk: false
+  });
+  assert.deepEqual(parseReplyVerdict('{"addressed":"none","related":"none","source":"unknown","loopRisk":false}'), {
+    reply: false,
+    addressed: 'none',
+    related: 'none',
+    reason: 'none',
+    source: 'unknown',
+    loopRisk: false
+  });
+});
+
+test('strict schema rejects missing, extra, or unknown fields', () => {
   for (const input of [
     'true',
-    '```json\n{"reply":true,"reason":"direct_call"}\n```',
-    '{"reply":"true","reason":"support"}',
-    '{"reply":true,"reason":"none"}',
-    '{"reply":false,"reason":"direct_call"}',
-    '{"reply":true,"reason":"anything"}',
-    '{"reply":true,"reason":"support","command":"run"}',
+    '```json\n{"addressed":"direct","related":"none","source":"unknown","loopRisk":false}\n```',
+    '{"addressed":"direct","related":"none"}',
+    '{"addressed":"anything","related":"none","source":"unknown","loopRisk":false}',
+    '{"addressed":"none","related":"anything","source":"unknown","loopRisk":false}',
+    '{"addressed":"direct","related":"none","source":"robot","loopRisk":false}',
+    '{"addressed":"direct","related":"none","source":"unknown","loopRisk":"false"}',
+    '{"addressed":"direct","related":"none","source":"unknown","loopRisk":false,"reply":true}',
     'null'
   ]) {
-    assert.deepEqual(parseReplyVerdict(input), { reply: false, reason: 'none' });
+    assert.deepEqual(parseReplyVerdict(input), rejected);
   }
 });
 
@@ -29,7 +53,8 @@ test('one-shot classifier uses main credentials, bounded context, no tools, and 
     oldFetch = globalThis.fetch;
   globalThis.__config = { value: { 'alemonjs-agent-link': { apiKey: 'test-gate-key', model: 'test-gate-model' } } };
   const input = {
-    recent: [{ speaker: 'bot', text: '你想查哪里？' }],
+    recent: Array.from({ length: 6 }, (_, index) => ({ speaker: 'bot', text: `最近${index}` })),
+    activity: 'active',
     messages: [{ speaker: 'u1', text: '杭州'.repeat(1000), called: false, media: ['image'] }]
   };
   try {
@@ -39,33 +64,48 @@ test('one-shot classifier uses main credentials, bounded context, no tools, and 
       assert.deepEqual(body.thinking, { type: 'disabled' });
       assert.equal(body.tools, undefined);
       assert.equal(body.messages.length, 2);
-      assert.equal(JSON.parse(body.messages[1].content).messages[0].text.length, 600);
+      const compact = JSON.parse(body.messages[1].content);
+      assert.equal(compact.recent.length, 5);
+      assert.equal(compact.activity, 'active');
+      assert.equal(compact.messages[0].text.length, 600);
+      assert.match(body.messages[0].content, /addressed/);
+      assert.match(body.messages[0].content, /related/);
+      assert.doesNotMatch(body.messages[0].content, /open_help|useful_contribution/);
       assert.equal(options.headers.Authorization, 'Bearer test-gate-key');
-      return Response.json({ choices: [{ message: { content: '{"reply":true,"reason":"follow_up","source":"unknown","loopRisk":false}' } }] });
+      return Response.json({
+        choices: [{ message: { content: '{"addressed":"none","related":"my_last_reply","source":"unknown","loopRisk":false}' } }]
+      });
     };
-    assert.deepEqual(await classifyGroupReply(input, new AbortController().signal), { reply: true, reason: 'follow_up', source: 'unknown', loopRisk: false });
+    assert.deepEqual(await classifyGroupReply(input, new AbortController().signal), {
+      reply: true,
+      addressed: 'none',
+      related: 'my_last_reply',
+      reason: 'context',
+      source: 'unknown',
+      loopRisk: false
+    });
     globalThis.fetch = async () => {
       throw new Error('offline');
     };
-    assert.deepEqual(await classifyGroupReply(input, new AbortController().signal), { reply: false, reason: 'none' });
+    assert.deepEqual(await classifyGroupReply(input, new AbortController().signal), rejected);
     const abort = new AbortController();
     abort.abort();
     globalThis.fetch = async () => assert.fail('aborted classifier must not send');
-    assert.deepEqual(await classifyGroupReply(input, abort.signal), { reply: false, reason: 'none' });
+    assert.deepEqual(await classifyGroupReply(input, abort.signal), rejected);
   } finally {
     globalThis.fetch = oldFetch;
     globalThis.__config = config;
   }
 });
 
-test('automation and loop assessments veto positive replies; unknown source is not a bot label', () => {
+test('automation and loop assessments veto replies; unknown source is not a bot label', () => {
   for (const verdict of [
-    { reply: true, reason: 'direct_call', source: 'automated', loopRisk: false },
-    { reply: true, reason: 'follow_up', source: 'human', loopRisk: true },
-    { reply: true, reason: 'support', source: 'unknown' },
-    { reply: true, reason: 'support', source: 'unknown', loopRisk: 'false' }
+    { addressed: 'direct', related: 'none', source: 'automated', loopRisk: false },
+    { addressed: 'name', related: 'none', source: 'human', loopRisk: true },
+    { addressed: 'none', related: 'my_last_reply', source: 'unknown' },
+    { addressed: 'follow_up', related: 'none', source: 'unknown', loopRisk: 'false' }
   ])
-    assert.deepEqual(parseReplyVerdict(JSON.stringify(verdict)), { reply: false, reason: 'none' });
+    assert.deepEqual(parseReplyVerdict(JSON.stringify(verdict)), rejected);
 });
 
 test('classifier does not send DeepSeek-specific thinking parameters to other compatible providers', async () => {
@@ -78,7 +118,9 @@ test('classifier does not send DeepSeek-specific thinking parameters to other co
     globalThis.fetch = async (_url, options) => {
       called = true;
       assert.equal(JSON.parse(options.body).thinking, undefined);
-      return Response.json({ choices: [{ message: { content: '{"reply":false,"reason":"none","source":"unknown","loopRisk":false}' } }] });
+      return Response.json({
+        choices: [{ message: { content: '{"addressed":"none","related":"none","source":"unknown","loopRisk":false}' } }]
+      });
     };
     await classifyGroupReply({ recent: [], messages: [] }, new AbortController().signal);
     assert.equal(called, true);
@@ -122,7 +164,9 @@ test('gate model overrides are hot-read, independent, and never leak keys across
         assert.equal(body.max_tokens, 120);
         assert.equal(body.tools, undefined);
         assert.equal(body.thinking?.type, scenario.host === 'api.deepseek.com' ? 'disabled' : undefined);
-        return Response.json({ choices: [{ message: { content: '{"reply":true,"reason":"support","source":"human","loopRisk":false}' } }] });
+        return Response.json({
+          choices: [{ message: { content: '{"addressed":"name","related":"none","source":"human","loopRisk":false}' } }]
+        });
       };
       const result = await classifyGroupReply({ recent: [], messages: [] }, new AbortController().signal);
       assert.equal(called, !scenario.skip);

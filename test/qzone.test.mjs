@@ -321,3 +321,30 @@ test('OneBot rejects invalid or oversized encoded space images before sending', 
   assert.notEqual((await post(Array(5).fill(photo.toString('base64'))))[0].code, ResultCode.Ok);
   assert.equal(calls, 0);
 });
+
+test('space activity reports only new comments and never replies automatically', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'qzone-activity-'));
+  const config = getDSHConfig({ workspaceRoot: join(root, 'work'), stateBackend: 'local' });
+  const comments = [{ id: 'c1', author: { name: '朋友A' }, content: '好看' }];
+  const client = () => ({
+    qzoneRead: async () => ({ items: [{ id: 'post1', authorId: '123', interactable: true, time: 1234, content: '今天的说说' }] }),
+    qzoneDetail: async () => ({ content: '今天的说说', comments })
+  });
+  const tools = [];
+  qzoneModule(config, client).setup({ settings: { enabled: true, allowInteract: true, dryRun: false, cooldownSeconds: 0 }, tool: tool => tools.push(tool) });
+  const activity = tools.find(tool => tool.name === 'qzone_activity');
+  const call = context('activity-1', { userText: '空间有人回我吗' });
+  try {
+    const first = await activity.execute({ kind: 'own' }, call);
+    assert.equal(first.items.length, 1);
+    assert.deepEqual(first.items[0].comments.map(item => item.text), ['好看']);
+    assert.equal((await activity.execute({ kind: 'own' }, call)).items.length, 0);
+
+    comments.push({ id: 'c2', author: '朋友B', content: '下次一起' });
+    const third = await activity.execute({ kind: 'own' }, call);
+    assert.deepEqual(third.items[0].comments.map(item => item.text), ['下次一起']);
+    assert.equal((await activity.execute({ kind: 'own' }, { ...call, owner: false })).ok, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

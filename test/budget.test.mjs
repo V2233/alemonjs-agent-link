@@ -382,7 +382,7 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
       globalThis.fetch = async () => {
         calls++;
         return Response.json({
-          choices: [{ message: { content: '{"reply":true,"reason":"direct_call","source":"human","loopRisk":false}' } }],
+          choices: [{ message: { content: '{"addressed":"name","related":"none","source":"human","loopRisk":false}' } }],
           usage: { prompt_tokens: 1000, completion_tokens: 100 }
         });
       };

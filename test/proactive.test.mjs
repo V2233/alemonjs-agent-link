@@ -28,7 +28,7 @@ const fixture = async run => {
     dshHomeRoot: join(root, 'home'),
     runtimeMode: 'chat-only',
     stateBackend: 'local',
-    modules: { settings: { memory: { automatic: false } } }
+    modules: { settings: { memory: { automatic: false }, proactive: { activity: 'balanced' } } }
   });
   let store = new ProactiveStore(
     root,
@@ -69,7 +69,7 @@ test('schedule requires subscription, waits for both idle and interval, persists
   fixture(async f => {
     assert.equal(f.store.claim(scope, f.options, 1000), undefined);
     f.store.subscribe(scope, true, f.options);
-    assert.equal(f.store.get(scope).nextAt, base + 60 * 60000);
+    assert.equal(f.store.get(scope).nextAt, base + f.options.minIntervalMinutes * 60000);
     f.advance(59);
     assert.equal(f.store.claim(scope, f.options, 1000), undefined);
     f.advance(1);

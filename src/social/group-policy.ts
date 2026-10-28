@@ -1,4 +1,6 @@
+export type GroupChatActivity = 'quiet' | 'balanced' | 'active';
 export type GroupChatPolicy = {
+  activity: GroupChatActivity;
   enabled: boolean;
   replyGateEnabled?: boolean;
   boundKey?: boolean;
@@ -28,7 +30,47 @@ export type GroupChatConfig = Partial<GroupChatPolicy> & { overrides?: Record<st
 export type GroupReplyMode = 'direct' | 'engaged' | 'interject' | 'none';
 export type GroupReplyDecision = { reply: boolean; mode: GroupReplyMode; reason: string; relevance: number };
 
+export const groupActivityPresets: Record<
+  GroupChatActivity,
+  Pick<
+    GroupChatPolicy,
+    'interjectChance' | 'cooldownSeconds' | 'maxPerHour' | 'minRecentMessages' | 'minRelevance' | 'engagedSeconds' | 'burstMax' | 'burstWindowSeconds'
+  >
+> = {
+  quiet: {
+    interjectChance: 0.08,
+    cooldownSeconds: 180,
+    maxPerHour: 4,
+    minRecentMessages: 5,
+    minRelevance: 0.35,
+    engagedSeconds: 120,
+    burstMax: 6,
+    burstWindowSeconds: 120
+  },
+  balanced: {
+    interjectChance: 0.25,
+    cooldownSeconds: 60,
+    maxPerHour: 10,
+    minRecentMessages: 3,
+    minRelevance: 0.2,
+    engagedSeconds: 300,
+    burstMax: 8,
+    burstWindowSeconds: 120
+  },
+  active: {
+    interjectChance: 0.45,
+    cooldownSeconds: 30,
+    maxPerHour: 16,
+    minRecentMessages: 2,
+    minRelevance: 0.15,
+    engagedSeconds: 600,
+    burstMax: 10,
+    burstWindowSeconds: 120
+  }
+};
+
 export const defaultGroupChatPolicy: GroupChatPolicy = {
+  activity: 'active',
   enabled: true,
   replyGateEnabled: true,
   boundKeyElevation: true,
@@ -37,18 +79,11 @@ export const defaultGroupChatPolicy: GroupChatPolicy = {
   maxBatchWaitMs: 4000,
   maxBatchMessages: 24,
   maxBatchChars: 12000,
-  interjectChance: 0.25,
-  cooldownSeconds: 60,
-  maxPerHour: 10,
   quietHours: [1, 8],
   timezone: 'Asia/Shanghai',
-  minRecentMessages: 3,
   activeWindowSeconds: 300,
-  minRelevance: 0.2,
   interests: ['吃饭', '美食', '游戏', '动漫', '猫', '鲸鱼', '睡觉', '天气', '奶茶', '表情包'],
-  engagedSeconds: 300,
-  burstMax: 8,
-  burstWindowSeconds: 120
+  ...groupActivityPresets.active
 };
 
 const checkPolicy = (policy: GroupChatPolicy): GroupChatPolicy => {
@@ -67,6 +102,7 @@ const checkPolicy = (policy: GroupChatPolicy): GroupChatPolicy => {
   ];
 
   if (
+    !['quiet', 'balanced', 'active'].includes(String(policy.activity)) ||
     typeof policy.enabled !== 'boolean' ||
     (policy.replyGateEnabled !== undefined && typeof policy.replyGateEnabled !== 'boolean') ||
     (policy.boundKeyElevation !== undefined && typeof policy.boundKeyElevation !== 'boolean') ||
@@ -107,16 +143,22 @@ export const getGroupChatPolicy = (config: GroupChatConfig = {}, channelId = '')
     throw new Error('groupChat 配置无效。');
   }
   const { overrides = {}, ...base } = config;
-  const merged = checkPolicy({ ...defaultGroupChatPolicy, ...base });
+  const merge = (previous: GroupChatPolicy, patch: Partial<GroupChatPolicy>): GroupChatPolicy => {
+    const activity = patch.activity ?? previous.activity;
+    const base = patch.activity ? { ...previous, ...groupActivityPresets[activity] } : previous;
+
+    return checkPolicy({ ...base, ...patch, activity });
+  };
+  const merged = merge(defaultGroupChatPolicy, base);
 
   for (const [id, override] of Object.entries(overrides)) {
     if (!id || id.length > 300 || !override || typeof override !== 'object' || Array.isArray(override)) {
       throw new Error('groupChat.overrides 配置无效。');
     }
-    checkPolicy({ ...merged, ...override });
+    merge(merged, override);
   }
 
-  return checkPolicy({ ...merged, ...(Object.hasOwn(overrides, channelId) ? overrides[channelId] : {}) });
+  return merge(merged, overrides[channelId] || {});
 };
 
 export const groupTopicRelevance = (texts: string[], interests: string[], memoryScore = 0): number => {

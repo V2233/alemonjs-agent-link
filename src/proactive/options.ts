@@ -1,6 +1,8 @@
 import type { DSHBridgeConfig } from '../dsh/config';
 
+export type ProactiveActivity = 'quiet' | 'balanced' | 'active';
 export type ProactiveOptions = {
+  activity: ProactiveActivity;
   enabled: boolean;
   autoSubscribe: boolean;
   idleMinutes: number;
@@ -21,25 +23,60 @@ export type ProactiveOptions = {
   /** 运行时派生：拉满时不再等待下一次随机间隔，空闲达标即可搭话。 */
   flexible?: boolean;
 };
+const proactiveActivityPresets: Record<
+  ProactiveActivity,
+  Pick<ProactiveOptions, 'idleMinutes' | 'minIntervalMinutes' | 'maxIntervalMinutes' | 'maxPerDay' | 'nudgeChance' | 'maxNudgesPerDay' | 'maxUnanswered'>
+> = {
+  quiet: {
+    idleMinutes: 90,
+    minIntervalMinutes: 180,
+    maxIntervalMinutes: 360,
+    maxPerDay: 2,
+    nudgeChance: 0.3,
+    maxNudgesPerDay: 1,
+    maxUnanswered: 1
+  },
+  balanced: {
+    idleMinutes: 40,
+    minIntervalMinutes: 60,
+    maxIntervalMinutes: 180,
+    maxPerDay: 4,
+    nudgeChance: 0.5,
+    maxNudgesPerDay: 4,
+    maxUnanswered: 2
+  },
+  active: {
+    idleMinutes: 20,
+    minIntervalMinutes: 30,
+    maxIntervalMinutes: 90,
+    maxPerDay: 8,
+    nudgeChance: 0.6,
+    maxNudgesPerDay: 6,
+    maxUnanswered: 3
+  }
+};
+
 export const proactiveOptions = (config: DSHBridgeConfig): ProactiveOptions => {
   const raw = config.modules?.settings?.proactive || {};
+  const activity = (raw.activity ?? 'active') as ProactiveActivity;
+
+  if (!['quiet', 'balanced', 'active'].includes(activity)) {
+    throw new Error('proactive 模块设置无效。');
+  }
   const options = {
+    activity,
     enabled: raw.enabled ?? true,
     autoSubscribe: raw.autoSubscribe ?? true,
-    idleMinutes: raw.idleMinutes ?? 40,
-    minIntervalMinutes: raw.minIntervalMinutes ?? 60,
-    maxIntervalMinutes: raw.maxIntervalMinutes ?? 180,
-    maxPerDay: raw.maxPerDay ?? 4,
     nudge: raw.nudge ?? true,
     nudgeMinMinutes: raw.nudgeMinMinutes ?? 15,
     nudgeMaxMinutes: raw.nudgeMaxMinutes ?? 40,
-    nudgeChance: raw.nudgeChance ?? 0.5,
-    maxNudgesPerDay: raw.maxNudgesPerDay ?? 4,
-    maxUnanswered: raw.maxUnanswered ?? 2,
     quietHours: raw.quietHours ?? [23, 8],
     timezone: raw.timezone ?? 'Asia/Shanghai',
     maxChars: raw.maxChars ?? 300,
-    ownKeyMax: raw.ownKeyMax ?? true
+    ownKeyMax: raw.ownKeyMax ?? true,
+    ...proactiveActivityPresets[activity],
+    ...raw,
+    activity
   };
   const ranges = [
     [options.idleMinutes, 1, 1440],

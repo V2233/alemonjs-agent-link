@@ -217,18 +217,46 @@ test('Bilibili posting uses CSRF, treats explicit rejection and lost response se
     return Response.json(result);
   };
   const client = createBiliClient({ cookie, timeoutMs: 5000 }, fetcher);
-  assert.equal(await client.postComment(123, '你好', new AbortController().signal), 'confirmed');
+  assert.deepEqual(await client.postComment(123, '你好', new AbortController().signal), { state: 'confirmed', rpid: '456' });
   assert.equal(captured.url, 'https://api.bilibili.com/x/v2/reply/add');
   assert.equal(captured.init.method, 'POST');
   assert.equal(captured.init.redirect, 'error');
   assert.equal(captured.init.body.get('csrf'), 'csrf-example');
   assert.equal(captured.init.body.get('message'), '你好');
   result = { code: -352 };
-  assert.equal(await client.postComment(123, '你好', new AbortController().signal), 'rejected');
+  assert.deepEqual(await client.postComment(123, '你好', new AbortController().signal), { state: 'rejected' });
   result = { code: 0, data: {} };
-  assert.equal(await client.postComment(123, '你好', new AbortController().signal), 'unknown');
+  assert.deepEqual(await client.postComment(123, '你好', new AbortController().signal), { state: 'unknown' });
   result = null;
-  assert.equal(await client.postComment(123, '你好', new AbortController().signal), 'unknown');
+  assert.deepEqual(await client.postComment(123, '你好', new AbortController().signal), { state: 'unknown' });
+});
+
+test('Bilibili comment replies are read-only and validated', async () => {
+  const nav = {
+    code: 0,
+    data: {
+      isLogin: true,
+      mid: 123,
+      wbi_img: {
+        img_url: `https://i0.hdslb.com/${'a'.repeat(32)}.png`,
+        sub_url: `https://i0.hdslb.com/${'b'.repeat(32)}.png`
+      }
+    }
+  };
+  const fetcher = async url => {
+    if (String(url).endsWith('/nav')) return Response.json(nav);
+    assert.match(String(url), /\/x\/v2\/reply\/reply\?/u);
+    return Response.json({
+      code: 0,
+      data: { replies: [{ rpid: 789, member: { uname: '群友' }, content: { message: '确实' }, like: 2 }] }
+    });
+  };
+  const client = createBiliClient({ cookie, timeoutMs: 5000 }, fetcher);
+
+  assert.deepEqual((await client.commentReplies(123, '456', new AbortController().signal)).items, [
+    { rpid: '789', author: '群友', text: '确实', likes: 2 }
+  ]);
+  await assert.rejects(() => client.commentReplies(123, 'bad', new AbortController().signal), /评论标识无效/);
 });
 
 test('only an explicit owner request can preview or publish; dry run is the default', async () => {

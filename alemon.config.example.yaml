@@ -312,16 +312,18 @@ alemonjs-agent-link:
 
   # 群聊自主参与策略；可按群覆盖。
   groupChat:
+    # 活跃度预设：quiet / balanced / active。默认 active，最积极但仍有静默与刹车。
+    activity: active
     # 是否允许自主参与（不 @ 也可能接话）；false 时只响应明确的呼叫与指令。
     enabled: true
     # 是否调用感知模型判断“该不该接话”；关掉可省一次请求，但判断会更机械。
     replyGateEnabled: true
     # 主动插话的基础概率（0-1）；越大越容易被话题吸引。
-    interjectChance: 0.25
+    interjectChance: 0.45
     # 两次自主发言的最小间隔（秒）。
-    cooldownSeconds: 60
+    cooldownSeconds: 30
     # 每小时自主发言上限。
-    maxPerHour: 10
+    maxPerHour: 16
     # 静默时段 [开始, 结束]，小时计，可跨零点（这里 1 点到 8 点不主动说话）。
     quietHours: [1, 8]
     # 计算静默时段和统计用的时区，必须是合法 IANA 时区。
@@ -366,18 +368,20 @@ alemonjs-agent-link:
         modelJudge: true
       # 主动搭话
       proactive:
+        # 活跃度预设：quiet / balanced / active。默认 active，更主动找你。
+        activity: active
         # 是否允许主动发消息（不 @ 也会找你）。
         enabled: true
         # 主人首次私聊时自动订阅主动搭话，不需要再发 /主动搭话 开启。
         autoSubscribe: true
         # 空闲多少分钟才考虑搭话（1-1440）。
-        idleMinutes: 40
+        idleMinutes: 20
         # 两次主动消息的最小间隔（分钟），不能大于 maxIntervalMinutes。
-        minIntervalMinutes: 60
+        minIntervalMinutes: 30
         # 两次主动消息的最大间隔（分钟，1-2880）。
-        maxIntervalMinutes: 180
+        maxIntervalMinutes: 90
         # 每天最多主动说几次（0-20）。
-        maxPerDay: 4
+        maxPerDay: 8
         # 免打扰时段 [开始, 结束]，小时计，可跨零点。
         quietHours: [23, 8]
         # 计算免打扰的时区，必须是合法 IANA 时区。
@@ -389,9 +393,9 @@ alemonjs-agent-link:
         # 是否自动决定要不要用语音或发表情。
         automatic: true
         # 用语音回复的概率（0-1）。
-        voiceChance: 0.1
+        voiceChance: 0.15
         # 附带表情的概率（0-1）。
-        stickerChance: 0.25
+        stickerChance: 0.35
         # 没有话题相关的表情时，是否随手发一个；false 表示宁可不发。
         stickerFallback: false
         # 发送前随机停顿区间 [最小, 最大]（0-3000 毫秒，前值不得大于后值）。

@@ -1,3 +1,5 @@
+import { cosineSimilarity } from './embedding';
+
 export const tokenizeMemory = (text: string): string[] => {
   const tokens: string[] = [];
 
@@ -75,4 +77,46 @@ export const rankMemories = <T extends SearchableMemory>(items: T[], query: stri
   }
 
   return hits.sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+};
+
+const retentionFactor = (item: SearchableMemory, now: number): number => {
+  const days = Math.max(0, now - Math.max(item.updatedAt, item.lastRecalledAt)) / 86400000;
+  const halfLife = 14 + item.importance * 60 + Math.min(60, item.recallDays * 3);
+
+  return 0.25 + 0.75 * Math.pow(0.5, days / halfLife);
+};
+
+/**
+ * 在 BM25 结果上叠加可选 embedding：词面命中保留原分数，语义相近但词面不同的
+ * 条目以较低基础分进入候选。没有向量时保持原排序，不改变已有召回语义。
+ */
+export const rankMemoriesHybrid = <T extends SearchableMemory>(
+  items: T[],
+  lexical: (T & { score: number })[],
+  queryVector: Float32Array,
+  vectors: Map<string, Float32Array>,
+  subjectId: string,
+  weight: number,
+  now = Date.now()
+): (T & { score: number })[] => {
+  const lexicalScores = new Map(lexical.map(item => [item.id, item.score]));
+  const threshold = 0.45;
+  const scored: (T & { score: number })[] = [];
+
+  for (const item of items) {
+    const lexicalScore = lexicalScores.get(item.id) || 0;
+    const vector = vectors.get(item.id);
+    const cosine = vector?.length === queryVector.length ? Math.max(0, Math.min(1, cosineSimilarity(queryVector, vector))) : 0;
+
+    if (!lexicalScore && cosine < threshold) {
+      continue;
+    }
+    const person = subjectId && item.subjectId === subjectId ? 1.6 : 1;
+    const meta = person * (0.6 + item.importance) * item.confidence * retentionFactor(item, now);
+    const score = lexicalScore ? lexicalScore * (1 + weight * cosine) : weight * cosine * 0.35 * meta;
+
+    scored.push({ ...item, score });
+  }
+
+  return scored.sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
 };

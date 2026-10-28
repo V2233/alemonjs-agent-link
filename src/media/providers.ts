@@ -4,6 +4,7 @@ import { type ChatInput, MAX_IMAGE_REQUEST_BYTES } from '../dsh/input';
 import type { MessageMediaItem } from 'alemonjs';
 import { MediaError, MediaUnavailableError, type MediaConfig, type MediaProvider } from './config';
 import { audioFormat, downloadAttachment, imageMime } from './download';
+import { animationFrames } from './animation';
 
 export const readBounded = async (response: Response, maxBytes: number): Promise<Buffer> => {
   if (!response.ok) {
@@ -398,6 +399,22 @@ export const prepareNativeMedia = async (
     }
     const mimeType = imageMime(data);
 
+    if (item.Type === 'animation' || mimeType === 'image/gif') {
+      try {
+        const frames = await animationFrames(data);
+
+        signal.throwIfAborted();
+        if (frames.length) {
+          for (const frame of frames) {
+            blocks.push({ type: 'image', mimeType: frame.mimeType, data: frame.data });
+          }
+          continue;
+        }
+      } catch {
+        signal.throwIfAborted();
+        // 解码失败时保留原始图片；至少不要让 GIF 消息整条失败。
+      }
+    }
     blocks.push({ type: 'image', mimeType, data: data.toString('base64') });
   }
   if (Buffer.byteLength(JSON.stringify(blocks)) > MAX_IMAGE_REQUEST_BYTES - 1024 * 1024) {
