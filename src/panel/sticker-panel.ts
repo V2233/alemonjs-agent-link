@@ -98,6 +98,7 @@ const publicItem = (item: Sticker, token: string) => ({
   tags: item.tags,
   kind: item.kind ?? 'sticker',
   category: item.category ?? '',
+  context: item.context ?? '',
   from: item.from ?? 'legacy',
   uses: item.uses ?? 0,
   lastUsed: item.lastUsed ?? null,
@@ -145,7 +146,7 @@ const card = (item) => {
   const img = document.createElement('img'); img.className = 'thumb'; img.loading = 'lazy'; img.alt = item.name || item.id; img.src = item.image; box.append(img);
   const name = document.createElement('input'); name.value = item.name; name.maxLength = 24; name.placeholder = '名称'; box.append(name);
   const tags = document.createElement('input'); tags.value = item.tags.join('，'); tags.placeholder = '标签，用逗号分隔'; box.append(tags);
-  const meta = document.createElement('div'); meta.className = 'tags'; meta.textContent = item.kind + ' · ' + (item.category || '未分类') + ' · ' + item.id + ' · 用过 ' + item.uses + (item.emojiId ? ' · QQ 已收藏' : ''); box.append(meta);
+  const meta = document.createElement('div'); meta.className = 'tags'; meta.textContent = item.kind + ' · ' + (item.category || '未分类') + ' · ' + item.id + ' · 用过 ' + item.uses + (item.emojiId ? ' · QQ 已收藏' : '') + (item.context ? '\n' + item.context : ''); meta.style.whiteSpace = 'pre-wrap'; box.append(meta);
   const row = document.createElement('div'); row.className = 'row';
   row.append(button('保存', '', async () => {
     try {

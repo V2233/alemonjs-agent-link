@@ -5,7 +5,7 @@ import { MediaError, MediaUnavailableError, type MediaConfig } from './config';
 import { imageMime } from './download';
 import { imageInfo, type ImageInfo } from './image-info';
 
-export type StickerSource = 'manual' | 'auto' | 'forge' | 'import' | 'legacy';
+export type StickerSource = 'manual' | 'auto' | 'forge' | 'import' | 'site' | 'file' | 'legacy';
 export type StickerKind = 'sticker' | 'avatar';
 export type Sticker = {
   id: string;
@@ -23,6 +23,7 @@ export type Sticker = {
   emojiId?: string;
   kind?: StickerKind;
   category?: string;
+  context?: string;
   sourceUrl?: string;
   license?: string;
 };
@@ -35,10 +36,11 @@ export type StickerCollectMeta = {
   height?: number;
   kind?: StickerKind;
   category?: string;
+  context?: string;
   sourceUrl?: string;
   license?: string;
 };
-const SOURCES: StickerSource[] = ['manual', 'auto', 'forge', 'import', 'legacy'];
+const SOURCES: StickerSource[] = ['manual', 'auto', 'forge', 'import', 'site', 'file', 'legacy'];
 const MANIFEST_MAX = 256 * 1024;
 const MAX_ENTRIES = 500;
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,40}$/u;
@@ -220,6 +222,11 @@ const normalizeMeta = (meta: StickerCollectMeta, info: ImageInfo | undefined, by
   if (category !== undefined && (!category || Array.from(category).length > 20 || hasControl(category))) {
     throw new MediaError('图片分类无效。');
   }
+  const context = typeof meta.context === 'string' ? meta.context.replace(/\s+/gu, ' ').trim() : undefined;
+
+  if (context !== undefined && (!context || Array.from(context).length > 200 || hasControl(context))) {
+    throw new MediaError('图片用途说明无效。');
+  }
   const sourceUrl = typeof meta.sourceUrl === 'string' ? meta.sourceUrl.trim() : undefined;
 
   if (sourceUrl !== undefined && (!/^https:\/\//u.test(sourceUrl) || sourceUrl.length > 2048 || hasControl(sourceUrl))) {
@@ -245,6 +252,7 @@ const normalizeMeta = (meta: StickerCollectMeta, info: ImageInfo | undefined, by
     ...(confidence !== undefined ? { confidence } : {}),
     kind,
     ...(category ? { category } : {}),
+    ...(context ? { context } : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
     ...(license ? { license } : {}),
     ...(width !== undefined && height !== undefined ? { width, height } : {}),
@@ -381,6 +389,7 @@ export const collectSticker = async (
         tags: mergeTags(existing.tags, tags),
         ...(existing.name || !record.name ? {} : { name: record.name }),
         ...(existing.category || !record.category ? {} : { category: record.category }),
+        ...(existing.context || !record.context ? {} : { context: record.context }),
         ...(existing.sourceUrl || !record.sourceUrl ? {} : { sourceUrl: record.sourceUrl }),
         ...(existing.license || !record.license ? {} : { license: record.license })
       };

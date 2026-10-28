@@ -107,7 +107,7 @@ asr:
 
 默认最多 300 项（`media.stickerMaxItems`，1–500）；id 唯一，每项最多 10 个标签。支持 PNG/JPEG/WebP/GIF。文件须真实存在于该目录内，不能通过 `../` 或外部符号链接读取目录之外的文件。清单上限 256 KiB。插件不自带第三方表情素材；自动收集默认对主人私聊和所有群开启，`autoAllGroups: false` 后才只收 `autoGroups` 中列出的群。
 
-插件收藏的条目会附带 `kind`（`sticker` 表情 / `avatar` 形象头像，旧条目没有时按表情处理）、`category`（头像类型或表情主分类，如 `头像`、`开心`、`无语`）、`from`（`auto`/`manual`/`forge`/`import`/`legacy`）、`addedAt`、`uses`、`lastUsed`、`width`、`height`、`bytes`、`confidence`、`sourceUrl`、`license` 和 `emojiId`（已写入 QQ 收藏时的平台标识）等可选元数据；外部清单可以省略。超过数量上限时，只会淘汰 `from: auto` 中“使用次数最少、最久未使用”的条目；主人手动加入、表情工坊生成和旧清单条目不自动删除，因此库满且没有可淘汰项时会拒绝新收藏。`kind: avatar` 只出现在素材/头像视图，`list_stickers` 和发送表情默认只取 `kind: sticker`。
+插件收藏的条目会附带 `kind`（`sticker` 表情 / `avatar` 形象头像，旧条目没有时按表情处理）、`category`（头像类型或表情主分类，如 `头像`、`开心`、`无语`）、`context`（适用/不适用场景，便于模型选图）、`from`（`auto`/`manual`/`forge`/`import`/`site`/`file`/`legacy`）、`addedAt`、`uses`、`lastUsed`、`width`、`height`、`bytes`、`confidence`、`sourceUrl`、`license` 和 `emojiId`（已写入 QQ 收藏时的平台标识）等可选元数据；外部清单可以省略。超过数量上限时，只会淘汰 `from: auto` 中“使用次数最少、最久未使用”的条目；主人手动加入、表情工坊生成和旧清单条目不自动删除，因此库满且没有可淘汰项时会拒绝新收藏。`kind: avatar` 只出现在素材/头像视图，`list_stickers` 和发送表情默认只取 `kind: sticker`。
 
 本会话最近 30 分钟内的图片/表情会在内存中保留少量元数据（每会话最多 6 张，不落盘，按需下载），因此主人可以直接说“把刚才那张做成表情”或“存一下刚才那张”，不必每次引用；配置变更或进程退出会清空。
 
@@ -161,7 +161,7 @@ alemonjs-agent-link:
 - `kind: sticker`：表情包/梗图/反应图，`list_stickers`、`/表情`、`send_sticker` 和自动表情只使用这一类。
 - `kind: avatar`：角色形象、头像、半身/全身立绘，只出现在素材/头像视图，不会当作表情发送。
 - `category`：主分类。头像常用 `头像`/`角色`/`半身`/`全身`/`场景`；表情常用一个主要情绪或用途，如 `开心`/`无语`/`疑问`/`晚安`/`搞怪`/`可爱`。
-- `tags`：多标签补充检索；`sourceUrl`/`license` 可记录来源与许可。
+- `tags`：多标签补充检索；`sourceUrl`/`license` 记录来源与许可；`context` 记录适用/不适用场景，`list_stickers` 会返回截断后的用途说明。
 
 配置 `media.vision` 时，自动收集和导入会调用视觉审核同时产出 `kind`、`category`、`name`、`tags`；不配置或审核失败时，平台标记表情按 `kind: sticker` + `未分类` 入库，普通图片不自动判断。偷来的表情同样走这条审核，因此也会带上分类。
 

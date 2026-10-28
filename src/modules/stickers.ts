@@ -45,7 +45,13 @@ export const stickerModule = (): AgentModule => ({
           return {
             ok: true,
             count: items.length,
-            items: items.map(({ id, tags, name, category }) => ({ id, ...(name ? { name } : {}), ...(category ? { category } : {}), tags }))
+            items: items.map(({ id, tags, name, category, context }) => ({
+              id,
+              ...(name ? { name } : {}),
+              ...(category ? { category } : {}),
+              ...(context ? { context: context.slice(0, 120) } : {}),
+              tags
+            }))
           };
         } catch (error) {
           context.signal.throwIfAborted();
@@ -380,7 +386,7 @@ export const stickerModule = (): AgentModule => ({
                 }
               }
               const result = await collectSticker(config, data, tags, context.signal, {
-                from: 'import',
+                from: 'file',
                 kind: kindValue,
                 category,
                 ...(name ? { name } : {})
