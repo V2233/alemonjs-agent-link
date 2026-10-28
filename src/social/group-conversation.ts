@@ -19,6 +19,7 @@ export type GroupMessage = {
   owner: boolean;
   text: string;
   direct: boolean;
+  addressed?: boolean;
   media?: MessageMediaItem[];
   referenceContext?: string;
   forwardIds?: string[];
@@ -71,7 +72,7 @@ export class GroupConversationCoordinator {
       random?: () => number;
       schedule?: (fn: () => void, delay: number) => ReturnType<typeof setTimeout> | number;
       unschedule?: (timer: ReturnType<typeof setTimeout> | number) => void;
-      onTiming?: (timing: { waitMs: number; gateMs: number; responseMs: number; totalMs: number }) => void;
+      onTiming?: (timing: { waitMs: number; gateMs: number; responseMs: number; totalMs: number; bypassed?: boolean; fastPath?: boolean }) => void;
       onError?: (error: unknown) => void;
       classify?: (input: ReplyGateInput, signal: AbortSignal) => Promise<ReplyVerdict>;
       getPolicy?: (channelId: string, platform?: string) => GroupChatPolicy;
@@ -202,7 +203,15 @@ export class GroupConversationCoordinator {
         state.pending.anchor.message.userId === message.userId &&
         state.pending.anchor.message.platform === message.platform)
     ) {
-      message = { ...message, explicitMention: true, direct: true };
+      message = { ...message, explicitMention: true, direct: true, addressed: true };
+    }
+    if (
+      fragments.some(item => item.addressed) ||
+      (state.pending?.anchor.message.addressed &&
+        state.pending.anchor.message.userId === message.userId &&
+        state.pending.anchor.message.platform === message.platform)
+    ) {
+      message = { ...message, addressed: true, direct: true };
     }
     if (fragments.some(item => item.direct) || (held && (control === 'release' || message.explicitCommand))) {
       message = { ...message, direct: true };
@@ -353,6 +362,8 @@ export class GroupConversationCoordinator {
     const started = this.now();
     let gateMs = 0;
     let responseMs = 0;
+    let bypassed = false;
+    let fastPath = false;
 
     try {
       const basePolicy = this.services.getPolicy?.(channelId, pending.anchor.message.platform) || pending.policy;
@@ -376,6 +387,13 @@ export class GroupConversationCoordinator {
         random: () => 0
       });
 
+      if (
+        decision.mode === 'direct' &&
+        (pending.anchor.message.addressed || pending.anchor.message.explicitMention || pending.anchor.message.explicitCommand)
+      ) {
+        bypassed = true;
+        fastPath = Boolean(pending.anchor.message.addressed);
+      }
       if (!decision.reply) {
         completed = true;
 
@@ -407,7 +425,8 @@ export class GroupConversationCoordinator {
         this.services.classify &&
         policy.replyGateEnabled !== false &&
         !pending.anchor.message.explicitCommand &&
-        !pending.anchor.message.explicitMention
+        !pending.anchor.message.explicitMention &&
+        !pending.anchor.message.addressed
       ) {
         state.gateTimes = state.gateTimes.filter(at => now - at < 60000);
         if (state.gateTimes.length >= 12) {
@@ -578,7 +597,14 @@ export class GroupConversationCoordinator {
       }
     } finally {
       try {
-        this.services.onTiming?.({ waitMs: started - pending.firstAt, gateMs, responseMs, totalMs: this.now() - pending.firstAt });
+        this.services.onTiming?.({
+          waitMs: started - pending.firstAt,
+          gateMs,
+          responseMs,
+          totalMs: this.now() - pending.firstAt,
+          ...(bypassed ? { bypassed: true } : {}),
+          ...(fastPath ? { fastPath: true } : {})
+        });
       } catch {
         /* Telemetry must not keep the group queue locked. */
       }

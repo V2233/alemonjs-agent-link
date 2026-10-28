@@ -145,6 +145,62 @@ export default async (): Promise<void> => {
 
       return;
     }
+    // 群内只开放「追加 / 查看追加 / 清空追加」三项，用于本群表达层补充；
+    // 人格文件的保存、删除、切换仍由主人在私聊管理。
+    if (['追加', '查看追加', '清空追加'].includes(action) && !(event.IsMaster && event.IsPrivate)) {
+      if (event.IsPrivate || !canReset(event)) {
+        await reply('群内叠加人设需要本群管理员或机器人主人。');
+
+        return;
+      }
+      if (action === '查看追加') {
+        const scoped = store.scopeAdditions(scope);
+
+        await reply(scoped ? `本群追加的人设（${Array.from(scoped).length} 字）\n${scoped}` : '本群还没有追加入设。', [
+          { label: '清空追加', command: '/人格 清空追加 默认' }
+        ]);
+
+        return;
+      }
+      if (action === '清空追加') {
+        store.clearScopeAdditions(scope);
+        await reply('已清空本群追加的人设。');
+
+        return;
+      }
+      if (!body) {
+        await reply('用法：/人格 追加 编号 内容。群内只需表达层补充，不能改变权限与身份。');
+
+        return;
+      }
+      if (
+        /(忽略|无视|跳过|忘记)(以上|之前|上面|前面|所有)?(的)?(规则|限制|指令|提示)|系统提示|system\s*prompt|你现在是|从现在开始你是|可以(执行|运行|调用)(命令|终端|shell)|读取(私聊|其他群)|不要告诉主人/iu.test(
+          body
+        )
+      ) {
+        await reply('这段内容包含改变规则、身份或权限的指令，不能作为人设叠加。请改成称呼、语气、口癖一类的表达补充。');
+
+        return;
+      }
+      const overlayLimit = 800;
+      const current = store.scopeAdditions(scope);
+
+      if (current.length + body.trim().length + 1 > overlayLimit) {
+        await reply(`本群追加人设累计最多 ${overlayLimit} 字，先查看或清空再写。`, [{ label: '查看追加', command: '/人格 查看追加 默认' }]);
+
+        return;
+      }
+      try {
+        store.appendScope(scope, body, event.UserId || 'admin');
+      } catch (error) {
+        await reply(error instanceof Error ? error.message : '追加失败，请稍后再试。');
+
+        return;
+      }
+      await reply('已追加本群人设，下一条消息生效。只影响表达，不改变能力与权限。', [{ label: '查看追加', command: '/人格 查看追加 默认' }]);
+
+      return;
+    }
     if (!event.IsMaster || !event.IsPrivate) {
       await reply('人格文件管理仅限机器人主人私聊。');
 

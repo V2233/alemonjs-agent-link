@@ -114,7 +114,8 @@ npm run validate:gate -- --limit 30 --hours 3
 ### 记录指标
 
 - `Group reply gate verdict` 日志中的 `addressed`、`related`、`reason`、`source`、`loopRisk`；
-- `Group reply latency` 的 `gateMs` 与 `totalMs`；
+- `Group reply latency` 的 `gateMs`、`totalMs`，以及新增的 `bypassed`/`fastPath`；
+- `Social reply polished` / `Social reply trimmed` 日志的前后字数与耗时；
 - 人工标注：应回未回（漏回）、不应回却回（错回）、重复回复、引用错人；
 - 建议目标：错回 0 次；无关求助 0 次回复；p95 `gateMs` < 2s；同一话题 3 分钟内不重复完整判断。
 
@@ -126,7 +127,7 @@ npm run validate:gate -- --limit 30 --hours 3
 
 - **离线回放通过**：真实消息、真实分类器、无错误；
 - **线上初步观察通过**：当前实例已出现 `addressed/related` 判断，149 条样本中 5 条回复、0 条 loopRisk，能看到“@ 到另一个机器人被拒绝”的正确案例；
-- **仍缺受控场景**：停止/等我说完、刷屏、机器人互聊需要人工在测试群发一轮；`gateMs` p95 3.13s，需观察超时拒绝；
+- **仍缺受控场景**：停止/等我说完、刷屏、机器人互聊需要人工在测试群发一轮；上面的 p95 是快路径加入前的样本，句首称呼/引用机器人现在会跳过分类模型，需重启后复测延迟；
 - **下一步不是再加功能**：先把“无关求助不接、接着它的话要接”这两条跑稳，再谈其他扩展。
 
 ---

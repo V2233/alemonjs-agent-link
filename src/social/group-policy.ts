@@ -133,7 +133,7 @@ const checkPolicy = (policy: GroupChatPolicy): GroupChatPolicy => {
   return { ...policy, quietHours: [...policy.quietHours], interests: [...policy.interests] };
 };
 
-export const getGroupChatPolicy = (config: GroupChatConfig = {}, channelId = ''): GroupChatPolicy => {
+export const getGroupChatPolicy = (config: GroupChatConfig = {}, channelId = '', settings: Partial<GroupChatPolicy> = {}): GroupChatPolicy => {
   if (
     !config ||
     typeof config !== 'object' ||
@@ -149,16 +149,18 @@ export const getGroupChatPolicy = (config: GroupChatConfig = {}, channelId = '')
 
     return checkPolicy({ ...base, ...patch, activity });
   };
-  const merged = merge(defaultGroupChatPolicy, base);
+  // 群管理员设置插在配置与默认值之间：配置文件里显式写下的字段会被再次覆盖，相当于主人锁定。
+  const merged = merge(merge(defaultGroupChatPolicy, base), settings);
+  const locked = Object.keys(base).length ? merge(merged, base) : merged;
 
   for (const [id, override] of Object.entries(overrides)) {
     if (!id || id.length > 300 || !override || typeof override !== 'object' || Array.isArray(override)) {
       throw new Error('groupChat.overrides 配置无效。');
     }
-    merge(merged, override);
+    merge(locked, override);
   }
 
-  return merge(merged, overrides[channelId] || {});
+  return merge(locked, overrides[channelId] || {});
 };
 
 export const groupTopicRelevance = (texts: string[], interests: string[], memoryScore = 0): number => {

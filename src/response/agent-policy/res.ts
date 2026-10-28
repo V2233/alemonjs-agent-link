@@ -4,13 +4,13 @@ import { getDSHConfig } from '@src/dsh/client';
 import { SessionRegistry } from '@src/state/registry';
 import { resetGroupSession } from '@src/dsh/orchestrator';
 import { isKeyEntitledGroup } from '../../social/groups';
-import { getGroupChatPolicy } from '../../social/group-policy';
+import { groupPolicy } from '../../social/group-settings';
 
 /** 权益是否真的作用在工具上：绑了 Key 且主人没有关闭 boundKeyTools。 */
 const toolsEntitled = async (platform: string | undefined, channelId: string | undefined): Promise<boolean> => {
   if (!channelId) return false;
 
-  return (await isKeyEntitledGroup({ platform, channelId })) && getGroupChatPolicy(getDSHConfig().groupChat, channelId).boundKeyTools !== false;
+  return (await isKeyEntitledGroup({ platform, channelId })) && groupPolicy(getDSHConfig(), channelId, platform).boundKeyTools !== false;
 };
 
 export default async (): Promise<void> => {

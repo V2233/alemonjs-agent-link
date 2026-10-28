@@ -9,6 +9,7 @@ import { purgeGroupHashData } from '@src/dsh/client';
 import { getChatArchive } from './history/store';
 import { getModuleRuntime, closeModuleRuntime } from './agent/modules';
 import { getMemoryStore } from './memory/store';
+import { getQAStore } from './qa/store';
 import { getMoodStore } from './companion/mood';
 import { getPlatformLedger } from './platform/ledger';
 import { getProactiveStore } from './proactive/store';
@@ -111,6 +112,7 @@ export default defineChildren({
 
         getChatArchive(config).cleanup();
         getMemoryStore(config).cleanup(config.retentionDays);
+        getQAStore(config).cleanup(config.retentionDays);
         getMoodStore(config).cleanup(config.retentionDays);
         getPlatformLedger(config).cleanup(config.retentionDays);
         getProactiveStore(config).cleanup(config.retentionDays);

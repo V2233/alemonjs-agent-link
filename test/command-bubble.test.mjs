@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getConfig, ResultCode } from 'alemonjs';
 import { helpFormat } from '../lib/response/agent-help/res.js';
-import { commandBubble, noticeBubble, KEYBOARD_LABELS } from '../lib/response/bubble.js';
+import { commandBubble, noticeBubble, sectionBubble, KEYBOARD_LABELS } from '../lib/response/bubble.js';
 import { insufficientBudgetHelp, budgetNoticeActions } from '../lib/billing/help.js';
 const { createMarkdownText } = await import(new URL('./format.js', import.meta.resolve('@alemonjs/qq-bot')));
 const { GROUP_AT_MESSAGE_CREATE, C2C_MESSAGE_CREATE } = await import(new URL('./sends.js', import.meta.resolve('@alemonjs/qq-bot')));
@@ -12,7 +12,7 @@ test('help index uses one inline button per topic without a keyboard bar', () =>
   const format = helpFormat(false, false);
   const rendered = createMarkdownText(format.value[0].value, 'group');
   assert.deepEqual(commandsOf(format), []);
-  for (const topic of ['聊天', '记忆', '人格', '媒体', '额度', '数据']) {
+  for (const topic of ['聊天', '记忆', '人格', '群设置', '媒体', '额度', '数据']) {
     assert.match(rendered, new RegExp(`qqbot-cmd-input text="/帮助 ${topic}"`));
   }
   assert.doesNotMatch(rendered, /\/帮助 管理/);
@@ -21,6 +21,7 @@ test('help index uses one inline button per topic without a keyboard bar', () =>
   const plain = helpFormat(true, true, '', 'onebot').value;
   assert.equal(plain[0].type, 'Text');
   assert.match(plain[0].value, /\/帮助 管理/);
+  assert.doesNotMatch(plain[0].value, /\/帮助 群设置/);
 });
 
 test('command data cannot inject QQ tags or clickable Markdown links', () => {
@@ -67,27 +68,27 @@ test('help chooser stays inline and never creates a keyboard group', () => {
   const rendered = createMarkdownText(format.value[0].value, 'group');
 
   assert.deepEqual(keyboardOf(format), []);
-  for (const topic of ['聊天', '记忆', '人格', '媒体', '额度', '数据']) {
+  for (const topic of ['聊天', '记忆', '人格', '群设置', '媒体', '额度', '数据']) {
     assert.match(rendered, new RegExp(`qqbot-cmd-input text="/帮助 ${topic}"`));
   }
   assert.doesNotMatch(rendered, /\/帮助 管理/);
 });
 
-test('command cards use inline buttons for one step and keyboard buttons for a menu', () => {
+test('command cards always use inline Markdown; only link or choice keeps the keyboard', () => {
   const inlineCard = commandBubble('第一行\n第二行', '标题', { platform: 'qq-bot', actions: [{ label: '额度', command: '/额度' }] });
 
   assert.equal(inlineCard.value[0].type, 'Markdown');
-  assert.deepEqual(commandsOf(inlineCard), [], 'one or two next steps stay inline');
+  assert.deepEqual(commandsOf(inlineCard), [], 'a command never creates a keyboard bar');
   assert.match(createMarkdownText(inlineCard.value[0].value, 'group'), /qqbot-cmd-input text="\/额度"/);
 
-  const keyboardCard = commandBubble('第一行\n第二行', '标题', {
+  const explicitKeyboard = commandBubble('第一行\n第二行', '标题', {
     platform: 'qq-bot',
     layout: 'keyboard',
     actions: [{ label: '额度', command: '/额度' }]
   });
 
-  assert.deepEqual(commandsOf(keyboardCard), ['/额度']);
-  assert.doesNotMatch(createMarkdownText(keyboardCard.value[0].value, 'group'), /qqbot-cmd-input/);
+  assert.deepEqual(commandsOf(explicitKeyboard), [], 'legacy keyboard layout is downgraded for commands');
+  assert.match(createMarkdownText(explicitKeyboard.value[0].value, 'group'), /qqbot-cmd-input text="\/额度"/);
 
   const menuCard = commandBubble('第一行\n第二行', '标题', {
     platform: 'qq-bot',
@@ -99,8 +100,26 @@ test('command cards use inline buttons for one step and keyboard buttons for a m
     ]
   });
 
-  assert.deepEqual(commandsOf(menuCard), ['/额度', '/状态', '/帮助', '/新会话']);
-  assert.doesNotMatch(createMarkdownText(menuCard.value[0].value, 'group'), /qqbot-cmd-input/);
+  assert.deepEqual(commandsOf(menuCard), [], 'multi-entry command menu is inline too');
+  const menuMarkdown = createMarkdownText(menuCard.value[0].value, 'group');
+  for (const command of ['/额度', '/状态', '/帮助', '/新会话']) assert.ok(menuMarkdown.includes(`qqbot-cmd-input text="${command}"`));
+
+  const linkCard = commandBubble('第一行\n第二行', '标题', {
+    platform: 'qq-bot',
+    actions: [{ label: '打开官网', url: 'https://example.com' }]
+  });
+  assert.deepEqual(commandsOf(linkCard), ['https://example.com']);
+  assert.doesNotMatch(createMarkdownText(linkCard.value[0].value, 'group'), /qqbot-cmd-input/);
+
+  const choiceCard = commandBubble('第一行\n第二行', '标题', {
+    platform: 'qq-bot',
+    actions: [
+      { label: '确认', command: '/确认', choice: 'binary' },
+      { label: '取消', command: '/取消', choice: 'binary' }
+    ]
+  });
+  assert.deepEqual(commandsOf(choiceCard), ['/确认', '/取消']);
+  assert.doesNotMatch(createMarkdownText(choiceCard.value[0].value, 'group'), /qqbot-cmd-input/);
 
   const plain = commandBubble('第一行\n第二行', '标题', { platform: 'onebot', actions: [{ label: '额度', command: '/额度' }] });
 
@@ -110,26 +129,32 @@ test('command cards use inline buttons for one step and keyboard buttons for a m
   assert.equal(commandBubble('已取消。', '状态').value[0].type, 'Text');
 });
 
-test('declared actions are deduplicated and capped', () => {
+test('declared command actions are deduplicated and inline-capped', () => {
   const card = commandBubble('说明\n更多', '标题', {
     platform: 'qq-bot',
-    layout: 'keyboard',
     actions: [
       { label: '人格', command: '/人格' },
       { label: '使用编辑器', command: '/人格 使用 编辑器' },
       { label: '重复', command: '/人格 使用 编辑器' }
     ]
   });
+  const rendered = createMarkdownText(card.value[0].value, 'group');
 
-  assert.deepEqual(commandsOf(card), ['/人格', '/人格 使用 编辑器'], 'both intents survive, the exact duplicate does not');
+  assert.match(rendered, /qqbot-cmd-input text="\/人格"/);
+  assert.match(rendered, /qqbot-cmd-input text="\/人格 使用 编辑器"/);
+  assert.equal((rendered.match(/qqbot-cmd-input text="\/人格 使用 编辑器"/gu) || []).length, 1, 'exact duplicate is dropped');
 
   const capped = commandBubble('说明\n更多', '标题', {
     platform: 'qq-bot',
-    layout: 'keyboard',
     actions: Array.from({ length: 14 }, (_, index) => ({ label: `项目${index}`, command: `/记忆检索 关键词${index}` }))
   });
+  assert.equal((createMarkdownText(capped.value[0].value, 'group').match(/qqbot-cmd-input/gu) || []).length, 10, 'inline commands are capped at 10');
 
-  assert.equal(commandsOf(capped).length, 10, 'keyboard exposes at most two rows');
+  const links = commandBubble('说明\n更多', '标题', {
+    platform: 'qq-bot',
+    actions: Array.from({ length: 14 }, (_, index) => ({ label: `链接${index}`, url: `https://example.com/${index}` }))
+  });
+  assert.equal(commandsOf(links).length, 10, 'link keyboard is capped at 10');
 });
 
 test('keyboard short names stay within one to four characters', () => {
@@ -168,4 +193,22 @@ test('budget-exceeded notices offer exactly the commands their copy tells users 
   assert.equal(plain.value.length, 1);
   assert.equal(plain.value[0].type, 'Markdown', 'OneBot still gets the guidance without keyboard payloads');
   assert.doesNotMatch(createMarkdownText(plain.value[0].value, 'group'), /qqbot-cmd-input/);
+});
+
+test('section cards inline commands but keep link and choice keyboards', () => {
+  const inline = sectionBubble('标题', '说明', [
+    { title: '第一项', text: '', actions: [{ label: '额度', command: '/额度' }] },
+    { title: '第二项', text: '', actions: [{ label: '状态', command: '/状态' }] }
+  ], { platform: 'qq-bot' });
+
+  assert.deepEqual(commandsOf(inline), []);
+  const rendered = createMarkdownText(inline.value[0].value, 'group');
+  assert.match(rendered, /qqbot-cmd-input text="\/额度"/);
+  assert.match(rendered, /qqbot-cmd-input text="\/状态"/);
+
+  const link = sectionBubble('标题', '说明', [
+    { title: '第一项', text: '', actions: [{ label: '打开官网', url: 'https://example.com' }] }
+  ], { platform: 'qq-bot' });
+  assert.deepEqual(commandsOf(link), ['https://example.com']);
+  assert.doesNotMatch(createMarkdownText(link.value[0].value, 'group'), /qqbot-cmd-input/);
 });

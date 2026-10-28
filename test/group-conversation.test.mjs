@@ -765,3 +765,43 @@ test('explicit mentions retain local bot, stop, hold and loop protections', asyn
   assert.equal(calls, 1);
   h.coordinator.close();
 });
+
+test('local sentence-leading address skips the classification model', async () => {
+  const h = harness({
+    classify: () => assert.fail('high-confidence address must not classify')
+  });
+  let replied = 0;
+  const done = h.coordinator.receive(
+    message('local-address', { text: '肥鱼，帮我看看这个报错', direct: true, addressed: true }),
+    policy(),
+    async () => {
+      replied++;
+      return { delivered: true };
+    }
+  );
+  await h.coordinator.flush('group');
+  await done;
+  assert.equal(replied, 1);
+  h.coordinator.close();
+});
+
+test('local address timing records a gate bypass without calling the classifier', async () => {
+  let timings;
+  const h = harness({
+    classify: () => assert.fail('fast path must not classify'),
+    onTiming: value => {
+      timings = value;
+    }
+  });
+  const done = h.coordinator.receive(
+    message('fast-timing', { text: '肥鱼，在吗', direct: true, addressed: true }),
+    policy(),
+    async () => ({ delivered: true })
+  );
+  await h.coordinator.flush('group');
+  await done;
+  assert.equal(timings?.fastPath, true);
+  assert.equal(timings?.bypassed, true);
+  assert.equal(timings?.gateMs, 0);
+  h.coordinator.close();
+});

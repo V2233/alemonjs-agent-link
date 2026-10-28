@@ -5,10 +5,11 @@ import { logger, useEvent, useMessage, useMedia } from 'alemonjs';
 import { noticeBubble } from '../bubble';
 import { budgetNoticeActions } from '../../billing/help';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
-import { extractPrompt, extractWakePrompt } from '@src/response/dsh/util';
+import { extractPrompt, extractWakePrompt, startsWithAddressName } from '@src/response/dsh/util';
 import { groupConversations, scopedGroupPolicy } from '../../social/groups';
 import { respondToGroupBatch } from '../../social/respond';
 import { messageReferences } from '../../social/references';
+import { wakeNamesFor } from '../../social/group-settings';
 
 export default async (): Promise<void> => {
   const [eventContext, next] = useEvent({ selects: 'message.create' });
@@ -40,7 +41,7 @@ export default async (): Promise<void> => {
       ? extractPrompt(String(event.MessageText ?? ''), mentionedBot)
       : messageContext.mentionedSelf
         ? String(event.MessageText || '')
-        : extractWakePrompt(event.MessageText, getDSHConfig().groupWakeNames);
+        : extractWakePrompt(event.MessageText, wakeNamesFor(getDSHConfig(), event.ChannelId || '', event.Platform || ''));
     messageContext.trigger = messageContext.mentionedSelf || mentionedBot ? 'mention' : prompt !== null ? 'wake_name' : 'ambient';
     if (prompt === null && references.quotedBot) {
       messageContext.trigger = 'quote';
@@ -100,6 +101,12 @@ export default async (): Promise<void> => {
   const [media] = useMedia();
 
   try {
+    const localAddress = Boolean(
+      messageContext.mentionedSelf ||
+      mentionedBot ||
+      messageContext.trigger === 'quote' ||
+      startsWithAddressName(text, wakeNamesFor(config, event.ChannelId || '', event.Platform || ''))
+    );
     const decision = await groupConversations.receive(
       {
         channelId: event.ChannelId,
@@ -111,6 +118,7 @@ export default async (): Promise<void> => {
         owner: Boolean(event.IsMaster),
         text: text || prompt || '',
         direct: prompt !== null,
+        addressed: localAddress,
         explicitMention: Boolean(messageContext.mentionedSelf || mentionedBot),
         controlText: mentionedBot ? prompt : undefined,
         media: references.media,

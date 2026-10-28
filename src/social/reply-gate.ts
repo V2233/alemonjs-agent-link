@@ -5,6 +5,7 @@ import { getDSHConfig } from '../dsh/client';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { getDSHCredentials, type DSHCredentials } from '../dsh/credentials';
 import { readBounded } from '../media/providers';
+import { wakeNamesFor } from './group-settings';
 
 export const addressTypes = ['direct', 'name', 'quote', 'poke', 'follow_up', 'none'] as const;
 export const relationTypes = ['my_last_reply', 'my_thread', 'none'] as const;
@@ -143,7 +144,7 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
       return reject();
     }
     const compact = {
-      bot: config.groupWakeNames,
+      bot: wakeNamesFor(config, input.scope?.channelId || '', input.scope?.platform || ''),
       activity: input.activity || 'balanced',
       recent: input.recent.slice(-5).map(item => ({ speaker: item.speaker, text: item.text.slice(0, 400) })),
       messages: input.messages.map(item => ({

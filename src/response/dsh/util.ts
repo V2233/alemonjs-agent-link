@@ -94,3 +94,32 @@ export const describeSpeaker = (event: { UserId?: string; UserName?: string; IsM
     name: (event.UserName || '').slice(0, 80),
     owner: Boolean(event.IsMaster)
   });
+
+const GENERIC_HELP_WAKES = new Set(['帮我', '帮忙', '帮一下', '帮个忙', '求助', '求解', '请教']);
+
+/**
+ * 高置信度的“喊我”：名字在句首，后面是标点/空白/结束，而不是“肥鱼说……”
+ * 或“他们说肥鱼……”。这类消息可以不调用分类模型，直接进入回复链路；
+ * 泛化的“帮我/求助”不算，避免把普通群聊里的求助都当成叫它。
+ */
+export const startsWithAddressName = (text: string, names: string[]): boolean => {
+  const input = String(text ?? '').trim();
+
+  if (!input || input.startsWith('/')) {
+    return false;
+  }
+  const normalized = input.toLowerCase();
+
+  return names.some(name => {
+    if (!name || GENERIC_HELP_WAKES.has(name)) {
+      return false;
+    }
+    const keyword = name.toLowerCase();
+
+    if (!normalized.startsWith(keyword)) {
+      return false;
+    }
+
+    return input.length === name.length || /^[\s，,。！!？?：:、~～]/u.test(input.slice(name.length));
+  });
+};

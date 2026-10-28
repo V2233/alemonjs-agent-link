@@ -318,7 +318,7 @@
 | `maxToolContinuations` | number   | `2`                          | 0–4                                   | 工具结果后的续写次数   |
 | `settings`             | map      | `{}`                         | 键为模块 ID                           | 各模块自己的设置，见下 |
 
-内置模块 ID：`bili`、`chat-history`、`expose`、`files`、`memory`、`mood`、`persona`、`platform`、`group-admin`、`proactive`、`qzone`、`stickers`、`voice`。
+内置模块 ID：`bili`、`chat-history`、`expose`、`files`、`memory`、`mood`、`persona`、`platform`、`group-admin`、`proactive`、`qa`、`qzone`、`stickers`、`voice`。
 
 ### 8.1 `modules.settings.bili`
 
@@ -419,6 +419,7 @@
 | `stickerIntentAlways` | boolean          | `true`   | —           | 明确意图（在不在/晚安等）优先尝试表情                    |
 | `stickerMode`         | string           | `either` | either/both | either=表情优先，必要时补文字；both=正文后补一张         |
 | `modelVoice`          | boolean          | `false`  | —           | 允许模型用 `<voice>...</voice>` 选择语音；会缓冲整段回复 |
+| `socialPolish`        | boolean          | `true`   | —           | 群聊短回复疑似客服腔时，用便宜模型改写一次；失败回退原文 |
 | `delayMs`             | [number, number] | `[0, 0]` | 0–3000      | 随机停顿区间，前值不得大于后值                           |
 
 ### 8.8 `modules.settings.persona`
@@ -449,6 +450,17 @@
 | `host`    | string  | `127.0.0.1` | `127.0.0.1` \| `::1` | 不允许公网绑定                                             |
 | `port`    | number  | `8787`      | 1–65535              | 本地面板端口                                               |
 | `token`   | string  | 空          | 16–128 位，无空白    | 留空时首次启动自动写入数据目录的 `sticker-panel-token.txt` |
+
+### 8.12 `modules.settings.qa`
+
+| 字段             | 类型    | 默认   | 范围    | 说明                                             |
+| ---------------- | ------- | ------ | ------- | ------------------------------------------------ |
+| `autoRecord`     | boolean | `true` | —       | 记录问因提问，并把未命中的已送达问答写入当前会话 |
+| `recallLimit`    | number  | `3`    | 1–10    | 每次注入的匹配问答条数                           |
+| `matchThreshold` | number  | `3.5`  | 1–20    | 匹配门槛，越高越严格                             |
+| `maxEntries`     | number  | `200`  | 10–2000 | 每个会话自动学习条目的上限                       |
+
+停用问答库使用 `modules.disabled: ['qa']`。内置问题与答案、自动学习、会话隔离和清理规则见[问答库](qa.md)。
 
 ## 9. `media`（图片、语音、表情）
 

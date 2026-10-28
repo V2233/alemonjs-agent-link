@@ -8,6 +8,7 @@ import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '../dsh/client';
 import type { ChatInput } from '../dsh/input';
 import { memoryModule } from '../modules/memory';
+import { qaModule } from '../modules/qa';
 import { chatHistoryModule } from '../modules/chat-history';
 import { personaModule } from '../modules/persona';
 import { moodModule } from '../modules/mood';
@@ -252,7 +253,8 @@ export class ModuleRuntime {
       biliModule(config),
       qzoneModule(config),
       memoryModule(config),
-      chatHistoryModule(config)
+      chatHistoryModule(config),
+      qaModule(config)
     ]
   ) {}
 

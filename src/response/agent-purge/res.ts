@@ -43,8 +43,8 @@ export default async (): Promise<void> => {
       format: commandBubble('将永久删除本群会话、文件、聊天记录、记忆及本群人格和心情设置，无法恢复。\n请本人在60秒内发送 /清除群数据 确认。', '清除群数据', {
         platform: event.Platform,
         actions: [
-          { label: '确认清除', command: '/清除群数据 确认' },
-          { label: '取消', command: '/取消' }
+          { label: '确认清除', command: '/清除群数据 确认', choice: 'binary' },
+          { label: '取消', command: '/取消', choice: 'binary' }
         ]
       })
     });

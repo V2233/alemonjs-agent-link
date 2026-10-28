@@ -2,6 +2,8 @@ import { useEvent, useMessage, useRoute, useMedia } from 'alemonjs';
 import { noticeBubble } from '../bubble';
 import { runDSHChat } from '@src/response/dsh/chat';
 import { submitGroupChat } from '../../social/respond';
+import { groupVoicePolicy } from '../../social/group-settings';
+import { getDSHConfig } from '@src/dsh/client';
 
 export default async (): Promise<void> => {
   const [context] = useEvent({ selects: ['message.create', 'private.message.create'] });
@@ -30,9 +32,19 @@ export default async (): Promise<void> => {
   } else {
     const [message] = useMessage();
     const [media] = useMedia();
+    const voice = groupVoicePolicy(getDSHConfig(), context.current.ChannelId || '', context.current.Platform || '');
 
+    if (!voice.allowed) {
+      await message.send({
+        format: noticeBubble('本群已关闭语音，这次用文字回答。', {
+          platform: context.current.Platform,
+          title: '语音',
+          actions: [{ label: '语音设置', command: '/群设置 语音 查看' }]
+        })
+      });
+    }
     try {
-      await submitGroupChat(context.current, text, { message, media }, true);
+      await submitGroupChat(context.current, text, { message, media }, voice.allowed);
     } catch {
       await message.send({
         format: noticeBubble('群聊消息暂时无法处理，请稍后重试。', {

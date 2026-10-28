@@ -2,7 +2,8 @@ import { classifyGroupReply } from './reply-gate';
 import { logger } from 'alemonjs';
 import { getDSHConfig, type AgentCapabilities } from '../dsh/client';
 import { GroupConversationCoordinator } from './group-conversation';
-import { boundKeyGroupPolicy, getGroupChatPolicy } from './group-policy';
+import { boundKeyGroupPolicy } from './group-policy';
+import { groupPolicy } from './group-settings';
 import { getBoundCredential } from '../credentials/scoped';
 import { withBudgetScope } from '../billing/budget';
 import { moodGroupPolicy } from '../companion/expression';
@@ -10,7 +11,7 @@ import { moodGroupPolicy } from '../companion/expression';
 export const scopedGroupPolicy = (channelId: string, platform = '') => {
   const config = getDSHConfig();
 
-  return moodGroupPolicy(config, { channelId, platform }, getGroupChatPolicy(config.groupChat, channelId));
+  return moodGroupPolicy(config, { channelId, platform }, groupPolicy(config, channelId, platform));
 };
 
 /**
@@ -19,7 +20,7 @@ export const scopedGroupPolicy = (channelId: string, platform = '') => {
  */
 export const isKeyEntitledGroup = async (scope: { platform?: string; channelId: string; userId?: string }): Promise<boolean> => {
   if (!scope.platform) return false;
-  if (getGroupChatPolicy(getDSHConfig().groupChat, scope.channelId).boundKeyElevation === false) return false;
+  if (groupPolicy(getDSHConfig(), scope.channelId, scope.platform).boundKeyElevation === false) return false;
   try {
     const bound = await withBudgetScope({ platform: scope.platform, channelId: scope.channelId, userId: scope.userId }, getBoundCredential);
 
@@ -38,7 +39,7 @@ export const resolveGroupCapabilities = async (
   capabilities: AgentCapabilities
 ): Promise<AgentCapabilities> => {
   if (scope.private || (capabilities.web && capabilities.files)) return capabilities;
-  const allowTools = getGroupChatPolicy(getDSHConfig().groupChat, scope.channelId).boundKeyTools !== false;
+  const allowTools = groupPolicy(getDSHConfig(), scope.channelId, scope.platform).boundKeyTools !== false;
 
   return entitledCapabilities(capabilities, await isKeyEntitledGroup(scope), allowTools);
 };

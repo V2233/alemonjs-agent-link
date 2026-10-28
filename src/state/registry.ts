@@ -4,6 +4,7 @@ import type { Redis } from 'ioredis';
 import { getLocalStore } from './local-store';
 import { getChatArchive } from '../history/store';
 import { getMemoryStore } from '../memory/store';
+import { getQAStore } from '../qa/store';
 import { getPersonaStore } from '../companion/personas';
 import { getMoodStore } from '../companion/mood';
 import { getPlatformLedger } from '../platform/ledger';
@@ -545,6 +546,7 @@ export class SessionRegistry {
     getMoodStore(this.config).purgeHash(groupHash(channelId));
     getChatArchive(this.config).purgeHash(groupHash(channelId));
     getMemoryStore(this.config).purgeHash(groupHash(channelId));
+    getQAStore(this.config).purgeHash(groupHash(channelId));
     const store = await redis(this.config);
 
     await store.del(
@@ -567,6 +569,7 @@ export class SessionRegistry {
     if (includeArchive) {
       getChatArchive(this.config).purgeHash(hash);
       getMemoryStore(this.config).purgeHash(hash);
+      getQAStore(this.config).purgeHash(hash);
     }
     const store = await redis(this.config);
     let cursor = '0';

@@ -2,6 +2,7 @@ import { describeSpeaker, extractWakePrompt } from '@src/response/dsh/util';
 import { logger, useEvent, useMention } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { recordRecentMessage } from '@src/chat-context/store';
+import { wakeNamesFor } from '@src/social/group-settings';
 
 export default async (): Promise<void> => {
   const [eventContext, next] = useEvent({ selects: 'message.create' });
@@ -28,7 +29,7 @@ export default async (): Promise<void> => {
     try {
       const config = getDSHConfig();
 
-      if (extractWakePrompt(text, config.groupWakeNames) === null) {
+      if (extractWakePrompt(text, wakeNamesFor(config, event.ChannelId || '', event.Platform || '')) === null) {
         await recordRecentMessage(
           event.ChannelId,
           {

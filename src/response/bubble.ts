@@ -3,7 +3,7 @@ import { Format, getCurrentEvent } from 'alemonjs';
 // QQ 气泡只用两种可点元素：Markdown 里的 <qqbot-cmd-input>（点一下把指令填进输入框），
 // 以及挂在消息底部的键盘按钮组。两者都只“填入不发送”，避免误触直接执行。
 const RICH_PLATFORM = 'qq-bot';
-const MAX_INLINE_ACTIONS = 3;
+const MAX_INLINE_ACTIONS = 10;
 const MAX_KEYBOARD_ACTIONS = 10;
 const MAX_INLINE_LABEL = 12;
 // 键盘按钮在手机上是小号按钮，1-4 个字才读得快。
@@ -86,7 +86,15 @@ const safe = (text: string): string =>
     .replace(/>/gu, '&gt;')
     .replace(/([\\`*_[\]~])/gu, '\\$1');
 
-export type BubbleAction = { label: string; command: string; short?: string };
+export type BubbleAction = {
+  label: string;
+  command?: string;
+  /** 打开外部链接；这类动作无法用 Markdown 指令输入表达，保留键盘按钮。 */
+  url?: string;
+  /** 单选/二选一菜单；保留键盘按钮，避免把选择拆成多条指令。 */
+  choice?: 'single' | 'binary';
+  short?: string;
+};
 export type BubbleSection = { title: string; text: string; actions?: BubbleAction[] };
 export type BubbleLayout = 'auto' | 'inline' | 'keyboard' | 'none';
 export type BubbleOptions = { platform?: string; actions?: BubbleAction[]; layout?: BubbleLayout };
@@ -115,29 +123,32 @@ const inlineLabel = (value: string): string => {
 };
 
 /** 键盘按钮只留 1-4 个字：优先用声明或内置短名，最后才截断。 */
-const keyboardLabel = (action: BubbleAction): string => clip(action.short || KEYBOARD_LABELS[action.command] || action.label, MAX_KEYBOARD_LABEL);
+const keyboardLabel = (action: BubbleAction): string => clip(action.short || KEYBOARD_LABELS[action.command || ''] || action.label, MAX_KEYBOARD_LABEL);
 
 /** 只按指令去重；同一条指令的不同用途（/个人密钥 状态 与 /个人密钥 绑定）都保留。 */
 const normalizeActions = (actions: BubbleAction[]): BubbleAction[] => {
   const kept: BubbleAction[] = [];
 
   for (const action of actions) {
-    const command = String(action?.command ?? '').trim();
+    const target = String(action?.url ?? action?.command ?? '').trim();
     const title = String(action?.label ?? '').trim();
 
-    if (!command || !title || command.length > MAX_COMMAND_LENGTH) continue;
-    if (kept.some(item => item.command === command)) continue;
+    if (!target || !title || target.length > MAX_COMMAND_LENGTH) continue;
+    if (action.url && !/^https:\/\//u.test(action.url)) continue;
+    if (kept.some(item => String(item.url ?? item.command ?? '').trim() === target)) continue;
     kept.push(action);
   }
 
   return kept.slice(0, MAX_KEYBOARD_ACTIONS);
 };
 
+/** 链接和单选/二选一无法降级成 Markdown 指令输入，继续用键盘。 */
+const needsKeyboard = (actions: BubbleAction[]): boolean => actions.some(action => Boolean(action.url || action.choice));
+
 const addInline = (md: ReturnType<typeof Format.createMarkdown>, actions: BubbleAction[]): void => {
   md.addNewline();
-  // The xiuxian project's ‹…› convention keeps inline commands visually distinct
-  // from body text without turning them into a second keyboard row.
-  for (const action of actions.slice(0, MAX_INLINE_ACTIONS))
+  // 默认所有命令导航都降级成 Markdown 指令输入：点一下只填入，不直接发送。
+  for (const action of actions.filter(item => item.command).slice(0, MAX_INLINE_ACTIONS))
     md.addButton(`‹${inlineLabel(action.label)}›`, { data: action.command, autoEnter: false }).addText(' ');
 };
 
@@ -148,7 +159,15 @@ const buildKeyboard = (actions: BubbleAction[]): ReturnType<typeof Format.create
   for (let index = 0; index < actions.length; index += BUTTONS_PER_ROW) {
     group.addRow();
     for (const action of actions.slice(index, index + BUTTONS_PER_ROW)) {
-      group.addButton(keyboardLabel(action), action.command, { type: 'command', style: 'blue', autoEnter: false, rawData: {} });
+      const target = action.url || action.command;
+
+      if (!target) continue;
+      group.addButton(keyboardLabel(action), target, {
+        type: action.url ? 'link' : 'command',
+        style: 'blue',
+        autoEnter: false,
+        rawData: {}
+      });
     }
   }
 
@@ -170,19 +189,19 @@ const attach = (format: ReturnType<typeof Format.create>, actions: BubbleAction[
  */
 const splitActions = (actions: BubbleAction[], layout: BubbleLayout): { inline: BubbleAction[]; keyboard: BubbleAction[] } => {
   if (layout === 'none') return { inline: [], keyboard: [] };
-  if (layout === 'inline') return { inline: actions.slice(0, MAX_INLINE_ACTIONS), keyboard: [] };
-  if (layout === 'keyboard') return { inline: [], keyboard: actions };
 
-  return actions.length <= MAX_INLINE_ACTIONS ? { inline: actions, keyboard: [] } : { inline: [], keyboard: actions };
+  // 链接和单选/二选一保留键盘；其余命令一律降级成 Markdown 指令输入，
+  // 包括显式写了 layout: 'keyboard' 的旧调用。
+  if (needsKeyboard(actions)) return { inline: [], keyboard: actions };
+
+  return { inline: actions.slice(0, MAX_INLINE_ACTIONS), keyboard: [] };
 };
 
 export const sectionBubble = (title: string, intro: string, sections: BubbleSection[], options: BubbleOptions = {}): ReturnType<typeof Format.create> => {
   const rich = supportsBubbles(options.platform);
-  // Section cards are contextual: by default each section keeps its own inline
-  // next step. If any section has more than the inline cap, fall back to the
-  // keyboard instead of silently dropping the extra actions.
-  const needsKeyboard = sections.some(section => normalizeActions(section.actions ?? []).length > MAX_INLINE_ACTIONS);
-  const layout = options.layout === undefined || options.layout === 'auto' ? (needsKeyboard ? 'keyboard' : 'inline') : options.layout;
+  const allActions = sections.flatMap(section => section.actions ?? []);
+  // 默认所有分块入口都走行内 Markdown 指令输入；只有链接或单选/二选一保留键盘。
+  const layout = options.layout === 'none' ? 'none' : needsKeyboard(allActions) ? 'keyboard' : 'inline';
   const inline = rich && layout === 'inline';
   const md = Format.createMarkdown().addBold(safe(title));
 
@@ -200,7 +219,7 @@ export const sectionBubble = (title: string, intro: string, sections: BubbleSect
 
   if (!rich || layout !== 'keyboard') return format;
 
-  return attach(format, normalizeActions(sections.flatMap(section => section.actions ?? [])));
+  return attach(format, normalizeActions(allActions));
 };
 
 /** 系统提示与错误：单行保持纯文本，多行才成卡片，并按需挂上可点入口。 */

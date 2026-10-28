@@ -2,7 +2,7 @@ import { commandBubble, sectionBubble } from '../bubble';
 import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { groupKeyStatus, issueGroupKeyCode, redeemGroupKeyCode, type GroupKeyAction } from '../../credentials/group';
-import { getGroupChatPolicy } from '../../social/group-policy';
+import { groupPolicy } from '../../social/group-settings';
 import { getDSHConfig } from '../../dsh/client';
 import { getConversationId } from '../dsh/util';
 import { DSHError } from '../../dsh/errors';
@@ -28,7 +28,7 @@ export default async (): Promise<void> => {
       if (!isAdmin) throw new DSHError('budget', '平台未确认你是本群管理员，无法管理群 Key。请确认管理员身份或成员查询权限。');
       if (args.length === 0 || (args.length === 1 && args[0] === '状态')) {
         const status = await groupKeyStatus({ platform: event.Platform || '', channelId: event.ChannelId || '' });
-        const elevated = status.enabled && getGroupChatPolicy(getDSHConfig().groupChat, event.ChannelId || '').boundKeyElevation !== false;
+        const elevated = status.enabled && groupPolicy(getDSHConfig(), event.ChannelId || '', event.Platform).boundKeyElevation !== false;
         const state = !status.bound ? '未绑定' : status.enabled ? '已启用' : status.reason === 'balance' ? '余额不足，已自动停用' : '已停用';
         const sections = [
           {

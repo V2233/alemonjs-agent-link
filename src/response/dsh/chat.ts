@@ -9,6 +9,7 @@ import { renderSpeech, type SpeechAudio } from '../../media/speech';
 import { SpeechError } from '../../media/speech-config';
 import { ResultCode, logger, useMessage, useMedia, type MessageMediaItem, type ReceivedMessage } from 'alemonjs';
 import { DSHError, getDSHConfig, toUserMessage } from '@src/dsh/client';
+import { bannedWordsFor, groupVoicePolicy, maskBannedWords } from '../../social/group-settings';
 import { buildRecentChatContext, getRecentMessages } from '@src/chat-context/store';
 import { StreamOutput, assertMessageDelivered } from '@src/dsh/output';
 import { ensureIsolatedGroup, runCoordinatedChat, type CoordinatedChatResult } from '@src/dsh/orchestrator';
@@ -34,9 +35,10 @@ import { observeProactiveOutput } from '../../proactive/observe';
 import { currentVoiceTranscript } from '../../media/onebot-transcript';
 import { readCurrentForwards } from '../../social/onebot-forward';
 import { resolveCurrentImages } from '../../media/onebot-images';
-import { createChatReplyFormat, extractVoiceTag, normalizeBubbleText, ReplyPrefixFilter } from '../../dsh/reply-format';
+import { createChatReplyFormat, extractVoiceTag, normalizeBubbleText, ReplyPrefixFilter, trimSocialReply } from '../../dsh/reply-format';
 import { noticeBubble } from '../bubble';
 import { styleHint } from '../../social/style-profile';
+import { polishSocialReply } from '../../social/reply-quality';
 import { budgetNoticeActions } from '../../billing/help';
 
 export type ChatEvent = MessageContextEvent & {
@@ -159,6 +161,10 @@ export const runDSHChat = async (
 
     return;
   }
+  if (options.voice && !event.IsPrivate && !groupVoicePolicy(config, getConversationId(event), event.Platform || '').allowed) {
+    // 本群已关闭语音：显式请求也按文字处理，不合成、不报错。
+    options.voice = false;
+  }
   if (options.voice && config.modules?.disabled?.includes('voice')) {
     await reply('语音模块已停用。');
 
@@ -171,6 +177,9 @@ export const runDSHChat = async (
 
     return;
   }
+
+  // 群内禁语词只过滤机器人输出；私聊不读群设置。
+  const bannedWords = event.IsPrivate ? [] : bannedWordsFor(config, channelId, event.Platform || '');
 
   if (!options.referencesPrepared && !options.autonomous) {
     const context = await readMessageContext(
@@ -324,6 +333,7 @@ export const runDSHChat = async (
   let stickerFallback = false;
   let stickerMode: 'either' | 'both' = 'either';
   let modelVoice = false;
+  let socialPolish = true;
   let stickerOnlyIntent = false;
   let stickerOnlySent = false;
   let stickerDelivered = false;
@@ -334,6 +344,7 @@ export const runDSHChat = async (
     stickerFallback = settings.stickerFallback;
     stickerMode = settings.stickerMode;
     modelVoice = settings.modelVoice;
+    socialPolish = settings.socialPolish;
     if (settings.automatic && !config.modules?.disabled?.includes('expression')) {
       expression = planExpression(config, { platform: event.Platform || '', channelId }, event.MessageId || options.requestId || prompt, getMediaConfig());
 
@@ -499,6 +510,31 @@ export const runDSHChat = async (
         if (voice.voice) {
           answer = voice.text;
           if (renderedAnswer) renderedAnswer = normalizeBubbleText(answer);
+        }
+        if (options.allowSilence && !options.autonomous && socialPolish) {
+          const before = Array.from(answer).length;
+          const started = Date.now();
+          const polished = await polishSocialReply(answer, {
+            config,
+            signal,
+            scope: { platform: event.Platform || '', channelId, userId: event.UserId || '' }
+          });
+
+          if (polished !== answer) {
+            answer = polished;
+            if (renderedAnswer) renderedAnswer = normalizeBubbleText(answer);
+            logger.info({ beforeChars: before, afterChars: Array.from(answer).length, durationMs: Date.now() - started }, 'Social reply polished');
+          }
+        }
+        if (options.allowSilence && !options.autonomous) {
+          const before = Array.from(answer).length;
+          const trimmed = trimSocialReply(answer);
+
+          if (trimmed !== answer) {
+            answer = trimmed;
+            if (renderedAnswer) renderedAnswer = normalizeBubbleText(answer);
+            logger.info({ beforeChars: before, afterChars: Array.from(answer).length }, 'Social reply trimmed');
+          }
         }
         const speechText = normalizeBubbleText(answer);
         const useVoice =
@@ -721,9 +757,12 @@ export const runDSHChat = async (
         signal: options.autonomous?.signal,
         recordHistory: () => !silent,
         renderAnswer: text =>
-          generatedSpeech
-            ? `${renderedAnswer ?? normalizeBubbleText(text)}\n[合成语音内容] ${generatedSpeech.text}`
-            : (renderedAnswer ?? normalizeBubbleText(text)),
+          maskBannedWords(
+            generatedSpeech
+              ? `${renderedAnswer ?? normalizeBubbleText(text)}\n[合成语音内容] ${generatedSpeech.text}`
+              : (renderedAnswer ?? normalizeBubbleText(text)),
+            bannedWords
+          ),
         prepareMessage: async (text, signal) => {
           if (!event.MessageMedia?.length) {
             return text;

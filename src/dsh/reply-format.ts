@@ -53,3 +53,22 @@ export const polishNetSavvy = (text: string): string => {
 
   return value || text.trim();
 };
+
+/** 群聊非直接回复的软上限：不截代码、链接和表格，普通长文在句末收住。 */
+export const SOCIAL_REPLY_MAX_CHARS = 220;
+export const trimSocialReply = (text: string, maxChars = SOCIAL_REPLY_MAX_CHARS): string => {
+  const value = text.trim();
+
+  if (!value || Array.from(value).length <= maxChars || /```|~~~|https?:\/\/|\|.*\|/u.test(value)) {
+    return value;
+  }
+  const head = Array.from(value).slice(0, maxChars).join('');
+  const cut = Math.max(...['。', '！', '？', '!', '?', '\n'].map(mark => head.lastIndexOf(mark)));
+  const threshold = Math.floor(maxChars * 0.6);
+
+  if (cut >= threshold) {
+    return head.slice(0, cut + 1).trim();
+  }
+
+  return `${head.replace(/[，,、；;：:\s]+$/u, '')}…`;
+};

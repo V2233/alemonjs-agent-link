@@ -174,6 +174,7 @@ commandGroup.use({ path: '取消', description: '取消自己的请求' }, () =>
 commandGroup.use({ path: '新会话', description: '开始新的会话' }, () => import('@src/response/agent-new/res'));
 commandGroup.use({ path: '聊天参考', description: '查看近期聊天参考' }, () => import('@src/response/agent-context/res'));
 commandGroup.use({ path: '工具策略', description: '主人管理当前群 Agent 工具策略' }, () => import('@src/response/agent-policy/res'));
+commandGroup.use({ path: '群设置', description: '群管理员调整本群说话频率、免打扰、唤醒词与禁语' }, () => import('@src/response/agent-group-settings/res'));
 commandGroup.use({ path: '状态', description: '查看服务状态' }, () => import('@src/response/agent-status/res'));
 commandGroup.use({ path: '隐私说明', description: '查看聊天数据与隐私说明' }, () => import('@src/response/agent-privacy/res'));
 commandGroup.use({ path: '帮助', description: '查看使用说明' }, () => import('@src/response/agent-help/res'));

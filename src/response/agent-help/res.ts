@@ -25,6 +25,14 @@ const topics: Record<string, string[]> = {
     '主人私聊：/人格 追加、查看追加、清空追加 编号。',
     '主人私聊：/人格 查看 编号、保存 编号 名称|提示词、删除 编号。'
   ],
+  群设置: [
+    '群设置（群里谁都能看，管理员能改）',
+    '/群设置：看当前设置，卡片上带按钮。',
+    '/群设置 帮助：列出全部指令和说明。',
+    '常用：/群设置 安静｜正常｜活跃、/群设置 静默 1-8、/群设置 唤醒词 加 小鱼、/群设置 禁语 加 某词。',
+    '语音：/群设置 语音 关闭 让本群一律文字；/群设置 语音 开启 恢复。',
+    '改错了发 /群设置 重置；谁在什么时候改的看 /群设置 记录。'
+  ],
   媒体: [
     '图片、语音与表情',
     '发图、发语音、说想画什么都可以，以实际能力为准。',
@@ -56,7 +64,9 @@ const topics: Record<string, string[]> = {
 export const helpText = (isPrivate: boolean, owner: boolean, topic = ''): string => {
   if (topic === '额度' || topic === '密钥') return quotaHelp(isPrivate);
   if (topic === '管理' && !(isPrivate && owner)) return '管理说明请主人私聊发送 /帮助 管理。';
-  if (topic && topic !== '全部') return topics[topic]?.join('\n') || '发送 /帮助 聊天、/帮助 记忆、/帮助 人格、/帮助 媒体、/帮助 数据 或 /帮助 额度。';
+  if (topic === '群设置' && isPrivate) return '群设置只在群里使用；私聊没有本群设置。';
+  if (topic && topic !== '全部')
+    return topics[topic]?.join('\n') || '发送 /帮助 聊天、/帮助 记忆、/帮助 人格、/帮助 群设置、/帮助 媒体、/帮助 数据 或 /帮助 额度。';
   if (topic === '全部')
     return (
       Object.entries(topics)
@@ -126,6 +136,7 @@ export const helpFormat = (isPrivate: boolean, owner: boolean, topic = '', platf
       },
       { key: '记忆', text: isPrivate ? '查看、检索、记住、删除个人记忆' : '群记忆、检索、来源核对；修改需管理员或主人' },
       { key: '人格', text: '切换人格、查看心情、调整表达程度' },
+      ...(!isPrivate ? [{ key: '群设置', text: '管理员调整强度、免打扰、唤醒词与禁语' }] : []),
       { key: '媒体', text: '图片、语音、表情、画图' },
       { key: '额度', text: '剩余额度、充值、个人/群密钥' },
       { key: '数据', text: '隐私说明、清除聊天记录、清除群数据' },
@@ -174,7 +185,10 @@ export default async (): Promise<void> => {
 
   const topic = route.rawArgs.join(' ').trim();
   // The full manual is several topic cards, never one oversized Markdown body.
-  const pages = topic === '全部' ? [...Object.keys(topics).filter(key => key !== '管理' || (event.IsPrivate && event.IsMaster)), '额度'] : [topic];
+  const pages =
+    topic === '全部'
+      ? [...Object.keys(topics).filter(key => (key !== '管理' || (event.IsPrivate && event.IsMaster)) && (key !== '群设置' || !event.IsPrivate)), '额度']
+      : [topic];
 
   for (const page of pages) {
     await message.send({ format: helpFormat(Boolean(event.IsPrivate), Boolean(event.IsMaster), page, event.Platform) });

@@ -140,19 +140,6 @@ export type ModelPoolStatus = {
   disabledUntil: number;
   latencyMs: number;
   healthy?: boolean;
-  verified: Set<ModelPoolPurpose>;
-  rejected: Set<ModelPoolPurpose>;
-  capabilityProbed: boolean;
-  recent: number[];
-  pendingTokens: number;
-  dailyDate: string;
-  dailyRequests: number;
-  dailyInput: number;
-  dailyOutput: number;
-  requestWindow: number[];
-  usageWindow: Array<{ at: number; input: number; output: number }>;
-  lastProbeAt: number;
-  lastStatus?: number;
 };
 
 export class CredentialPool {

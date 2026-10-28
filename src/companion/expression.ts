@@ -5,6 +5,7 @@ import type { Sticker } from '../media/stickers';
 import type { GroupChatPolicy } from '../social/group-policy';
 import type { PersonaScope } from './personas';
 import { getMoodStore, moodOptions } from './mood';
+import { groupVoicePolicy } from '../social/group-settings';
 
 export const expressionOptions = (config: DSHBridgeConfig) => {
   const raw = config.modules?.settings?.expression || {};
@@ -20,6 +21,8 @@ export const expressionOptions = (config: DSHBridgeConfig) => {
     stickerMode: raw.stickerMode ?? 'either',
     // 允许模型用 <voice>...</voice> 主动选择语音；默认关闭，避免所有回复被缓冲。
     modelVoice: raw.modelVoice ?? false,
+    // 群聊短回复疑似客服腔时，允许一次便宜模型改写；失败回退原文。
+    socialPolish: raw.socialPolish ?? true,
     delayMs: raw.delayMs ?? [0, 0]
   };
 
@@ -28,6 +31,7 @@ export const expressionOptions = (config: DSHBridgeConfig) => {
     typeof options.stickerFallback !== 'boolean' ||
     typeof options.stickerIntentAlways !== 'boolean' ||
     typeof options.modelVoice !== 'boolean' ||
+    typeof options.socialPolish !== 'boolean' ||
     !['either', 'both'].includes(String(options.stickerMode)) ||
     !Number.isFinite(options.voiceChance) ||
     Number(options.voiceChance) < 0 ||
@@ -51,6 +55,7 @@ export const expressionOptions = (config: DSHBridgeConfig) => {
     stickerIntentAlways: options.stickerIntentAlways,
     stickerMode: options.stickerMode as 'either' | 'both',
     modelVoice: options.modelVoice,
+    socialPolish: options.socialPolish,
     delayMs: options.delayMs as [number, number]
   };
 };
@@ -127,10 +132,14 @@ export const planExpression = (config: DSHBridgeConfig, scope: PersonaScope, inp
   const value = scope.platform && scope.channelId ? mood(config, scope) : 60;
   const automatic = options.automatic && !config.modules?.disabled?.includes('expression');
   const expressiveness = value >= 75 ? 1.25 : value < 45 ? 0.5 : 1;
+  // 群设置可以关掉本群语音或自动语音；私聊与未设置的群沿用全局。
+  const voice = scope.platform && scope.channelId ? groupVoicePolicy(config, scope.channelId, scope.platform) : { allowed: true, auto: true };
 
   return {
     voice: Boolean(
       automatic &&
+      voice.allowed &&
+      voice.auto &&
       !config.modules?.disabled?.includes('voice') &&
       (media?.tts?.voice || media?.speech) &&
       sample(inputId, 'voice') < Math.min(1, options.voiceChance * expressiveness)

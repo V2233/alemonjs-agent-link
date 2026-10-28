@@ -358,6 +358,14 @@ alemonjs-agent-link:
         intervalHours: 12
         # 每次注入提示词带回多少条记忆（1-20）。
         recallLimit: 8
+      # 问答库
+      qa:
+        # 自动记录“为什么/为何”类提问，并把未命中的已送达问答写入当前会话。
+        autoRecord: true
+        # 每次最多注入几条匹配问答（1-10）。
+        recallLimit: 3
+        # 匹配门槛；越高越严格（1-20），默认 3.5。
+        matchThreshold: 3.5
       # 心情
       mood:
         # 基线心情值（20-80），长期会回归到这里。
