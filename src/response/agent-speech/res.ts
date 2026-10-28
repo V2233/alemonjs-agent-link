@@ -18,17 +18,10 @@ export default async (): Promise<void> => {
   const event = context.current;
   const [message] = useMessage();
   const [media] = useMedia();
-  const reply = async (text: string): Promise<void> => {
+  const reply = async (text: string, actions: { label: string; command: string }[] = []): Promise<void> => {
     assertMessageDelivered(
       await message.send({
-        format: commandBubble(text, '语音服务', {
-          platform: event.Platform,
-          actions: [
-            { label: '引擎状态', command: '/语音引擎 状态' },
-            { label: '安装引擎', command: '/语音引擎 安装' },
-            { label: '试听', command: '/语音引擎 试听 你好' }
-          ]
-        })
+        format: commandBubble(text, '语音服务', { platform: event.Platform, actions })
       })
     );
   };
@@ -62,9 +55,12 @@ export default async (): Promise<void> => {
             return;
           }
           if (args === '安装') {
-            await reply('正在安装语音组件，最长约5分钟；/取消 可取消。');
+            await reply('正在安装语音组件，最长约5分钟。', [{ label: '取消', command: '/取消' }]);
             await installSpeech(config, signal);
-            await reply('语音组件已安装。请用 /语音引擎 试听 验证收发。');
+            await reply('语音组件已安装，建议试听确认收发。', [
+              { label: '试听', command: '/语音引擎 试听 你好' },
+              { label: '引擎状态', command: '/语音引擎 状态' }
+            ]);
           } else if (args === '试听' || args.startsWith('试听 ')) {
             const audio = await renderSpeech(args.slice(2).trim() || '你好，这是语音合成试听。', getMediaConfig(), signal, config);
 
@@ -83,7 +79,11 @@ export default async (): Promise<void> => {
             const settings = getMediaConfig();
 
             await reply(
-              `语音引擎：${settings.speech?.engine || 'auto'}\n系统：${status.system}；edge-tts：${status.edge ? '已就绪' : '未安装'}\n兼容接口：${settings.tts?.voice ? '已配置' : '未配置'}\n实际可用性请试听确认。`
+              `语音引擎：${settings.speech?.engine || 'auto'}\n系统：${status.system}；edge-tts：${status.edge ? '已就绪' : '未安装'}\n兼容接口：${settings.tts?.voice ? '已配置' : '未配置'}\n实际可用性请试听确认。`,
+              [
+                { label: '试听', command: '/语音引擎 试听 你好' },
+                { label: '安装引擎', command: '/语音引擎 安装' }
+              ]
             );
           }
         }
@@ -94,6 +94,6 @@ export default async (): Promise<void> => {
       await result.confirmDelivery();
     }
   } catch (error) {
-    await reply(error instanceof SpeechError ? error.detail : '语音处理未完成，请检查引擎或稍后试听。');
+    await reply(error instanceof SpeechError ? error.detail : '语音处理未完成，请检查引擎或稍后试听。', [{ label: '引擎状态', command: '/语音引擎 状态' }]);
   }
 };

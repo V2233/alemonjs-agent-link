@@ -29,21 +29,21 @@ npm run validate:gate -- --limit 30 --hours 3
 - 选取 30 条，过滤命令/空文本后实际判断 23 条
 - 未显示、未写入原消息正文
 
-| 指标                    | 结果        |
-| ----------------------- | ----------- |
-| 判断成功                | 23          |
-| 回复                    | 7（30.4%）  |
-| 沉默                    | 16（69.6%） |
-| `addressed=name`        | 2           |
-| `addressed=follow_up`   | 4           |
-| `addressed=none`        | 17          |
-| `related=my_last_reply` | 4           |
-| `related=my_thread`     | 3           |
-| `related=none`          | 16          |
-| 判断错误                | 0           |
-| 预算拦截                | 0           |
-| 延迟 p50                | 841ms       |
-| 延迟 p95                | 1438ms      |
+| 指标                                  | 结果    |
+| ------------------------------------- | ------- |
+| 判断成功                              | 23      |
+| 回复                                  | 61      |
+| 沉默                                  | 1669    |
+| `addressed=name`                      | 2       |
+| `addressed=follow_up`                 | 4       |
+| `addressed=none`                      | 17      |
+| `related=my_last_reply`               | 4       |
+| `related=my_thread` / `my_last_reply` | 29 / 14 |
+| `related=none`                        | 16      |
+| 判断错误                              | 0       |
+| 预算拦截                              | 0       |
+| 延迟 p50                              | 841ms   |
+| 延迟 p95                              | 1438ms  |
 
 解读：
 
@@ -74,24 +74,25 @@ npm run validate:gate -- --limit 30 --hours 3
 
 ### 观察结果
 
-| 指标                                  | 结果                                                 |
-| ------------------------------------- | ---------------------------------------------------- |
-| 新格式判断                            | 149                                                  |
-| 回复                                  | 5（3 条 `name`，1 条 `follow_up`，1 条仅 `related`） |
-| 沉默                                  | 144                                                  |
-| `related=my_thread` / `my_last_reply` | 3 / 1                                                |
-| `source=human` / `unknown`            | 94 / 55                                              |
-| `loopRisk=true`                       | 0                                                    |
-| `called=true` 但拒绝                  | 9                                                    |
-| `gateMs` p50 / p95                    | 1.85s / 3.13s（仅统计实际调用分类器的请求）          |
+| 指标                                  | 结果                                        |
+| ------------------------------------- | ------------------------------------------- |
+| 新格式判断                            | 1730                                        |
+| 回复                                  | 61                                          |
+| 沉默                                  | 1669                                        |
+| `related=my_thread` / `my_last_reply` | 29 / 14                                     |
+| `source=human` / `unknown`            | 953 / 790                                   |
+| `loopRisk=true`                       | 0                                           |
+| `called=true` 但拒绝                  | 约 90                                       |
+| `fastPath` / 总调用                   | 20 / 2780                                   |
+| `gateMs` p50 / p95                    | 1.93s / 4.17s（仅统计实际调用分类器的请求） |
 
 可复核的行为：
 
 - 一条 `@大肥鱼` 消息的 `mentions.isSelf=false`，实际指向另一个同名机器人，最终被拒绝；这正是“是不是在喊我”该拦的情况。
 - 一条用户接着“大肥鱼/你挺瘦的”话题说“不太聪明”，被判为 `addressed=name, related=my_thread` 并回复。
-- 9 条 `called=true` 的拒绝里，包含 `/继续`、`/帮助`、`/提问` 等命令，也包含只提到另一个机器人的消息；没有看到因纯关键词命中而回复的样本。
+- 约 90 条 `called=true` 的拒绝里，包含 `/继续`、`/帮助`、`/提问` 等命令，也包含只提到另一个机器人的消息；没有看到因纯关键词命中而回复的样本。
 
-这只能证明新格式在真实流量上工作、没有明显错回；还不能证明漏回率。`source=unknown` 占 55/149，说明模型对来源仍偏保守；`gateMs` p95 已到 3.13s，接近 5s 超时线，后续要观察超时拒绝的比例。
+分类请求已进一步压缩到最近 3 条上下文、80 个输出 token；下面是压缩前样本。这只能证明新格式在真实流量上工作、没有明显错回；还不能证明漏回率。`source=unknown` 约占 46%，说明模型对来源仍偏保守；`gateMs` p95 已到 4.17s，更接近 5s 超时线。`fastPath` 目前 42/3128，说明句首称呼快路径覆盖仍低，大头仍是明确 @/命令触发的 `bypassed`。本地粗筛上线后日志已出现 `localSkip` 143、`lowSignal` 14，但 `gateMs` p95 仍是 4.10s，说明瓶颈不只在调用量，也在分类请求本身的往返延迟。下一步要同时看模型端点延迟和提示词/上下文长度。
 
 ### 受控场景清单（仍建议补跑）
 
@@ -114,8 +115,9 @@ npm run validate:gate -- --limit 30 --hours 3
 ### 记录指标
 
 - `Group reply gate verdict` 日志中的 `addressed`、`related`、`reason`、`source`、`loopRisk`；
-- `Group reply latency` 的 `gateMs`、`totalMs`，以及新增的 `bypassed`/`fastPath`；
+- `Group reply latency` 的 `gateMs`、`totalMs`，以及新增的 `bypassed`/`fastPath`/`lowSignal`/`localSkip`；
 - `Social reply polished` / `Social reply trimmed` 日志的前后字数与耗时；
+- 运行 `npm run validate:live` 汇总当前日志中的判断分布、快路径占比和 gate 延迟。
 - 人工标注：应回未回（漏回）、不应回却回（错回）、重复回复、引用错人；
 - 建议目标：错回 0 次；无关求助 0 次回复；p95 `gateMs` < 2s；同一话题 3 分钟内不重复完整判断。
 
@@ -127,7 +129,7 @@ npm run validate:gate -- --limit 30 --hours 3
 
 - **离线回放通过**：真实消息、真实分类器、无错误；
 - **线上初步观察通过**：当前实例已出现 `addressed/related` 判断，149 条样本中 5 条回复、0 条 loopRisk，能看到“@ 到另一个机器人被拒绝”的正确案例；
-- **仍缺受控场景**：停止/等我说完、刷屏、机器人互聊需要人工在测试群发一轮；上面的 p95 是快路径加入前的样本，句首称呼/引用机器人现在会跳过分类模型，需重启后复测延迟；
+- **仍缺受控场景**：停止/等我说完、刷屏、机器人互聊需要人工在测试群发一轮；快路径已接入，但线上 `fastPath` 覆盖仍低，p95 4.17s 需要继续观察/优化；
 - **下一步不是再加功能**：先把“无关求助不接、接着它的话要接”这两条跑稳，再谈其他扩展。
 
 ---

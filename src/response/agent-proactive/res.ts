@@ -17,7 +17,7 @@ export default async (): Promise<void> => {
   const event = context.current;
   const [message] = useMessage();
   let limit = 900;
-  const reply = async (text: string): Promise<void> => {
+  const reply = async (text: string, actions: { label: string; command: string }[] = []): Promise<void> => {
     const chars = Array.from(text);
     const chunks: string[] = [];
 
@@ -27,15 +27,7 @@ export default async (): Promise<void> => {
         await message.send({
           format: commandBubble(chunk, '主动搭话', {
             platform: event.Platform,
-            actions:
-              index === chunks.length - 1
-                ? [
-                    { label: '订阅状态', command: '/主动搭话 状态' },
-                    { label: '开启订阅', command: '/主动搭话 开启' },
-                    { label: '关闭订阅', command: '/主动搭话 关闭' },
-                    { label: '立即尝试', command: '/主动搭话 现在' }
-                  ]
-                : []
+            actions: index === chunks.length - 1 ? actions : []
           })
         })
       );
@@ -79,10 +71,16 @@ export default async (): Promise<void> => {
         return;
       }
       store.subscribe(scope, true, options);
-      await reply('主动搭话已开启，遵守免打扰与次数限制。/主动搭话 关闭 可停止。');
+      await reply('主动搭话已开启，遵守免打扰与次数限制。', [
+        { label: '查看状态', command: '/主动搭话 状态' },
+        { label: '关闭', command: '/主动搭话 关闭' }
+      ]);
     } else if (args === '关闭') {
       store.subscribe(scope, false, options);
-      await reply('主动搭话已关闭，待发送消息已取消。');
+      await reply('主动搭话已关闭，待发送消息已取消。', [
+        { label: '查看状态', command: '/主动搭话 状态' },
+        { label: '重新开启', command: '/主动搭话 开启' }
+      ]);
     } else if (args === '恢复' || /^暂停\s+\d{1,5}$/u.test(args)) {
       if (!store.get(scope)) {
         await reply('尚未订阅，请先使用 /主动搭话 开启。');
@@ -90,7 +88,10 @@ export default async (): Promise<void> => {
         return;
       }
       store.pause(scope, args === '恢复' ? 0 : Number(args.split(/\s+/u)[1]));
-      await reply(args === '恢复' ? '主动搭话已恢复。' : '已暂停，待发送消息已取消。');
+      await reply(args === '恢复' ? '主动搭话已恢复。' : '已暂停，待发送消息已取消。', [
+        { label: '查看状态', command: '/主动搭话 状态' },
+        ...(args === '恢复' ? [] : [{ label: '恢复', command: '/主动搭话 恢复' }])
+      ]);
     } else if (args === '现在') {
       const worker = new ProactiveWorker(config);
 
@@ -108,7 +109,7 @@ export default async (): Promise<void> => {
           busy: '已有主动搭话任务在执行，请稍后重试。'
         };
 
-        await reply(labels[result]);
+        await reply(labels[result], [{ label: '查看状态', command: '/主动搭话 状态' }]);
       } finally {
         worker.stop();
       }
@@ -142,24 +143,40 @@ export default async (): Promise<void> => {
                 ]
               : []),
             ...(elevated ? [{ title: '自带 Key', text: '主动搭话已拉满（空闲 20 分钟、每天最多 10 次）；免打扰仍按配置。' }] : []),
-            ...(args === '状态'
-              ? attempts.slice(0, 5).map(attempt => ({
-                  title: `${time(attempt.at)} · ${attempt.kind === 'nudge' ? '追问' : '搭话'}`,
-                  text:
-                    (
-                      {
-                        confirmed: '已送达',
-                        unknown: '待核对',
-                        failed: '失败',
-                        cancelled: '已取消',
-                        silent: '未发送',
-                        sending: '发送中',
-                        reserved: '待处理'
-                      } as Record<string, string>
-                    )[attempt.status] || attempt.status
-                }))
+            ...(args === '状态' && attempts.length > 0
+              ? [
+                  {
+                    title: '最近记录',
+                    text: attempts
+                      .slice(0, 5)
+                      .map(
+                        attempt =>
+                          `${time(attempt.at)} ${attempt.kind === 'nudge' ? '追问' : '搭话'}：${
+                            (
+                              {
+                                confirmed: '已送达',
+                                unknown: '待核对',
+                                failed: '失败',
+                                cancelled: '已取消',
+                                silent: '未发送',
+                                sending: '发送中',
+                                reserved: '待处理'
+                              } as Record<string, string>
+                            )[attempt.status] || attempt.status
+                          }`
+                      )
+                      .join('\n')
+                  }
+                ]
               : []),
-            { title: '更多', text: '暂停/恢复：/主动搭话 暂停 分钟、/主动搭话 恢复。', actions: [] }
+            {
+              title: '更多',
+              text: '需要时暂停；恢复不会补发错过的消息。',
+              actions: [
+                { label: '暂停 60 分钟', command: '/主动搭话 暂停 60' },
+                { label: '恢复', command: '/主动搭话 恢复' }
+              ]
+            }
           ]
         : [
             {
@@ -174,9 +191,9 @@ export default async (): Promise<void> => {
 
       await message.send({ format: sectionBubble('主动搭话', '仅主人私聊。', sections, { platform: event.Platform, layout: 'inline' }) });
     } else {
-      await reply('用法：/主动搭话 开启|关闭|状态|现在|暂停 分钟|恢复。');
+      await reply('用法：/主动搭话 开启|关闭|状态|现在|暂停 分钟|恢复。', [{ label: '查看状态', command: '/主动搭话 状态' }]);
     }
   } catch {
-    await reply('操作未完成，请用 /主动搭话 状态 核对。');
+    await reply('操作未完成，请核对状态后再试。', [{ label: '查看状态', command: '/主动搭话 状态' }]);
   }
 };

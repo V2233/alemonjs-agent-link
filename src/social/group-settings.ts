@@ -49,8 +49,6 @@ export const maxWakeNames = 32;
 export const maxWakeNameLength = 20;
 export const maxBannedWords = 50;
 export const maxBannedWordLength = 30;
-export const dailyChangeLimit = 10;
-export const fieldCooldownMs = 10_000;
 
 const scopeKey = (platform: string, channelId: string): string =>
   createHash('sha256')
@@ -164,47 +162,21 @@ export class GroupSettingsStore {
     }
   }
 
-  countToday(platform: string, channelId: string): number {
-    const dayStart = Math.floor(this.now() / 86400000) * 86400000;
-    const row = this.db.prepare('SELECT COUNT(*) AS n FROM group_settings_audit WHERE scope=? AND at>=?').get(scopeKey(platform, channelId), dayStart);
-
-    return Number(row?.n || 0);
-  }
-
-  lastChangeAt(platform: string, channelId: string, field: GroupSettingsField): number {
-    const row = this.db
-      .prepare('SELECT at FROM group_settings_audit WHERE scope=? AND field=? ORDER BY at DESC LIMIT 1')
-      .get(scopeKey(platform, channelId), field);
-
-    return Number(row?.at || 0);
-  }
-
   audit(platform: string, channelId: string, limit = 10): GroupSettingsAudit[] {
     return this.db
       .prepare('SELECT field,before,after,operator,at FROM group_settings_audit WHERE scope=? ORDER BY at DESC LIMIT ?')
       .all(scopeKey(platform, channelId), Math.max(1, Math.min(50, limit))) as unknown as GroupSettingsAudit[];
   }
 
-  /** 写入一个或多个字段；每日次数与单字段冷却在这里统一拦截。 */
-  update(
-    platform: string,
-    channelId: string,
-    operator: string,
-    patch: GroupSettings,
-    limits: { daily?: number; cooldownMs?: number } = {}
-  ): { ok: true } | { ok: false; reason: string } {
+  /** 写入一个或多个字段；只做字段校验与审计，不限制修改次数。 */
+  update(platform: string, channelId: string, operator: string, patch: GroupSettings): { ok: true } | { ok: false; reason: string } {
     if (!platform || !channelId) return { ok: false, reason: '缺少群身份，无法保存本群设置。' };
-    const daily = limits.daily ?? dailyChangeLimit;
-    const cooldown = limits.cooldownMs ?? fieldCooldownMs;
     const now = this.now();
-
-    if (this.countToday(platform, channelId) >= daily) return { ok: false, reason: `今天已经改过 ${daily} 次，明天再试或请主人调整。` };
     const fields = Object.keys(patch) as GroupSettingsField[];
 
     if (!fields.length) return { ok: false, reason: '没有需要保存的字段。' };
     for (const field of fields) {
       if (!groupSettingsFields.includes(field)) return { ok: false, reason: '不支持的设置项。' };
-      if (now - this.lastChangeAt(platform, channelId, field) < cooldown) return { ok: false, reason: '同一项改得太快，请稍后再试。' };
     }
     const previous = this.get(platform, channelId);
     const next: GroupSettings = { ...previous };

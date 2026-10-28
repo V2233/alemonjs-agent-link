@@ -29,6 +29,7 @@ export const rankQa = <T extends SearchableQa>(items: T[], query: string, option
   }
   const now = options.now ?? Date.now();
   const threshold = options.threshold ?? 3.5;
+  const queryLatin = new Set(normalizedQuery.match(/[a-z0-9]+/gu) || []);
   const ranked: (T & { score: number })[] = [];
 
   for (const item of items) {
@@ -49,7 +50,12 @@ export const rankQa = <T extends SearchableQa>(items: T[], query: string, option
     const keyword = item.keywords.some(value => {
       const normalized = normalizeQaText(value);
 
-      return normalized.length >= 2 && (normalizedQuery.includes(normalized) || normalized.includes(normalizedQuery));
+      if (normalized.length < 2) {
+        return false;
+      }
+
+      // 纯英文/数字关键词按完整词匹配，避免 chat 里的 at 触发“必须 AT”条目。
+      return /^[a-z0-9]+$/u.test(normalized) ? queryLatin.has(normalized) : normalizedQuery.includes(normalized) || normalized.includes(normalizedQuery);
     });
 
     if (!exact && !keyword && (overlap < 3 || coverage < 0.7)) {

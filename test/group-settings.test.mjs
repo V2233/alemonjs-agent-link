@@ -41,23 +41,15 @@ test('群设置按群保存、带审计，重置后回到空设置', async () =>
   }
 });
 
-test('群设置限制每日次数与单字段冷却', async () => {
+test('群设置不限制修改次数，连续修改都生效并留审计', async () => {
   const f = await setup();
 
   try {
-    assert.deepEqual(f.store.update('qq', 'g1', 'admin', { activity: 'quiet' }, { daily: 2, cooldownMs: 0 }), { ok: true });
-    assert.deepEqual(f.store.update('qq', 'g1', 'admin', { maxPerHour: 4 }, { daily: 2, cooldownMs: 0 }), { ok: true });
-    const blocked = f.store.update('qq', 'g1', 'admin', { maxPerHour: 3 }, { daily: 2, cooldownMs: 0 });
-
-    assert.equal(blocked.ok, false);
-    assert.match(blocked.reason, /今天已经改过 2 次/u);
-
-    f.advance(86400000);
-    assert.equal(f.store.update('qq', 'g1', 'admin', { maxPerHour: 3 }, { daily: 5, cooldownMs: 10_000 }).ok, true);
-    const cooling = f.store.update('qq', 'g1', 'admin', { maxPerHour: 2 }, { daily: 5, cooldownMs: 10_000 });
-
-    assert.equal(cooling.ok, false);
-    assert.match(cooling.reason, /改得太快/u);
+    for (let index = 0; index < 15; index += 1) {
+      assert.deepEqual(f.store.update('qq', 'g1', 'admin', { maxPerHour: index % 5 }), { ok: true });
+    }
+    assert.equal(f.store.get('qq', 'g1').maxPerHour, 4);
+    assert.equal(f.store.audit('qq', 'g1', 50).length, 15);
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }
@@ -106,15 +98,17 @@ test('群追加人设只出现在本群提示词里，私聊与其他群不受�
   const store = new PersonaStore(root);
 
   try {
-    store.appendScope({ platform: 'qq', channelId: 'g1' }, '本群可以叫我咕噜。', 'admin');
+    store.setScopeAdditions({ platform: 'qq', channelId: 'g1' }, '本群可以叫我咕噜。', 'admin');
     assert.equal(store.scopeAdditions({ platform: 'qq', channelId: 'g1' }), '本群可以叫我咕噜。');
+    store.setScopeAdditions({ platform: 'qq', channelId: 'g1' }, '本群说话随意一点。', 'admin');
+    assert.equal(store.scopeAdditions({ platform: 'qq', channelId: 'g1' }), '本群说话随意一点。', '重新发送是整体覆盖，不是累加');
     assert.equal(store.scopeAdditions({ platform: 'qq', channelId: 'g2' }), '');
 
     const group = await store.systemPrompt(config, { platform: 'qq', channelId: 'g1', private: false, owner: false });
 
     assert.match(group, /本群管理员追加的人设/u);
-    assert.match(group, /本群可以叫我咕噜/u);
-    assert.ok(group.indexOf('本群管理员追加的人设') < group.indexOf('本群可以叫我咕噜'));
+    assert.match(group, /本群说话随意一点/u);
+    assert.ok(group.indexOf('本群管理员追加的人设') < group.indexOf('本群说话随意一点'));
 
     const other = await store.systemPrompt(config, { platform: 'qq', channelId: 'g2', private: false, owner: false });
 
@@ -145,7 +139,7 @@ test('唤醒词与禁语词按群生效，禁语等长遮盖且不区分大小�
 
   try {
     assert.deepEqual(wakeNamesFor(config, 'g1', 'qq'), ['肥鱼']);
-    assert.deepEqual(store.update('qq', 'g1', 'admin', { wakeNames: ['小鱼'], bannedWords: ['脚本', 'AI'] }, { daily: 10, cooldownMs: 0 }), {
+    assert.deepEqual(store.update('qq', 'g1', 'admin', { wakeNames: ['小鱼'], bannedWords: ['脚本', 'AI'] }), {
       ok: true
     });
     assert.deepEqual(wakeNamesFor(config, 'g1', 'qq'), ['肥鱼', '小鱼'], '群补充追加在全局词表后');
@@ -189,10 +183,10 @@ test('群语音策略：可以关语音与自动语音，作用域按群', async
 
   try {
     assert.deepEqual(groupVoicePolicy(config, 'g1', 'qq'), { allowed: true, auto: true });
-    assert.deepEqual(store.update('qq', 'g1', 'admin', { voiceEnabled: false, voiceAuto: false }, { daily: 10, cooldownMs: 0 }), { ok: true });
+    assert.deepEqual(store.update('qq', 'g1', 'admin', { voiceEnabled: false, voiceAuto: false }), { ok: true });
     assert.deepEqual(groupVoicePolicy(config, 'g1', 'qq'), { allowed: false, auto: false });
     assert.deepEqual(groupVoicePolicy(config, 'g2', 'qq'), { allowed: true, auto: true }, '其他群不受影响');
-    store.update('qq', 'g1', 'admin', { voiceEnabled: true }, { daily: 10, cooldownMs: 0 });
+    store.update('qq', 'g1', 'admin', { voiceEnabled: true });
     assert.deepEqual(groupVoicePolicy(config, 'g1', 'qq'), { allowed: true, auto: false });
   } finally {
     await rm(f.root, { recursive: true, force: true });
@@ -214,7 +208,7 @@ test('自动语音尊重群设置：关闭后 planExpression 不再选语音', a
 
   try {
     assert.equal(planExpression(config, { platform: 'qq', channelId: 'g1' }, 'msg-1', media).voice, true);
-    store.update('qq', 'g1', 'admin', { voiceAuto: false }, { daily: 10, cooldownMs: 0 });
+    store.update('qq', 'g1', 'admin', { voiceAuto: false });
     assert.equal(planExpression(config, { platform: 'qq', channelId: 'g1' }, 'msg-1', media).voice, false);
     assert.equal(planExpression(config, { platform: 'qq', channelId: 'g2' }, 'msg-1', media).voice, true);
   } finally {

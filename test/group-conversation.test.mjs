@@ -805,3 +805,32 @@ test('local address timing records a gate bypass without calling the classifier'
   assert.equal(timings?.gateMs, 0);
   h.coordinator.close();
 });
+
+test('low-signal group reactions do not call the classifier', async () => {
+  const h = harness({
+    classify: () => assert.fail('low-signal message must not classify')
+  });
+  const done = h.coordinator.receive(message('noise', { text: '666', direct: false }), policy(), async () => {
+    assert.fail('low-signal message must not reply');
+  });
+  await h.coordinator.flush('group');
+  await done;
+  h.coordinator.close();
+});
+
+test('cold statements without a question or topic match skip the gate locally', async () => {
+  let timings;
+  const h = harness({
+    classify: () => assert.fail('cold statement must not classify'),
+    onTiming: value => {
+      timings = value;
+    }
+  });
+  const done = h.coordinator.receive(message('cold-statement', { text: '今天地铁人很多', direct: false }), policy(), async () => {
+    assert.fail('cold statement must not reply');
+  });
+  await h.coordinator.flush('group');
+  await done;
+  assert.equal(timings?.localSkip, true);
+  h.coordinator.close();
+});

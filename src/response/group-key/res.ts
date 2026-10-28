@@ -45,9 +45,7 @@ export default async (): Promise<void> => {
             ? [
                 {
                   title: '权益',
-                  text: elevated
-                    ? '参与强度拉满：不经感知判断、冷却 0 秒、每小时最多 60 次；网页与文件自动开放；终端禁止，夜间静默按配置。'
-                    : '已按配置关闭 boundKeyElevation，按普通群策略运行。'
+                  text: elevated ? '参与更积极；网页与文件自动开放；终端仍禁止，夜间静默照常。' : '已按配置关闭 boundKeyElevation，按普通群策略运行。'
                 }
               ]
             : []),
@@ -112,11 +110,8 @@ export default async (): Promise<void> => {
   await message.send({
     format: commandBubble(text, '群密钥', {
       platform: event.Platform,
-      layout: 'keyboard',
       actions: [
-        { label: '群密钥状态', command: '/群密钥 状态' },
-        { label: '启用密钥', command: '/群密钥 启用' },
-        { label: '停用密钥', command: '/群密钥 停用' },
+        { label: '查看状态', command: '/群密钥 状态' },
         { label: '额度教程', command: '/帮助 额度' }
       ]
     })

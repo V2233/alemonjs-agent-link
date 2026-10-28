@@ -220,11 +220,13 @@ export class PersonaStore {
     return String(row?.content || '');
   }
 
-  appendScope(scope: PersonaScope, text: string, operator: string, limit = 800): void {
-    if (!scope.platform || !scope.channelId) throw new Error('群追加人设需要明确的群身份。');
-    const content = [this.scopeAdditions(scope), text.trim()].filter(Boolean).join('\n');
+  /** 覆盖写入本群人设补充：只有一个输入位，重新发送即整体替换。 */
+  setScopeAdditions(scope: PersonaScope, text: string, operator: string, limit = 800): void {
+    if (!scope.platform || !scope.channelId) throw new Error('群人设补充需要明确的群身份。');
+    const content = text.trim();
 
-    if (!text.trim() || content.length > limit) throw new Error(`群追加人设累计最多 ${limit} 字符，可先清空再写。`);
+    if (!content) throw new Error('内容不能为空；要清空请用 /群设置 人设 清空。');
+    if (content.length > limit) throw new Error(`群人设最多 ${limit} 字符，当前 ${content.length} 字，请精简后重发。`);
     this.db
       .prepare(
         `INSERT INTO persona_scope_additions(scope,platform,channel_id,content,updated_at,updated_by) VALUES(?,?,?,?,?,?)

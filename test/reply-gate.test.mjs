@@ -65,7 +65,7 @@ test('one-shot classifier uses main credentials, bounded context, no tools, and 
       assert.equal(body.tools, undefined);
       assert.equal(body.messages.length, 2);
       const compact = JSON.parse(body.messages[1].content);
-      assert.equal(compact.recent.length, 5);
+      assert.equal(compact.recent.length, 3);
       assert.equal(compact.activity, 'active');
       assert.equal(compact.messages[0].text.length, 600);
       assert.match(body.messages[0].content, /addressed/);
@@ -161,7 +161,7 @@ test('gate model overrides are hot-read, independent, and never leak keys across
         assert.equal(options.headers.Authorization, `Bearer ${scenario.key}`);
         const body = JSON.parse(options.body);
         assert.equal(body.model, scenario.model);
-        assert.equal(body.max_tokens, 120);
+        assert.equal(body.max_tokens, 80);
         assert.equal(body.tools, undefined);
         assert.equal(body.thinking?.type, scenario.host === 'api.deepseek.com' ? 'disabled' : undefined);
         return Response.json({

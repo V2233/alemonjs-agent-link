@@ -18,6 +18,7 @@
     "python/requirements.txt",
     "python/sandbox_profile.py",
     "scripts/replay-reply-gate.mjs",
+    "scripts/live-gate-metrics.mjs",
     "README.md"
   ],
   "exports": {
@@ -46,6 +47,7 @@
     "init": "node bin/agent-link.cjs init",
     "doctor": "node bin/agent-link.cjs doctor",
     "validate:gate": "node scripts/replay-reply-gate.mjs",
+    "validate:live": "node scripts/live-gate-metrics.mjs",
     "prepack": "npm run build"
   },
   "devDependencies": {

@@ -146,7 +146,7 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
     const compact = {
       bot: wakeNamesFor(config, input.scope?.channelId || '', input.scope?.platform || ''),
       activity: input.activity || 'balanced',
-      recent: input.recent.slice(-5).map(item => ({ speaker: item.speaker, text: item.text.slice(0, 400) })),
+      recent: input.recent.slice(-3).map(item => ({ speaker: item.speaker, text: item.text.slice(0, 400) })),
       messages: input.messages.map(item => ({
         ...item,
         text: item.text.slice(0, 600),
@@ -177,7 +177,7 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
       const body = JSON.stringify({
         model: current.model || config.model,
         stream: false,
-        max_tokens: 120,
+        max_tokens: 80,
         ...(url.hostname === 'api.deepseek.com' ? { thinking: { type: 'disabled' } } : {}),
         messages: [
           { role: 'system', content: instruction },

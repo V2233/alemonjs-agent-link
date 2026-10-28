@@ -9,6 +9,7 @@ import { rankQa } from './retrieval';
 
 export type QaScope = { platform: string; channelId: string };
 export type QaOrigin = 'builtin' | 'learned' | 'explicit';
+export type QaKind = 'why' | 'command' | 'general';
 export type QaEntry = {
   id: string;
   scope: string;
@@ -16,6 +17,7 @@ export type QaEntry = {
   answer: string;
   keywords: string[];
   tags: string[];
+  kind: QaKind;
   origin: QaOrigin;
   confidence: number;
   hits: number;
@@ -32,7 +34,7 @@ export type QaQuestion = {
   userId: string;
   createdAt: number;
 };
-export type QaEntryInput = { question: string; answer: string; keywords?: string[]; tags?: string[] };
+export type QaEntryInput = { question: string; answer: string; keywords?: string[]; tags?: string[]; kind?: QaKind };
 
 const globalScope = 'global';
 const hash = (text: string): string => createHash('sha256').update(text).digest('hex');
@@ -61,7 +63,7 @@ export class QAStore {
         group_hash TEXT NOT NULL, active_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS qa_entries (
         id TEXT PRIMARY KEY, scope TEXT NOT NULL, question TEXT NOT NULL, normalized_question TEXT NOT NULL,
-        answer TEXT NOT NULL, keywords TEXT NOT NULL, tags TEXT NOT NULL, origin TEXT NOT NULL,
+        answer TEXT NOT NULL, keywords TEXT NOT NULL, tags TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'general', origin TEXT NOT NULL,
         confidence REAL NOT NULL, hits INTEGER NOT NULL DEFAULT 0, last_hit_at INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS qa_entry_scope_question ON qa_entries(scope, normalized_question);
@@ -70,6 +72,16 @@ export class QAStore {
         id INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL, user_id TEXT NOT NULL,
         question TEXT NOT NULL, matched_id TEXT, answer TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS qa_question_scope ON qa_questions(scope, id);`);
+    const columns = new Set(
+      this.db
+        .prepare('PRAGMA table_info(qa_entries)')
+        .all()
+        .map(row => String(row.name))
+    );
+
+    if (!columns.has('kind')) {
+      this.db.exec("ALTER TABLE qa_entries ADD COLUMN kind TEXT NOT NULL DEFAULT 'general'");
+    }
     this.seedBuiltins();
   }
 
@@ -94,11 +106,11 @@ export class QAStore {
   private seedBuiltins(): void {
     const insert = this.db.prepare(
       `INSERT OR IGNORE INTO qa_entries
-      (id,scope,question,normalized_question,answer,keywords,tags,origin,confidence,hits,last_hit_at,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,'builtin',1,0,0,?,?)`
+      (id,scope,question,normalized_question,answer,keywords,tags,kind,origin,confidence,hits,last_hit_at,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,'builtin',1,0,0,?,?)`
     );
     const update = this.db.prepare(
-      `UPDATE qa_entries SET question=?,normalized_question=?,answer=?,keywords=?,tags=?,updated_at=?
+      `UPDATE qa_entries SET question=?,normalized_question=?,answer=?,keywords=?,tags=?,kind=?,updated_at=?
       WHERE id=? AND origin='builtin'`
     );
     const conflict = this.db.prepare("SELECT id FROM qa_entries WHERE scope='global' AND normalized_question=? AND id<>?");
@@ -108,9 +120,20 @@ export class QAStore {
       for (const entry of builtinQaEntries) {
         const normalized = normalizeQaText(entry.question);
 
-        insert.run(entry.id, globalScope, entry.question, normalized, entry.answer, JSON.stringify(entry.keywords), JSON.stringify(entry.tags), at, at);
+        insert.run(
+          entry.id,
+          globalScope,
+          entry.question,
+          normalized,
+          entry.answer,
+          JSON.stringify(entry.keywords),
+          JSON.stringify(entry.tags),
+          entry.kind,
+          at,
+          at
+        );
         if (!conflict.get(normalized, entry.id)) {
-          update.run(entry.question, normalized, entry.answer, JSON.stringify(entry.keywords), JSON.stringify(entry.tags), at, entry.id);
+          update.run(entry.question, normalized, entry.answer, JSON.stringify(entry.keywords), JSON.stringify(entry.tags), entry.kind, at, entry.id);
         }
       }
     });
@@ -124,6 +147,7 @@ export class QAStore {
       answer: String(row.answer),
       keywords: JSON.parse(String(row.keywords)),
       tags: JSON.parse(String(row.tags)),
+      kind: (row.kind as QaKind) || 'general',
       origin: row.origin as QaOrigin,
       confidence: Number(row.confidence),
       hits: Number(row.hits),
@@ -144,14 +168,14 @@ export class QAStore {
       .run(key, scope.platform, scope.channelId, hash(scope.channelId), this.now());
   }
 
-  search(scope: QaScope, query: string, limit = 3, options: { threshold?: number; record?: boolean } = {}): QaMatch[] {
+  search(scope: QaScope, query: string, limit = 3, options: { threshold?: number; record?: boolean; kind?: QaKind } = {}): QaMatch[] {
     const key = scopeKey(scope);
     const rows = this.db.prepare("SELECT * FROM qa_entries WHERE scope='global' OR scope=?").all(key);
-    const matches = rankQa(
-      rows.map(row => this.decode(row)),
-      query,
-      { threshold: options.threshold, now: this.now() }
-    ).slice(0, Math.max(1, Math.min(20, limit)));
+    const entries = rows.map(row => this.decode(row)).filter(entry => !options.kind || entry.kind === 'general' || entry.kind === options.kind);
+    const ranked = rankQa(entries, query, { threshold: options.threshold, now: this.now() });
+    // 只保留与第一名足够接近的候选，避免一个问题被拆成多条互相矛盾的答案。
+    const top = ranked[0]?.score ?? 0;
+    const matches = ranked.filter((item, index) => index === 0 || item.score >= top * 0.8).slice(0, Math.max(1, Math.min(20, limit)));
 
     if (options.record !== false && matches.length) {
       const at = this.now();
@@ -204,6 +228,11 @@ export class QAStore {
     if (tags.length > 5 || tags.some(tag => tag.length > 20)) {
       throw new Error('问答标签最多 5 个，每个不超过 20 字。');
     }
+    const kind = input.kind ?? 'general';
+
+    if (!['why', 'command', 'general'].includes(kind)) {
+      throw new Error('问答类型无效。');
+    }
     const key = target === globalScope ? globalScope : scopeKey(target);
 
     if (target !== globalScope) {
@@ -216,13 +245,13 @@ export class QAStore {
       this.db
         .prepare(
           `INSERT INTO qa_entries
-          (id,scope,question,normalized_question,answer,keywords,tags,origin,confidence,hits,last_hit_at,created_at,updated_at)
-          VALUES(?,?,?,?,?,?,?,'explicit',1,0,0,?,?)
+          (id,scope,question,normalized_question,answer,keywords,tags,kind,origin,confidence,hits,last_hit_at,created_at,updated_at)
+          VALUES(?,?,?,?,?,?,?,?,'explicit',1,0,0,?,?)
           ON CONFLICT(scope,normalized_question) DO UPDATE SET
-            answer=excluded.answer,keywords=excluded.keywords,tags=excluded.tags,
+            answer=excluded.answer,keywords=excluded.keywords,tags=excluded.tags,kind=excluded.kind,
             origin='explicit',confidence=1,updated_at=excluded.updated_at`
         )
-        .run(id, key, question, normalized, answer, JSON.stringify(keywords), JSON.stringify(tags), at, at);
+        .run(id, key, question, normalized, answer, JSON.stringify(keywords), JSON.stringify(tags), kind, at, at);
     });
     const row = this.db.prepare('SELECT * FROM qa_entries WHERE scope=? AND normalized_question=?').get(key, normalized);
 
@@ -245,6 +274,9 @@ export class QAStore {
       return undefined;
     }
     if (/(服务暂时不可用|模型服务暂时不可用|请稍后再试|回复因内容安全策略未发送|\[沉默\])/u.test(answer)) {
+      return undefined;
+    }
+    if (/^(我不知道|我不清楚|我不确定|不清楚|不确定|无法回答|无法确定)/u.test(answer)) {
       return undefined;
     }
     this.observe(scope);
@@ -279,8 +311,8 @@ export class QAStore {
       this.db
         .prepare(
           `INSERT INTO qa_entries
-          (id,scope,question,normalized_question,answer,keywords,tags,origin,confidence,hits,last_hit_at,created_at,updated_at)
-          VALUES(?,?,?,?,?,'[]','[]','learned',0.65,0,0,?,?)`
+          (id,scope,question,normalized_question,answer,keywords,tags,kind,origin,confidence,hits,last_hit_at,created_at,updated_at)
+          VALUES(?,?,?,?,?,'[]','[]','general','learned',0.65,0,0,?,?)`
         )
         .run(id, key, question, normalized, answer, at, at);
 
@@ -368,5 +400,3 @@ export const getQAStore = (config: DSHBridgeConfig): QAStore => {
 
   return store;
 };
-
-export { normalizeQaText };

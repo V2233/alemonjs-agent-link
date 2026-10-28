@@ -21,6 +21,28 @@ export const speechControl = (text: string): 'hold' | 'release' | 'stop' | undef
   return undefined;
 };
 
+const LOW_SIGNAL = /^(?:[?？!！。.…~～]+|6{2,}|哈{2,}|笑死|绷不住|离谱|绝了|好家伙|草|典|绷|乐|啊|嗯+|哦+|好的?|行|牛|牛逼|卧槽|nb|yyds|\+1)$/iu;
+
+/**
+ * 群聊里的纯反应/表情/单字噪声：没有喊机器人、也没接上下文时，
+ * 不值得为它调用分类模型。只过滤非常窄的一类，正常短句仍会进入判断。
+ */
+export const isLowSignalMessage = (text: string): boolean => {
+  const value = String(text ?? '').trim();
+
+  if (!value) return false;
+  if (/^\[(?:附件|CQ:face|CQ:image)[^\]]*\]/u.test(value)) return true;
+  const stripped = value
+    .replace(/\[[^\]]*\]|<[^>]*>/gu, '')
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F]/gu, '')
+    .trim();
+
+  if (!stripped) return true;
+  if (Array.from(stripped).length > 8) return false;
+
+  return LOW_SIGNAL.test(stripped);
+};
+
 type Fragment = { messages: GroupMessage[]; expires: number; holding: boolean };
 export class MessageFragments {
   private readonly users = new Map<string, Fragment>();

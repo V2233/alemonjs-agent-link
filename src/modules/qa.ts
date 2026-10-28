@@ -15,7 +15,8 @@ const compactQa = (item: QaEntry | QaMatch) => ({
 });
 
 const explicitQaRequest = (text: string): boolean =>
-  /(记住|记一下|记下来|保存|录入|写进|加入).{0,30}(问|答|为什么|为何|怎么|是不是|有没有|这句|这条|这个)/u.test(text);
+  /(记住|记一下|记下来|保存|录入|写进|加入).{0,30}(问|答|为什么|为何|怎么|是不是|有没有|这句|这条|这个)/u.test(text) ||
+  /(以后|之后|下次).{0,20}(有人问|问到|问起)/u.test(text);
 
 export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
   id: 'qa',
@@ -63,11 +64,11 @@ export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
         pending.set(context.requestId || context.inputId, { matches, at: Date.now() });
       }
       if (!matches.length) {
-        return '本轮是“为什么/为何”类疑问，问答库没有直接匹配的条目。请依据实际配置、文档和已确认事实回答；不确定就说明不确定，不要编造，也不要在回复里提到问答库或检索过程。';
+        return '本轮是“为什么/为何”类疑问，问答库没有直接匹配的条目。请用大白话和日常比喻解释，少用配置名、英文术语和内部实现；依据实际配置、文档和已确认事实回答，不确定就说明不确定，不要编造，也不要在回复里提到问答库或检索过程。';
       }
 
       return [
-        '以下是问答库中与本轮“为什么/为何”疑问匹配的参考解答。优先采用与问题最接近的条目；不要在回复里提到问答库、检索过程，也不要照读编号或 JSON。',
+        '以下是问答库中与本轮“为什么/为何”疑问匹配的参考解答。优先采用与问题最接近的条目，直接据此回答；除非用户提供相反事实，不要换成其他原因。用大白话和日常比喻解释，少用配置名、英文术语和内部实现；必须提到的命令保留原样。不要在回复里提到问答库、检索过程，也不要照读编号或 JSON。',
         'builtin / explicit 条目是已确认的解答；learned 条目来自本会话此前的回答，可能过时，若与当前事实或用户纠正冲突，以事实为准并说明差异。',
         JSON.stringify({ hits: matches.map(compactQa) })
       ].join('\n');
@@ -123,7 +124,7 @@ export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
         return Promise.resolve({
           ok: true,
           items: matches.map(compactQa),
-          notice: '问答库只覆盖已经记录的问题；未命中不代表没有答案，请继续按事实回答。'
+          notice: '问答库只覆盖已经记录的问题；未命中不代表没有答案，请继续按事实回答。转述时用大白话和日常比喻，少用配置名和内部术语。'
         });
       }
     });

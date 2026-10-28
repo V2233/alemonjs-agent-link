@@ -3,9 +3,9 @@ import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { canReset } from '../dsh/util';
 import { isKeyEntitledGroup } from '../../social/groups';
+import { getPersonaStore } from '../../companion/personas';
 import {
   activityCeiling,
-  dailyChangeLimit,
   getGroupSettingsStore,
   groupPolicy,
   groupVoicePolicy,
@@ -56,7 +56,7 @@ const helpFor: Record<GroupSettingsField, string> = {
 const helpSections = [
   {
     title: '说话频率',
-    text: '三选一；活跃更主动，安静只在被叫时说话。',
+    text: '三选一；活跃更主动，安静只在被叫时说话；上限只能调低。',
     actions: [
       { label: '安静', command: '/群设置 安静' },
       { label: '正常', command: '/群设置 正常' },
@@ -85,9 +85,11 @@ const helpSections = [
     actions: [{ label: '语音设置', command: '/群设置 语音 查看' }]
   },
   {
-    title: '记录与恢复',
-    text: '每天最多改 10 次；改错可一键恢复默认。',
+    title: '人设与记录',
+    text: '人设可写一句称呼或口癖；改错可恢复默认，所有改动都有记录。',
     actions: [
+      { label: '看人设', command: '/群设置 人设 查看' },
+      { label: '清空人设', command: '/群设置 人设 清空' },
       { label: '调整记录', command: '/群设置 记录' },
       { label: '恢复默认', command: '/群设置 重置' }
     ]
@@ -150,7 +152,6 @@ export default async (): Promise<void> => {
 
     if (action === '查看' || action === '状态' || action === '菜单') {
       const entitled = await isKeyEntitledGroup({ platform, channelId }).catch(() => false);
-      const remaining = Math.max(0, dailyChangeLimit - store.countToday(platform, channelId));
       const voice = groupVoicePolicy(config, channelId, platform);
       const activity = settings.activity || policy.activity;
       const quiet = settings.quietHours ?? policy.quietHours;
@@ -158,6 +159,9 @@ export default async (): Promise<void> => {
       const maxPerHour = settings.maxPerHour ?? policy.maxPerHour;
       const wake = settings.wakeNames?.length ? settings.wakeNames.join('、') : '无';
       const banned = settings.bannedWords?.length ? settings.bannedWords.join('、') : '无';
+      const interests = settings.interests?.length ? settings.interests.join('、') : '跟随配置';
+      const personaAddition = getPersonaStore(config).scopeAdditions({ platform, channelId });
+      const personaText = personaAddition ? `已设置 ${Array.from(personaAddition).length} 字` : '未设置';
       const sections = [
         {
           title: '说话频率',
@@ -166,8 +170,7 @@ export default async (): Promise<void> => {
             ? [
                 { label: '安静', command: '/群设置 安静' },
                 { label: '正常', command: '/群设置 正常' },
-                { label: '活跃', command: '/群设置 活跃' },
-                { label: '上限说明', command: '/群设置 每小时' }
+                { label: '活跃', command: '/群设置 活跃' }
               ]
             : []
         },
@@ -190,15 +193,11 @@ export default async (): Promise<void> => {
           ]
         },
         {
-          title: '语音',
-          text: voice.allowed ? `可用；自动语音：${voice.auto ? '开' : '关'}` : '本群已关闭语音',
-          actions: [{ label: '语音设置', command: '/群设置 语音 查看' }]
-        },
-        {
-          title: '其他',
-          text: `今天还能改 ${remaining} 次${entitled ? '；自带 Key 已提权' : ''}`,
+          title: '语音与其他',
+          text: `语音：${voice.allowed ? `已允许（自动语音${voice.auto ? '开' : '关'}）` : '已关闭'}\n人设：${personaText} · 兴趣：${interests}${entitled ? '；本群已绑定 Key' : ''}`,
           actions: [
-            { label: '调整记录', command: '/群设置 记录' },
+            { label: '语音设置', command: '/群设置 语音 查看' },
+            { label: '人设', command: '/群设置 人设 查看' },
             { label: '指令说明', command: '/群设置 帮助' }
           ]
         }
@@ -215,7 +214,7 @@ export default async (): Promise<void> => {
     }
     if (action === '帮助' || action === '说明' || action === '指令') {
       await message.send({
-        format: sectionBubble('本群设置 · 指令说明', '只列常用操作；完整帮助见 /帮助 群设置。', helpSections, { platform: event.Platform, layout: 'inline' })
+        format: sectionBubble('本群设置 · 指令说明', '常用操作；完整说明见 /帮助 群设置。', helpSections, { platform: event.Platform, layout: 'inline' })
       });
 
       return;
@@ -240,6 +239,77 @@ export default async (): Promise<void> => {
       if (!(await requireEdit())) return;
       store.reset(platform, channelId, event.UserId || 'admin');
       await reply('已恢复默认设置，下一条消息生效。', [{ label: '查看当前', command: '/群设置 查看' }]);
+
+      return;
+    }
+
+    if (action === '人设' || action === '人设补充') {
+      const operation = args[1] || '';
+      const persona = getPersonaStore(config);
+      const scope = { platform, channelId };
+      const current = persona.scopeAdditions(scope);
+
+      if (!operation || ['查看', '状态'].includes(operation)) {
+        await reply(
+          current
+            ? `本群人设补充（${Array.from(current).length} 字）：\n${current}\n\n重新发送会整体替换：/群设置 人设 新内容\n清空：/群设置 人设 清空`
+            : '本群还没有人设补充。\n直接发一句就会保存，例如：/群设置 人设 群里说话随意点，可以叫我阿鱼。\n重新发送会整体替换。',
+          [
+            { label: '清空人设', command: '/群设置 人设 清空' },
+            { label: '返回设置', command: '/群设置 查看' }
+          ]
+        );
+
+        return;
+      }
+      if (['帮助', '怎么用', '说明', '用法'].includes(operation)) {
+        await reply(
+          [
+            '人设补充只改表达，不改能力、权限和身份。',
+            '/群设置 人设 群里说话随意点，可以叫我阿鱼。',
+            '/群设置 人设 查看 — 看当前内容',
+            '/群设置 人设 清空 — 删掉',
+            '',
+            '只有一个输入位：重新发送会整体替换上一次，不是累加。'
+          ].join('\n')
+        );
+
+        return;
+      }
+      if (!(await requireEdit())) return;
+      if (operation === '清空' || operation === '删除' || operation === '移除') {
+        persona.clearScopeAdditions(scope);
+        await reply('已清空本群人设补充。');
+
+        return;
+      }
+      const text = (operation === '设置' ? args.slice(2) : args.slice(1)).join(' ').trim();
+
+      if (!text) {
+        await reply('发一句要补充的内容，例如：/群设置 人设 群里说话随意点，可以叫我阿鱼。');
+
+        return;
+      }
+      if (
+        /(忽略|无视|跳过|忘记)(以上|之前|上面|前面|所有)?(的)?(规则|限制|指令|提示)|系统提示|system\s*prompt|你现在是|从现在开始你是|可以(执行|运行|调用)(命令|终端|shell)|读取(私聊|其他群)|不要告诉主人/iu.test(
+          text
+        )
+      ) {
+        await reply('这段内容包含改变规则、身份或权限的指令，不能作为人设补充。请改成称呼、语气、口癖一类的表达。');
+
+        return;
+      }
+      try {
+        persona.setScopeAdditions(scope, text, event.UserId || 'admin');
+      } catch (error) {
+        await reply(error instanceof Error ? error.message : '保存失败，请稍后再试。');
+
+        return;
+      }
+      await reply(`已保存本群人设补充（${Array.from(text).length} 字），下一条消息生效。\n重新发送会整体替换。`, [
+        { label: '看当前', command: '/群设置 人设 查看' },
+        { label: '清空', command: '/群设置 人设 清空' }
+      ]);
 
       return;
     }

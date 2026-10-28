@@ -16,3 +16,13 @@ test('third-person, mid-sentence and generic help are not local address', () => 
     assert.equal(startsWithAddressName(text, names), false, text);
   }
 });
+
+test('low-signal reactions are recognized conservatively', async () => {
+  const { isLowSignalMessage } = await import('../lib/social/message-fragments.js');
+  for (const text of ['666', '？？？', '哈哈哈', '草', '嗯嗯', '[附件:image]', '<faceType=1,faceId="1">', '🎉🎉']) {
+    assert.equal(isLowSignalMessage(text), true, text);
+  }
+  for (const text of ['为什么', '这个报错怎么处理', '肥鱼', '帮我看看', '确实有点问题']) {
+    assert.equal(isLowSignalMessage(text), false, text);
+  }
+});

@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { MessageContext } from './message-context';
-import { MessageFragments, speechControl } from './message-fragments';
+import { isLowSignalMessage, MessageFragments, speechControl } from './message-fragments';
 import { LoopGuard } from './loop-guard';
 import type { ReplyGateInput, ReplyVerdict } from './reply-gate';
 import { randomUUID } from 'node:crypto';
@@ -72,7 +72,16 @@ export class GroupConversationCoordinator {
       random?: () => number;
       schedule?: (fn: () => void, delay: number) => ReturnType<typeof setTimeout> | number;
       unschedule?: (timer: ReturnType<typeof setTimeout> | number) => void;
-      onTiming?: (timing: { waitMs: number; gateMs: number; responseMs: number; totalMs: number; bypassed?: boolean; fastPath?: boolean }) => void;
+      onTiming?: (timing: {
+        waitMs: number;
+        gateMs: number;
+        responseMs: number;
+        totalMs: number;
+        bypassed?: boolean;
+        fastPath?: boolean;
+        lowSignal?: boolean;
+        localSkip?: boolean;
+      }) => void;
       onError?: (error: unknown) => void;
       classify?: (input: ReplyGateInput, signal: AbortSignal) => Promise<ReplyVerdict>;
       getPolicy?: (channelId: string, platform?: string) => GroupChatPolicy;
@@ -364,6 +373,8 @@ export class GroupConversationCoordinator {
     let responseMs = 0;
     let bypassed = false;
     let fastPath = false;
+    let lowSignal = false;
+    let localSkip = false;
 
     try {
       const basePolicy = this.services.getPolicy?.(channelId, pending.anchor.message.platform) || pending.policy;
@@ -420,6 +431,41 @@ export class GroupConversationCoordinator {
       }
       let verdict: ReplyVerdict | undefined;
 
+      const questionOrRequest =
+        /[?？]|(?:怎么|为什么|为啥|如何|能不能|可不可以|有没有|帮我|帮忙|求|请问|哪个|哪里|什么时候|多少|是不是|可以吗|呢[。！!]?$)/u.test(
+          pending.anchor.message.text
+        );
+      const urlOnly = /^\s*https?:\/\/\S+\s*$/u.test(pending.anchor.message.text);
+      const continuingDirect = [...(state.gatePending?.entries || []), ...pending.entries].some(
+        entry => entry.message.direct && entry.message.userId === pending.anchor.message.userId && entry.message.platform === pending.anchor.message.platform
+      );
+
+      if (
+        !continuingDirect &&
+        !pending.anchor.message.direct &&
+        state.engagedUntil <= now &&
+        decision.relevance < policy.minRelevance &&
+        (urlOnly || !questionOrRequest)
+      ) {
+        localSkip = true;
+        state.fragments.save(
+          pending.entries.map(entry => entry.message),
+          this.now()
+        );
+        completed = true;
+
+        return;
+      }
+      if (decision.mode !== 'engaged' && !pending.anchor.message.direct && isLowSignalMessage(pending.anchor.message.text)) {
+        lowSignal = true;
+        state.fragments.save(
+          pending.entries.map(entry => entry.message),
+          this.now()
+        );
+        completed = true;
+
+        return;
+      }
       if (
         decision.mode !== 'engaged' &&
         this.services.classify &&
@@ -460,7 +506,7 @@ export class GroupConversationCoordinator {
               activity: policy.activity,
               recent: state.recent
                 .filter(item => !currentTexts.has(item.text))
-                .slice(-5)
+                .slice(-3)
                 .map(item => ({ speaker: alias(item.speaker), text: item.text })),
               messages: pending.entries.map(({ message }) => ({
                 speaker: alias(message.userId),
@@ -603,7 +649,9 @@ export class GroupConversationCoordinator {
           responseMs,
           totalMs: this.now() - pending.firstAt,
           ...(bypassed ? { bypassed: true } : {}),
-          ...(fastPath ? { fastPath: true } : {})
+          ...(fastPath ? { fastPath: true } : {}),
+          ...(lowSignal ? { lowSignal: true } : {}),
+          ...(localSkip ? { localSkip: true } : {})
         });
       } catch {
         /* Telemetry must not keep the group queue locked. */
