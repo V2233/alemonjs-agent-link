@@ -1,0 +1,244 @@
+@import './assets/styles/tailwindcss.css';
+@import url('./assets/styles/scrollbar.scss');
+
+button,
+input,
+select,
+textarea {
+  outline: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--alemonjs-button-bg-hover, #8f8c76);
+  outline-offset: 2px;
+}
+
+.feedback-info {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.16);
+}
+.feedback-success {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.16);
+}
+.feedback-error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  color: rgb(220 38 38);
+}
+.feedback-warning {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.16);
+}
+.empty-state {
+  border: 1px dashed rgba(128, 128, 128, 0.16);
+}
+.dependency-selected {
+  background: var(--alemonjs-primary-bg, rgba(128, 128, 128, 0.14));
+  border: 1px solid var(--alemonjs-button-bg-hover, rgba(128, 128, 128, 0.25));
+}
+.dependency-option {
+  background: rgba(128, 128, 128, 0.04);
+  border: 1px solid rgba(128, 128, 128, 0.1);
+  opacity: 0.62;
+}
+.dependency-execute {
+  background: linear-gradient(135deg, #d5c8b2, #8f8c76);
+}
+
+.plugin-card-action {
+  position: absolute;
+  right: 1rem;
+  top: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+@media (max-width: 639px) {
+  .plugin-card-action {
+    position: static;
+    width: 100%;
+    justify-content: flex-end;
+    margin-top: 0.5rem;
+  }
+}
+
+/* ── 全局过渡 ── */
+button,
+a,
+input,
+select,
+textarea,
+[role='button'],
+.card-hover,
+.row-hover {
+  transition-property: background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── 卡片悬浮效果 ── */
+.card-hover {
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+}
+
+/* ── 分区左侧彩条 ── */
+.section-accent {
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--alemonjs-button-bg-hover, #8f8c76);
+    opacity: 0.5;
+  }
+}
+
+/* ── 行内悬浮高亮 ── */
+.row-hover {
+  border-radius: 8px;
+  padding-left: 12px;
+  padding-right: 12px;
+  margin-left: -12px;
+  margin-right: -12px;
+  transition: background-color 150ms ease;
+
+  &:hover {
+    background-color: rgba(0, 0, 0, 0.03);
+  }
+}
+
+html.dark {
+  .row-hover:hover {
+    background-color: rgba(255, 255, 255, 0.04);
+  }
+
+  .card-hover:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── 脉冲动画 ── */
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* ── 渐入动画 ── */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in-up 300ms ease-out;
+}
+
+/* ── 保存按钮成功态 ── */
+@keyframes save-pop {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.05);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-save-pop {
+  animation: save-pop 300ms ease;
+}
+
+/* ── 玻璃态 ── */
+.glass {
+  backdrop-filter: blur(12px) saturate(1.5);
+  -webkit-backdrop-filter: blur(12px) saturate(1.5);
+}
+
+/* ── 渐变标题装饰 ── */
+.gradient-text {
+  background: linear-gradient(135deg, #657b83 0%, #268bd2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.brand-badge {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(232, 236, 240, 0.88));
+  color: #111827;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+html.dark {
+  .brand-badge {
+    background: linear-gradient(135deg, rgba(17, 24, 39, 0.96), rgba(55, 65, 81, 0.88));
+    color: #f9fafb;
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow:
+      0 12px 28px rgba(0, 0, 0, 0.32),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+}
+
+/* ── 侧边导航激活指示 ── */
+.nav-active {
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--alemonjs-button-bg-hover, #8f8c76);
+  }
+}
