@@ -26,35 +26,40 @@ export default async (): Promise<void> => {
   const scope = { platform: event.Platform, channelId };
   const snapshot = store.snapshot(scope, moodOptions(config), config.retentionDays);
   const history = store.history(scope).slice(0, 5);
+  const [message] = useMessage();
+  const table = history.length
+    ? [
+        '| 时间 | 变化 | 心情 |',
+        '| --- | --- | --- |',
+        ...history.map(row => {
+          const at = new Date(row.at).toLocaleString('zh-CN', {
+            timeZone: 'Asia/Shanghai',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          });
+
+          return `| ${at} | ${row.delta >= 0 ? '+' : ''}${row.delta.toFixed(1)} | ${Math.round(row.value)} |`;
+        })
+      ].join('\n')
+    : '';
   const text = config.modules?.disabled?.includes('mood')
     ? '心情模块已停用。'
-    : [
-        `心情：${snapshot.label} ${Math.round(snapshot.value)}/100`,
-        ...history.map(
-          row =>
-            `${new Date(row.at).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} ${row.delta >= 0 ? '+' : ''}${row.delta.toFixed(1)} → ${Math.round(row.value)}`
-        )
-      ].join('\n');
-  const [message] = useMessage();
-  const chars = Array.from(text);
-  const chunks: string[] = [];
+    : [`心情：${snapshot.label} ${Math.round(snapshot.value)}/100`, table].filter(Boolean).join('\n\n');
 
-  for (let i = 0; i < chars.length; i += config.maxMessageLength) chunks.push(chars.slice(i, i + config.maxMessageLength).join(''));
-  for (const [index, chunk] of chunks.entries()) {
-    assertMessageDelivered(
-      await message.send({
-        format: commandBubble(chunk, '肥鱼的心情', {
-          platform: event.Platform,
-          actions:
-            index === chunks.length - 1
-              ? [
-                  { label: '刷新心情', command: '/心情' },
-                  { label: '人格列表', command: '/人格' },
-                  { label: '人格帮助', command: '/人格 帮助' }
-                ]
-              : []
-        })
+  assertMessageDelivered(
+    await message.send({
+      format: commandBubble(text, '肥鱼的心情', {
+        platform: event.Platform,
+        layout: 'inline',
+        actions: [
+          { label: '刷新心情', command: '/心情' },
+          { label: '人格列表', command: '/人格' },
+          { label: '人格帮助', command: '/人格 帮助' }
+        ]
       })
-    );
-  }
+    })
+  );
 };

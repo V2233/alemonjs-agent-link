@@ -128,6 +128,8 @@
 | `probeIntervalSeconds`      | number           | `60`                                        | 0–3600                                                           | 异步健康探测间隔；0 关闭                                                               |
 | `probeTimeoutMs`            | number           | `5000`                                      | 1000–30000                                                       | 单次 `/models` 探测超时                                                                |
 | `probeChat`                 | boolean          | `true`                                      | —                                                                | 启动时额外发一次极小 chat 探测计费/模型是否可用                                        |
+| `capabilityProbe`           | boolean          | `false`                                     | —                                                                | 启动时真实探测 vision/tools 能力                                                       |
+| `capabilityProbeTimeoutMs`  | number           | `60000`                                     | 5000–120000                                                      | 能力探测超时；识图/工具调用可能较慢                                                    |
 | `recoveryProbeSeconds`      | number           | `300`                                       | 0–86400                                                          | 401/402/403 停用后多久重新探测；0 表示不自动恢复                                       |
 | `stickySeconds`             | number           | `1800`                                      | 0–86400                                                          | 同一会话固定端点的时间；0 关闭                                                         |
 | `balanceWindowSeconds`      | number           | `300`                                       | 0–86400                                                          | 近期负载统计窗口；0 关闭                                                               |
@@ -532,3 +534,7 @@
 4. `bridgePort` 固定端口必须 ≥1024，0 才是自动分配。
 5. `groupWakeNames` 不能有前后空格、不能以 `/` 开头，否则整段配置报错。
 6. `replyGate.baseUrl` 与主模型不同源时必须单独给 `apiKey`，否则感知判断会被跳过（表现为群里不接话）。
+
+---
+
+[← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)

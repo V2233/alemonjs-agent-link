@@ -184,7 +184,7 @@ commandGroup.use(
 );
 
 commandGroup.use(
-  { path: '模型池', events: ['private.message.create'], description: '主人私聊查看模型池状态、翻页与补货提示' },
+  { path: '模型池', events: ['private.message.create'], description: '主人私聊查看模型池、翻页，以及启用/停用/通测端点' },
   () => import('@src/response/agent-pool/res')
 );
 

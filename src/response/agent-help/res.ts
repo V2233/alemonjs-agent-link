@@ -1,4 +1,4 @@
-import { sectionBubble, type BubbleSection } from '../bubble';
+import { commandBubble, sectionBubble, type BubbleSection } from '../bubble';
 import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
 import { quotaHelp } from '../../billing/help';
 
@@ -118,24 +118,45 @@ const helpSections = (isPrivate: boolean, owner: boolean): BubbleSection[] => [
 
 export const helpFormat = (isPrivate: boolean, owner: boolean, topic = '', platform = 'qq-bot') => {
   if (platform !== 'qq-bot') return Format.create().addText(helpText(isPrivate, owner, topic));
-  if (!topic)
-    return sectionBubble('大肥鱼 · 使用指南', '选一个主题展开；点入口会填入指令，确认后发送。', helpSections(isPrivate, owner), {
-      platform,
-      layout: 'keyboard'
-    });
+  if (!topic) {
+    const rows = [
+      {
+        key: '聊天',
+        text: isPrivate ? '私聊直接发消息；/提问、/取消、/新会话' : '群里 @我 或说“肥鱼，帮我……”；/提问、/取消、/新会话'
+      },
+      { key: '记忆', text: isPrivate ? '查看、检索、记住、删除个人记忆' : '群记忆、检索、来源核对；修改需管理员或主人' },
+      { key: '人格', text: '切换人格、查看心情、调整表达程度' },
+      { key: '媒体', text: '图片、语音、表情、画图' },
+      { key: '额度', text: '剩余额度、充值、个人/群密钥' },
+      { key: '数据', text: '隐私说明、清除聊天记录、清除群数据' },
+      ...(isPrivate && owner ? [{ key: '管理', text: '管理说明：服务开关、模型、工具权限、主动搭话' }] : [])
+    ];
+
+    return sectionBubble(
+      '大肥鱼 · 使用指南',
+      '点主题查看；也可以发 /帮助 主题。',
+      rows.map(row => ({
+        title: row.key,
+        text: row.text,
+        actions: [{ label: '查看', command: `/帮助 ${row.key}` }]
+      })),
+      { platform, layout: 'inline' }
+    );
+  }
   const text = helpText(isPrivate, owner, topic);
   const lines = text.split('\n');
   // 单主题卡片：首行就是主题名，卡片标题已表达，正文不再重复。
   const labelled = lines.length > 1 && lines[0].length <= 12 && !lines[0].startsWith('/') && !lines[0].includes('：');
   const body = labelled ? lines.slice(1).join('\n') : text;
-  const sections: BubbleSection[] = body.split(/\n\n/u).map((part, index) => ({ title: index === 0 ? '用法与说明' : '继续操作', text: part }));
-
-  sections.push({ title: '换个主题？', text: '', actions: [{ label: '帮助目录', command: '/帮助' }] });
-
   // 只有真的含占位符的主题才提示替换，普通主题不占一行。
   const hint = /编号|关键词|内容|模型ID|分钟/.test(body) ? '“编号”等字样换成自己的输入。' : '';
+  const content = [hint, body].filter(Boolean).join('\n\n');
 
-  return sectionBubble(`大肥鱼 · ${topic === '全部' ? '完整说明' : topic}`, hint, sections, { platform });
+  return commandBubble(content, `大肥鱼 · ${topic === '全部' ? '完整说明' : topic}`, {
+    platform,
+    layout: 'inline',
+    actions: [{ label: '帮助目录', command: '/帮助' }]
+  });
 };
 
 export default async (): Promise<void> => {
@@ -143,8 +164,11 @@ export default async (): Promise<void> => {
   const [route] = useRoute();
 
   // Shared help commands must remain available to other installed plugins.
+
   next();
-  if (!context.match.selects) return;
+  if (!context.match.selects) {
+    return;
+  }
   const event = context.current;
   const [message] = useMessage();
 

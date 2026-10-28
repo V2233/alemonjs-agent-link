@@ -1,5 +1,9 @@
+import { lstat, readdir, realpath } from 'node:fs/promises';
+import { relative, resolve, sep } from 'node:path';
 import type { AgentModule } from '../agent/types';
 import { getMediaConfig, MediaError } from '../media/config';
+import { withBudgetScope } from '../billing/budget';
+import { assessSticker } from '../media/providers';
 import { chooseSticker, listStickers, loadSticker, collectSticker, updateSticker, markStickerUsed, renameSticker, readStickerPath } from '../media/stickers';
 import { renderSticker } from '../media/sticker-forge';
 import { downloadAttachment, imageMime } from '../media/download';
@@ -38,7 +42,11 @@ export const stickerModule = (): AgentModule => ({
 
           context.signal.throwIfAborted();
 
-          return { ok: true, count: items.length, items: items.map(({ id, tags, name }) => (name ? { id, name, tags } : { id, tags })) };
+          return {
+            ok: true,
+            count: items.length,
+            items: items.map(({ id, tags, name, category }) => ({ id, ...(name ? { name } : {}), ...(category ? { category } : {}), tags }))
+          };
         } catch (error) {
           context.signal.throwIfAborted();
 
@@ -142,6 +150,8 @@ export const stickerModule = (): AgentModule => ({
           const caption = typeof text === 'string' ? text.replace(/\s+/gu, ' ').trim().slice(0, 24) : '';
           const saved = await collectSticker(config, rendered.data, Array.isArray(tags) && tags.length ? (tags as string[]) : ['表情'], context.signal, {
             from: 'forge',
+            kind: 'sticker',
+            category: '未分类',
             ...(caption ? { name: caption } : {})
           });
           const item = (await listStickers(config)).find(value => value.id === saved.id);
@@ -192,11 +202,15 @@ export const stickerModule = (): AgentModule => ({
         '主人明确要求收藏当前消息、引用里的唯一图片，或本会话最近一张图片作为表情时调用。按当前图片实际可见内容提供简短标签，不确定就留空；只能使用本轮或最近附件，不可指定 URL。',
       parameters: {
         type: 'object',
-        properties: { tags: { type: 'array', maxItems: 10, items: { type: 'string', maxLength: 20 } } },
+        properties: {
+          tags: { type: 'array', maxItems: 10, items: { type: 'string', maxLength: 20 } },
+          kind: { type: 'string', enum: ['sticker', 'avatar'] },
+          category: { type: 'string', maxLength: 20 }
+        },
         additionalProperties: false
       },
       available: context => context.owner && !context.autonomous,
-      execute: async ({ tags }, context) => {
+      execute: async ({ tags, kind, category }, context) => {
         const input = context.userText || '';
         const asked = /(?:收藏|收下|保存|存入|加入).{0,20}(?:表情|图片|这张图|这张)|(?:表情|图片|这张图).{0,20}(?:收藏|保存|收下|存入)/u.test(input);
         const denied = /(?:不要|别|不许|禁止|不用|不需要|不能).{0,16}(?:收藏|保存|收下|存入)|能.{0,12}(?:收藏|保存).{0,12}[吗么？?]/u.test(input);
@@ -213,7 +227,11 @@ export const stickerModule = (): AgentModule => ({
           const data = current || (await takeRecentImage(context.platform, context.channelId, context.signal, context.userId));
 
           if (!data) return { ok: false, message: '当前消息和本会话最近都没有可收藏的图片。' };
-          const result = await collectSticker(getMediaConfig(), data, (Array.isArray(tags) ? tags : []) as string[], context.signal, { from: 'manual' });
+          const result = await collectSticker(getMediaConfig(), data, (Array.isArray(tags) ? tags : []) as string[], context.signal, {
+            from: 'manual',
+            kind: kind === 'avatar' ? 'avatar' : 'sticker',
+            category: typeof category === 'string' ? category : undefined
+          });
 
           return { ok: true, ...result, message: result.existing ? '这张表情已在素材库中。' : '表情已收藏到素材库。' };
         } catch (error) {
@@ -233,12 +251,14 @@ export const stickerModule = (): AgentModule => ({
         properties: {
           source: { type: 'string', minLength: 1, maxLength: 2048 },
           name: { type: 'string', minLength: 1, maxLength: 24 },
+          kind: { type: 'string', enum: ['sticker', 'avatar'] },
+          category: { type: 'string', maxLength: 20 },
           tags: { type: 'array', maxItems: 10, items: { type: 'string', maxLength: 20 } }
         },
         additionalProperties: false
       },
       available: context => context.owner && !context.autonomous,
-      execute: async ({ source, name, tags }, context) => {
+      execute: async ({ source, name, tags, kind, category }, context) => {
         const input = context.userText || '';
         const asked =
           /(?:收藏|收下|保存|存入|加入|导入|添加|收进|收录|加进).{0,20}(?:表情|图片|这张|这个|链接|地址|url|图)|(?:表情|图片|链接|地址|url).{0,20}(?:收藏|保存|收下|存入|导入|添加|收进|收录|加进)/iu.test(
@@ -262,10 +282,19 @@ export const stickerModule = (): AgentModule => ({
           context.signal.throwIfAborted();
           if (!imageMime(data) || data.length > config.maxBytes) return { ok: false, message: '图片格式不支持或超过大小限制。' };
           const cleanName = typeof name === 'string' ? name.replace(/\s+/gu, ' ').trim().slice(0, 24) : '';
-          const result = await collectSticker(config, data, Array.isArray(tags) && tags.length ? (tags as string[]) : ['表情'], context.signal, {
-            from: 'manual',
-            ...(cleanName ? { name: cleanName } : {})
-          });
+          const assetKind = kind === 'avatar' ? 'avatar' : 'sticker';
+          const result = await collectSticker(
+            config,
+            data,
+            Array.isArray(tags) && tags.length ? (tags as string[]) : [assetKind === 'avatar' ? '头像' : '表情'],
+            context.signal,
+            {
+              from: 'manual',
+              kind: assetKind,
+              ...(typeof category === 'string' ? { category } : {}),
+              ...(cleanName ? { name: cleanName } : {})
+            }
+          );
 
           return {
             ok: true,
@@ -278,6 +307,106 @@ export const stickerModule = (): AgentModule => ({
           context.signal.throwIfAborted();
 
           return { ok: false, message: error instanceof MediaError ? error.message : '图片添加未完成。' };
+        }
+      }
+    });
+    api.tool({
+      name: 'import_image_folder',
+      description:
+        '主人明确要求批量导入素材目录内某个子目录的图片时使用。只读该目录内的图片文件，逐张判断是头像还是表情并分类；最多处理 30 张，不读取目录外路径。',
+      parameters: {
+        type: 'object',
+        required: ['path'],
+        properties: {
+          path: { type: 'string', minLength: 1, maxLength: 200 },
+          kind: { type: 'string', enum: ['sticker', 'avatar'] },
+          limit: { type: 'integer', minimum: 1, maximum: 30 }
+        },
+        additionalProperties: false
+      },
+      available: context => context.owner && !context.autonomous,
+      execute: async ({ path, kind, limit }, context) => {
+        const input = context.userText || '';
+        const asked = /(?:导入|批量|目录|文件夹|扫一遍|收进).{0,20}(?:图片|头像|表情|目录|文件夹)|(?:图片|头像|表情).{0,20}(?:导入|批量|收进)/u.test(input);
+        const denied = /(?:不要|别|不许|禁止|不用|不需要|不能).{0,16}(?:导入|批量|收进)/u.test(input);
+
+        if (!context.owner || context.autonomous || !asked || denied) return { ok: false, message: '需要主人明确要求批量导入图片。' };
+        try {
+          const config = getMediaConfig();
+
+          if (!config.stickerRoot) return { ok: false, message: '尚未配置表情素材目录。' };
+          const root = await realpath(config.stickerRoot);
+          const directory = await realpath(resolve(root, String(path)));
+
+          if (!directory.startsWith(`${root}${sep}`)) return { ok: false, message: '导入目录必须位于素材目录内。' };
+          const info = await lstat(directory);
+
+          if (!info.isDirectory() || info.isSymbolicLink()) return { ok: false, message: '导入路径不是普通目录。' };
+          const max = Math.min(30, Math.max(1, Number(limit) || 20));
+          const entries = (await readdir(directory, { withFileTypes: true }))
+            .filter(entry => entry.isFile() && /\.(?:png|jpe?g|webp|gif)$/iu.test(entry.name))
+            .slice(0, max);
+          let added = 0;
+          let existing = 0;
+          let failed = 0;
+          let skipped = 0;
+
+          for (const entry of entries) {
+            context.signal.throwIfAborted();
+            try {
+              const relativePath = relative(root, resolve(directory, entry.name));
+              const data = await readStickerPath(config, relativePath, 5 * 1024 * 1024);
+              let kindValue = kind === 'avatar' ? 'avatar' : 'sticker';
+              let category = kindValue === 'avatar' ? '头像' : '未分类';
+              let name: string | undefined;
+              let tags = kindValue === 'avatar' ? ['头像'] : ['导入'];
+
+              if (config.vision && imageMime(data) !== 'image/gif') {
+                try {
+                  const assessment = await withBudgetScope({ platform: context.platform, channelId: context.channelId, userId: context.userId }, () =>
+                    assessSticker(data, config, context.signal)
+                  );
+
+                  if (assessment.kind === 'avatar' || assessment.kind === 'sticker') kindValue = assessment.kind;
+                  if (assessment.kind === 'other') {
+                    skipped++;
+                    continue;
+                  }
+                  if (assessment.category) category = assessment.category;
+                  if (assessment.name) name = assessment.name;
+                  if (assessment.tags.length) tags = assessment.tags;
+                } catch {
+                  context.signal.throwIfAborted();
+                }
+              }
+              const result = await collectSticker(config, data, tags, context.signal, {
+                from: 'import',
+                kind: kindValue,
+                category,
+                ...(name ? { name } : {})
+              });
+
+              if (result.existing) existing++;
+              else added++;
+            } catch {
+              context.signal.throwIfAborted();
+              failed++;
+            }
+          }
+
+          return {
+            ok: true,
+            total: entries.length,
+            added,
+            existing,
+            failed,
+            skipped,
+            message: `已处理 ${entries.length} 张：新增 ${added}，已有 ${existing}，跳过 ${skipped}，失败 ${failed}。`
+          };
+        } catch (error) {
+          context.signal.throwIfAborted();
+
+          return { ok: false, message: error instanceof MediaError ? error.message : '批量导入未完成。' };
         }
       }
     });

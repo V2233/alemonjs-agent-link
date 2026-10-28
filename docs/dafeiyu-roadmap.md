@@ -59,3 +59,7 @@ AgentLink 采纳了“平台标记 + 内容哈希去重 + 锁定清单 + 视觉�
 现在可选择 QQ Bot 或 OneBot 正向 WebSocket。OneBot 已接入戳一戳和白名单群管理，账号、操作回执和实时权限分别核实；QQ 空间、B站和翻唱仍需独立服务链路。不能因为模型说“已发送语音”“已发动态”就当作能力实现。连接配置见 [OneBot 接入](onebot.md)。
 
 持续更新的逐项状态见[能力建设与验收](capabilities.md)，人格与心情配置见[陪伴能力](companion.md)。代码及模拟接口测试不能替代真实模型质量、provider 与 QQ 收发验收。
+
+---
+
+[← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)

@@ -6,7 +6,17 @@ import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { getMediaConfig, MediaError, type MediaConfig } from '../media/config';
 import { imageMime } from '../media/download';
-import { collectSticker, ensureStickerRoot, listStickers, loadSticker, renameSticker, setStickerEmoji, updateSticker, type Sticker } from '../media/stickers';
+import {
+  collectSticker,
+  ensureStickerRoot,
+  listAssets,
+  listStickers,
+  loadSticker,
+  renameSticker,
+  setStickerEmoji,
+  updateSticker,
+  type Sticker
+} from '../media/stickers';
 import { getActiveOneBotConnection } from '../onebot/index';
 import { addFavoriteDirect, deleteFavoriteDirect, fetchFavoriteUrlsDirect, renameFavoriteDirect } from '../media/onebot-direct';
 import { importStickerUrls } from '../media/sticker-import';
@@ -86,6 +96,8 @@ const publicItem = (item: Sticker, token: string) => ({
   id: item.id,
   name: item.name ?? '',
   tags: item.tags,
+  kind: item.kind ?? 'sticker',
+  category: item.category ?? '',
   from: item.from ?? 'legacy',
   uses: item.uses ?? 0,
   lastUsed: item.lastUsed ?? null,
@@ -110,7 +122,7 @@ main{padding:18px 22px;display:grid;gap:14px;grid-template-columns:repeat(auto-f
 .card input{width:100%;box-sizing:border-box}.tags{color:#8b93a7;font-size:12px;word-break:break-all}
 #status{white-space:pre-wrap;color:#ffcf9e}.toolbar{padding:0 22px 8px}
 </style></head><body>
-<header><h1>AgentLink 表情库</h1><div class="row"><input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><input id="uploadName" placeholder="名称（可选）" maxlength="24"><input id="uploadTags" placeholder="标签，用逗号分隔" maxlength="100"><button id="upload">上传</button><button id="importFav">从 QQ 导入</button><button id="syncFav">同步到 QQ</button><button id="refresh">刷新</button></div></header>
+<header><h1>AgentLink 表情库</h1><div class="row"><input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><input id="uploadName" placeholder="名称（可选）" maxlength="24"><input id="uploadTags" placeholder="标签，用逗号分隔" maxlength="100"><select id="uploadKind"><option value="sticker">表情</option><option value="avatar">头像</option></select><button id="upload">上传</button><button id="importFav">从 QQ 导入</button><button id="syncFav">同步到 QQ</button><button id="refresh">刷新</button></div></header>
 <div class="toolbar"><span class="muted">token 从 URL 读取；面板只监听回环地址，不提供跨域访问。</span></div>
 <div id="status" class="toolbar"></div><main id="list"></main>
 <script>
@@ -133,7 +145,7 @@ const card = (item) => {
   const img = document.createElement('img'); img.className = 'thumb'; img.loading = 'lazy'; img.alt = item.name || item.id; img.src = item.image; box.append(img);
   const name = document.createElement('input'); name.value = item.name; name.maxLength = 24; name.placeholder = '名称'; box.append(name);
   const tags = document.createElement('input'); tags.value = item.tags.join('，'); tags.placeholder = '标签，用逗号分隔'; box.append(tags);
-  const meta = document.createElement('div'); meta.className = 'tags'; meta.textContent = item.id + ' · ' + item.from + ' · 用过 ' + item.uses + (item.emojiId ? ' · QQ 已收藏' : ''); box.append(meta);
+  const meta = document.createElement('div'); meta.className = 'tags'; meta.textContent = item.kind + ' · ' + (item.category || '未分类') + ' · ' + item.id + ' · 用过 ' + item.uses + (item.emojiId ? ' · QQ 已收藏' : ''); box.append(meta);
   const row = document.createElement('div'); row.className = 'row';
   row.append(button('保存', '', async () => {
     try {
@@ -159,12 +171,13 @@ const upload = async () => {
   const files = [...document.querySelector('#file').files];
   if (!files.length) return say('先选择图片。');
   const name = document.querySelector('#uploadName').value.trim();
+  const kind = document.querySelector('#uploadKind').value === 'avatar' ? 'avatar' : 'sticker';
   const tags = document.querySelector('#uploadTags').value.split(/[，,]/).map(t => t.trim()).filter(Boolean);
   for (const file of files) {
     try {
       say('上传 ' + file.name + '…');
       const data = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file); });
-      await api('/api/stickers', { method: 'POST', body: JSON.stringify({ data: String(data).replace(/^data:[^,]+,/, ''), name, tags }) });
+      await api('/api/stickers', { method: 'POST', body: JSON.stringify({ data: String(data).replace(/^data:[^,]+,/, ''), name, tags, kind }) });
     } catch (error) { say('上传失败：' + error.message); return; }
   }
   say('上传完成'); await refresh();
@@ -295,7 +308,7 @@ const handle = async (req: IncomingMessage, res: ServerResponse, config: DSHBrid
   }
   const id = match[1];
   const image = Boolean(match[2]);
-  const items = await listStickers(media);
+  const items = await listAssets(media);
 
   if (!id) {
     if (req.method !== 'GET') {
@@ -391,6 +404,7 @@ const handleUpload = async (req: IncomingMessage, res: ServerResponse, panel: St
         .filter(Boolean)
         .slice(0, 10)
     : [];
+  const kind = body.kind === 'avatar' ? 'avatar' : 'sticker';
 
   if (!data || data.length > Math.ceil((MAX_IMAGE * 4) / 3) + 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(data)) {
     throw new MediaError('上传图片编码无效或过大。');
@@ -398,7 +412,12 @@ const handleUpload = async (req: IncomingMessage, res: ServerResponse, panel: St
   const image = Buffer.from(data, 'base64');
 
   if (!image.length || image.length > MAX_IMAGE || !imageMime(image)) throw new MediaError('上传内容不是受支持的图片。');
-  const result = await collectSticker(media, image, tags.length ? tags : ['面板'], AbortSignal.timeout(15_000), { from: 'manual', ...(name ? { name } : {}) });
+  const result = await collectSticker(media, image, tags.length ? tags : [kind === 'avatar' ? '头像' : '面板'], AbortSignal.timeout(15_000), {
+    from: 'manual',
+    kind,
+    category: kind === 'avatar' ? '头像' : '未分类',
+    ...(name ? { name } : {})
+  });
 
   json(res, 200, { ok: true, item: publicItem(result.item, panel.token), existing: result.existing });
 };

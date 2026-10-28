@@ -4,7 +4,7 @@ import { access, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getMediaConfig } from '../lib/media/config.js';
-import { chooseSticker, collectSticker, ensureStickerRoot, listStickers, markStickerUsed } from '../lib/media/stickers.js';
+import { chooseSticker, collectSticker, ensureStickerRoot, listAssets, listStickers, markStickerUsed } from '../lib/media/stickers.js';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const image = suffix => Buffer.concat([png, Buffer.from([suffix])]);
@@ -34,6 +34,11 @@ test('sticker metadata, names and usage survive the manifest', async () => {
     assert.deepEqual(repeat.item.tags, ['开心', '晚安']);
     assert.equal(repeat.item.name, '猫猫');
     assert.equal((await listStickers(config)).length, 1);
+    const avatar = await collectSticker(config, image(9), ['头像', '蓝发'], signal(), { from: 'manual', kind: 'avatar', category: '头像', name: '鲸鱼娘头像' });
+    assert.equal(avatar.item.kind, 'avatar');
+    assert.equal(avatar.item.category, '头像');
+    assert.equal((await listStickers(config)).length, 1);
+    assert.equal((await listAssets(config)).length, 2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

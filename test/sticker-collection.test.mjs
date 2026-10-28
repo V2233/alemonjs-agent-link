@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getMediaConfig } from '../lib/media/config.js';
-import { collectSticker, updateSticker, listStickers, loadSticker } from '../lib/media/stickers.js';
+import { collectSticker, updateSticker, listAssets, listStickers, loadSticker } from '../lib/media/stickers.js';
 import { stickerModule } from '../lib/modules/stickers.js';
 import { getDSHConfig } from '../lib/dsh/client.js';
 import { getModuleRuntime } from '../lib/agent/modules.js';
@@ -206,6 +206,38 @@ test('add_sticker accepts an image inside the sticker root and rejects external 
     assert.equal((await add.execute({ source: join(outside, 'outside.png') }, ctx({ userText: '收藏这个图片' }))).ok, false);
     assert.equal((await add.execute({ source: 'http://cdn.test/a.png' }, ctx({ userText: '收藏这个链接' }))).ok, false);
     assert.equal((await add.execute({ source: 'import.png' }, ctx({ userText: '不要收藏这个图片' }))).ok, false);
+  } finally {
+    globalThis.__config = previous;
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test('bulk folder import classifies images and stays inside the sticker root', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sticker-folder-'));
+  const outside = await mkdtemp(join(tmpdir(), 'sticker-folder-outside-'));
+  const previous = globalThis.__config;
+  globalThis.__config = { value: { 'alemonjs-agent-link': { media: { stickerRoot: root } } } };
+  const tools = [];
+  stickerModule().setup({ tool: tool => tools.push(tool) });
+  const folder = tools.find(tool => tool.name === 'import_image_folder');
+  const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  try {
+    await writeFile(join(root, 'manifest.json'), '[]');
+    await mkdir(join(root, 'incoming'));
+    await writeFile(join(root, 'incoming', 'a.png'), image);
+    await writeFile(join(root, 'incoming', 'b.png'), Buffer.concat([image, Buffer.from([1])]));
+    await writeFile(join(root, 'incoming', 'note.txt'), 'ignored');
+    await writeFile(join(outside, 'outside.png'), image);
+    assert.equal(folder.available(ctx({ owner: false })), false);
+    const result = await folder.execute({ path: 'incoming', kind: 'avatar', limit: 10 }, ctx({ userText: '把 incoming 目录里的图片批量导入' }));
+    assert.equal(result.ok, true);
+    assert.equal(result.total, 2);
+    assert.equal(result.added, 2);
+    const items = await listStickers(getMediaConfig());
+    assert.equal(items.length, 0);
+    assert.equal((await listAssets(getMediaConfig())).filter(item => item.kind === 'avatar').length, 2);
+    assert.equal((await folder.execute({ path: '../outside' }, ctx({ userText: '批量导入这个目录' }))).ok, false);
   } finally {
     globalThis.__config = previous;
     await rm(root, { recursive: true, force: true });

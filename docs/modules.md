@@ -25,7 +25,7 @@ alemonjs-agent-link:
 
 内置 `memory` 模块默认启用。明确保存工具仅向私聊提供；当前会话还可检索自动整理的资料、核对来源与人物档案。停用该模块使用 `disabled: [memory]`，已有记忆及手动命令继续保留。自动整理、版本恢复和删除语义见[长期记忆](memory.md)。
 
-内置 `stickers` 模块提供 `list_stickers`、`send_sticker`、`make_sticker`、`collect_sticker`、`add_sticker` 和 `manage_sticker`。查询及发送支持按编号或标签查找；收藏当前附件对主人在私聊和群聊开放，修改名称/标签和移除清单（并尝试删除 QQ 收藏）仅对主人私聊开放，均须有明确请求。`add_sticker` 只接受 HTTPS 地址或素材目录内的本地图片；`make_sticker` 把本轮/最近图片或素材库表情裁成方形 PNG，可上下配字并默认同轮发送；动图只取第一帧。发送每轮最多尝试一次，与命令及自动表情共用冷却。素材目录、收藏与二创限制见[媒体能力](media.md)。`modules.disabled: [stickers]` 停用模型工具，不影响手动命令或自动表达；后台自主搭话不开放这些工具。
+内置 `stickers` 模块提供 `list_stickers`、`send_sticker`、`make_sticker`、`collect_sticker`、`add_sticker`、`import_image_folder` 和 `manage_sticker`。查询及发送支持按编号或标签查找；收藏当前附件对主人在私聊和群聊开放，修改名称/标签和移除清单（并尝试删除 QQ 收藏）仅对主人私聊开放，均须有明确请求。`add_sticker` 只接受 HTTPS 地址或素材目录内的本地图片，可用 `kind: avatar|sticker` 和 `category` 分类；`collect_sticker`、`add_sticker`、`import_image_folder` 同样可指定 `kind/category`；`make_sticker` 把本轮/最近图片或素材库表情裁成方形 PNG，可上下配字并默认同轮发送；动图只取第一帧。发送每轮最多尝试一次，与命令及自动表情共用冷却。素材目录、收藏与二创限制见[媒体能力](media.md)。`modules.disabled: [stickers]` 停用模型工具，不影响手动命令或自动表达；后台自主搭话不开放这些工具。
 
 ### 私聊主动搭话
 
@@ -261,3 +261,7 @@ Link 不再要求 `writeActions`；历史同名配置不再参与动作准入。
 回归验证可用 `node scripts/test_framework_runtime.mjs --expose --unknown-effect --two-turns`，检查真实 DSH 对未明确效果的查询经推荐入口调用，提供方收到可信身份并返回数据。
 
 工具诊断日志仅记录 requestId、轮次、调用序号、工具名、结果分类、耗时和触顶原因，不记录参数、工具结果正文或思考内容。`tool-limit` 的 reason 区分 round-limit、call-limit、batch-limit；returned 仅表示获得回执，不等于业务成功。
+
+---
+
+[← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)

@@ -16,10 +16,10 @@ const BUTTONS_PER_ROW = 5;
 export const KEYBOARD_LABELS: Record<string, string> = {
   '/帮助': '帮助',
   '/帮助 聊天': '聊天',
-  '/帮助 媒体': '图片',
-  '/帮助 记忆': '记忆说明',
-  '/帮助 人格': '人格说明',
-  '/帮助 额度': '额度教程',
+  '/帮助 媒体': '媒体',
+  '/帮助 记忆': '记忆',
+  '/帮助 人格': '人格',
+  '/帮助 额度': '额度',
   '/帮助 数据': '数据',
   '/帮助 管理': '管理',
   '/帮助 全部': '完整说明',
@@ -135,7 +135,10 @@ const normalizeActions = (actions: BubbleAction[]): BubbleAction[] => {
 
 const addInline = (md: ReturnType<typeof Format.createMarkdown>, actions: BubbleAction[]): void => {
   md.addNewline();
-  for (const action of actions.slice(0, MAX_INLINE_ACTIONS)) md.addButton(inlineLabel(action.label), { data: action.command, autoEnter: false }).addText(' ');
+  // The xiuxian project's ‹…› convention keeps inline commands visually distinct
+  // from body text without turning them into a second keyboard row.
+  for (const action of actions.slice(0, MAX_INLINE_ACTIONS))
+    md.addButton(`‹${inlineLabel(action.label)}›`, { data: action.command, autoEnter: false }).addText(' ');
 };
 
 const buildKeyboard = (actions: BubbleAction[]): ReturnType<typeof Format.createButtonGroup> | null => {
@@ -176,9 +179,11 @@ const splitActions = (actions: BubbleAction[], layout: BubbleLayout): { inline: 
 export const sectionBubble = (title: string, intro: string, sections: BubbleSection[], options: BubbleOptions = {}): ReturnType<typeof Format.create> => {
   const rich = supportsBubbles(options.platform);
   // Section cards are contextual: by default each section keeps its own inline
-  // next step. A menu-style index can opt into the keyboard with layout:'keyboard'.
-  const layout = options.layout ?? 'inline';
-  const inline = rich && (layout === 'inline' || layout === 'auto');
+  // next step. If any section has more than the inline cap, fall back to the
+  // keyboard instead of silently dropping the extra actions.
+  const needsKeyboard = sections.some(section => normalizeActions(section.actions ?? []).length > MAX_INLINE_ACTIONS);
+  const layout = options.layout === undefined || options.layout === 'auto' ? (needsKeyboard ? 'keyboard' : 'inline') : options.layout;
+  const inline = rich && layout === 'inline';
   const md = Format.createMarkdown().addBold(safe(title));
 
   if (intro) md.addNewline().addText(safe(intro));
@@ -215,7 +220,7 @@ export const commandBubble = (text: string, title: string, options: BubbleOption
   for (const line of text.replace(/\n+$/u, '').split('\n')) {
     const match = line.match(/^([^：\n]{1,24})：(.*)$/u);
 
-    if (match && !line.startsWith('/')) md.addBold(safe(`${match[1]}：`)).addText(safe(match[2]));
+    if (match && !line.startsWith('/') && !line.startsWith('|')) md.addBold(safe(`${match[1]}：`)).addText(safe(match[2]));
     else md.addText(safe(line));
     md.addNewline();
   }

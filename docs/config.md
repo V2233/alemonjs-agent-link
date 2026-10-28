@@ -135,7 +135,7 @@ modelPool:
 
 `strategy: balanced` 会按每个端点当前在途数、会话绑定数和近期选择次数计算负载，新会话优先选压力小的端点；同一会话在 `stickySeconds` 内固定在上次端点，不因一次轮转随意更换。
 
-默认行为已经够用：启动时异步探测、之后每 60 秒复查一次，加权轮转、429/5xx 换 Key、401/402/403 停用、失败重试 3 次。启动时会额外发一次极小 chat 探测（`max_tokens: 16`），用于发现“`/models` 正常但计费冻结/模型不可用”的情况；可通过 `probeChat: false` 关闭。日常探测仍只请求 `/models`，不消耗对话 token；某些兼容网关没有 `/models` 时只保持“未知”，不会误停用。429 会优先读 `Retry-After` / `x-ratelimit-reset-requests`，`x-ratelimit-remaining-requests: 0` 也会提前冷却。以下高级项不写就用默认值：`strategy`、`maxAttempts`、`failureThreshold`、`cooldownSeconds`、`retryStatuses`、`probeIntervalSeconds`、`probeTimeoutMs`、`recoveryProbeSeconds`、`stickySeconds`、`balanceWindowSeconds`、`weight`、`maxConcurrent`、`capabilities`。
+默认行为已经够用：启动时异步探测、之后每 60 秒复查一次，加权轮转、429/5xx 换 Key、401/402/403 停用、失败重试 3 次。启动时会额外发一次极小 chat 探测，并真实发一次识图请求和一次最小工具调用，以实际回执判断 vision/tools，而不是只看配置。`capabilityProbe` 默认关闭；默认以配置里的 `capabilities` 为准，这些值由真实调用实测写入。chat 探测（`max_tokens: 16`），用于发现“`/models` 正常但计费冻结/模型不可用”的情况；可通过 `probeChat: false` 关闭。日常探测仍只请求 `/models`，不消耗对话 token；某些兼容网关没有 `/models` 时只保持“未知”，不会误停用。429 会优先读 `Retry-After` / `x-ratelimit-reset-requests`，`x-ratelimit-remaining-requests: 0` 也会提前冷却。以下高级项不写就用默认值：`strategy`、`maxAttempts`、`failureThreshold`、`cooldownSeconds`、`retryStatuses`、`probeIntervalSeconds`、`probeTimeoutMs`、`recoveryProbeSeconds`、`stickySeconds`、`balanceWindowSeconds`、`weight`、`maxConcurrent`、`capabilities`。
 
 - Node 聊天、工具轮次和主动识别统一使用 **OpenAI-compatible `/chat/completions`**；OpenAI、OpenRouter、SiliconFlow、Gemini 的 OpenAI 兼容入口等都可以。
 - 沙箱工作区任务仍走 DSH 的 `deepseek-official` 协议；只有 `provider: deepseek-official` 的端点会进入沙箱 Bridge。跨厂商端点可以参与普通聊天，但不能替代沙箱任务的模型。
@@ -267,7 +267,7 @@ alemonjs-agent-link:
 
 ## 群聊参与策略
 
-@、开头称呼、引用机器人的消息、`/chat`、`/语音` 共享群聊分段。默认短暂停顿 1.5 秒后回复；连续发言的聚合等待最多 6 秒。上一段正在回复时，新消息进入下一段，等待当前回复结束；6 秒限制不包含模型执行和排队时间。
+@、开头称呼、引用机器人的消息、`/chat`、`/语音` 共享群聊分段。默认短暂停顿 1.2 秒后回复；连续发言的聚合等待最多 4 秒。上一段正在回复时，新消息进入下一段，等待当前回复结束；该等待上限不包含模型执行和排队时间。
 
 ```yaml
 alemonjs-agent-link:
@@ -456,3 +456,7 @@ alemonjs-agent-link:
 用户可在本人私聊中用 `/个人密钥` 管理自己的 DeepSeek 官方 Key。它是独立的加密 Redis 记录，不修改这里的共享 `apiKey`；余额不足时自动停用，需手动恢复。指令、回退规则和加密文件备份要求见 [个人 Key 管理](personal-key.md)。
 
 群管理员可用 `/群密钥` 申请 5 分钟临时码，再由本人私聊绑定、启用或停用该群的 DeepSeek Key。具体流程见 [群 Key 管理](group-key.md)。
+
+---
+
+[← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)

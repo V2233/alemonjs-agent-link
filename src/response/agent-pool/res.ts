@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble, type BubbleSection } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { getCredentialPool } from '@src/credentials/pool';
@@ -20,7 +20,6 @@ export default async (): Promise<void> => {
     return;
   }
 
-  const requested = Number.parseInt(String(route.rawArgs[0] ?? '1'), 10);
   let pool;
 
   try {
@@ -45,13 +44,75 @@ export default async (): Promise<void> => {
     return;
   }
 
+  const args = route.rawArgs
+    .map(String)
+    .map(value => value.trim())
+    .filter(Boolean);
+  const action = args[0] ?? '';
+
+  if (['启用', '停用', '测活', '测试', '通测'].includes(action)) {
+    const id = args.slice(1).join(' ').trim();
+
+    if (!id) {
+      await message.send({
+        format: commandBubble('用法：/模型池 启用|停用|测活|通测 端点ID', '模型池', {
+          platform: event.Platform,
+          actions: [{ label: '返回模型池', command: '/模型池' }]
+        })
+      });
+
+      return;
+    }
+    let ok = false;
+
+    try {
+      ok =
+        action === '启用'
+          ? pool.setEndpointEnabled(id, true)
+          : action === '停用'
+            ? pool.setEndpointEnabled(id, false)
+            : await pool.probeEndpoint(id, action === '通测');
+    } catch {
+      ok = false;
+    }
+    await message.send({
+      format: commandBubble(
+        ok
+          ? action === '启用'
+            ? `${id} 已启用（本次运行）；重启后按配置恢复。`
+            : action === '停用'
+              ? `${id} 已停用（本次运行）；重启后按配置恢复。`
+              : `${id} 已执行${action === '通测' ? '通测' : '测活'}，结果见 /模型池。`
+          : `没有找到端点 ${id}。`,
+        '模型池',
+        { platform: event.Platform, actions: [{ label: '返回模型池', command: '/模型池' }] }
+      )
+    });
+
+    return;
+  }
+  const requested = Number.parseInt(String(args[0] ?? '1'), 10);
   const [balances, bridge] = await Promise.all([fetchPoolBalances(pool.config), readBridgeMetrics(getDSHConfig())]);
   const view = poolPageView(pool.status, Number.isFinite(requested) ? requested : 1, Date.now(), balances, pool.config.balanceAlertYuan, bridge);
-  const actions = [];
+  const sections: BubbleSection[] = view.rows.map(row => ({
+    title: `${row.number}. ${row.id} · ${row.provider} · ${row.model}`,
+    text: row.detail,
+    actions: [
+      { label: row.disabled ? '启用' : '停用', command: `/模型池 ${row.disabled ? '启用' : '停用'} ${row.id}` },
+      { label: '通测', command: `/模型池 通测 ${row.id}` }
+    ]
+  }));
+  const nav = [
+    ...(view.page > 1 ? [{ label: '上一页', command: `/模型池 ${view.page - 1}` }] : []),
+    ...(view.page < view.pages ? [{ label: '下一页', command: `/模型池 ${view.page + 1}` }] : []),
+    { label: '刷新', command: '/模型池' }
+  ];
 
-  if (view.page > 1) actions.push({ label: '上一页', command: `/模型池 ${view.page - 1}`, short: '上页' });
-  if (view.page < view.pages) actions.push({ label: '下一页', command: `/模型池 ${view.page + 1}`, short: '下页' });
-  actions.push({ label: '刷新', command: '/模型池', short: '刷新' }, { label: '当前模型', command: '/当前模型' }, { label: '模型列表', command: '/模型列表' });
-
-  await message.send({ format: commandBubble(view.text, '模型池', { platform: event.Platform, layout: 'keyboard', actions }) });
+  sections.push({ title: `第 ${view.page}/${view.pages} 页`, text: `共 ${view.total} 个端点；可用 ${view.available}。`, actions: nav });
+  await message.send({
+    format: sectionBubble('模型池', view.total === 0 ? '没有端点。' : view.needsRefill ? '建议补货。启停只影响本次运行。' : '启停只影响本次运行。', sections, {
+      platform: event.Platform,
+      layout: 'inline'
+    })
+  });
 };

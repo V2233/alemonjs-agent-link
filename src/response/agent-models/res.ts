@@ -1,5 +1,5 @@
 import { commandBubble } from '../bubble';
-import { useEvent, useMessage } from 'alemonjs';
+import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { getDSHCredentials } from '@src/dsh/credentials';
 import { listAvailableModels } from '@src/dsh/models';
@@ -13,6 +13,7 @@ export default async (): Promise<void> => {
 
   const event = eventContext.current;
   const [message] = useMessage();
+  const [route] = useRoute();
 
   if (!event.IsMaster) {
     await message.send({ format: commandBubble('公共模型列表仅限机器人主人查看。', '模型列表', { platform: event.Platform }) });
@@ -40,35 +41,30 @@ export default async (): Promise<void> => {
 
     const config = getDSHConfig();
     const models = await listAvailableModels(credentials);
-    const lines = ['可用模型', `当前模型：${credentials.model || config.model}`];
-    const footer = '\n修改指引：/当前模型 模型ID';
-    // Reserve the footer and overflow hint before adding model rows.
-    let length = lines.join('\n').length + footer.length + 40;
-    let displayed = 0;
+    const current = credentials.model || config.model;
+    const pageSize = 8;
+    const pages = Math.max(1, Math.ceil(models.length / pageSize));
+    const requested = Number.parseInt(String(route.rawArgs[0] ?? '1'), 10);
+    const page = Number.isSafeInteger(requested) ? Math.min(pages, Math.max(1, requested)) : 1;
+    const start = (page - 1) * pageSize;
+    const visible = models.slice(start, start + pageSize);
+    const table = [
+      '| # | 模型 | 状态 |',
+      '| --- | --- | --- |',
+      ...visible.map((model, index) => `| ${start + index + 1} | ${model} | ${model === current ? '当前' : '-'} |`)
+    ];
+    const nav = [
+      ...(page > 1 ? [{ label: '上一页', command: `/模型列表 ${page - 1}` }] : []),
+      ...(page < pages ? [{ label: '下一页', command: `/模型列表 ${page + 1}` }] : []),
+      { label: '刷新', command: '/模型列表' }
+    ];
+    const intro = models.length ? `当前模型：${current}；共 ${models.length} 个。` : '没有可用模型。';
 
-    for (const model of models) {
-      const line = `${displayed + 1}. ${model}`;
-
-      if (length + line.length + 1 > config.maxMessageLength || lines.length >= 32) {
-        lines.push(`- …其余 ${models.length - displayed} 个模型未展示。`);
-
-        break;
-      }
-
-      lines.push(line);
-      length += line.length + 1;
-      displayed += 1;
-    }
-
-    lines.push(footer);
     await message.send({
-      format: commandBubble(lines.join('\n'), '模型列表', {
+      format: commandBubble(`${intro}\n\n${table.join('\n')}`, '模型列表', {
         platform: event.Platform,
-        actions: [
-          { label: '当前模型', command: '/当前模型' },
-          { label: '密钥配置', command: '/密钥配置' },
-          { label: '模型列表', command: '/模型列表' }
-        ]
+        layout: 'inline',
+        actions: nav
       })
     });
   } catch {

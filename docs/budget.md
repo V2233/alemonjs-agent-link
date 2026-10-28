@@ -98,3 +98,7 @@ AGENT_LINK_TEST_REDIS_CONFIG="$PWD/alemon.config.yaml" node --test --test-force-
 ```
 
 测试只使用随机前缀隔离的键并清理自身数据，不请求真实付费模型、不删除业务账本。该测试需配置文件中的 `db.redis` 可连接。
+
+---
+
+[← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)

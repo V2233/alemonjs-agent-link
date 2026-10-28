@@ -33,6 +33,8 @@ export type ModelPoolConfig = {
   probeIntervalSeconds: number;
   probeTimeoutMs: number;
   probeChat: boolean;
+  capabilityProbe: boolean;
+  capabilityProbeTimeoutMs: number;
   recoveryProbeSeconds: number;
   stickySeconds: number;
   balanceWindowSeconds: number;
@@ -200,6 +202,7 @@ export const parseModelPool = (raw: unknown, defaults: ModelPoolDefaults): Model
   if (value.enabled === false) return undefined;
   if (value.enabled !== undefined && typeof value.enabled !== 'boolean') throw new Error('modelPool.enabled 需要为布尔值。');
   if (value.probeChat !== undefined && typeof value.probeChat !== 'boolean') throw new Error('modelPool.probeChat 需要为布尔值。');
+  if (value.capabilityProbe !== undefined && typeof value.capabilityProbe !== 'boolean') throw new Error('modelPool.capabilityProbe 需要为布尔值。');
   const keys = normalizeKeys(value);
   const source = keys === undefined ? value.endpoints : keys;
 
@@ -292,6 +295,9 @@ export const parseModelPool = (raw: unknown, defaults: ModelPoolDefaults): Model
     probeIntervalSeconds: value.probeIntervalSeconds === undefined ? 60 : integer(value.probeIntervalSeconds, 'probeIntervalSeconds', 0, 3600),
     probeTimeoutMs: value.probeTimeoutMs === undefined ? 5000 : integer(value.probeTimeoutMs, 'probeTimeoutMs', 1000, 30000),
     probeChat: value.probeChat === undefined ? true : value.probeChat === true,
+    capabilityProbe: value.capabilityProbe === true,
+    capabilityProbeTimeoutMs:
+      value.capabilityProbeTimeoutMs === undefined ? 60000 : integer(value.capabilityProbeTimeoutMs, 'capabilityProbeTimeoutMs', 5000, 120000),
     recoveryProbeSeconds: value.recoveryProbeSeconds === undefined ? 300 : integer(value.recoveryProbeSeconds, 'recoveryProbeSeconds', 0, 86400),
     stickySeconds: value.stickySeconds === undefined ? 1800 : integer(value.stickySeconds, 'stickySeconds', 0, 86400),
     balanceWindowSeconds: value.balanceWindowSeconds === undefined ? 300 : integer(value.balanceWindowSeconds, 'balanceWindowSeconds', 0, 86400),

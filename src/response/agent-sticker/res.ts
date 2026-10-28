@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble } from '../bubble';
 import { ResultCode, useEvent, useMessage, useMedia, useRoute } from 'alemonjs';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { getConversationId, canPrivateChatWithKey } from '@src/response/dsh/util';
@@ -50,6 +50,8 @@ export default async (): Promise<void> => {
       return;
     }
     const query = route.rawArgs.join(' ').trim();
+    const pageMatch = query.match(/^(?:列表|第)\s*(\d+)\s*(?:页)?$/u);
+    const listing = !query || query === '列表' || Boolean(pageMatch);
     const result = await runCoordinatedChat(
       { ...event, ChannelId: channelId },
       '',
@@ -190,15 +192,35 @@ export default async (): Promise<void> => {
 
             return;
           }
-          if (!query) {
-            await reply(
-              items.length
-                ? `用法：/表情 编号、名称或标签\n${items.map(item => `${item.id}${item.name ? `（${item.name}）` : ''}：${item.tags.join('、')}`).join('\n')}`.slice(
-                    0,
-                    config.maxMessageLength
-                  )
-                : '表情库为空，请添加素材。'
-            );
+          if (listing) {
+            if (!items.length) {
+              await reply('表情库为空，请添加素材。');
+            } else {
+              const pageSize = 8;
+              const pages = Math.max(1, Math.ceil(items.length / pageSize));
+              const requestedPage = query === '列表' ? 1 : Number.parseInt(pageMatch?.[1] ?? '1', 10);
+              const page = Number.isSafeInteger(requestedPage) ? Math.min(pages, Math.max(1, requestedPage)) : 1;
+              const start = (page - 1) * pageSize;
+              const visible = items.slice(start, start + pageSize);
+              const sections = visible.map(item => ({
+                title: `${item.id}${item.name ? `（${item.name}）` : ''}`,
+                text: item.tags.length ? `标签：${item.tags.join('、').slice(0, 40)}` : '',
+                actions: [{ label: '发送', command: `/表情 ${item.id}` }]
+              }));
+              const nav = [
+                ...(page > 1 ? [{ label: '上一页', command: `/表情 列表 ${page - 1}` }] : []),
+                ...(page < pages ? [{ label: '下一页', command: `/表情 列表 ${page + 1}` }] : []),
+                ...(pages === 1 ? [{ label: '刷新', command: '/表情' }] : []),
+                { label: '帮助', command: '/帮助 媒体' }
+              ];
+
+              sections.push({ title: `第 ${page}/${pages} 页`, text: `共 ${items.length} 个；也可用编号、名称或标签直接发送。`, actions: nav });
+              assertMessageDelivered(
+                await message.send({
+                  format: sectionBubble('表情素材', '点按钮发送。', sections, { platform: event.Platform, layout: 'inline' })
+                })
+              );
+            }
 
             return;
           }

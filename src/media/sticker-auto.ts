@@ -273,14 +273,23 @@ export class AutoStickerCollector {
             }
           }
           if (!job.explicit) {
-            if (!assessment || !assessment.sticker || !assessment.suitable || assessment.confidence < current.minConfidence) continue;
+            if (!assessment || !assessment.suitable || assessment.confidence < current.minConfidence) continue;
           } else if (assessment && !assessment.suitable) continue;
-          const tags = assessment?.tags.length ? assessment.tags : ['表情'];
+          const kind = job.explicit
+            ? assessment?.kind === 'avatar'
+              ? 'avatar'
+              : 'sticker'
+            : (assessment?.kind ?? (assessment?.sticker ? 'sticker' : 'other'));
+          const category = assessment?.category || (kind === 'avatar' ? '头像' : '未分类');
+          const tags = assessment?.tags.length ? assessment.tags : [kind === 'avatar' ? '头像' : '表情'];
 
+          if (!job.explicit && kind === 'other') continue;
           signal.throwIfAborted();
           if (job.generation !== this.generation) continue;
           const collected = await this.deps.collect(media, data, tags, signal, {
             from: 'auto',
+            kind,
+            category,
             ...(assessment?.name ? { name: assessment.name } : {}),
             ...(assessment ? { confidence: assessment.confidence } : {}),
             ...(info ? { width: info.width, height: info.height } : {})

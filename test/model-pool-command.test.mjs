@@ -6,6 +6,8 @@ const base = {
   provider: 'deepseek-official',
   model: 'deepseek-v4-flash',
   capabilities: ['chat'],
+  verified: ['chat'],
+  capabilityProbed: true,
   fallback: false,
   priority: 0,
   bound: 0,

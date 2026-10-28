@@ -36,6 +36,7 @@ export const importStickerUrls = async (
       }
       let name = '';
       let tags = ['导入'];
+      let category = '导入';
 
       if (config.vision && mime !== 'image/gif') {
         try {
@@ -43,11 +44,12 @@ export const importStickerUrls = async (
 
           if (assessment.name) name = assessment.name;
           if (assessment.tags.length) tags = assessment.tags;
+          if (assessment.kind === 'sticker' && assessment.category) category = assessment.category;
         } catch {
           signal.throwIfAborted();
         }
       }
-      const result = await collectSticker(config, data, tags, signal, { from: 'import', ...(name ? { name } : {}) });
+      const result = await collectSticker(config, data, tags, signal, { from: 'import', kind: 'sticker', category, ...(name ? { name } : {}) });
 
       if (result.existing) existing++;
       else added++;

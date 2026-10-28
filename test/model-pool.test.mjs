@@ -840,3 +840,69 @@ test('a sticky session is released when its endpoint turns out much slower', () 
   again.report({ ok: true, latencyMs: 80 });
   assert.equal(bind('chat').endpointId, fast);
 });
+
+test('startup capability probes discover vision and tools instead of trusting config', async () => {
+  const pool = new CredentialPool(
+    parseModelPool(
+      {
+        probeChat: true,
+        capabilityProbe: true,
+        probeIntervalSeconds: 3600,
+        endpoints: [{ id: 'probe', apiKey: 'sk-aaaaaaaa', model: 'm', capabilities: ['chat'], maxConcurrent: 2 }]
+      },
+      { provider: 'deepseek-official', model: 'm' }
+    )
+  );
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    if (!init?.body) return Response.json({ data: [] });
+    const body = JSON.parse(init.body);
+    if (Array.isArray(body.messages?.[0]?.content)) return Response.json({ choices: [{ message: { content: '红色' } }] });
+    if (body.tools)
+      return Response.json({ choices: [{ message: { tool_calls: [{ id: 'p', type: 'function', function: { name: 'probe_value', arguments: '{}' } }] } }] });
+    return Response.json({ choices: [{ message: { content: '好' } }] });
+  };
+  try {
+    pool.startHealthMonitor();
+    for (let index = 0; index < 50 && !pool.status[0].capabilityProbed; index++) await new Promise(resolve => setTimeout(resolve, 10));
+    const status = pool.status[0];
+    assert.ok(status.verified.includes('vision'));
+    assert.ok(status.verified.includes('tools'));
+    assert.ok(status.capabilities.includes('vision'));
+    assert.ok(status.capabilities.includes('tools'));
+  } finally {
+    pool.stop();
+    globalThis.fetch = original;
+  }
+});
+
+test('a configured vision capability is removed after a real image rejection', async () => {
+  const pool = new CredentialPool(
+    parseModelPool(
+      {
+        probeChat: true,
+        capabilityProbe: true,
+        probeIntervalSeconds: 3600,
+        endpoints: [{ id: 'vision', apiKey: 'sk-aaaaaaaa', model: 'm', capabilities: ['chat', 'vision'], maxConcurrent: 2 }]
+      },
+      { provider: 'deepseek-official', model: 'm' }
+    )
+  );
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    if (!init?.body) return Response.json({ data: [] });
+    const body = JSON.parse(init.body);
+    if (Array.isArray(body.messages?.[0]?.content)) return Response.json({ error: { message: 'unsupported image' } }, { status: 400 });
+    if (body.tools) return Response.json({ choices: [{ message: { content: 'no tool' } }] });
+    return Response.json({ choices: [{ message: { content: '好' } }] });
+  };
+  try {
+    pool.startHealthMonitor();
+    for (let index = 0; index < 50 && !pool.status[0].capabilityProbed; index++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(pool.status[0].capabilities.includes('vision'), false);
+    assert.equal(pool.select({ purpose: 'vision' }), null);
+  } finally {
+    pool.stop();
+    globalThis.fetch = original;
+  }
+});

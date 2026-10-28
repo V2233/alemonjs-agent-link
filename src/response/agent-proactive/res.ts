@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/runtime-config';
 import { proactiveOptions, proactiveEnabled, localDay, entitledProactiveOptions } from '../../proactive/options';
@@ -116,23 +116,63 @@ export default async (): Promise<void> => {
       store.recover();
       const row = store.get(scope);
       const attempts = store.attempts(scope);
-      const text = row
+      const paused = row ? (row.pausedUntil >= Number.MAX_SAFE_INTEGER ? '等待核查发送结果' : row.pausedUntil > Date.now() ? time(row.pausedUntil) : '') : '';
+      const today = row?.day === localDay(Date.now(), options.timezone) ? row.count : 0;
+      const sections = row
         ? [
-            `主动搭话：${row.enabled ? '开启' : '关闭'}；模块：${proactiveEnabled(config) ? '启用' : '停用'}。`,
-            `暂停：${row.pausedUntil >= Number.MAX_SAFE_INTEGER ? '等待核查发送结果' : row.pausedUntil > Date.now() ? time(row.pausedUntil) : '无'}。`,
-            `今日初次搭话 ${row.day === localDay(Date.now(), options.timezone) ? row.count : 0}/${options.maxPerDay}；未回复连发 ${row.unanswered}/${options.maxUnanswered}。`,
-            `最早下次：${time(row.nextAt)}（受免打扰与空闲限制）`,
-            ...(elevated ? ['自带 Key：主动搭话已拉满（空闲 20 分钟、每天最多 10 次），免打扰仍按配置。'] : []),
+            {
+              title: '订阅',
+              text: `${row.enabled ? '已开启' : '已关闭'}；模块${proactiveEnabled(config) ? '启用' : '停用'}。`,
+              actions: [
+                row.enabled ? { label: '关闭', command: '/主动搭话 关闭' } : { label: '开启', command: '/主动搭话 开启' },
+                { label: '立即', command: '/主动搭话 现在' }
+              ]
+            },
+            {
+              title: '节奏',
+              text: `今日 ${today}/${options.maxPerDay}；未回复连发 ${row.unanswered}/${options.maxUnanswered}；最早下次 ${time(row.nextAt)}。`
+            },
+            ...(paused
+              ? [
+                  {
+                    title: '暂停',
+                    text: paused,
+                    actions: row.pausedUntil < Number.MAX_SAFE_INTEGER ? [{ label: '恢复', command: '/主动搭话 恢复' }] : []
+                  }
+                ]
+              : []),
+            ...(elevated ? [{ title: '自带 Key', text: '主动搭话已拉满（空闲 20 分钟、每天最多 10 次）；免打扰仍按配置。' }] : []),
             ...(args === '状态'
-              ? attempts.map(
-                  attempt =>
-                    `${time(attempt.at)} ${attempt.kind === 'nudge' ? '追问' : '搭话'}：${({ confirmed: '已送达', unknown: '待核对', failed: '失败', cancelled: '已取消', silent: '未发送', sending: '发送中', reserved: '待处理' } as Record<string, string>)[attempt.status] || attempt.status}`
-                )
-              : [])
-          ].join('\n')
-        : '尚未订阅，不会主动发送消息。';
+              ? attempts.slice(0, 5).map(attempt => ({
+                  title: `${time(attempt.at)} · ${attempt.kind === 'nudge' ? '追问' : '搭话'}`,
+                  text:
+                    (
+                      {
+                        confirmed: '已送达',
+                        unknown: '待核对',
+                        failed: '失败',
+                        cancelled: '已取消',
+                        silent: '未发送',
+                        sending: '发送中',
+                        reserved: '待处理'
+                      } as Record<string, string>
+                    )[attempt.status] || attempt.status
+                }))
+              : []),
+            { title: '更多', text: '暂停/恢复：/主动搭话 暂停 分钟、/主动搭话 恢复。', actions: [] }
+          ]
+        : [
+            {
+              title: '订阅',
+              text: '尚未订阅，不会主动发送消息。',
+              actions: [
+                { label: '开启', command: '/主动搭话 开启' },
+                { label: '状态', command: '/主动搭话 状态' }
+              ]
+            }
+          ];
 
-      await reply(`${text}\n用法：/主动搭话 开启|关闭|状态|现在|暂停 分钟|恢复。`);
+      await message.send({ format: sectionBubble('主动搭话', '仅主人私聊。', sections, { platform: event.Platform, layout: 'inline' }) });
     } else {
       await reply('用法：/主动搭话 开启|关闭|状态|现在|暂停 分钟|恢复。');
     }

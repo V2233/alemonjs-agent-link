@@ -16,6 +16,9 @@ type EndpointState = {
   disabledUntil: number;
   lastUsed: number;
   healthy?: boolean;
+  verified: Set<ModelPoolPurpose>;
+  rejected: Set<ModelPoolPurpose>;
+  capabilityProbed: boolean;
   recent: number[];
   pendingTokens: number;
   dailyDate: string;
@@ -115,6 +118,8 @@ export type ModelPoolStatus = {
   account?: string;
   model: string;
   capabilities: ModelPoolPurpose[];
+  verified: ModelPoolPurpose[];
+  capabilityProbed: boolean;
   fallback: boolean;
   priority: number;
   workspace: boolean;
@@ -135,6 +140,9 @@ export type ModelPoolStatus = {
   disabledUntil: number;
   latencyMs: number;
   healthy?: boolean;
+  verified: Set<ModelPoolPurpose>;
+  rejected: Set<ModelPoolPurpose>;
+  capabilityProbed: boolean;
   recent: number[];
   pendingTokens: number;
   dailyDate: string;
@@ -175,6 +183,9 @@ export class CredentialPool {
       disabled: endpoint.enabled === false,
       disabledUntil: endpoint.enabled === false ? Number.POSITIVE_INFINITY : 0,
       lastUsed: 0,
+      verified: new Set(),
+      rejected: new Set(),
+      capabilityProbed: false,
       recent: [],
       pendingTokens: 0,
       dailyDate: '',
@@ -282,7 +293,9 @@ export class CredentialPool {
       provider: state.endpoint.provider,
       ...(state.endpoint.account ? { account: state.endpoint.account } : {}),
       model: state.endpoint.model,
-      capabilities: state.endpoint.capabilities,
+      capabilities: this.effectiveCapabilities(state),
+      verified: [...state.verified],
+      capabilityProbed: state.capabilityProbed,
       fallback: state.endpoint.fallback === true,
       priority: state.endpoint.priority,
       workspace: state.endpoint.workspace === true,
@@ -406,10 +419,21 @@ export class CredentialPool {
       !state.disabled &&
       state.cooldownUntil <= this.now() &&
       state.active < state.endpoint.maxConcurrent &&
-      state.endpoint.capabilities.includes(purpose) &&
+      this.supports(state, purpose) &&
       (!provider || state.endpoint.provider === provider) &&
       !exclude.has(state.endpoint.id)
     );
+  }
+
+  private effectiveCapabilities(state: EndpointState): ModelPoolPurpose[] {
+    const configured = state.capabilityProbed ? state.endpoint.capabilities.filter(capability => state.verified.has(capability)) : state.endpoint.capabilities;
+    const discovered = [...state.verified].filter(capability => !configured.includes(capability));
+
+    return [...new Set([...configured, ...discovered])];
+  }
+
+  private supports(state: EndpointState, purpose: ModelPoolPurpose): boolean {
+    return this.effectiveCapabilities(state).includes(purpose);
   }
 
   private available(purpose: ModelPoolPurpose, exclude: ReadonlySet<string>, provider?: string, estimatedTokens = 0): EndpointState[] {
@@ -420,7 +444,7 @@ export class CredentialPool {
         !state.disabled &&
         state.cooldownUntil <= time &&
         state.active < state.endpoint.maxConcurrent &&
-        state.endpoint.capabilities.includes(purpose) &&
+        this.supports(state, purpose) &&
         (!provider || state.endpoint.provider === provider) &&
         this.withinLimits(state, time, estimatedTokens) &&
         !exclude.has(state.endpoint.id)
@@ -435,7 +459,7 @@ export class CredentialPool {
         !state.endpoint.fallback &&
         !state.disabled &&
         state.cooldownUntil <= now &&
-        state.endpoint.capabilities.includes(purpose) &&
+        this.supports(state, purpose) &&
         (!provider || state.endpoint.provider === provider) &&
         state.active >= state.endpoint.maxConcurrent &&
         state.healthy !== false &&
@@ -586,7 +610,14 @@ export class CredentialPool {
 
         state.latencyMs = state.latencyMs ? state.latencyMs * 0.7 + sample * 0.3 : sample;
         await response.body?.cancel();
-        if (includeChat && this.config.probeChat && state.healthy !== false) await this.probeChat(state);
+        if (includeChat && this.config.probeChat && state.healthy !== false) {
+          await this.probeChat(state);
+          if (state.healthy !== false && this.config.capabilityProbe) {
+            await this.probeVision(state);
+            await this.probeTools(state);
+          }
+        }
+        if (includeChat && this.config.capabilityProbe) state.capabilityProbed = true;
 
         return;
       } else if (response.status === 401 || response.status === 402 || response.status === 403) {
@@ -597,7 +628,14 @@ export class CredentialPool {
         // Some OpenAI-compatible gateways do not expose /models; chat may still work.
         state.healthy = undefined;
         await response.body?.cancel();
-        if (includeChat && this.config.probeChat) await this.probeChat(state);
+        if (includeChat && this.config.probeChat) {
+          await this.probeChat(state);
+          if (state.healthy !== false && this.config.capabilityProbe) {
+            await this.probeVision(state);
+            await this.probeTools(state);
+          }
+        }
+        if (includeChat && this.config.capabilityProbe) state.capabilityProbed = true;
 
         return;
       } else if (response.status === 429) {
@@ -625,7 +663,7 @@ export class CredentialPool {
       const response = await fetch(url, {
         method: 'POST',
         redirect: 'error',
-        signal: AbortSignal.timeout(this.config.probeTimeoutMs),
+        signal: AbortSignal.timeout(this.config.capabilityProbeTimeoutMs),
         headers: { Authorization: `Bearer ${endpoint.apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ model: endpoint.model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 16, stream: false })
       });
@@ -647,6 +685,8 @@ export class CredentialPool {
         state.cooldownUntil = 0;
         state.disabled = false;
         state.disabledUntil = 0;
+        state.verified.add('chat');
+        state.verified.add('replyGate');
       } else if (response.status === 401 || response.status === 402 || response.status === 403) {
         this.disableEndpoint(state);
       } else if (response.status === 429) {
@@ -674,9 +714,169 @@ export class CredentialPool {
     }
   }
 
+  private async probeVision(state: EndpointState): Promise<void> {
+    const endpoint = state.endpoint;
+    const image =
+      'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC';
+
+    try {
+      const response = await fetch(`${endpoint.baseUrl.replace(/\/+$/u, '')}/chat/completions`, {
+        method: 'POST',
+        redirect: 'error',
+        signal: AbortSignal.timeout(this.config.capabilityProbeTimeoutMs),
+        headers: { Authorization: `Bearer ${endpoint.apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          model: endpoint.model,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: '这张纯色图片是什么颜色？只回答一个词。' },
+                { type: 'image_url', image_url: { url: `data:image/png;base64,${image}` } }
+              ]
+            }
+          ],
+          max_tokens: 256,
+          stream: false
+        })
+      });
+      let detail = '';
+      let content = '';
+
+      if (response.ok) {
+        const payload = (await response.json()) as { choices?: Array<{ message?: { content?: unknown } }> };
+        const value = payload.choices?.[0]?.message?.content;
+
+        content = typeof value === 'string' ? value : '';
+      } else {
+        try {
+          const payload = (await response.json()) as { error?: { message?: unknown }; message?: unknown };
+
+          detail = String(payload.error?.message || payload.message || '').slice(0, 300);
+        } catch {
+          // Best-effort provider diagnostics.
+        }
+      }
+      if (response.ok && content.trim()) state.verified.add('vision');
+      else if (response.status === 400 && /image|vision|multimodal|unsupported|图片/iu.test(detail)) state.rejected.add('vision');
+      else if (response.status === 429) {
+        state.cooldownUntil = Math.max(state.cooldownUntil, this.now() + this.config.cooldownSeconds * 1000);
+      }
+      if (!response.ok || !content.trim())
+        logger.warn(
+          { endpoint: endpoint.id, model: endpoint.model, status: response.status, vision: content ? 'verified' : 'unknown', detail },
+          'Startup vision capability probe'
+        );
+    } catch (error) {
+      logger.warn(
+        { endpoint: state.endpoint.id, model: state.endpoint.model, detail: error instanceof Error ? error.message : String(error) },
+        'Startup vision capability probe inconclusive'
+      );
+    }
+  }
+
+  private async probeTools(state: EndpointState): Promise<void> {
+    const endpoint = state.endpoint;
+
+    try {
+      const response = await fetch(`${endpoint.baseUrl.replace(/\/+$/u, '')}/chat/completions`, {
+        method: 'POST',
+        redirect: 'error',
+        signal: AbortSignal.timeout(this.config.capabilityProbeTimeoutMs),
+        headers: { Authorization: `Bearer ${endpoint.apiKey}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          model: endpoint.model,
+          messages: [{ role: 'user', content: '请调用 probe_value 工具获取测试值，不要直接回答。' }],
+          tools: [
+            {
+              type: 'function',
+              function: { name: 'probe_value', description: '返回一个测试值', parameters: { type: 'object', properties: {}, additionalProperties: false } }
+            }
+          ],
+          tool_choice: 'auto',
+          max_tokens: 128,
+          stream: false
+        })
+      });
+      let detail = '';
+      let calls = 0;
+
+      if (response.ok) {
+        const payload = (await response.json()) as { choices?: Array<{ message?: { tool_calls?: unknown[] } }> };
+
+        calls = payload.choices?.[0]?.message?.tool_calls?.length || 0;
+      } else {
+        try {
+          const payload = (await response.json()) as { error?: { message?: unknown }; message?: unknown };
+
+          detail = String(payload.error?.message || payload.message || '').slice(0, 300);
+        } catch {
+          // Best-effort provider diagnostics.
+        }
+      }
+      if (response.ok && calls > 0) state.verified.add('tools');
+      else if (response.status === 400 && /tool|function|function_call|工具/iu.test(detail)) state.rejected.add('tools');
+      else if (response.status === 429) {
+        state.cooldownUntil = Math.max(state.cooldownUntil, this.now() + this.config.cooldownSeconds * 1000);
+      }
+      if (!response.ok || calls === 0)
+        logger.warn(
+          { endpoint: endpoint.id, model: endpoint.model, status: response.status, tools: calls > 0 ? 'verified' : 'unknown', detail },
+          'Startup tool capability probe'
+        );
+    } catch {
+      // A tool probe failure is inconclusive; keep configured tools.
+    }
+  }
+
   /** Manual health check; useful for tests and admin actions. */
   async probeNow(includeChat = false): Promise<void> {
     await this.probeAll(includeChat);
+  }
+
+  /**
+   * Manual endpoint switch for this process. The configured enabled flag is
+   * unchanged, so a restart returns to the configuration file.
+   */
+  setEndpointEnabled(id: string, enabled: boolean): boolean {
+    const state = this.states.find(item => item.endpoint.id === id);
+
+    if (!state) return false;
+    if (enabled) {
+      state.disabled = false;
+      state.disabledUntil = 0;
+      state.cooldownUntil = 0;
+      state.failures = 0;
+      state.healthy = undefined;
+    } else {
+      state.disabled = true;
+      state.disabledUntil = Number.POSITIVE_INFINITY;
+      state.healthy = false;
+      for (const [key, binding] of this.bindings) {
+        if (binding.endpointId === state.endpoint.id) this.bindings.delete(key);
+      }
+    }
+    this.schedulePersist();
+
+    return true;
+  }
+
+  /** Probe one endpoint; includeChat also runs the paid chat probe. */
+  async probeEndpoint(id: string, includeChat = false): Promise<boolean> {
+    const state = this.states.find(item => item.endpoint.id === id);
+
+    if (!state) return false;
+    const wasDisabled = state.disabled;
+    const disabledUntil = state.disabledUntil;
+
+    await this.probe(state, includeChat);
+    // Testing a manually stopped endpoint must not silently put it back in rotation.
+    if (wasDisabled) {
+      state.disabled = true;
+      state.disabledUntil = disabledUntil;
+    }
+
+    return true;
   }
 
   select(options: PoolSelectionOptions = {}): DSHCredentials | null {

@@ -6,6 +6,7 @@ import { imageMime } from './download';
 import { imageInfo, type ImageInfo } from './image-info';
 
 export type StickerSource = 'manual' | 'auto' | 'forge' | 'import' | 'legacy';
+export type StickerKind = 'sticker' | 'avatar';
 export type Sticker = {
   id: string;
   file: string;
@@ -20,6 +21,10 @@ export type Sticker = {
   bytes?: number;
   confidence?: number;
   emojiId?: string;
+  kind?: StickerKind;
+  category?: string;
+  sourceUrl?: string;
+  license?: string;
 };
 export type StickerCollectMeta = {
   name?: string;
@@ -28,6 +33,10 @@ export type StickerCollectMeta = {
   addedAt?: number;
   width?: number;
   height?: number;
+  kind?: StickerKind;
+  category?: string;
+  sourceUrl?: string;
+  license?: string;
 };
 const SOURCES: StickerSource[] = ['manual', 'auto', 'forge', 'import', 'legacy'];
 const MANIFEST_MAX = 256 * 1024;
@@ -89,7 +98,18 @@ const validItem = (item: unknown): item is Sticker => {
     optionalInteger(row.height, 1, 8192) &&
     optionalInteger(row.bytes, 1, 25 * 1024 * 1024) &&
     (row.confidence === undefined || (typeof row.confidence === 'number' && Number.isFinite(row.confidence) && row.confidence >= 0 && row.confidence <= 1)) &&
-    (row.emojiId === undefined || (typeof row.emojiId === 'string' && /^[A-Za-z0-9_-]{1,64}$/u.test(row.emojiId)))
+    (row.emojiId === undefined || (typeof row.emojiId === 'string' && /^[A-Za-z0-9_-]{1,64}$/u.test(row.emojiId))) &&
+    (row.kind === undefined || row.kind === 'sticker' || row.kind === 'avatar') &&
+    (row.category === undefined ||
+      (typeof row.category === 'string' &&
+        row.category.trim() === row.category &&
+        row.category.length > 0 &&
+        row.category.length <= 20 &&
+        !hasControl(row.category))) &&
+    (row.sourceUrl === undefined ||
+      (typeof row.sourceUrl === 'string' && row.sourceUrl.length <= 2048 && /^https:\/\//u.test(row.sourceUrl) && !hasControl(row.sourceUrl))) &&
+    (row.license === undefined ||
+      (typeof row.license === 'string' && row.license.length <= 80 && row.license.trim() === row.license && !hasControl(row.license)))
   );
 };
 
@@ -117,7 +137,7 @@ export const ensureStickerRoot = async (config: MediaConfig): Promise<void> => {
   }
 };
 
-export const listStickers = async (config: MediaConfig): Promise<Sticker[]> => {
+export const listAssets = async (config: MediaConfig): Promise<Sticker[]> => {
   if (!config.stickerRoot) {
     throw new MediaUnavailableError();
   }
@@ -138,6 +158,7 @@ export const listStickers = async (config: MediaConfig): Promise<Sticker[]> => {
 
   return data;
 };
+export const listStickers = async (config: MediaConfig): Promise<Sticker[]> => (await listAssets(config)).filter(item => item.kind !== 'avatar');
 export const readStickerPath = async (config: MediaConfig, source: string, maxBytes: number): Promise<Buffer> => {
   if (!config.stickerRoot) throw new MediaError('尚未配置表情素材目录。');
   const root = await realpath(config.stickerRoot);
@@ -191,6 +212,22 @@ const normalizeMeta = (meta: StickerCollectMeta, info: ImageInfo | undefined, by
   const addedAt = meta.addedAt ?? Date.now();
 
   if (!Number.isSafeInteger(addedAt) || addedAt < 0) throw new MediaError('表情入库时间无效。');
+  const kind = meta.kind ?? 'sticker';
+
+  if (kind !== 'sticker' && kind !== 'avatar') throw new MediaError('图片类型无效。');
+  const category = typeof meta.category === 'string' ? meta.category.replace(/\s+/gu, ' ').trim() : undefined;
+
+  if (category !== undefined && (!category || Array.from(category).length > 20 || hasControl(category))) {
+    throw new MediaError('图片分类无效。');
+  }
+  const sourceUrl = typeof meta.sourceUrl === 'string' ? meta.sourceUrl.trim() : undefined;
+
+  if (sourceUrl !== undefined && (!/^https:\/\//u.test(sourceUrl) || sourceUrl.length > 2048 || hasControl(sourceUrl))) {
+    throw new MediaError('图片来源地址无效。');
+  }
+  const license = typeof meta.license === 'string' ? meta.license.trim() : undefined;
+
+  if (license !== undefined && (!license || license.length > 80 || hasControl(license))) throw new MediaError('图片许可信息无效。');
   const width = info?.width ?? meta.width;
   const height = info?.height ?? meta.height;
 
@@ -206,6 +243,10 @@ const normalizeMeta = (meta: StickerCollectMeta, info: ImageInfo | undefined, by
     from,
     addedAt,
     ...(confidence !== undefined ? { confidence } : {}),
+    kind,
+    ...(category ? { category } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
+    ...(license ? { license } : {}),
     ...(width !== undefined && height !== undefined ? { width, height } : {}),
     bytes
   };
@@ -237,7 +278,7 @@ const mutate = async <T>(
 
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MANIFEST_MAX) throw new MediaError('表情清单必须是素材目录内不超过 256 KiB 的普通文件。');
     const before = await readFile(manifest);
-    const items = await listStickers({ ...config, stickerRoot: root });
+    const items = await listAssets({ ...config, stickerRoot: root });
     const result = await change(items, root);
     const encoded = Buffer.from(`${JSON.stringify(result.items, null, 2)}\n`);
 
@@ -298,7 +339,7 @@ const removeStoredFile = async (config: MediaConfig, file: string): Promise<void
     let current: Sticker[];
 
     try {
-      current = await listStickers({ ...config, stickerRoot: root });
+      current = await listAssets({ ...config, stickerRoot: root });
     } catch {
       return;
     }
@@ -335,7 +376,14 @@ export const collectSticker = async (
       const previous = await loadSticker(existing, { ...config, stickerRoot: root });
 
       if (!previous.equals(data)) throw new MediaError('表情编号冲突，请检查素材清单。');
-      const merged: Sticker = { ...existing, tags: mergeTags(existing.tags, tags), ...(existing.name || !record.name ? {} : { name: record.name }) };
+      const merged: Sticker = {
+        ...existing,
+        tags: mergeTags(existing.tags, tags),
+        ...(existing.name || !record.name ? {} : { name: record.name }),
+        ...(existing.category || !record.category ? {} : { category: record.category }),
+        ...(existing.sourceUrl || !record.sourceUrl ? {} : { sourceUrl: record.sourceUrl }),
+        ...(existing.license || !record.license ? {} : { license: record.license })
+      };
 
       return {
         items: items.map(item => (item.id === id ? merged : item)),

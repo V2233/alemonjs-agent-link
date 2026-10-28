@@ -26,6 +26,15 @@ const stateText = (item: ModelPoolStatus, now: number): string => {
   return '正常';
 };
 
+export type PoolRow = {
+  number: number;
+  id: string;
+  provider: string;
+  model: string;
+  disabled: boolean;
+  detail: string;
+};
+
 export type PoolPageView = {
   page: number;
   pages: number;
@@ -48,6 +57,7 @@ export type PoolPageView = {
   personalSandboxRequests: number;
   personalSandboxTokens: number;
   needsRefill: boolean;
+  rows: PoolRow[];
   text: string;
 };
 
@@ -105,12 +115,13 @@ export const poolPageView = (
     ''
   ];
   const start = (page - 1) * POOL_PAGE_SIZE;
-  const rows = items.slice(start, start + POOL_PAGE_SIZE);
+  const visible = items.slice(start, start + POOL_PAGE_SIZE);
+  const rows: PoolRow[] = [];
 
-  if (rows.length === 0) {
+  if (visible.length === 0) {
     lines.push('没有端点。');
   } else {
-    for (const [offset, item] of rows.entries()) {
+    for (const [offset, item] of visible.entries()) {
       const number = start + offset + 1;
       const state = stateText(item, now);
       const detail = [
@@ -118,6 +129,7 @@ export const poolPageView = (
         `在途 ${item.active}/${item.maxConcurrent}`,
         `绑定 ${item.bound}`,
         `近期 ${item.recent}`,
+        item.capabilityProbed ? `验证 ${item.verified.length ? item.verified.join('/') : '无'}` : '未验证',
         `今日 ${item.dailyRequests} 次 / ${item.dailyTokens} tok`,
         bridge?.endpoints[item.id]
           ? `沙箱 ${bridge.endpoints[item.id].requests} 次 / ${bridge.endpoints[item.id].input + bridge.endpoints[item.id].output} tok`
@@ -134,6 +146,7 @@ export const poolPageView = (
       ].filter(Boolean);
 
       lines.push(`${number}. ${item.id} · ${item.provider} · ${item.model}`, `   ${detail.join(' · ')}`);
+      rows.push({ number, id: item.id, provider: item.provider, model: item.model, disabled: item.disabled, detail: detail.join(' · ') });
     }
   }
 
@@ -155,6 +168,7 @@ export const poolPageView = (
     usedCount: usedByAccount.size,
     lowBalance,
     needsRefill,
+    rows,
     text: lines.join('\n')
   };
 };

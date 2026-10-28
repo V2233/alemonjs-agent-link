@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { bindPersonalKey, claimPersonalKeyCommand, personalKeyStatus, updatePersonalKey } from '../../credentials/personal';
 import { getConversationId } from '../dsh/util';
@@ -40,8 +40,36 @@ export default async (): Promise<void> => {
         text = changed ? `个人 Key 已${args[0]}。${args[0] === '启用' ? '下一次请求会检查余额并优先使用。' : '后续请求使用额度模式。'}` : '尚未绑定个人 Key。';
       } else if (!args.length || (args.length === 1 && args[0] === '状态')) {
         const status = await personalKeyStatus(scope);
+        const state = !status.bound ? '未绑定' : status.enabled ? '已启用，私聊优先使用' : status.reason === 'balance' ? '余额不足，已自动停用' : '已停用';
+        const sections = [
+          {
+            title: '状态',
+            text: state,
+            actions: status.bound
+              ? [
+                  status.enabled ? { label: '停用', command: '/个人密钥 停用' } : { label: '启用', command: '/个人密钥 启用' },
+                  { label: '移除', command: '/个人密钥 移除' }
+                ]
+              : [{ label: '绑定说明', command: '/个人密钥 绑定' }]
+          },
+          { title: '用途', text: '仅本人私聊；启用后优先使用 Key，不扣内部额度。' },
+          {
+            title: '下一步',
+            text: !status.bound
+              ? '私聊发送 /个人密钥 绑定 sk-你的Key。'
+              : status.enabled
+                ? '充值后如欠费停用，再发送 /个人密钥 启用。'
+                : status.reason === 'balance'
+                  ? '充值后发送 /个人密钥 启用。'
+                  : '可重新启用或移除。',
+            actions: [{ label: '额度', command: '/额度' }]
+          },
+          { title: '更多', text: '', actions: [{ label: '刷新', command: '/个人密钥 状态' }] }
+        ];
 
-        text = `个人密钥：${!status.bound ? '未绑定' : status.enabled ? '已启用，私聊优先使用' : status.reason === 'balance' ? '余额不足，充值后请发送 /个人密钥 启用' : '已停用'}。\n\n${personalKeyGuide}\n\n暂停使用：/个人密钥 停用\n删除绑定：/个人密钥 移除`;
+        await message.send({ format: sectionBubble('个人密钥', '仅本人私聊。', sections, { platform: event.Platform, layout: 'inline' }) });
+
+        return;
       } else text = personalKeyGuide;
     } catch {
       // Never echo raw arguments, provider errors, or storage exceptions.

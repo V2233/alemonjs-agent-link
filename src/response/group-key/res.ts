@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble } from '../bubble';
 import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { groupKeyStatus, issueGroupKeyCode, redeemGroupKeyCode, type GroupKeyAction } from '../../credentials/group';
@@ -29,13 +29,45 @@ export default async (): Promise<void> => {
       if (args.length === 0 || (args.length === 1 && args[0] === '状态')) {
         const status = await groupKeyStatus({ platform: event.Platform || '', channelId: event.ChannelId || '' });
         const elevated = status.enabled && getGroupChatPolicy(getDSHConfig().groupChat, event.ChannelId || '').boundKeyElevation !== false;
-        const rights = !status.bound
-          ? ''
-          : elevated
-            ? '\n\n自带 Key 权益：参与强度已拉满（不经过感知判断、冷却 0 秒、每小时最多 60 次），网页与文件工具自动开放；终端始终禁止，夜间静默仍按 groupChat 配置。'
-            : '\n\n自带 Key 权益：本群已按配置关闭（boundKeyElevation: false），按普通群策略运行。';
+        const state = !status.bound ? '未绑定' : status.enabled ? '已启用' : status.reason === 'balance' ? '余额不足，已自动停用' : '已停用';
+        const sections = [
+          {
+            title: '状态',
+            text: state,
+            actions: status.bound
+              ? [
+                  status.enabled ? { label: '停用', command: '/群密钥 停用' } : { label: '启用', command: '/群密钥 启用' },
+                  { label: '移除', command: '/群密钥 移除' }
+                ]
+              : [{ label: '申请绑定', command: '/群密钥 绑定' }]
+          },
+          ...(status.bound
+            ? [
+                {
+                  title: '权益',
+                  text: elevated
+                    ? '参与强度拉满：不经感知判断、冷却 0 秒、每小时最多 60 次；网页与文件自动开放；终端禁止，夜间静默按配置。'
+                    : '已按配置关闭 boundKeyElevation，按普通群策略运行。'
+                }
+              ]
+            : []),
+          {
+            title: '下一步',
+            text: !status.bound
+              ? '群主或管理员申请临时码后，由申请人私聊提交 Key。'
+              : status.enabled
+                ? '充值后如自动停用，在群里申请新的启用码。'
+                : status.reason === 'balance'
+                  ? '充值后在群里申请新的启用码。'
+                  : '可重新启用或移除。',
+            actions: [{ label: '额度教程', command: '/帮助 额度' }]
+          },
+          { title: '更多', text: '', actions: [{ label: '刷新', command: '/群密钥 状态' }] }
+        ];
 
-        text = `本群密钥：${!status.bound ? '未绑定' : status.enabled ? '已启用' : status.reason === 'balance' ? '余额不足，已自动停用' : '已停用'}。${rights}\n\n${groupKeyGuide}\n\n已有密钥充值后，在群里发送 /群密钥 启用 申请新的临时码，再按提示私聊确认。\n停用或移除时，在群里发送 /群密钥 停用 或 /群密钥 移除。`;
+        await message.send({ format: sectionBubble('群密钥', '本群自带 Key 状态。', sections, { platform: event.Platform, layout: 'inline' }) });
+
+        return;
       } else {
         const action = actions[args[0]];
 

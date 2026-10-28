@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
 import { personaModes, type PersonaMode } from '../../companion/persona-modes';
@@ -95,23 +95,29 @@ export default async (): Promise<void> => {
       return;
     }
     if (!args || args === '列表') {
-      const selected = store.selected(scope) || config.modules?.settings?.persona?.defaultId || '配置默认';
+      const selected = store.selected(scope) || config.modules?.settings?.persona?.defaultId || config.persona || '配置默认';
       const rows = await store.list();
 
       const canSwitch = event.IsPrivate || canReset(event);
+      const visible = rows.slice(0, 12);
+      const sections = visible.map(row => ({
+        title: `${row.name}（${row.id}）${row.id === selected ? ' · 当前' : ''}`,
+        text: row.error ? '文件无效' : '',
+        actions: canSwitch && !row.error ? [{ label: '使用', command: `/人格 使用 ${row.id}` }] : []
+      }));
+      const more = [...(canSwitch ? [{ label: '恢复默认', command: '/人格 使用 默认' }] : []), { label: '人格帮助', command: '/人格 帮助' }];
 
-      await reply(
-        `当前人格：${selected}\n表达程度：${store.expressionMode(scope)}\n\n可选人格\n${rows.map(row => `${row.id}：${row.name}${row.error ? '（文件无效）' : ''}`).join('\n')}\n\n点按钮或发 /人格 使用 编号 切换，会换话题；群内需管理员或主人。更多设置见 /人格 帮助。`,
-        [
-          ...(canSwitch
-            ? rows
-                .filter(row => !row.error)
-                .slice(0, 8)
-                .map(row => ({ label: `使用 ${row.name}`, command: `/人格 使用 ${row.id}`, short: row.name }))
-            : []),
-          ...(canSwitch ? [{ label: '恢复默认', command: '/人格 使用 默认' }] : []),
-          { label: '人格帮助', command: '/人格 帮助' }
-        ]
+      if (more.length > 0) sections.push({ title: '更多', text: '', actions: more });
+      if (rows.length > visible.length) sections.push({ title: `还有 ${rows.length - visible.length} 个人格`, text: '用 /人格 使用 编号 切换。', actions: [] });
+      assertMessageDelivered(
+        await message.send({
+          format: sectionBubble(
+            '人格与交流方式',
+            `表达程度：${store.expressionMode(scope)}。点按钮会开始新话题；群内需管理员或主人。更多设置见 /人格 帮助。`,
+            sections,
+            { platform: event.Platform }
+          )
+        })
       );
 
       return;

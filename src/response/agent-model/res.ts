@@ -29,24 +29,26 @@ export default async (): Promise<void> => {
 
   const config = getDSHConfig();
   const pool = getCredentialPool(config);
+  const poolRows = pool
+    ? pool.status.map(item => {
+        const state = item.disabled ? '停用' : item.cooldownUntil > Date.now() ? '冷却' : item.healthy === false ? '异常' : item.fallback ? '备用' : '正常';
+
+        return `| ${item.id} | ${state} | ${item.active} |`;
+      })
+    : [];
   const poolText = pool
-    ? `\n端点池：${pool.status
-        .map(
-          item =>
-            `${item.id}${item.disabled ? '（停用）' : item.cooldownUntil > Date.now() ? '（冷却）' : item.healthy === false ? '（探测异常）' : item.fallback ? '（备用）' : item.active ? `（${item.active} 在途）` : ''}`
-        )
-        .join('、')}`
-    : '';
+    ? poolRows.length
+      ? ['| 端点 | 状态 | 在途 |', '| --- | --- | --- |', ...poolRows].join('\n')
+      : '端点池为空。'
+    : '未配置 modelPool，当前使用单 Key。';
 
   await message.send({
     format: commandBubble(
-      requestedModel
-        ? `请将配置中的 alemonjs-agent-link.model 改为 ${requestedModel}，保存即生效。`
-        : `当前模型：${config.model}${poolText}\n查看模型池：/模型池
-查看可用列表：/模型列表`,
+      requestedModel ? `请将配置中的 alemonjs-agent-link.model 改为 ${requestedModel}，保存即生效。` : `当前模型：${config.model}\n\n${poolText}`,
       '当前模型',
       {
         platform: event.Platform,
+        layout: 'inline',
         actions: [
           { label: '模型列表', command: '/模型列表' },
           { label: '模型池', command: '/模型池' },

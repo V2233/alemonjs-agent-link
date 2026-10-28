@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble, type BubbleSection } from '../bubble';
 import { aiDisabledMessage } from '../../dsh/ai-switch';
 import { budgetEnabled } from '../../billing/budget';
 import { getMediaConfig } from '@src/media/config';
@@ -30,7 +30,8 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
   const [route] = useRoute();
   const event = eventContext.current;
-  let text: string;
+  let text = '';
+  let sections: BubbleSection[] | undefined;
   let showBudget = false;
 
   try {
@@ -78,23 +79,55 @@ export default async (): Promise<void> => {
           transport = `OneBot / ${result.data.state}`;
         }
       }
-      text = [
-        '服务状态',
-        config.aiEnabled === false
-          ? `AI 已关闭：${aiDisabledMessage(config)}`
-          : `服务：${!credentials ? '未配置模型密钥。' : !storeReady ? '会话存储不可用。' : serviceMessage}`,
-        `模型：${credentials?.model || config.model}；密钥${credentials ? '已配置' : '未配置'}`,
-        mediaStatus,
-        `聊天记录：${archiveStatus}`,
-        `每日额度：${budgetEnabled(config) ? '已开启，/额度 查看' : '未设置'}`,
-        ...(route.matched && route.rawArgs.map(String).includes('详情')
+      const detail = route.matched && route.rawArgs.map(String).includes('详情');
+
+      sections = [
+        {
+          title: '服务',
+          text:
+            config.aiEnabled === false
+              ? `AI 已关闭：${aiDisabledMessage(config)}`
+              : !credentials
+                ? '未配置模型密钥。'
+                : !storeReady
+                  ? '会话存储不可用。'
+                  : serviceMessage,
+          actions: [{ label: '刷新', command: '/状态' }]
+        },
+        {
+          title: '模型',
+          text: `${credentials?.model || config.model}；密钥${credentials ? '已配置' : '未配置'}`,
+          actions: credentials ? [{ label: '模型列表', command: '/模型列表' }] : [{ label: '密钥配置', command: '/密钥配置' }]
+        },
+        { title: '媒体', text: mediaStatus, actions: [{ label: '媒体帮助', command: '/帮助 媒体' }] },
+        { title: '聊天记录', text: archiveStatus },
+        {
+          title: '每日额度',
+          text: budgetEnabled(config) ? '已开启' : '未设置',
+          actions: budgetEnabled(config) ? [{ label: '查看额度', command: '/额度' }] : []
+        },
+        ...(detail
           ? [
-              `平台：${transport}`,
-              `本群权限：${policy ? `聊天${policy.chat ? '开' : '关'}、网页${policy.web ? '开' : '关'}、文件${policy.files ? '开' : '关'}` : '请在目标群使用 /工具策略 查看'}`,
-              '媒体配置不代表服务已验证；终端禁止。'
+              { title: '平台', text: `平台：${transport}` },
+              {
+                title: '本群权限',
+                text: policy
+                  ? `聊天${policy.chat ? '开' : '关'}、网页${policy.web ? '开' : '关'}、文件${policy.files ? '开' : '关'}`
+                  : '请在目标群使用 /工具策略 查看'
+              },
+              { title: '边界', text: '媒体配置未实机验证；终端禁止。' }
             ]
-          : ['/状态 详情：平台与权限'])
-      ].join('\n');
+          : [
+              {
+                title: '更多',
+                text: '',
+                actions: [
+                  { label: '详情', command: '/状态 详情' },
+                  { label: '帮助', command: '/帮助' }
+                ]
+              }
+            ])
+      ];
     } else {
       text =
         config.aiEnabled === false
@@ -119,16 +152,16 @@ export default async (): Promise<void> => {
     text = '服务暂时不可用，请稍后再试。';
   }
 
+  if (sections) {
+    await message.send({ format: sectionBubble('服务状态', '', sections, { platform: event.Platform, layout: 'inline' }) });
+
+    return;
+  }
   await message.send({
     format: commandBubble(text, '服务状态', {
       platform: event.Platform,
       layout: 'keyboard',
-      actions: [
-        { label: '重新查看', command: '/状态' },
-        ...(event.IsPrivate && event.IsMaster ? [{ label: '状态详情', command: '/状态 详情' }] : []),
-        ...(showBudget ? [{ label: '今日额度', command: '/额度' }] : []),
-        { label: '帮助', command: '/帮助' }
-      ]
+      actions: [{ label: '重新查看', command: '/状态' }, ...(showBudget ? [{ label: '今日额度', command: '/额度' }] : []), { label: '帮助', command: '/帮助' }]
     })
   });
 };

@@ -421,6 +421,8 @@ test('vision assessment validates JSON, sanitizes tags and skips GIF', async () 
     assert.deepEqual(await assessSticker(png, media, new AbortController().signal), {
       sticker: true,
       suitable: true,
+      kind: 'sticker',
+      category: '未分类',
       name: '猫猫',
       tags: ['开心', '晚安'],
       confidence: 0.8
@@ -428,6 +430,8 @@ test('vision assessment validates JSON, sanitizes tags and skips GIF', async () 
     assert.deepEqual(await assessSticker(Buffer.from('GIF89a'), media, new AbortController().signal), {
       sticker: false,
       suitable: false,
+      kind: 'other',
+      category: '',
       name: '',
       tags: [],
       confidence: 0
@@ -436,6 +440,8 @@ test('vision assessment validates JSON, sanitizes tags and skips GIF', async () 
     assert.deepEqual(await assessSticker(png, getMediaConfig({}), new AbortController().signal), {
       sticker: false,
       suitable: false,
+      kind: 'other',
+      category: '',
       name: '',
       tags: [],
       confidence: 0

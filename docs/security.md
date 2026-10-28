@@ -78,3 +78,7 @@ Linux Worker 为了访问本机 Bridge 的回环代理而保留网络命名空�
 ## 私聊个人 Key
 
 个人 DeepSeek Key 与共享机器人凭证分开：Redis 只保存 AES-256-GCM 密文和启停状态，加密主密钥保存于本机 `.data/agent-link/personal-key.key`（新文件权限 0600），迁移需同时备份两者。管理指令仅限本人私聊，应用归档和引用屏蔽其内容，不会更改全局机器人凭证。工作区仅通过当次受认证的本机 Bridge 内存使用 Key，不写入 Worker 环境或文件。详见 [个人 Key 管理](personal-key.md)。
+
+---
+
+[← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)

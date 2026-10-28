@@ -76,3 +76,7 @@ alemonjs-agent-link:
 选择和追加设定在 `personas.sqlite`，心情在 `moods.sqlite`，均位于 `workspaceRoot` 同级。心情随 `retentionDays` 清理。会话彻底清理删除该会话的选择、心情及历史，保留全局人格文件和主人追加设定。`/new` 不删除这些长期状态。
 
 测试覆盖本地文件与 SQLite、会话重置和取消、模型实际请求内容、迟到判断、媒体失败回退、静默不发送及无媒体时的 QQ 原生流式路径。模型及平台响应使用模拟服务与回执；真人多轮表现、真实 TTS 音质与 QQ 收发仍需实际账号验收。
+
+---
+
+[← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)

@@ -8,16 +8,16 @@ const { createMarkdownText } = await import(new URL('./format.js', import.meta.r
 const { GROUP_AT_MESSAGE_CREATE, C2C_MESSAGE_CREATE } = await import(new URL('./sends.js', import.meta.resolve('@alemonjs/qq-bot')));
 const { runtimeScope } = await import(new URL('./common/runtime-scope.js', import.meta.resolve('alemonjs')));
 
-test('help index is a keyboard-only topic chooser, never inline duplicates', () => {
+test('help index uses one inline button per topic without a keyboard bar', () => {
   const format = helpFormat(false, false);
   const rendered = createMarkdownText(format.value[0].value, 'group');
-  assert.doesNotMatch(rendered, /qqbot-cmd-input/);
+  assert.deepEqual(commandsOf(format), []);
+  for (const topic of ['聊天', '记忆', '人格', '媒体', '额度', '数据']) {
+    assert.match(rendered, new RegExp(`qqbot-cmd-input text="/帮助 ${topic}"`));
+  }
+  assert.doesNotMatch(rendered, /\/帮助 管理/);
   assert.doesNotMatch(rendered, /qqbot-cmd-enter/);
   assert.ok(rendered.length < 3500);
-  const commands = commandsOf(format);
-  assert.ok(commands.includes('/帮助 聊天'));
-  assert.ok(commands.includes('/帮助 记忆'));
-  assert.ok(!commands.includes('/帮助 管理'));
   const plain = helpFormat(true, true, '', 'onebot').value;
   assert.equal(plain[0].type, 'Text');
   assert.match(plain[0].value, /\/帮助 管理/);
@@ -54,47 +54,23 @@ test('real QQ group and private adapters send the help card as Markdown', async 
   for (const body of sent) {
     assert.equal(body.msg_type, 2);
     assert.match(body.markdown.content, /大肥鱼/);
-    assert.doesNotMatch(body.markdown.content, /qqbot-cmd-input/);
-    const rows = body.keyboard?.content?.rows ?? [];
-
-    assert.ok(rows.length > 0 && rows.length <= 5, 'the adapter receives a compact keyboard group');
-    assert.deepEqual(body.keyboard.content.style, { font_size: 'small' });
-    for (const row of rows) {
-      assert.ok(row.buttons.length <= 5);
-      for (const button of row.buttons) {
-        assert.equal(button.action.type, 2);
-        assert.equal(button.action.enter, false);
-        assert.match(button.action.data, /^\//);
-        assert.ok(Array.from(button.render_data.label).length <= 4, `keyboard label stays within 1-4 characters: ${button.render_data.label}`);
-      }
-    }
+    assert.match(body.markdown.content, /qqbot-cmd-input/);
+    assert.ok(!body.keyboard, 'help has no keyboard bar');
   }
 });
 
 const keyboardOf = format => format.value.find(item => item.type === 'BT.group')?.value ?? [];
 const commandsOf = format => keyboardOf(format).flatMap(row => row.value.map(button => button.options?.data));
 
-test('help chooser is one compact keyboard, not a second inline toolbar', () => {
+test('help chooser stays inline and never creates a keyboard group', () => {
   const format = helpFormat(false, false);
-  const group = keyboardOf(format);
+  const rendered = createMarkdownText(format.value[0].value, 'group');
 
-  assert.ok(group.length > 0 && group.length <= 5, 'keyboard rows stay inside the client limit');
-  for (const row of group) {
-    assert.ok(row.value.length > 0 && row.value.length <= 5, 'buttons per row stay inside the client limit');
-    for (const button of row.value) {
-      const chars = Array.from(button.value);
-
-      assert.ok(chars.length >= 1 && chars.length <= 4, `keyboard labels stay within 1-4 characters, got: ${button.value}`);
-      assert.doesNotMatch(button.value, /…/u, 'keyboard labels are never truncated mid-word');
-      assert.match(button.options.data, /^\//, 'keyboard buttons only fill commands');
-      assert.equal(button.options.type, 'command');
-      assert.equal(button.options.autoEnter, false, 'keyboard buttons never auto-submit');
-    }
+  assert.deepEqual(keyboardOf(format), []);
+  for (const topic of ['聊天', '记忆', '人格', '媒体', '额度', '数据']) {
+    assert.match(rendered, new RegExp(`qqbot-cmd-input text="/帮助 ${topic}"`));
   }
-  assert.doesNotMatch(createMarkdownText(format.value[0].value, 'group'), /qqbot-cmd-input/);
-  const duplicate = commandsOf(format).filter((command, index, all) => all.indexOf(command) !== index);
-
-  assert.deepEqual(duplicate, [], 'keyboard commands are deduplicated');
+  assert.doesNotMatch(rendered, /\/帮助 管理/);
 });
 
 test('command cards use inline buttons for one step and keyboard buttons for a menu', () => {

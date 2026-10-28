@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
 import { canPrivateChatWithKey, canReset, getConversationId } from '../dsh/util';
@@ -85,15 +85,43 @@ export default async (): Promise<void> => {
           ? store.recall(scope, args, event.UserId, 10)
           : store.list(scope, { status: command === '/过时记忆' ? 'outdated' : 'active', limit: 10 });
 
-      await reply(
-        items.length
-          ? items
-              .map(
-                item =>
-                  `${item.id} [${item.subjectName || item.subjectId}] ${item.text.slice(0, 80)}${item.text.length > 80 ? '…' : ''}${item.origin === 'explicit' ? '（明确保存）' : '（自动）'}`
-              )
-              .join('\n') + '\n最多展示10条；/记忆来源 编号 查看详情。'
-          : '未找到相关记忆。'
+      if (!items.length) {
+        await reply('未找到相关记忆。');
+
+        return;
+      }
+      const sections = items.map(item => {
+        const actions = [{ label: '来源', command: `/记忆来源 ${item.id}` }];
+
+        if (command === '/过时记忆') actions.push({ label: '恢复', command: `/恢复记忆 ${item.id}` });
+        else if (event.IsPrivate) actions.push({ label: '忘记', command: `/忘记 ${item.id}` });
+        else if (canReset(event)) actions.push({ label: '忘记', command: `/忘记群记忆 ${item.id}` });
+
+        return {
+          title: `[${item.subjectName || item.subjectId}] ${item.origin === 'explicit' ? '明确保存' : '自动整理'}`,
+          text: `${item.text.slice(0, 60)}${item.text.length > 60 ? '…' : ''}`,
+          actions
+        };
+      });
+      const footer = [
+        ...(command === '/记忆检索' ? [{ label: '群记忆', command: '/群记忆' }] : []),
+        ...(command === '/过时记忆' ? [{ label: '当前记忆', command: '/群记忆' }] : [{ label: '过时记忆', command: '/过时记忆' }]),
+        { label: '帮助', command: '/帮助 记忆' }
+      ];
+
+      sections.push({ title: '更多', text: '', actions: footer });
+      assertMessageDelivered(
+        await message.send({
+          format: sectionBubble(
+            command === '/记忆检索' ? '记忆检索' : command === '/过时记忆' ? '过时记忆' : '群记忆',
+            '最多展示10条；点按钮只填入指令。',
+            sections,
+            {
+              platform: event.Platform,
+              layout: 'inline'
+            }
+          )
+        })
       );
 
       return;

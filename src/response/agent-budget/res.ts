@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble, type BubbleSection } from '../bubble';
 import { groupKeyStatus } from '../../credentials/group';
 import { personalKeyStatus } from '../../credentials/personal';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
@@ -6,7 +6,6 @@ import { budgetEnabled, budgetStatus, replyGateBudgetStatus, manageBudget, budge
 import { getDSHConfig, toUserMessage } from '../../dsh/client';
 import { getConversationId } from '../dsh/util';
 import { parseBudgetCommand, budgetHelp } from '../../billing/commands';
-import { insufficientBudgetHelp, groupKeyGuide } from '../../billing/help';
 
 const budgetActions = (event: { IsMaster?: boolean; IsPrivate?: boolean }): { label: string; command: string }[] => [
   { label: '重新查询', command: '/额度' },
@@ -24,6 +23,7 @@ export default async (): Promise<void> => {
   const [route] = useRoute();
   const config = getDSHConfig();
   let text = '当前未设置每日额度。';
+  let actions = budgetActions(event);
 
   if (budgetEnabled(config)) {
     try {
@@ -59,20 +59,32 @@ export default async (): Promise<void> => {
       if (command.action === 'history') {
         const rows = await budgetAdjustments(command.scope, Boolean(event.IsMaster));
 
-        await message.send({
-          format: commandBubble(
-            rows.length
-              ? rows
-                  .map(
-                    row =>
-                      `${new Date(row.at * 1000).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} 主人 ${row.actor}：${row.operation === 'add' ? '增加' : '设置'} ${(row.amount / 1_000_000).toFixed(2)} 元，${row.ledger === 'paidLimit' ? `${rechargeLabel}额度` : freeLabel} ${(row.before / 1_000_000).toFixed(2)} → ${(row.after / 1_000_000).toFixed(2)} 元`
-                  )
-                  .join('\n')
-              : '今天没有手动额度调整记录。',
-            '今日额度',
-            { platform: event.Platform, layout: 'keyboard', actions: budgetActions(event) }
-          )
+        if (!rows.length) {
+          await message.send({
+            format: commandBubble('今天没有手动额度调整记录。', '今日额度', {
+              platform: event.Platform,
+              layout: 'keyboard',
+              actions: budgetActions(event)
+            })
+          });
+
+          return;
+        }
+        const sections: BubbleSection[] = rows.map(row => ({
+          title: `${new Date(row.at * 1000).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })} · 主人 ${row.actor}`,
+          text: `${row.operation === 'add' ? '增加' : '设置'} ${(row.amount / 1_000_000).toFixed(2)} 元；${row.ledger === 'paidLimit' ? rechargeLabel : freeLabel} ${(row.before / 1_000_000).toFixed(2)} → ${(row.after / 1_000_000).toFixed(2)} 元`,
+          actions: []
+        }));
+
+        sections.push({
+          title: '更多',
+          text: '',
+          actions: [
+            { label: '刷新', command: '/额度' },
+            { label: '教程', command: '/帮助 额度' }
+          ]
         });
+        await message.send({ format: sectionBubble('额度记录', '最近 5 次手动调整。', sections, { platform: event.Platform, layout: 'inline' }) });
 
         return;
       }
@@ -83,33 +95,45 @@ export default async (): Promise<void> => {
           ? await personalKeyStatus({ ...command.scope, userId: event.UserId })
           : undefined;
       const groupKey = !command.scope.channelId.startsWith('private:') ? await groupKeyStatus(command.scope) : undefined;
-      const target = command.scope.channelId === getConversationId(event) ? (event.IsPrivate ? '本人私聊' : '本群') : command.scope.channelId;
+      const sameTarget = command.scope.channelId === getConversationId(event);
+      const target = sameTarget ? (event.IsPrivate ? '本人私聊' : '本群') : command.scope.channelId;
 
-      text = [
-        notice,
-        `${target} · ${value.day}`,
-        groupKey?.enabled ? '付费顺序：群 Key → 群充值 → 个人免费；感知判断另计。' : '',
-        personal ? `当前模式：${personal.enabled ? '个人 Key 优先（不扣额度）' : '额度模式'}；/个人密钥 查看。` : '',
-        gate ? `群感知：免费 ${gate.freeUsed.toFixed(4)} / ${gate.limit.toFixed(2)} 元` : '',
-        `${rechargeLabel}：${value.paidUsed.toFixed(4)} / ${value.paidLimit.toFixed(2)} 元`,
-        isPrivate || command.scope.channelId === getConversationId(event)
-          ? `个人额度：免费 ${value.personalUsed.toFixed(4)} / ${value.personalLimit.toFixed(2)} 元\n聊天本次可用：${value.available.toFixed(4)} 元`
-          : '',
-        '北京时间零点重置；群聊没有共享免费额度。',
-        value.blocked && !groupKey?.enabled && !personal?.enabled
-          ? `\n${insufficientBudgetHelp(isPrivate)}`
-          : gate?.blocked && !groupKey?.enabled
-            ? `\n后台感知预算不足，明确呼唤仍可使用。\n${groupKeyGuide}`
-            : '',
+      const keyName = groupKey ? '群密钥' : '个人密钥';
+      const keyCommand = groupKey ? '/群密钥 状态' : '/个人密钥';
+      const money = (amount: number): string => (amount > 0 && amount < 0.01 ? '<0.01' : amount.toFixed(2));
+      const table = [
+        '| 来源 | 已用 / 上限 | 可用 |',
+        '| --- | --- | --- |',
+        ...(gate ? [`| 群感知 | ${money(gate.freeUsed)} / ${money(gate.limit)} | ${money(gate.freeRemaining)} |`] : []),
+        `| ${rechargeLabel} | ${money(value.paidUsed)} / ${money(value.paidLimit)} | ${money(value.paidRemaining)} |`,
+        ...(isPrivate || sameTarget ? [`| 个人免费 | ${money(value.personalUsed)} / ${money(value.personalLimit)} | ${money(value.personalRemaining)} |`] : [])
+      ];
+
+      actions = [
+        { label: '刷新', command: '/额度' },
+        ...(event.IsMaster ? [{ label: '记录', command: '/额度 记录' }] : []),
+        ...(sameTarget ? [{ label: keyName, command: keyCommand }] : [])
+      ];
+      const intro = [notice.trim(), `${target} · ${value.day}`].filter(Boolean).join('\n');
+      const details = [
+        `本次可用：${money(value.available)} 元${gate?.blocked ? '（感知预算不足）' : value.blocked ? '（不足）' : ''}`,
+        groupKey?.enabled ? '群 Key 优先，不扣内部额度。' : personal?.enabled ? '个人 Key 优先，不扣额度。' : '',
         event.IsPrivate && event.IsMaster
-          ? `全局今日已用 ${value.globalUsed.toFixed(4)} 元${value.globalLimit > 0 ? ` / 上限 ${value.globalLimit.toFixed(2)} 元` : '（未设上限）'}。`
-          : ''
-      ]
-        .filter(Boolean)
-        .join('\n');
+          ? `全局今日已用 ${money(value.globalUsed)} 元${value.globalLimit > 0 ? ` / 上限 ${money(value.globalLimit)} 元` : '（未设上限）'}`
+          : '',
+        value.blocked && !groupKey?.enabled && !personal?.enabled
+          ? isPrivate
+            ? '额度不足：可绑定个人密钥或等北京时间零点重置。'
+            : '额度不足：可增加群充值或绑定群密钥，也可等北京时间零点重置。'
+          : '',
+        gate?.blocked && !groupKey?.enabled ? '感知不足：后台判断暂停，@我仍可使用。' : '',
+        '北京时间零点重置；额度教程：/帮助 额度。'
+      ].filter(Boolean);
+
+      text = [intro, '', table.join('\n'), '', ...details].join('\n');
     } catch (error) {
       text = toUserMessage(error);
     }
   }
-  await message.send({ format: commandBubble(text, '今日额度', { platform: event.Platform, layout: 'keyboard', actions: budgetActions(event) }) });
+  await message.send({ format: commandBubble(text, '今日额度', { platform: event.Platform, layout: 'auto', actions }) });
 };

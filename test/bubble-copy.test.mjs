@@ -210,7 +210,7 @@ test('bubble copy stays inside its length budget', async () => {
     ['隐私说明', '../lib/response/agent-privacy/res.js', 425, { private: false, master: false, key: '隐私说明' }],
     ['清除群数据', '../lib/response/agent-purge/res.js', 110, { private: false, master: true, key: '清除群数据' }],
     ['人格列表', '../lib/response/agent-persona/res.js', 170, { key: '人格' }],
-    ['状态', '../lib/response/agent-status/res.js', 175, { key: '状态' }],
+    ['状态', '../lib/response/agent-status/res.js', 185, { key: '状态' }],
     ['记忆', '../lib/response/agent-memory/res.js', 130, { key: '记忆' }],
     ['表情', '../lib/response/agent-sticker/res.js', 65, { private: false, master: false, key: '表情' }]
   ];

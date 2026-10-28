@@ -33,3 +33,7 @@ DSH 工作区的模型出口也使用当前私聊的个人 Key。真实 Key 仅�
 服务商依据：[官方余额接口](https://api-docs.deepseek.com/api/get-user-balance/)与[官方错误码](https://api-docs.deepseek.com/quick_start/error_codes/)。
 
 群共用 Key 的管理员临时码流程见 [群 Key 管理](group-key.md)。
+
+---
+
+[← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)

@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { SessionRegistry } from '@src/state/registry';
@@ -45,22 +45,31 @@ export default async (): Promise<void> => {
       const stored = await registry.policy(event.ChannelId);
       const entitled = await toolsEntitled(event.Platform, event.ChannelId);
       const policy = entitled ? { ...stored, web: true, files: true } : stored;
-      const note = entitled ? '\n本群自带 Key：网页与文件已自动开放（终端仍禁止）。' : '';
+      const toggle = (name: string) => [
+        { label: '开', command: `/工具策略 ${name} 开启` },
+        { label: '关', command: `/工具策略 ${name} 关闭` }
+      ];
 
       await message.send({
-        format: commandBubble(
-          `本群权限：聊天${policy.chat ? '开' : '关'} · 网页${policy.web ? '开' : '关'} · 文件${policy.files ? '开' : '关'}\n终端禁止；/工具策略 能力 开启或关闭${note}`,
+        format: sectionBubble(
           '本群工具权限',
-          {
-            platform: event.Platform,
-            actions: [
-              { label: '刷新状态', command: '/工具策略 状态' },
-              { label: '网页开启', command: '/工具策略 网页 开启' },
-              { label: '网页关闭', command: '/工具策略 网页 关闭' },
-              { label: '文件开启', command: '/工具策略 文件 开启' },
-              { label: '文件关闭', command: '/工具策略 文件 关闭' }
-            ]
-          }
+          '切换会开始新话题；终端始终禁止。',
+          [
+            { title: '聊天', text: policy.chat ? '已开启' : '已关闭', actions: toggle('聊天') },
+            {
+              title: '网页',
+              text: entitled ? '已开放（本群自带 Key）' : policy.web ? '已开启' : '已关闭',
+              actions: entitled ? [] : toggle('网页')
+            },
+            {
+              title: '文件',
+              text: entitled ? '已开放（本群自带 Key）' : policy.files ? '已开启' : '已关闭',
+              actions: entitled ? [] : toggle('文件')
+            },
+            { title: '终端', text: '禁止；文件操作仅限本群隔离目录。', actions: [] },
+            { title: '更多', text: '', actions: [{ label: '刷新', command: '/工具策略 状态' }] }
+          ],
+          { platform: event.Platform, layout: 'inline' }
         )
       });
 
