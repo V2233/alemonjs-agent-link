@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { QAStore, getQAStore } from '../lib/qa/store.js';
 import { builtinQaEntries } from '../lib/qa/builtin.js';
-import { isWhyQuestion, normalizeQaText } from '../lib/qa/detection.js';
+import { isCommandQuestion, isQaQuestion, isWhyQuestion, normalizeQaText } from '../lib/qa/detection.js';
 import { qaModule } from '../lib/modules/qa.js';
 
 const scope = { platform: 'qq', channelId: 'group' };
@@ -18,12 +18,19 @@ const fixture = async (now = Date.now) => {
   return { root, store };
 };
 
-test('why-question detection covers Chinese variants and English while ignoring ordinary chat', () => {
+test('question detection covers why-questions and command-usage questions without swallowing ordinary chat', () => {
   for (const text of ['为什么必须AT你才回答', '为啥不理我', '为何不接话', '怎么会这样', 'What is the reason?', 'why not']) {
     assert.equal(isWhyQuestion(text), true, text);
+    assert.equal(isQaQuestion(text), true, text);
   }
-  for (const text of ['今天天气不错', '怎么报名', '你好呀', '']) {
+  for (const text of ['怎么取消', '取消怎么用', '额度在哪看', '怎么开网页', '人格怎么换', '怎么绑定key', '群设置怎么用', '怎么静默', '帮助怎么用']) {
+    assert.equal(isCommandQuestion(text), true, text);
+    assert.equal(isQaQuestion(text), true, text);
+  }
+  for (const text of ['今天天气不错', '怎么报名', '你好呀', '怎么办', '今天怎么这么热', '你状态怎么样', '', '怎么学习']) {
     assert.equal(isWhyQuestion(text), false, text);
+    assert.equal(isCommandQuestion(text), false, text);
+    assert.equal(isQaQuestion(text), false, text);
   }
   assert.equal(normalizeQaText('为什么 @AT 你？'), '为什么at你');
 });
@@ -36,6 +43,7 @@ test('builtin metadata is unique and every canonical question retrieves itself f
     assert.equal(new Set(builtinQaEntries.map(entry => normalizeQaText(entry.question))).size, builtinQaEntries.length);
 
     for (const entry of builtinQaEntries) {
+      assert.ok(['why', 'command'].includes(entry.kind), entry.id);
       assert.ok(entry.question.length >= 4 && entry.question.length <= 300, entry.id);
       assert.ok(entry.answer.length >= 60 && entry.answer.length <= 1200, entry.id);
       assert.ok(entry.keywords.length >= 3, entry.id);
@@ -46,10 +54,11 @@ test('builtin metadata is unique and every canonical question retrieves itself f
         assert.ok(normalized.length >= 2, `${entry.id} keyword ${keyword}`);
         assert.ok(!['为什么', '为何', '什么', '怎么', '如何'].includes(normalized), `${entry.id} keyword ${keyword} is too generic`);
       }
-      const hits = store.search(scope, entry.question, 3, { record: false });
+      const hits = store.search(scope, entry.question, 3, { record: false, kind: entry.kind });
 
       assert.equal(hits[0]?.id, entry.id, entry.id);
       assert.equal(hits[0].origin, 'builtin');
+      assert.equal(hits[0].kind, entry.kind);
     }
   } finally {
     store.close();
@@ -76,18 +85,19 @@ test('builtin answers cover the default failure and capability questions', async
     };
 
     for (const [question, id] of Object.entries(cases)) {
-      const hits = store.search(scope, question, 3);
+      const hits = store.search(scope, question, 3, { kind: 'why' });
 
       assert.equal(hits[0]?.id, id, question);
       assert.equal(hits[0].origin, 'builtin');
+      assert.equal(hits[0].kind, 'why');
     }
     for (const question of ['为什么必须AT你才回答', '为什么必须@你才回答', '为什么一定要艾特你', '为什么群里不理我']) {
-      const hits = store.search(scope, question, 3);
+      const hits = store.search(scope, question, 3, { kind: 'why' });
 
       assert.equal(hits[0]?.id, 'builtin-mention-only', question);
       assert.match(hits[0].answer, /接收全面消息/u);
     }
-    const broad = store.search(scope, '为什么不回复', 3);
+    const broad = store.search(scope, '为什么不回复', 3, { kind: 'why' });
 
     assert.equal(broad.length, 1);
     assert.equal(broad[0].id, 'builtin-after-mention-silent');
@@ -101,9 +111,52 @@ test('builtin answers cover the default failure and capability questions', async
       '为什么你会唱歌',
       '为什么不能用'
     ]) {
-      assert.equal(store.search(scope, question, 3).length, 0, question);
+      assert.equal(store.search(scope, question, 3, { kind: 'why' }).length, 0, question);
     }
-    assert.equal(store.search({ platform: 'qq', channelId: 'other' }, '为什么必须AT你才回答', 3)[0].id, 'builtin-mention-only');
+    assert.equal(store.search({ platform: 'qq', channelId: 'other' }, '为什么必须AT你才回答', 3, { kind: 'why' })[0].id, 'builtin-mention-only');
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('builtin command-usage answers cover common command questions', async () => {
+  const { root, store } = await fixture();
+
+  try {
+    const cases = {
+      怎么提问: 'builtin-cmd-ask',
+      怎么取消: 'builtin-cmd-cancel',
+      怎么新会话: 'builtin-cmd-new',
+      怎么记住: 'builtin-cmd-memory',
+      怎么查额度: 'builtin-cmd-status',
+      怎么开网页: 'builtin-cmd-tools',
+      群设置怎么用: 'builtin-cmd-group-settings',
+      怎么换人格: 'builtin-cmd-persona',
+      怎么发语音: 'builtin-cmd-media',
+      怎么绑定key: 'builtin-cmd-keys',
+      怎么成为主人: 'builtin-cmd-owner',
+      怎么关闭ai: 'builtin-cmd-switch',
+      怎么清除聊天记录: 'builtin-cmd-purge',
+      主动搭话怎么用: 'builtin-cmd-proactive',
+      怎么禁言: 'builtin-cmd-group-admin',
+      帮助怎么用: 'builtin-cmd-help'
+    };
+
+    for (const [question, id] of Object.entries(cases)) {
+      assert.equal(isCommandQuestion(question), true, question);
+      const hits = store.search(scope, question, 3, { kind: 'command' });
+
+      assert.equal(hits[0]?.id, id, question);
+      assert.equal(hits[0].origin, 'builtin');
+      assert.equal(hits[0].kind, 'command');
+    }
+    for (const question of ['怎么报名', '怎么办', '今天怎么这么热', '怎么学习']) {
+      assert.equal(isCommandQuestion(question), false, question);
+      assert.equal(store.search(scope, question, 3, { kind: 'command' }).length, 0, question);
+    }
+    assert.equal(store.search(scope, '为什么必须AT你才回答', 3, { kind: 'command' }).length, 0);
+    assert.equal(store.search(scope, '怎么取消', 3, { kind: 'why' }).length, 0);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -119,9 +172,9 @@ test('learned why answers stay inside their session, deduplicate, and become ret
 
     assert.ok(learned);
     assert.equal(learned.origin, 'learned');
-    assert.equal(store.search(scope, '为什么今天群里这么安静呀', 3)[0]?.id, learned.id);
-    assert.equal(store.search(other, '为什么今天群里这么安静', 3).length, 0);
-    assert.equal(store.search(scope, '今天天气怎么样', 3).length, 0);
+    assert.equal(store.search(scope, '为什么今天群里这么安静呀', 3, { kind: 'why' })[0]?.id, learned.id);
+    assert.equal(store.search(other, '为什么今天群里这么安静', 3, { kind: 'why' }).length, 0);
+    assert.equal(store.search(scope, '今天天气怎么样', 3, { kind: 'why' }).length, 0);
     const again = store.learn(scope, { question: '为什么今天群里这么安静？', answer: '也可能只是暂时没人说话。' });
 
     assert.equal(again.id, learned.id);
@@ -145,11 +198,11 @@ test('explicit answers upgrade learned entries and can be published globally for
 
     assert.equal(local.origin, 'explicit');
     assert.equal(local.confidence, 1);
-    assert.equal(store.search(scope, '为什么必须AT你才回答', 3)[0].answer, '需要在 qq-bot 开启接收全部群消息。');
+    assert.equal(store.search(scope, '为什么必须AT你才回答', 3, { kind: 'why' })[0].answer, '需要在 qq-bot 开启接收全部群消息。');
     const global = store.addExplicit('global', { question: '为什么这个群要遵守群规', answer: '因为群规是群成员共同约定。' });
 
     assert.equal(global.scope, 'global');
-    assert.equal(store.search(other, '为什么这个群要遵守群规', 3)[0].id, global.id);
+    assert.equal(store.search(other, '为什么这个群要遵守群规', 3, { kind: 'why' })[0].id, global.id);
   } finally {
     store.close();
     await rm(root, { recursive: true, force: true });
@@ -191,7 +244,7 @@ test('question log, capacity, purge and retention cleanup keep scoped data bound
     store.purgeHash(hash('group'));
     assert.equal(store.list(scope).length, 0);
     assert.equal(store.recentQuestions(scope).length, 0);
-    assert.equal(store.search(scope, '为什么必须AT你才回答', 3).length, 1);
+    assert.equal(store.search(scope, '为什么必须AT你才回答', 3, { kind: 'why' }).length, 1);
     store.observe(scope);
     store.learn(scope, { question: '为什么会被清理', answer: '因为会话长期没有活动。' });
     now += 40 * 86400000;
@@ -264,6 +317,13 @@ test('qa module injects confirmed answers, records why questions, and learns unm
     await hooks.activity[0]({ input: unmatched.userText, output: '可能大家都在忙，或者静默时段到了。' }, unmatched);
     assert.ok(store.list(scope).some(item => item.question === '为什么今天群里这么安静' && item.origin === 'learned'));
     assert.equal(store.recentQuestions(scope)[0].matchedId, undefined);
+    const command = { ...base, requestId: 'request-3', inputId: 'message-3', userText: '怎么取消' };
+    const injectedCommand = await hooks.context[0](command);
+
+    assert.match(injectedCommand, /取消/u);
+    assert.match(injectedCommand, /builtin/u);
+    await hooks.activity[0]({ input: command.userText, output: '发 /取消 就能停掉自己排队中的请求。' }, command);
+    assert.equal(store.recentQuestions(scope)[0].matchedId, 'builtin-cmd-cancel');
     const search = tools.find(tool => tool.name === 'search_qa');
 
     assert.ok(search);
@@ -271,6 +331,9 @@ test('qa module injects confirmed answers, records why questions, and learns unm
     const result = await search.execute({ query: '为什么必须AT你才回答' }, base);
 
     assert.equal(result.items[0].source, 'builtin');
+    const commandResult = await search.execute({ query: '怎么取消' }, base);
+
+    assert.equal(commandResult.items[0].id, 'builtin-cmd-cancel');
     const remember = tools.find(tool => tool.name === 'remember_qa');
 
     assert.ok(remember);
@@ -285,12 +348,12 @@ test('qa module injects confirmed answers, records why questions, and learns unm
     );
 
     assert.equal(saved.ok, true);
-    assert.equal(store.search(scope, '为什么测试', 3)[0].origin, 'explicit');
-    const ordinary = { ...base, requestId: 'request-3', userText: '今天天气不错' };
+    assert.equal(store.search(scope, '为什么测试', 3, { kind: 'why' })[0].origin, 'explicit');
+    const ordinary = { ...base, requestId: 'request-4', userText: '今天天气不错' };
 
     assert.equal(await hooks.context[0](ordinary), '');
     await hooks.activity[0]({ input: ordinary.userText, output: '适合出门。' }, ordinary);
-    assert.equal(store.recentQuestions(scope).length, 2);
+    assert.equal(store.recentQuestions(scope).length, 3);
   } finally {
     globalThis.__config = oldConfig;
     await rm(root, { recursive: true, force: true });

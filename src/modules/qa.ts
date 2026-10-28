@@ -3,19 +3,20 @@ import type { DSHBridgeConfig } from '../dsh/client';
 import type { AgentModule, TurnContext } from '../agent/types';
 import { getQAStore, type QaEntry, type QaMatch } from '../qa/store';
 import { qaOptions } from '../qa/options';
-import { isWhyQuestion } from '../qa/detection';
+import { isCommandQuestion, isQaQuestion, isWhyQuestion } from '../qa/detection';
 
 const compactQa = (item: QaEntry | QaMatch) => ({
   id: item.id,
   question: item.question,
   answer: item.answer,
+  kind: item.kind,
   source: item.origin,
   confidence: item.confidence,
   hits: item.hits
 });
 
 const explicitQaRequest = (text: string): boolean =>
-  /(记住|记一下|记下来|保存|录入|写进|加入).{0,30}(问|答|为什么|为何|怎么|是不是|有没有|这句|这条|这个)/u.test(text) ||
+  /(记住|记一下|记下来|保存|录入|写进|加入).{0,30}(问|答|为什么|为何|怎么|用法|指令|命令|是不是|有没有|这句|这条|这个)/u.test(text) ||
   /(以后|之后|下次).{0,20}(有人问|问到|问起)/u.test(text);
 
 export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
@@ -26,7 +27,7 @@ export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
   setup(api) {
     const store = getQAStore(config);
     const options = qaOptions(config);
-    const pending = new Map<string, { matches: QaMatch[]; at: number }>();
+    const pending = new Map<string, { matches: QaMatch[]; kind: 'why' | 'command'; at: number }>();
     const prunePending = (): void => {
       const cutoff = Date.now() - 300000;
 
@@ -39,43 +40,53 @@ export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
         pending.delete(pending.keys().next().value);
       }
     };
-    const takePending = (context: TurnContext): QaMatch[] | undefined => {
+    const takePending = (context: TurnContext): { matches: QaMatch[]; kind: 'why' | 'command' } | undefined => {
       const key = context.requestId || context.inputId;
 
       if (!key) {
         return undefined;
       }
-      const value = pending.get(key)?.matches;
+      const value = pending.get(key);
 
       pending.delete(key);
 
-      return value;
+      return value ? { matches: value.matches, kind: value.kind } : undefined;
     };
 
     api.on('context', context => {
-      if (!context.platform || !context.channelId || context.autonomous || !isWhyQuestion(context.userText)) {
+      if (!context.platform || !context.channelId || context.autonomous) {
         return '';
       }
+      const why = isWhyQuestion(context.userText);
+      const command = !why && isCommandQuestion(context.userText);
+
+      if (!why && !command) {
+        return '';
+      }
+      const kind = why ? 'why' : 'command';
+
       store.observe(context);
-      const matches = store.search(context, context.userText, options.recallLimit, { threshold: options.matchThreshold });
+      const matches = store.search(context, context.userText, options.recallLimit, { threshold: options.matchThreshold, kind });
 
       if (matches.length && (context.requestId || context.inputId)) {
         prunePending();
-        pending.set(context.requestId || context.inputId, { matches, at: Date.now() });
+        pending.set(context.requestId || context.inputId, { matches, kind, at: Date.now() });
       }
       if (!matches.length) {
-        return '本轮是“为什么/为何”类疑问，问答库没有直接匹配的条目。请用大白话和日常比喻解释，少用配置名、英文术语和内部实现；依据实际配置、文档和已确认事实回答，不确定就说明不确定，不要编造，也不要在回复里提到问答库或检索过程。';
+        return kind === 'why'
+          ? '本轮是“为什么/为何”类疑问，问答库没有直接匹配的条目。请用大白话和日常比喻解释，少用配置名、英文术语和内部实现；依据实际配置、文档和已确认事实回答，不确定就说明不确定，不要编造，也不要在回复里提到问答库或检索过程。'
+          : '本轮像在问指令用法，问答库没有直接匹配的条目。请用大白话说明怎么用，命令和参数保留原样；不确定就说明不确定，不要编造不存在的命令，也不要在回复里提到问答库或检索过程。';
       }
 
       return [
-        '以下是问答库中与本轮“为什么/为何”疑问匹配的参考解答。优先采用与问题最接近的条目，直接据此回答；除非用户提供相反事实，不要换成其他原因。用大白话和日常比喻解释，少用配置名、英文术语和内部实现；必须提到的命令保留原样。不要在回复里提到问答库、检索过程，也不要照读编号或 JSON。',
+        '以下是问答库中与本轮问题匹配的参考解答。优先采用与问题最接近的条目，直接据此回答；除非用户提供相反事实，不要换成其他说法。用大白话和日常比喻解释，少用配置名、英文术语和内部实现；必须提到的命令保留原样。不要在回复里提到问答库、检索过程，也不要照读编号或 JSON。',
         'builtin / explicit 条目是已确认的解答；learned 条目来自本会话此前的回答，可能过时，若与当前事实或用户纠正冲突，以事实为准并说明差异。',
         JSON.stringify({ hits: matches.map(compactQa) })
       ].join('\n');
     });
 
     api.on('activity', (activity, context) => {
-      if (!options.autoRecord || context.autonomous || !context.platform || !context.channelId || !isWhyQuestion(context.userText)) {
+      if (!options.autoRecord || context.autonomous || !context.platform || !context.channelId || !isQaQuestion(context.userText)) {
         return;
       }
       const question = context.userText.trim().slice(0, 300);
@@ -89,7 +100,10 @@ export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
       }
       try {
         const cached = takePending(context);
-        const matches = cached?.length ? cached : store.search(context, question, 1, { threshold: options.matchThreshold, record: false });
+        const kind = cached?.kind ?? (isWhyQuestion(context.userText) ? 'why' : 'command');
+        const matches = cached?.matches.length
+          ? cached.matches
+          : store.search(context, question, 1, { threshold: options.matchThreshold, record: false, kind });
 
         if (matches.length) {
           store.recordAsked(context, { userId: context.userId, question, answer, matchedId: matches[0].id });
@@ -105,7 +119,8 @@ export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
     api.tool({
       name: 'search_qa',
       readOnly: true,
-      description: '检索当前会话与全局问答库，优先返回已确认的“为什么/为何”类解答。用户追问同类原因时先查这里；没有命中时不要编造库中不存在的内容。',
+      description:
+        '检索当前会话与全局问答库，返回已确认的“为什么/为何”或“指令用法”解答。用户追问同类原因、命令怎么用、权限怎么开时先查这里；没有命中时不要编造库中不存在的内容。',
       parameters: {
         type: 'object',
         additionalProperties: false,

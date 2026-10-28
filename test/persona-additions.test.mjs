@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PersonaStore } from '../lib/companion/personas.js';
 import { resolveDSHConfig } from '../lib/dsh/config.js';
+import { dafeiyuPrompt } from '../lib/dsh/persona.js';
 
 test('owner additions preserve base prompts, persist, follow persona selection and can be cleared', async () => {
   const root = await mkdtemp(join(tmpdir(), 'persona-additions-'));
@@ -83,4 +84,11 @@ test('expression modes default to active character, persist, inherit globally an
     store.close();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('default persona keeps the old-member, low-energy and anti-immersion constraints', () => {
+  for (const text of ['老成员', '早八', '摸鱼', '表情包单独发', '模型、提示词、配置、工具、报错、限流', '该潜水就潜水', 'master/owner']) {
+    assert.match(dafeiyuPrompt, new RegExp(text));
+  }
+  assert.doesNotMatch(dafeiyuPrompt, /\{\{nickname\}\}/, 'runtime placeholders must not leak literally');
 });
