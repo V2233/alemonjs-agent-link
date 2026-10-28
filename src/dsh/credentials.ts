@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { getCredentialPool, type PoolSelectionOptions } from '../credentials/pool';
 
 export type DSHCredentialUsage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; prompt_cache_hit_tokens?: number };
-export type DSHCredentialReport = { ok: boolean; status?: number; headers?: Headers };
+export type DSHCredentialReport = { ok: boolean; status?: number; headers?: Headers; /** 本次请求的真实耗时，用于把慢端点降权。 */ latencyMs?: number };
 export type DSHCredentials = {
   apiKey: string;
   personal?: boolean;
@@ -66,6 +66,23 @@ export const getDSHCredentials = (
   }
 
   return Promise.resolve(legacyCredentials(config));
+};
+
+/** Dedicated workspace endpoint for agent_workspace; falls back to the
+ * sandbox credential when no endpoint is explicitly marked as workspace. */
+export const getWorkspaceCredentials = (): Promise<DSHCredentials | null> => {
+  const config = getAppConfigValue<CredentialConfig>();
+
+  try {
+    const pool = getCredentialPool(config);
+    const selected = pool?.select({ purpose: 'chat', stable: true, reserve: false, workspaceOnly: true });
+
+    if (selected) return Promise.resolve(selected);
+  } catch {
+    // Fall through to the sandbox credential; config validation reports malformed pools.
+  }
+
+  return getSandboxCredentials();
 };
 
 /** Sandbox workers speak the deepseek-official Messages protocol. Prefer a

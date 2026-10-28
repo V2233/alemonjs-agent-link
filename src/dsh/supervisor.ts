@@ -257,7 +257,7 @@ export class DSHSupervisor {
   }
 
   private async launch(signal: AbortSignal): Promise<void> {
-    if (!this.credentials) {
+    if (!this.credentials && this.config.runtimeMode === 'chat-only') {
       throw new Error('Model credentials missing');
     }
     if (this.config.runtimeMode === 'chat-only') {

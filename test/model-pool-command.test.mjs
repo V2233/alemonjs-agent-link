@@ -38,7 +38,12 @@ test('pool page shows a summary, refill hint and paginates five rows', () => {
     ['key-2', { text: '未收录', checkedAt: 1000 }],
     ['key-3', { text: '¥1.50', amount: 1.5, currency: 'CNY', checkedAt: 1000 }]
   ]);
-  const first = poolPageView(items, 1, 1000, balances);
+  const bridge = {
+    date: '2026-10-28',
+    endpoints: { 'key-1': { requests: 2, input: 10, output: 5 } },
+    personal: { requests: 1, input: 4, output: 1 }
+  };
+  const first = poolPageView(items, 1, 1000, balances, 5, bridge);
   assert.equal(first.page, 1);
   assert.equal(first.pages, 2);
   assert.equal(first.disabled, 1);
@@ -52,6 +57,8 @@ test('pool page shows a summary, refill hint and paginates five rows', () => {
   assert.match(first.text, /余额 未收录/);
   assert.match(first.text, /低余额 1/);
   assert.match(first.text, /及时补货/);
+  assert.match(first.text, /沙箱 2 次\/15 tok/);
+  assert.match(first.text, /个人\/群 1 次\/5 tok/);
   assert.equal(first.text.split('\n').filter(line => /^\d+\. key-/u.test(line)).length, 5);
 
   const second = poolPageView(items, 2, 1000);

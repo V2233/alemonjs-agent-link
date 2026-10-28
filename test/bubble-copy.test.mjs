@@ -73,7 +73,7 @@ test('help and configuration guidance use structured Markdown with readable step
     const items = formats.flat();
 
     assert.ok(items.every(item => item.type === 'Markdown' || item.type === 'BT.group'), 'help cards are Markdown plus an optional keyboard group');
-    assert.ok(items.some(item => item.type === 'BT.group'), 'help cards expose a keyboard button group');
+    assert.ok(!items.some(item => item.type === 'BT.group'), 'detailed help keeps one inline next step, not a duplicate keyboard');
 
     assert.match(messages[0], isPrivate ? /个人密钥 绑定 sk-你的Key/ : /群密钥 绑定 临时码 sk-你的Key/);
     if (!isPrivate) assert.match(messages[0], /由申请人私聊/);

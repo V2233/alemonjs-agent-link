@@ -80,6 +80,7 @@ export default async (): Promise<void> => {
   await message.send({
     format: commandBubble(text, '群密钥', {
       platform: event.Platform,
+      layout: 'keyboard',
       actions: [
         { label: '群密钥状态', command: '/群密钥 状态' },
         { label: '启用密钥', command: '/群密钥 启用' },

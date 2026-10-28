@@ -30,7 +30,7 @@ export default async (): Promise<void> => {
       const command = parseBudgetCommand(route.rawArgs.map(String), event);
 
       if (command.action === 'help') {
-        await message.send({ format: commandBubble(budgetHelp, '今日额度', { platform: event.Platform, actions: budgetActions(event) }) });
+        await message.send({ format: commandBubble(budgetHelp, '今日额度', { platform: event.Platform, layout: 'keyboard', actions: budgetActions(event) }) });
 
         return;
       }
@@ -70,7 +70,7 @@ export default async (): Promise<void> => {
                   .join('\n')
               : '今天没有手动额度调整记录。',
             '今日额度',
-            { platform: event.Platform, actions: budgetActions(event) }
+            { platform: event.Platform, layout: 'keyboard', actions: budgetActions(event) }
           )
         });
 
@@ -111,5 +111,5 @@ export default async (): Promise<void> => {
       text = toUserMessage(error);
     }
   }
-  await message.send({ format: commandBubble(text, '今日额度', { platform: event.Platform, actions: budgetActions(event) }) });
+  await message.send({ format: commandBubble(text, '今日额度', { platform: event.Platform, layout: 'keyboard', actions: budgetActions(event) }) });
 };

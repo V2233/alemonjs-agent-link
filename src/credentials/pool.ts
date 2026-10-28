@@ -117,6 +117,7 @@ export type ModelPoolStatus = {
   capabilities: ModelPoolPurpose[];
   fallback: boolean;
   priority: number;
+  workspace: boolean;
   bound: number;
   rpm?: number;
   tpm?: number;
@@ -284,6 +285,7 @@ export class CredentialPool {
       capabilities: state.endpoint.capabilities,
       fallback: state.endpoint.fallback === true,
       priority: state.endpoint.priority,
+      workspace: state.endpoint.workspace === true,
       bound: this.boundCount(state),
       rpm: state.endpoint.rpm,
       tpm: state.endpoint.tpm,
@@ -449,9 +451,10 @@ export class CredentialPool {
     provider?: string,
     estimatedTokens = 0,
     waitForCapacity = false,
-    fallbackOnly = false
+    fallbackOnly = false,
+    workspaceOnly = false
   ): EndpointState | undefined {
-    const available = this.available(purpose, exclude, provider, estimatedTokens);
+    const available = this.available(purpose, exclude, provider, estimatedTokens).filter(state => !workspaceOnly || state.endpoint.workspace === true);
 
     if (!available.length) return undefined;
     // 备用端点只在没有可用主端点时才参与选择。
@@ -477,7 +480,13 @@ export class CredentialPool {
     const candidates = preferred.length ? preferred : tier;
 
     if (stable) {
-      return candidates[0];
+      // 稳定模式只要求「不轮询」，不要求「钉在最慢的那个」：
+      // 从未测过延迟的端点按 1200ms 估计，让已知更快的端点优先。
+      const latency = (state: EndpointState): number => (state.latencyMs > 0 ? state.latencyMs : 1200);
+
+      return [...candidates].sort(
+        (left, right) => latency(left) - latency(right) || right.endpoint.weight - left.endpoint.weight || left.lastUsed - right.lastUsed
+      )[0];
     }
     if (this.config.strategy === 'sticky' && stickyKey) {
       const digest = createHash('sha256').update(stickyKey).digest();
@@ -497,8 +506,11 @@ export class CredentialPool {
     }
     if (this.config.strategy === 'balanced') {
       return [...candidates].sort((left, right) => {
-        const leftLoad = (left.active * 2 + this.boundCount(left) * 2 + this.recentCount(left)) / Math.max(1, left.endpoint.weight);
-        const rightLoad = (right.active * 2 + this.boundCount(right) * 2 + this.recentCount(right)) / Math.max(1, right.endpoint.weight);
+        const penalty = state => Math.min(10000, state.latencyMs) / 500;
+        // 只按“正在跑的请求 + 近期流量”算负载；会话粘性绑定不算并发，
+        // 否则某个端点被更多会话记住反而会被判成更忙，流量又倒回慢端点。
+        const leftLoad = (left.active * 2 + this.recentCount(left)) / Math.max(1, left.endpoint.weight) + penalty(left);
+        const rightLoad = (right.active * 2 + this.recentCount(right)) / Math.max(1, right.endpoint.weight) + penalty(right);
 
         return leftLoad - rightLoad || left.latencyMs - right.latencyMs || right.endpoint.weight - left.endpoint.weight || left.lastUsed - right.lastUsed;
       })[0];
@@ -796,7 +808,12 @@ export class CredentialPool {
     }
   }
 
-  private report(state: EndpointState, outcome: { ok: boolean; status?: number; headers?: Headers }, reserved: boolean, reservedTokens = 0): void {
+  private report(
+    state: EndpointState,
+    outcome: { ok: boolean; status?: number; headers?: Headers; latencyMs?: number },
+    reserved: boolean,
+    reservedTokens = 0
+  ): void {
     if (reserved && state.active > 0) state.active -= 1;
     if (reservedTokens > 0) {
       state.pendingTokens = Math.max(0, state.pendingTokens - reservedTokens);
@@ -813,6 +830,18 @@ export class CredentialPool {
       state.healthy = true;
       state.disabled = false;
       state.disabledUntil = 0;
+      // 用真实请求耗时校正延迟模型，选择时能把慢端点排到后面。
+      if (Number.isFinite(outcome.latencyMs) && Number(outcome.latencyMs) > 0) {
+        const sample = Number(outcome.latencyMs);
+
+        state.latencyMs = state.latencyMs ? state.latencyMs * 0.6 + sample * 0.4 : sample;
+        // 这一次明显慢（>3 秒）：别再用粘性把这个会话钉在它身上。
+        if (sample > 3000) {
+          for (const [key, binding] of this.bindings) {
+            if (binding.endpointId === state.endpoint.id) this.bindings.delete(key);
+          }
+        }
+      }
 
       return;
     }

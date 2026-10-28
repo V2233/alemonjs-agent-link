@@ -1,5 +1,6 @@
 import type { ModelPoolStatus } from '@src/credentials/pool';
 import type { EndpointBalance } from '@src/model-pool/balance';
+import type { BridgeMetrics } from '@src/model-pool/bridge-metrics';
 
 export const POOL_PAGE_SIZE = 5;
 
@@ -42,6 +43,10 @@ export type PoolPageView = {
   usedTotal?: number;
   usedCount: number;
   lowBalance: number;
+  sandboxRequests: number;
+  sandboxTokens: number;
+  personalSandboxRequests: number;
+  personalSandboxTokens: number;
   needsRefill: boolean;
   text: string;
 };
@@ -51,7 +56,8 @@ export const poolPageView = (
   requestedPage: number,
   now = Date.now(),
   balances: Map<string, EndpointBalance> = new Map(),
-  lowBalanceThreshold = 5
+  lowBalanceThreshold = 5,
+  bridge: BridgeMetrics | null = null
 ): PoolPageView => {
   const total = items.length;
   const pages = Math.max(1, Math.ceil(total / POOL_PAGE_SIZE));
@@ -76,6 +82,11 @@ export const poolPageView = (
 
   const usedTotal = usedByAccount.size ? [...usedByAccount.values()].reduce((sum, item) => sum + (item.used || 0), 0) : undefined;
   const lowBalance = known.filter(item => (item.amount || 0) < lowBalanceThreshold).length;
+  const sandboxUsage = items.map(item => bridge?.endpoints[item.id]).filter(Boolean);
+  const sandboxRequests = sandboxUsage.reduce((sum, item) => sum + (item?.requests || 0), 0);
+  const sandboxTokens = sandboxUsage.reduce((sum, item) => sum + (item?.input || 0) + (item?.output || 0), 0);
+  const personalSandboxRequests = bridge?.personal.requests || 0;
+  const personalSandboxTokens = (bridge?.personal.input || 0) + (bridge?.personal.output || 0);
   const needsRefill = available <= 1 || disabled > 0;
   const hint =
     lowBalance > 0
@@ -90,7 +101,7 @@ export const poolPageView = (
   const lines = [
     `模型池 ${page}/${pages}`,
     `总数 ${total} · 可用 ${available} · 冷却 ${cooling} · 停用 ${disabled} · 异常 ${abnormal} · 在途 ${inFlight}`,
-    `探测 ${probeCount}/${total} · 视觉 ${vision} · 备用 ${fallback} · 余额 ${balanceTotal === undefined ? '未知' : `¥${balanceTotal.toFixed(2)}（${known.length}/${total}）`} · 已用 ${usedTotal === undefined ? '未知' : `¥${usedTotal.toFixed(2)}（${usedByAccount.size}/${total}）`} · 低余额 ${lowBalance} · 补货提示：${hint}`,
+    `探测 ${probeCount}/${total} · 视觉 ${vision} · 备用 ${fallback} · 沙箱 ${sandboxRequests} 次/${sandboxTokens} tok · 个人/群 ${personalSandboxRequests} 次/${personalSandboxTokens} tok · 余额 ${balanceTotal === undefined ? '未知' : `¥${balanceTotal.toFixed(2)}（${known.length}/${total}）`} · 已用 ${usedTotal === undefined ? '未知' : `¥${usedTotal.toFixed(2)}（${usedByAccount.size}/${total}）`} · 低余额 ${lowBalance} · 补货提示：${hint}`,
     ''
   ];
   const start = (page - 1) * POOL_PAGE_SIZE;
@@ -108,6 +119,9 @@ export const poolPageView = (
         `绑定 ${item.bound}`,
         `近期 ${item.recent}`,
         `今日 ${item.dailyRequests} 次 / ${item.dailyTokens} tok`,
+        bridge?.endpoints[item.id]
+          ? `沙箱 ${bridge.endpoints[item.id].requests} 次 / ${bridge.endpoints[item.id].input + bridge.endpoints[item.id].output} tok`
+          : '',
         item.latencyMs > 0 ? `延迟 ${item.latencyMs}ms` : '延迟未知',
         `探测 ${relativeProbe(item.lastProbeAt, now)}`,
         item.rpm ? `RPM ${item.requests}/${item.rpm}` : '',

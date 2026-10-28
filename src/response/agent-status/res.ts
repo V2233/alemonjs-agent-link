@@ -122,6 +122,7 @@ export default async (): Promise<void> => {
   await message.send({
     format: commandBubble(text, '服务状态', {
       platform: event.Platform,
+      layout: 'keyboard',
       actions: [
         { label: '重新查看', command: '/状态' },
         ...(event.IsPrivate && event.IsMaster ? [{ label: '状态详情', command: '/状态 详情' }] : []),

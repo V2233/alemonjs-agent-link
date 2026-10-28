@@ -57,6 +57,15 @@ class BridgeSafetyTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.root, ignore_errors=True)
 
+    def test_bridge_usage_ledger_counts_json_and_sse_usage(self):
+        self.bridge.BRIDGE_METRICS = {'date': __import__('time').strftime('%Y-%m-%d', __import__('time').gmtime()), 'endpoints': {}, 'personal': {}}
+        self.bridge.record_bridge_usage('key-a', b'{"usage":{"prompt_tokens":10,"completion_tokens":4}}')
+        self.bridge.record_bridge_usage('key-a', b'data: {"usage":{"prompt_tokens":2,"completion_tokens":3}}\n\ndata: [DONE]\n\n')
+        bucket = self.bridge.BRIDGE_METRICS['endpoints']['key-a']
+        self.assertEqual(bucket['requests'], 2)
+        self.assertEqual(bucket['input'], 12)
+        self.assertEqual(bucket['output'], 7)
+
     def test_model_pool_round_robin_reports_cooldown_and_rewrites_model(self):
         self.bridge.MODEL_POOL = {
             'maxAttempts': 3,

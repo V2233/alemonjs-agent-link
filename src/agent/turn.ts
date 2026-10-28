@@ -9,7 +9,7 @@ import { modelContext } from '../dsh/model-context';
 import { logger } from 'alemonjs';
 import { abortFailure } from '../dsh/errors';
 import { streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '../dsh/client';
-import { getChatCredentials } from '../dsh/credentials';
+import { getChatCredentials, getWorkspaceCredentials } from '../dsh/credentials';
 import { inputText, withInputContext, type ChatInput } from '../dsh/input';
 import { normalizeBubbleText } from '../dsh/reply-format';
 import { ensureDSHSupervisor, hasDSHBridgeOverride } from '../dsh/supervisor';
@@ -56,7 +56,18 @@ const runModuleTurnInner = async (options: {
     const input = await lease.prompt(withInputContext(options.input, moduleContext), context);
     const tools = lease.tools(context);
 
-    logger.info({ requestId: context.requestId, elapsedMs: Date.now() - preparingAt }, 'Agent context prepared');
+    logger.info(
+      {
+        requestId: context.requestId,
+        elapsedMs: Date.now() - preparingAt,
+        web: context.capabilities.web,
+        files: context.capabilities.files,
+        terminal: context.capabilities.terminal,
+        tools: tools.length,
+        workspaceTool: tools.some(tool => tool.name === 'agent_workspace')
+      },
+      'Agent context prepared'
+    );
 
     if (options.onImage && !context.autonomous) {
       let imageAttempted = false;
@@ -144,6 +155,7 @@ const runModuleTurnInner = async (options: {
             let result = '';
 
             const framework = await startFrameworkMcp(tools, turn);
+            const workspaceCredentials = await getWorkspaceCredentials();
 
             try {
               await streamChat(
@@ -165,7 +177,8 @@ const runModuleTurnInner = async (options: {
                 turn.capabilities,
                 undefined,
                 undefined,
-                framework.endpoint
+                framework.endpoint,
+                workspaceCredentials || undefined
               );
             } finally {
               framework.close();

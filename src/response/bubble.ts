@@ -88,7 +88,8 @@ const safe = (text: string): string =>
 
 export type BubbleAction = { label: string; command: string; short?: string };
 export type BubbleSection = { title: string; text: string; actions?: BubbleAction[] };
-export type BubbleOptions = { platform?: string; actions?: BubbleAction[] };
+export type BubbleLayout = 'auto' | 'inline' | 'keyboard' | 'none';
+export type BubbleOptions = { platform?: string; actions?: BubbleAction[]; layout?: BubbleLayout };
 
 const resolvePlatform = (platform?: string): string => {
   if (platform) return platform;
@@ -151,20 +152,38 @@ const buildKeyboard = (actions: BubbleAction[]): ReturnType<typeof Format.create
   return group;
 };
 
-/** 行内按钮负责“看得见的那一步”，键盘按钮组兜住剩下的入口，两者都不自动发送。 */
+/** 行内按钮只做“下一步”，键盘按钮组只做“选一个”，两者不重复铺同一批指令。 */
 const attach = (format: ReturnType<typeof Format.create>, actions: BubbleAction[]): ReturnType<typeof Format.create> => {
   const group = buildKeyboard(actions);
 
   return group ? format.addButtonGroup(group) : format;
 };
 
+/**
+ * 同一组指令只走一条视觉通道：
+ * - auto：1–3 个作为正文里的下一步；4 个以上作为底部的选择菜单；
+ * - inline / keyboard：调用方明确指定；
+ * - none：正文已经写清，不再挂按钮。
+ */
+const splitActions = (actions: BubbleAction[], layout: BubbleLayout): { inline: BubbleAction[]; keyboard: BubbleAction[] } => {
+  if (layout === 'none') return { inline: [], keyboard: [] };
+  if (layout === 'inline') return { inline: actions.slice(0, MAX_INLINE_ACTIONS), keyboard: [] };
+  if (layout === 'keyboard') return { inline: [], keyboard: actions };
+
+  return actions.length <= MAX_INLINE_ACTIONS ? { inline: actions, keyboard: [] } : { inline: [], keyboard: actions };
+};
+
 export const sectionBubble = (title: string, intro: string, sections: BubbleSection[], options: BubbleOptions = {}): ReturnType<typeof Format.create> => {
   const rich = supportsBubbles(options.platform);
+  // Section cards are contextual: by default each section keeps its own inline
+  // next step. A menu-style index can opt into the keyboard with layout:'keyboard'.
+  const layout = options.layout ?? 'inline';
+  const inline = rich && (layout === 'inline' || layout === 'auto');
   const md = Format.createMarkdown().addBold(safe(title));
 
   if (intro) md.addNewline().addText(safe(intro));
   for (const section of sections) {
-    const actions = rich ? normalizeActions(section.actions ?? []) : [];
+    const actions = inline ? normalizeActions(section.actions ?? []) : [];
     const block = Format.createMarkdown().addBold(safe(section.title));
 
     if (section.text) block.addNewline().addText(safe(section.text));
@@ -174,20 +193,23 @@ export const sectionBubble = (title: string, intro: string, sections: BubbleSect
 
   const format = Format.create().addMarkdown(md);
 
-  return rich ? attach(format, normalizeActions(sections.flatMap(section => section.actions ?? []))) : format;
+  if (!rich || layout !== 'keyboard') return format;
+
+  return attach(format, normalizeActions(sections.flatMap(section => section.actions ?? [])));
 };
 
 /** 系统提示与错误：单行保持纯文本，多行才成卡片，并按需挂上可点入口。 */
 export const noticeBubble = (text: string, options: BubbleOptions & { title?: string } = {}): ReturnType<typeof Format.create> =>
-  commandBubble(text, options.title || '提示', { platform: options.platform, actions: options.actions });
+  commandBubble(text, options.title || '提示', { platform: options.platform, actions: options.actions, layout: options.layout });
 
 /** 多行说明与状态卡：加粗标题、逐行排版，并挂上应用自己声明的可点指令。 */
 export const commandBubble = (text: string, title: string, options: BubbleOptions = {}): ReturnType<typeof Format.create> => {
   const rich = supportsBubbles(options.platform);
   const actions = rich ? normalizeActions(options.actions ?? []) : [];
+  const { inline, keyboard } = splitActions(actions, options.layout ?? 'auto');
 
   // 单行确认仍是纯文本；只有挂了可点入口才值得做卡片。
-  if (!text.includes('\n') && actions.length === 0) return Format.create().addText(text);
+  if (!text.includes('\n') && inline.length === 0 && keyboard.length === 0) return Format.create().addText(text);
   const md = Format.createMarkdown().addBold(safe(title)).addNewline().addNewline();
 
   for (const line of text.replace(/\n+$/u, '').split('\n')) {
@@ -198,14 +220,14 @@ export const commandBubble = (text: string, title: string, options: BubbleOption
     md.addNewline();
   }
 
-  if (actions.length > 0) {
+  if (inline.length > 0) {
     const block = Format.createMarkdown();
 
-    addInline(block, actions);
+    addInline(block, inline);
     md.addNewline().addBlockquote(block);
   }
 
   const format = Format.create().addMarkdown(md);
 
-  return rich ? attach(format, actions) : format;
+  return keyboard.length > 0 ? attach(format, keyboard) : format;
 };

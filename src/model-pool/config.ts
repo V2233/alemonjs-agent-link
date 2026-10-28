@@ -11,6 +11,7 @@ export type ModelPoolEndpoint = {
   model: string;
   fallback?: boolean;
   priority: number;
+  workspace?: boolean;
   account?: string;
   rpm?: number;
   tpm?: number;
@@ -224,6 +225,8 @@ export const parseModelPool = (raw: unknown, defaults: ModelPoolDefaults): Model
     const priority = item.priority === undefined ? 0 : integer(item.priority, `endpoints[${index}].priority`, 0, 100);
     const endpointBalanceStyle = balanceStyle(item.balanceStyle, `endpoints[${index}].balanceStyle`);
     const account = item.account === undefined ? undefined : text(item.account, `endpoints[${index}].account`, 80);
+
+    if (item.workspace !== undefined && typeof item.workspace !== 'boolean') throw new Error(`modelPool.endpoints[${index}].workspace 需要为布尔值。`);
     const rpm = item.rpm === undefined ? undefined : integer(item.rpm, `endpoints[${index}].rpm`, 1, 1000000);
     const tpm = item.tpm === undefined ? undefined : integer(item.tpm, `endpoints[${index}].tpm`, 1, 1000000000);
     const balanceUrl = item.balanceUrl === undefined ? undefined : balanceTemplate(item.balanceUrl, `endpoints[${index}].balanceUrl`);
@@ -253,6 +256,7 @@ export const parseModelPool = (raw: unknown, defaults: ModelPoolDefaults): Model
       priority,
       ...(endpointBalanceStyle ? { balanceStyle: endpointBalanceStyle } : {}),
       ...(account ? { account } : {}),
+      ...(item.workspace === true ? { workspace: true } : {}),
       ...(rpm ? { rpm } : {}),
       ...(tpm ? { tpm } : {}),
       ...(balanceUrl ? { balanceUrl } : {}),

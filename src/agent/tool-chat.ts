@@ -14,6 +14,8 @@ type ToolCall = { id: string; type: 'function'; function: { name: string; argume
 type ModelMessage = { role: string; content: unknown; reasoning_content?: string; tool_calls?: ToolCall[]; tool_call_id?: string };
 type RequestMeta = { requestId?: string; channelId?: string };
 
+export const needsRealtimeLookup = (text: string): boolean => /天气|气温|降雨|下雨|空气质量|新闻|股价|汇率|比分|赛程|实时|最新/u.test(text);
+
 export const requestModelMessage = async (
   config: DSHBridgeConfig,
   credentials: DSHCredentials,
@@ -38,12 +40,15 @@ export const requestModelMessage = async (
     const model = current.model || config.model;
     const elapsed = Date.now() - startedAt;
 
-    if (elapsed > budgetMs) {
+    if (elapsed > budgetMs && (current.attempt || 1) > 1) {
+      const last = attempts.at(-1);
+      const detail = last ? `（最后一次：${last.endpoint}${last.status ? ` HTTP ${last.status}` : ''}${last.error ? ` ${last.error.slice(0, 60)}` : ''}）` : '';
+
       logger.error(
         { requestId: meta.requestId, endpoint, model, attempts, elapsedMs: elapsed, totalElapsedMs: Date.now() - requestStartedAt, budgetMs },
         'Model request retry budget exhausted'
       );
-      throw new Error('模型请求重试超时。');
+      throw new Error(`模型请求超时：${attempts.length} 次尝试在 ${Math.round(budgetMs / 1000)} 秒内未成功${detail}。`);
     }
     logger.info(
       {
@@ -83,6 +88,12 @@ export const requestModelMessage = async (
       throw new Error('请求超过大小限制。');
     }
     signal.throwIfAborted();
+    // 每个端点最多用剩余重试预算的一半：一个挂死的端点不会占满整个预算。
+    const remaining = Math.max(0, budgetMs - elapsed);
+    const attemptMs = Math.min(Math.max(1500, remaining / 2), Math.max(1500, remaining));
+    const attemptController = new AbortController();
+    const attemptTimer = setTimeout(() => attemptController.abort(new DOMException('attempt timeout', 'TimeoutError')), attemptMs);
+    const attemptStartedAt = Date.now();
     let response: Response;
 
     try {
@@ -92,14 +103,19 @@ export const requestModelMessage = async (
         pricing: current.pricing,
         method: 'POST',
         redirect: 'error',
-        signal,
+        signal: AbortSignal.any([signal, attemptController.signal]),
         headers: { Authorization: `Bearer ${current.apiKey}`, 'Content-Type': 'application/json' },
         body
       });
     } catch (error) {
+      clearTimeout(attemptTimer);
       current.report?.({ ok: false });
       if (error instanceof BudgetExceededError) throw error;
       signal.throwIfAborted();
+      const timedOut = attemptController.signal.aborted;
+      const reason = timedOut ? `单次尝试超过 ${attemptMs}ms` : error instanceof Error ? error.message : '网络失败';
+
+      attempts.push({ endpoint, model, error: reason });
       const next = current.next?.();
 
       logger.warn(
@@ -108,17 +124,23 @@ export const requestModelMessage = async (
           endpoint,
           model,
           attempt: current.attempt,
-          error: error instanceof Error ? error.message : 'network',
+          error: reason,
+          timedOut,
           next: next?.endpointId,
+          elapsedMs: Date.now() - startedAt,
           promptPreview
         },
         'Model endpoint transport failed'
       );
 
-      if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) throw error;
+      if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
+        throw new Error(`模型请求失败：${endpoint} ${reason}${next ? '' : '，且没有可切换的备用端点'}。`);
+      }
       current = next;
       continue;
     }
+    // 响应头已经到手，单次尝试的计时器不再需要（正文流式收完不受影响）。
+    clearTimeout(attemptTimer);
 
     if (!response.ok) {
       const status = response.status;
@@ -166,7 +188,8 @@ export const requestModelMessage = async (
       current = next;
       continue;
     }
-    current.report?.({ ok: true, status: response.status, headers: response.headers });
+    clearTimeout(attemptTimer);
+    current.report?.({ ok: true, status: response.status, headers: response.headers, latencyMs: Date.now() - attemptStartedAt });
     logger.info(
       {
         requestId: meta.requestId,
@@ -309,6 +332,7 @@ export const runToolChat = async (options: {
   ];
   const completed = new Map<string, { signature: string; result: string }>();
   let calls = 0;
+  let realtimeNudged = false;
 
   const finish = async (reason: string): Promise<string> => {
     logger.warn(
@@ -380,6 +404,15 @@ export const runToolChat = async (options: {
       }
 
       if (!response.tool_calls?.length) {
+        if (!realtimeNudged && byName.has('agent_workspace') && context.capabilities.web && needsRealtimeLookup(context.userText)) {
+          realtimeNudged = true;
+          messages.push({
+            role: 'system',
+            content:
+              '当前请求涉及实时信息。你已安装并获准使用 agent_workspace 网页能力；请立即调用它核实，不要直接回答“没有工具”或猜测数字。先用一句话说明正在查询，然后调用工具。'
+          });
+          continue;
+        }
         if (typeof response.content !== 'string' || !response.content.trim()) {
           throw new Error('模型未返回文本回复。');
         }

@@ -59,6 +59,74 @@ POOL_ENDPOINTS = MODEL_POOL.get('endpoints', []) if isinstance(MODEL_POOL, dict)
 POOL_LOCK = threading.Lock()
 POOL_STATE: dict[str, dict] = {}
 POOL_CURSOR = 0
+BRIDGE_METRICS_PATH = Path(os.environ.get('DSH_HOME_ROOT', str(HOME_ROOT))).parent / 'model-pool-bridge-metrics.json'
+BRIDGE_METRICS_LOCK = threading.Lock()
+BRIDGE_METRICS = {'date': time.strftime('%Y-%m-%d', time.gmtime()), 'endpoints': {}, 'personal': {}}
+BRIDGE_METRICS_DIRTY = False
+
+def load_bridge_metrics() -> None:
+    global BRIDGE_METRICS
+    try:
+        raw = json.loads(BRIDGE_METRICS_PATH.read_text(encoding='utf-8'))
+        if isinstance(raw, dict) and raw.get('date') == time.strftime('%Y-%m-%d', time.gmtime()):
+            BRIDGE_METRICS = {'date': raw['date'], 'endpoints': raw.get('endpoints') if isinstance(raw.get('endpoints'), dict) else {}, 'personal': raw.get('personal') if isinstance(raw.get('personal'), dict) else {}}
+    except Exception:
+        pass
+
+def flush_bridge_metrics() -> None:
+    global BRIDGE_METRICS_DIRTY
+    with BRIDGE_METRICS_LOCK:
+        if not BRIDGE_METRICS_DIRTY: return
+        BRIDGE_METRICS_DIRTY = False
+        payload = json.dumps(BRIDGE_METRICS, ensure_ascii=False, separators=(',', ':'))
+    try:
+        temp = BRIDGE_METRICS_PATH.with_name(f'.{os.getpid()}.{time.time_ns()}.bridge-metrics.tmp')
+        temp.parent.mkdir(parents=True, exist_ok=True)
+        temp.write_text(payload, encoding='utf-8')
+        os.chmod(temp, 0o600)
+        os.replace(temp, BRIDGE_METRICS_PATH)
+    except Exception:
+        pass
+
+def bridge_metrics_loop() -> None:
+    while True:
+        time.sleep(5)
+        flush_bridge_metrics()
+
+def extract_usage(data: bytes | None) -> dict | None:
+    if not data: return None
+    try:
+        payload = json.loads(data.decode('utf-8'))
+    except Exception:
+        payload = None
+        for line in data.decode('utf-8', 'ignore').splitlines():
+            if not line.startswith('data:'): continue
+            try:
+                item = json.loads(line[5:].strip())
+            except Exception:
+                continue
+            if isinstance(item, dict) and isinstance(item.get('usage'), dict): payload = item
+    return payload.get('usage') if isinstance(payload, dict) and isinstance(payload.get('usage'), dict) else None
+
+def request_model_name(body: bytes | None) -> str:
+    try:
+        payload = json.loads(body.decode('utf-8')) if body else None
+        return str(payload.get('model') or MODEL) if isinstance(payload, dict) else MODEL
+    except Exception:
+        return MODEL
+
+def record_bridge_usage(label: str, data: bytes | None) -> None:
+    global BRIDGE_METRICS, BRIDGE_METRICS_DIRTY
+    usage = extract_usage(data) or {}
+    today = time.strftime('%Y-%m-%d', time.gmtime())
+    with BRIDGE_METRICS_LOCK:
+        if BRIDGE_METRICS.get('date') != today:
+            BRIDGE_METRICS = {'date': today, 'endpoints': {}, 'personal': {}}
+        bucket = BRIDGE_METRICS['personal'] if label == 'personal' else BRIDGE_METRICS['endpoints'].setdefault(label, {})
+        bucket['requests'] = int(bucket.get('requests', 0)) + 1
+        bucket['input'] = int(bucket.get('input', 0)) + max(0, int(usage.get('prompt_tokens', 0) or 0))
+        bucket['output'] = int(bucket.get('output', 0)) + max(0, int(usage.get('completion_tokens', 0) or 0))
+        BRIDGE_METRICS_DIRTY = True
 
 def pool_state(endpoint_id: str) -> dict:
     return POOL_STATE.setdefault(endpoint_id, {'active': 0, 'failures': 0, 'cooldownUntil': 0, 'disabled': False, 'disabledUntil': 0, 'healthy': None, 'latencyMs': 0})
@@ -234,6 +302,16 @@ def pool_probe_loop() -> None:
             pool_probe_report(endpoint, status, headers)
             time.sleep(0.2)
         time.sleep(interval)
+
+def rewrite_model_body(body: bytes | None, model: str | None) -> bytes | None:
+    if not body or not model: return body
+    try:
+        payload = json.loads(body.decode('utf-8'))
+    except (UnicodeDecodeError, ValueError):
+        return body
+    if not isinstance(payload, dict): return body
+    payload['model'] = model
+    return json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
 
 def pool_model_body(body: bytes | None, endpoint: dict | None) -> bytes | None:
     if body is None or not isinstance(endpoint, dict) or not endpoint.get('model'):
@@ -554,7 +632,6 @@ def validate_preflight() -> str | None:
         if parsed.port is not None and not 1 <= parsed.port <= 65535: return 'Model service port is invalid.'
     except ValueError:
         return 'Model service port is invalid.'
-    if not MODEL_API_KEY: return 'Model credentials are not bound.'
     profile_error = chat_only_profile_test()
     if profile_error: return profile_error
     return sandbox_self_test()
@@ -567,6 +644,7 @@ class Worker:
         self.framework = None
         self.personal_api_key = None
         self.personal_exhausted = False
+        self.workspace = None
         self.framework_enabled = False
         self.turn_id = None
         self.framework_token = None
@@ -697,7 +775,7 @@ class Worker:
             shutil.rmtree(old, ignore_errors=True)
         finally: shutil.rmtree(staging, ignore_errors=True)
 
-    def run(self, message: str, session_id: str, on_content, framework=None, personal_api_key=None) -> dict:
+    def run(self, message: str, session_id: str, on_content, framework=None, personal_api_key=None, workspace=None) -> dict:
         with self.lock:
             enabled = framework is not None
             isolated = enabled or personal_api_key is not None
@@ -711,6 +789,7 @@ class Worker:
             self.framework = framework
             self.personal_api_key = personal_api_key
             self.personal_exhausted = False
+            self.workspace = workspace
             completed = False
             try:
                 if isolated: self.restore_session_data()
@@ -720,6 +799,7 @@ class Worker:
             finally:
                 self.framework = None
                 self.personal_api_key = None
+                self.workspace = None
                 self.framework_token = None
                 try:
                     if isolated:
@@ -858,6 +938,19 @@ class Handler(BaseHTTPRequestHandler):
             personal_api_key = body.get('scopedApiKey', body.get('personalApiKey'))
             if 'scopedApiKey' in body and 'personalApiKey' in body: raise ValueError('ambiguous scoped credential')
             if personal_api_key is not None and (not isinstance(personal_api_key, str) or not re.fullmatch(r'sk-[A-Za-z0-9_-]{8,240}', personal_api_key) or ('personalApiKey' in body and not session_id.startswith('dsh:qq:private:'))): raise ValueError('invalid scoped credential')
+            workspace_api_key = body.get('workspaceApiKey')
+            workspace_base_url = body.get('workspaceBaseUrl')
+            workspace_model = body.get('workspaceModel')
+            workspace_endpoint_id = body.get('workspaceEndpointId')
+            workspace = None
+            if workspace_api_key is not None or workspace_base_url is not None or workspace_model is not None:
+                if not isinstance(workspace_api_key, str) or not re.fullmatch(r'sk-[A-Za-z0-9_-]{8,240}', workspace_api_key): raise ValueError('invalid workspace credential')
+                if workspace_base_url is not None:
+                    parsed_workspace = urlparse(workspace_base_url) if isinstance(workspace_base_url, str) else None
+                    if not parsed_workspace or parsed_workspace.scheme != 'https' or not parsed_workspace.netloc: raise ValueError('invalid workspace base url')
+                if workspace_model is not None and (not isinstance(workspace_model, str) or not workspace_model.strip() or len(workspace_model) > 200): raise ValueError('invalid workspace model')
+                if workspace_endpoint_id is not None and (not isinstance(workspace_endpoint_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', workspace_endpoint_id)): raise ValueError('invalid workspace endpoint id')
+                workspace = {'apiKey': workspace_api_key, 'baseUrl': workspace_base_url, 'model': workspace_model, 'id': workspace_endpoint_id}
             exhausted_event = 'scoped_key_exhausted' if 'scopedApiKey' in body else 'personal_key_exhausted'
             prompt = normalize_chat_input(prompt)
             if not prompt or not capabilities or not capabilities['chat'] or blocked(chat_input_text(prompt), INPUT_BLOCKED): raise ValueError('invalid message')
@@ -872,7 +965,7 @@ class Handler(BaseHTTPRequestHandler):
                 streamed = True
         try:
             worker = get_worker(key, self.server.server_port, capabilities)
-            result = worker.run(trusted_prompt(prompt, capabilities) if isinstance(prompt, str) else [{'type': 'text', 'text': trusted_prompt('', capabilities)}, *prompt], session_id, on_content, framework, personal_api_key)
+            result = worker.run(trusted_prompt(prompt, capabilities) if isinstance(prompt, str) else [{'type': 'text', 'text': trusted_prompt('', capabilities)}, *prompt], session_id, on_content, framework, personal_api_key, workspace)
             if worker.personal_exhausted:
                 send_sse(self, {'type': exhausted_event}); return
             content = str(result.get('content') or '')
@@ -938,6 +1031,7 @@ class Handler(BaseHTTPRequestHandler):
         if not tail or parsed_tail.scheme or parsed_tail.netloc or any(unquote(part) == '..' for part in parsed_tail.path.split('/')):
             self.send_error(HTTPStatus.BAD_REQUEST); return
         personal_api_key = worker.personal_api_key
+        workspace = worker.workspace
         try:
             length = int(self.headers.get('Content-Length', '0'))
         except ValueError:
@@ -948,11 +1042,11 @@ class Handler(BaseHTTPRequestHandler):
         is_messages = self.headers.get('x-api-key') == token
         retry_statuses = set((MODEL_POOL or {}).get('retryStatuses', [401, 402, 403, 429, 500, 502, 503, 504]))
         max_attempts = max(1, min(5, int((MODEL_POOL or {}).get('maxAttempts', 3))))
-        attempts = 1 if personal_api_key or not POOL_ENDPOINTS else max_attempts
+        attempts = 1 if personal_api_key or workspace or not POOL_ENDPOINTS else max_attempts
         tried: set[str] = set()
         for attempt in range(attempts):
-            endpoint = None if personal_api_key or not POOL_ENDPOINTS else pool_select(tried)
-            if not personal_api_key and POOL_ENDPOINTS and endpoint is None:
+            endpoint = None if personal_api_key or workspace or not POOL_ENDPOINTS else pool_select(tried)
+            if not personal_api_key and not workspace and POOL_ENDPOINTS and endpoint is None:
                 try: self.send_error(HTTPStatus.SERVICE_UNAVAILABLE)
                 except (BrokenPipeError, ConnectionResetError, OSError): pass
                 return
@@ -960,11 +1054,16 @@ class Handler(BaseHTTPRequestHandler):
                 tried.add(str(endpoint.get('id', '')))
                 base = endpoint.get('baseUrl') or MODEL_BASE_URL
                 api_key = endpoint.get('apiKey') or MODEL_API_KEY
+                outgoing = pool_model_body(body, endpoint)
+            elif workspace:
+                base = workspace.get('baseUrl') or MODEL_BASE_URL
+                api_key = workspace.get('apiKey') or MODEL_API_KEY
+                outgoing = rewrite_model_body(body, workspace.get('model'))
             else:
                 base = 'https://api.deepseek.com' if personal_api_key else MODEL_BASE_URL
                 api_key = personal_api_key or MODEL_API_KEY
+                outgoing = body
             target = model_egress_target(base, tail, is_messages)
-            outgoing = pool_model_body(body, endpoint)
             headers = {'Accept': self.headers.get('Accept', 'application/json'), 'Content-Type': self.headers.get('Content-Type', 'application/json')}
             if is_messages:
                 headers['x-api-key'] = api_key
@@ -981,7 +1080,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as error:
                 pool_report(endpoint, None)
                 elapsed_ms = int((time.monotonic() - started_at) * 1000)
-                print(f'egress failed kind={type(error).__name__} duration_ms={elapsed_ms}', file=sys.stderr)
+                print(f'egress failed endpoint={str(endpoint.get("id", "legacy")) if endpoint else ("personal" if personal_api_key else (str(workspace.get('id') or 'workspace') if workspace else "legacy"))} model={request_model_name(body)} kind={type(error).__name__} duration_ms={elapsed_ms}', file=sys.stderr)
                 if endpoint and attempt + 1 < attempts: continue
                 try: self.send_error(HTTPStatus.BAD_GATEWAY)
                 except (BrokenPipeError, ConnectionResetError, OSError): pass
@@ -994,7 +1093,7 @@ class Handler(BaseHTTPRequestHandler):
                 continue
             pool_report(endpoint, response.status, response.headers)
             elapsed_ms = int((time.monotonic() - started_at) * 1000)
-            print(f'egress completed status={response.status} duration_ms={elapsed_ms}', file=sys.stderr)
+            print(f'egress completed endpoint={str(endpoint.get("id", "legacy")) if endpoint else ("personal" if personal_api_key else (str(workspace.get('id') or 'workspace') if workspace else "legacy"))} model={request_model_name(body)} status={response.status} duration_ms={elapsed_ms}', file=sys.stderr)
             try:
                 data = read_bounded(response, MAX_BODY)
             except ValueError as error:
@@ -1002,6 +1101,7 @@ class Handler(BaseHTTPRequestHandler):
                 try: self.send_error(HTTPStatus.BAD_GATEWAY)
                 except (BrokenPipeError, ConnectionResetError, OSError): pass
                 return
+            record_bridge_usage('personal' if personal_api_key else (str(workspace.get('id') or 'workspace') if workspace else (str(endpoint.get('id', 'legacy')) if endpoint else 'legacy')), data)
             try:
                 self.send_response(response.status); self.send_header('Content-Type', response.headers.get('Content-Type', 'application/json')); self.end_headers(); self.wfile.write(data)
             except (BrokenPipeError, ConnectionResetError, OSError):
@@ -1013,6 +1113,9 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     port = int(sys.argv[sys.argv.index('--port') + 1])
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True); HOME_ROOT.mkdir(parents=True, exist_ok=True); RUNTIME_ROOT.mkdir(parents=True, exist_ok=True); atexit.register(close_workers)
+    atexit.register(flush_bridge_metrics)
+    load_bridge_metrics()
+    threading.Thread(target=bridge_metrics_loop, name='bridge-metrics', daemon=True).start()
     cleanup_stale_group_data()
     schedule_local_cleanup()
     if POOL_ENDPOINTS and int((MODEL_POOL or {}).get('probeIntervalSeconds', 60)) > 0:

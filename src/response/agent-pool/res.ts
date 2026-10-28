@@ -3,6 +3,7 @@ import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { getCredentialPool } from '@src/credentials/pool';
 import { fetchPoolBalances } from '@src/model-pool/balance';
+import { readBridgeMetrics } from '@src/model-pool/bridge-metrics';
 import { poolPageView } from './format';
 
 export default async (): Promise<void> => {
@@ -44,13 +45,13 @@ export default async (): Promise<void> => {
     return;
   }
 
-  const balances = await fetchPoolBalances(pool.config);
-  const view = poolPageView(pool.status, Number.isFinite(requested) ? requested : 1, Date.now(), balances, pool.config.balanceAlertYuan);
+  const [balances, bridge] = await Promise.all([fetchPoolBalances(pool.config), readBridgeMetrics(getDSHConfig())]);
+  const view = poolPageView(pool.status, Number.isFinite(requested) ? requested : 1, Date.now(), balances, pool.config.balanceAlertYuan, bridge);
   const actions = [];
 
   if (view.page > 1) actions.push({ label: '上一页', command: `/模型池 ${view.page - 1}`, short: '上页' });
   if (view.page < view.pages) actions.push({ label: '下一页', command: `/模型池 ${view.page + 1}`, short: '下页' });
   actions.push({ label: '刷新', command: '/模型池', short: '刷新' }, { label: '当前模型', command: '/当前模型' }, { label: '模型列表', command: '/模型列表' });
 
-  await message.send({ format: commandBubble(view.text, '模型池', { platform: event.Platform, actions }) });
+  await message.send({ format: commandBubble(view.text, '模型池', { platform: event.Platform, layout: 'keyboard', actions }) });
 };

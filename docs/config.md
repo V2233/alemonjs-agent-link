@@ -129,6 +129,8 @@ modelPool:
 
 配置了 `modelPool` 后，外层 `apiKey` 只作为旧配置兼容，不再参与普通请求或沙箱兜底；沙箱必须在池里有一个 `provider: deepseek-official` 的端点。
 
+`workspace: true` 可标记一个专用工作区端点；`agent_workspace` 会优先使用它，而不是聊天轮转选中的端点。它必须兼容 DSH 的 DeepSeek Messages 协议。
+
 需要硬限流时给端点加 `account`、`rpm`、`tpm`：同一 `account` 共享 60 秒滑动窗口内的请求数和 token 数，达到 RPM/TPM 后不再选择该端点，不必等厂商返回 429。请求前会按估算 token 预留，响应后按真实 usage 结算；未完成的预留会在失败/取消时释放。`balanceAlertYuan` 控制 `/模型池` 的低余额提示阈值。`retryBudgetMs` 控制总重试时间，`retryJitterMs` 控制切换抖动。`queueMaxWaitMs` 让主端点并发满时短暂等待，超时才用 fallback，避免为了 200ms 的空档直接花贵价额度。
 
 `strategy: balanced` 会按每个端点当前在途数、会话绑定数和近期选择次数计算负载，新会话优先选压力小的端点；同一会话在 `stickySeconds` 内固定在上次端点，不因一次轮转随意更换。
@@ -163,7 +165,7 @@ modelPool:
 
 `provider` 只是端点的标签/沙箱筛选依据；Node 侧按 OpenAI 标准发请求，不按厂商名做特殊协议转换。原生 Anthropic Messages、Gemini GenerateContent 等非 OpenAI 协议需要先用兼容网关转换。
 
-每日请求数和 token 数会写入 `dshHomeRoot` 同级的 `model-pool-metrics.json`，重启后保留当天账本；跨天自动归零。
+每日请求数和 token 数会写入 `dshHomeRoot` 同级的 `model-pool-metrics.json`，重启后保留当天账本；跨天自动归零。沙箱 Bridge 的用量单独写入 `model-pool-bridge-metrics.json`，`/模型池` 会显示沙箱和个人/群 Key 的今日请求与 token。
 
 主人私聊发送 `/模型池` 查看分页状态、余额和补货提示，`/模型池 2` 翻页；摘要会列出可用、冷却、停用、异常、在途和已知余额合计。DeepSeek 官方端点自动查 `/user/balance`；其他服务可配置 `balanceUrl` 模板，例如代金券查询页，`{key}` 会替换为端点 Key。
 

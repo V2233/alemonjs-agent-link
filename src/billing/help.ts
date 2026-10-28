@@ -25,7 +25,6 @@ export const quotaHelp = (isPrivate: boolean): string =>
 export const budgetNoticeActions = (isPrivate: boolean): { label: string; command: string }[] =>
   isPrivate
     ? [
-        { label: '个人密钥', command: '/个人密钥' },
         { label: '绑定密钥', command: '/个人密钥 绑定' },
         { label: '启用密钥', command: '/个人密钥 启用' },
         { label: '查额度', command: '/额度' }

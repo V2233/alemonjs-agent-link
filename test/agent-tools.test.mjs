@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runToolChat } from '../lib/agent/tool-chat.js';
+import { needsRealtimeLookup, runToolChat } from '../lib/agent/tool-chat.js';
 import { validateArguments } from '../lib/agent/schema.js';
 
 const context = signal => ({
@@ -443,6 +443,43 @@ test('assistant history always carries an empty reasoning_content placeholder', 
     const assistant = body.messages.find(message => message.role === 'assistant');
     assert.equal(assistant.content, '上一轮');
     assert.equal(assistant.reasoning_content, '');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('realtime weather request is nudged to use the web workspace instead of refusing', async () => {
+  const original = globalThis.fetch;
+  let requests = 0;
+  const workspace = {
+    name: 'agent_workspace',
+    description: '网页工作区',
+    parameters: { type: 'object', properties: { task: { type: 'string' } }, required: ['task'] },
+    execute: async () => ({ ok: true, result: '南宁今天晴，26℃' })
+  };
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    requests++;
+    if (requests === 1) return Response.json({ choices: [{ message: { content: '我没有查天气的工具。' } }] });
+    if (requests === 2) {
+      assert.match(body.messages.at(-1).content, /立即调用它核实/u);
+      return Response.json({
+        choices: [{ message: { tool_calls: [{ id: 'weather', type: 'function', function: { name: 'agent_workspace', arguments: '{"task":"南宁天气"}' } }] } }]
+      });
+    }
+    assert.equal(JSON.parse(body.messages.find(message => message.role === 'tool').content).result, '南宁今天晴，26℃');
+
+    return Response.json({ choices: [{ message: { content: '南宁今天晴，26℃。' } }] });
+  };
+  try {
+    assert.equal(needsRealtimeLookup('南宁今天天气'), true);
+    assert.equal(needsRealtimeLookup('你好'), false);
+    const result = await runToolChat({
+      ...options([workspace]),
+      context: { ...context(new AbortController().signal), capabilities: { chat: true, web: true, files: false, terminal: false }, userText: '南宁今天天气' }
+    });
+    assert.equal(result, '南宁今天晴，26℃。');
+    assert.equal(requests, 3);
   } finally {
     globalThis.fetch = original;
   }

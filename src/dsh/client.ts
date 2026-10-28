@@ -5,6 +5,7 @@ import { reserveWorkspaceText } from '../billing/budget';
 import { type ChatInput, withInputContext, inputText } from './input';
 import type { PrivateHistoryContext } from '@src/state/registry';
 import { type DSHBridgeConfig, type AgentCapabilities } from './config';
+import type { DSHCredentials } from './credentials';
 import { DSHError, abortFailure } from './errors';
 import { ensureDSHSupervisor, getDSHBridge, hasDSHBridgeOverride } from '@src/dsh/supervisor';
 export { DSHError } from './errors';
@@ -113,7 +114,8 @@ export const streamChat = async (
   capabilities: AgentCapabilities = { chat: true, web: true, files: true, terminal: false },
   privateHistory?: PrivateHistoryContext,
   onCompleted?: (signal: AbortSignal) => Promise<void>,
-  framework?: { url: string; token: string }
+  framework?: { url: string; token: string },
+  workspace?: DSHCredentials
 ): Promise<void> => {
   capabilities = { ...capabilities, terminal: false };
   assertAIEnabled(config);
@@ -162,7 +164,15 @@ export const streamChat = async (
         stream: true,
         capabilities: toCapabilities(capabilities),
         ...(framework ? { framework } : {}),
-        ...(personal ? (personal.scope.channelId.startsWith('private:') ? { personalApiKey: personal.apiKey } : { scopedApiKey: personal.apiKey }) : {})
+        ...(personal ? (personal.scope.channelId.startsWith('private:') ? { personalApiKey: personal.apiKey } : { scopedApiKey: personal.apiKey }) : {}),
+        ...(workspace
+          ? {
+              workspaceApiKey: workspace.apiKey,
+              ...(workspace.endpointId ? { workspaceEndpointId: workspace.endpointId } : {}),
+              ...(workspace.baseUrl ? { workspaceBaseUrl: workspace.baseUrl } : {}),
+              ...(workspace.model ? { workspaceModel: workspace.model } : {})
+            }
+          : {})
       }),
       signal: externalSignal ? AbortSignal.any([controller.signal, externalSignal]) : controller.signal
     });

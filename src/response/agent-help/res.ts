@@ -118,7 +118,11 @@ const helpSections = (isPrivate: boolean, owner: boolean): BubbleSection[] => [
 
 export const helpFormat = (isPrivate: boolean, owner: boolean, topic = '', platform = 'qq-bot') => {
   if (platform !== 'qq-bot') return Format.create().addText(helpText(isPrivate, owner, topic));
-  if (!topic) return sectionBubble('大肥鱼 · 使用指南', '选一个主题展开；点入口会填入指令，确认后发送。', helpSections(isPrivate, owner), { platform });
+  if (!topic)
+    return sectionBubble('大肥鱼 · 使用指南', '选一个主题展开；点入口会填入指令，确认后发送。', helpSections(isPrivate, owner), {
+      platform,
+      layout: 'keyboard'
+    });
   const text = helpText(isPrivate, owner, topic);
   const lines = text.split('\n');
   // 单主题卡片：首行就是主题名，卡片标题已表达，正文不再重复。

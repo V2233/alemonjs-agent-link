@@ -665,3 +665,178 @@ test('startup chat probe disables a frozen billing account even when /models is 
     globalThis.fetch = original;
   }
 });
+
+test('a hanging endpoint is abandoned inside the retry budget and failed over', async () => {
+  const pool = new CredentialPool(
+    parseModelPool(
+      { enabled: true, maxAttempts: 3, retryBudgetMs: 2000, endpoints: config.modelPool.endpoints },
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+    )
+  );
+  const credentials = pool.select({ purpose: 'chat' });
+  const calls = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push(String(url));
+    if (calls.length === 1) {
+      // 第一个端点永远不回包，只能靠单次尝试超时打断。
+      return await new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(init.signal.reason ?? new Error('aborted')), { once: true });
+      });
+    }
+    return Response.json({ choices: [{ message: { content: '备用端点' } }] });
+  };
+  try {
+    const started = Date.now();
+    const result = await requestModelMessage(
+      { provider: 'deepseek-official', model: 'fallback', maxRequestBytes: 10000, budget: { enabled: false } },
+      credentials,
+      [{ role: 'user', content: '你好' }],
+      [],
+      new AbortController().signal
+    );
+
+    assert.equal(result.content, '备用端点');
+    assert.equal(calls.length, 2, '挂起的端点被执行超时打断后换到了备用端点');
+    assert.ok(Date.now() - started < 5000, '不会等到外层请求超时');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('when every endpoint hangs the error names the attempts instead of a bare timeout', async () => {
+  const pool = new CredentialPool(
+    parseModelPool(
+      { enabled: true, maxAttempts: 2, retryBudgetMs: 1000, endpoints: config.modelPool.endpoints },
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+    )
+  );
+  const credentials = pool.select({ purpose: 'chat' });
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) =>
+    await new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(init.signal.reason ?? new Error('aborted')), { once: true });
+    });
+  try {
+    await assert.rejects(
+      requestModelMessage(
+        { provider: 'deepseek-official', model: 'fallback', maxRequestBytes: 10000, budget: { enabled: false } },
+        credentials,
+        [{ role: 'user', content: '你好' }],
+        [],
+        new AbortController().signal
+      ),
+      error => /模型请求(超时|失败)/u.test(error.message) && /a|b/u.test(error.message)
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('real request latency demotes slow endpoints instead of just probe results', () => {
+  const pool = new CredentialPool(
+    parseModelPool(
+      {
+        enabled: true,
+        strategy: 'balanced',
+        endpoints: [
+          { id: 'slow', apiKey: 'sk-slow-000000', model: 'deepseek-v4-flash', weight: 1, maxConcurrent: 4 },
+          { id: 'fast', apiKey: 'sk-fast-000000', model: 'deepseek-v4-flash', weight: 1, maxConcurrent: 4 }
+        ]
+      },
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+    )
+  );
+  // 两个端点都先跑一次，把真实耗时喂进去。
+  for (let index = 0; index < 4; index++) {
+    const credential = pool.select({ purpose: 'chat' });
+
+    assert.ok(credential);
+    credential.report({ ok: true, latencyMs: credential.endpointId === 'slow' ? 4000 : 80 });
+  }
+  const picks = [];
+
+  for (let index = 0; index < 5; index++) {
+    const credential = pool.select({ purpose: 'chat' });
+
+    picks.push(credential.endpointId);
+    credential.report({ ok: true, latencyMs: credential.endpointId === 'slow' ? 4000 : 80 });
+  }
+  assert.ok(picks.filter(id => id === 'fast').length >= 4, `慢端点应被降权，实际：${picks.join(',')}`);
+});
+
+test('stable selection prefers the measured fast endpoint instead of the first configured one', () => {
+  const pool = new CredentialPool(
+    parseModelPool(
+      {
+        enabled: true,
+        strategy: 'balanced',
+        endpoints: [
+          { id: 'slow', apiKey: 'sk-slow-111111', model: 'deepseek-v4-flash', weight: 1, maxConcurrent: 4 },
+          { id: 'fast', apiKey: 'sk-fast-111111', model: 'deepseek-v4-flash', weight: 1, maxConcurrent: 4 }
+        ]
+      },
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+    )
+  );
+  for (const id of ['slow', 'fast']) {
+    const credential = pool.select({ purpose: 'replyGate' });
+
+    assert.ok(credential);
+    credential.report({ ok: true, latencyMs: credential.endpointId === id ? (id === 'slow' ? 3500 : 120) : 0 });
+  }
+  // 再喂两轮，让两个端点的延迟都稳定下来。
+  for (let index = 0; index < 3; index++) {
+    const credential = pool.select({ purpose: 'replyGate' });
+
+    credential.report({ ok: true, latencyMs: credential.endpointId === 'slow' ? 3500 : 120 });
+  }
+  const stable = [];
+
+  for (let index = 0; index < 3; index++) {
+    const credential = pool.select({ purpose: 'replyGate', stable: true });
+
+    stable.push(credential.endpointId);
+    credential.report({ ok: true, latencyMs: credential.endpointId === 'slow' ? 3500 : 120 });
+  }
+  assert.deepEqual(stable, ['fast', 'fast', 'fast']);
+});
+
+test('a sticky session is released when its endpoint turns out much slower', () => {
+  const pool = new CredentialPool(
+    parseModelPool(
+      {
+        enabled: true,
+        strategy: 'balanced',
+        stickySeconds: 1800,
+        endpoints: [
+          { id: 'a', apiKey: 'sk-aaaa-222222', model: 'deepseek-v4-flash', weight: 1, maxConcurrent: 4 },
+          { id: 'b', apiKey: 'sk-bbbb-222222', model: 'deepseek-v4-flash', weight: 1, maxConcurrent: 4 }
+        ]
+      },
+      { provider: 'deepseek-official', model: 'deepseek-v4-flash' }
+    )
+  );
+  const bind = purpose => {
+    const credential = pool.select({ purpose, stickyKey: 'group-1' });
+    return credential;
+  };
+  const first = bind('chat');
+  const slow = first.endpointId;
+  const fast = slow === 'a' ? 'b' : 'a';
+
+  // 两个端点都建立真实延迟：一个 4 秒，一个 80 毫秒。
+  for (const id of [slow, fast]) {
+    for (let index = 0; index < 3; index++) {
+      const warm = pool.select({ purpose: 'chat', stickyKey: `warm-${id}-${index}` });
+
+      warm.report({ ok: true, latencyMs: warm.endpointId === slow ? 4000 : 80 });
+    }
+  }
+  first.report({ ok: true, latencyMs: 4000 });
+  const again = bind('chat');
+
+  assert.equal(again.endpointId, fast, '粘性绑定的慢端点应被释放');
+  again.report({ ok: true, latencyMs: 80 });
+  assert.equal(bind('chat').endpointId, fast);
+});

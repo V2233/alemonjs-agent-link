@@ -8,14 +8,16 @@ const { createMarkdownText } = await import(new URL('./format.js', import.meta.r
 const { GROUP_AT_MESSAGE_CREATE, C2C_MESSAGE_CREATE } = await import(new URL('./sends.js', import.meta.resolve('@alemonjs/qq-bot')));
 const { runtimeScope } = await import(new URL('./common/runtime-scope.js', import.meta.resolve('alemonjs')));
 
-test('help actions stay with their sections and only fill commands, never auto-submit', () => {
+test('help index is a keyboard-only topic chooser, never inline duplicates', () => {
   const format = helpFormat(false, false);
   const rendered = createMarkdownText(format.value[0].value, 'group');
-  assert.match(rendered, /> .*聊天用法.*qqbot-cmd-input|> .*qqbot-cmd-input.*聊天用法/);
+  assert.doesNotMatch(rendered, /qqbot-cmd-input/);
   assert.doesNotMatch(rendered, /qqbot-cmd-enter/);
-  assert.match(rendered, /text="\/帮助 记忆"/);
-  assert.doesNotMatch(rendered, /\/帮助 管理/);
   assert.ok(rendered.length < 3500);
+  const commands = commandsOf(format);
+  assert.ok(commands.includes('/帮助 聊天'));
+  assert.ok(commands.includes('/帮助 记忆'));
+  assert.ok(!commands.includes('/帮助 管理'));
   const plain = helpFormat(true, true, '', 'onebot').value;
   assert.equal(plain[0].type, 'Text');
   assert.match(plain[0].value, /\/帮助 管理/);
@@ -52,7 +54,7 @@ test('real QQ group and private adapters send the help card as Markdown', async 
   for (const body of sent) {
     assert.equal(body.msg_type, 2);
     assert.match(body.markdown.content, /大肥鱼/);
-    assert.match(body.markdown.content, /qqbot-cmd-input/);
+    assert.doesNotMatch(body.markdown.content, /qqbot-cmd-input/);
     const rows = body.keyboard?.content?.rows ?? [];
 
     assert.ok(rows.length > 0 && rows.length <= 5, 'the adapter receives a compact keyboard group');
@@ -72,7 +74,7 @@ test('real QQ group and private adapters send the help card as Markdown', async 
 const keyboardOf = format => format.value.find(item => item.type === 'BT.group')?.value ?? [];
 const commandsOf = format => keyboardOf(format).flatMap(row => row.value.map(button => button.options?.data));
 
-test('every bubble pairs inline command buttons with a compact keyboard group', () => {
+test('help chooser is one compact keyboard, not a second inline toolbar', () => {
   const format = helpFormat(false, false);
   const group = keyboardOf(format);
 
@@ -89,18 +91,40 @@ test('every bubble pairs inline command buttons with a compact keyboard group', 
       assert.equal(button.options.autoEnter, false, 'keyboard buttons never auto-submit');
     }
   }
-  assert.match(createMarkdownText(format.value[0].value, 'group'), /qqbot-cmd-input/);
+  assert.doesNotMatch(createMarkdownText(format.value[0].value, 'group'), /qqbot-cmd-input/);
   const duplicate = commandsOf(format).filter((command, index, all) => all.indexOf(command) !== index);
 
   assert.deepEqual(duplicate, [], 'keyboard commands are deduplicated');
 });
 
-test('command cards attach buttons only where the caller declares them', () => {
-  const card = commandBubble('第一行\n第二行', '标题', { platform: 'qq-bot', actions: [{ label: '额度', command: '/额度' }] });
+test('command cards use inline buttons for one step and keyboard buttons for a menu', () => {
+  const inlineCard = commandBubble('第一行\n第二行', '标题', { platform: 'qq-bot', actions: [{ label: '额度', command: '/额度' }] });
 
-  assert.equal(card.value[0].type, 'Markdown');
-  assert.deepEqual(commandsOf(card), ['/额度']);
-  assert.match(createMarkdownText(card.value[0].value, 'group'), /qqbot-cmd-input text="\/额度"/);
+  assert.equal(inlineCard.value[0].type, 'Markdown');
+  assert.deepEqual(commandsOf(inlineCard), [], 'one or two next steps stay inline');
+  assert.match(createMarkdownText(inlineCard.value[0].value, 'group'), /qqbot-cmd-input text="\/额度"/);
+
+  const keyboardCard = commandBubble('第一行\n第二行', '标题', {
+    platform: 'qq-bot',
+    layout: 'keyboard',
+    actions: [{ label: '额度', command: '/额度' }]
+  });
+
+  assert.deepEqual(commandsOf(keyboardCard), ['/额度']);
+  assert.doesNotMatch(createMarkdownText(keyboardCard.value[0].value, 'group'), /qqbot-cmd-input/);
+
+  const menuCard = commandBubble('第一行\n第二行', '标题', {
+    platform: 'qq-bot',
+    actions: [
+      { label: '额度', command: '/额度' },
+      { label: '状态', command: '/状态' },
+      { label: '帮助', command: '/帮助' },
+      { label: '新会话', command: '/新会话' }
+    ]
+  });
+
+  assert.deepEqual(commandsOf(menuCard), ['/额度', '/状态', '/帮助', '/新会话']);
+  assert.doesNotMatch(createMarkdownText(menuCard.value[0].value, 'group'), /qqbot-cmd-input/);
 
   const plain = commandBubble('第一行\n第二行', '标题', { platform: 'onebot', actions: [{ label: '额度', command: '/额度' }] });
 
@@ -113,6 +137,7 @@ test('command cards attach buttons only where the caller declares them', () => {
 test('declared actions are deduplicated and capped', () => {
   const card = commandBubble('说明\n更多', '标题', {
     platform: 'qq-bot',
+    layout: 'keyboard',
     actions: [
       { label: '人格', command: '/人格' },
       { label: '使用编辑器', command: '/人格 使用 编辑器' },
@@ -124,6 +149,7 @@ test('declared actions are deduplicated and capped', () => {
 
   const capped = commandBubble('说明\n更多', '标题', {
     platform: 'qq-bot',
+    layout: 'keyboard',
     actions: Array.from({ length: 14 }, (_, index) => ({ label: `项目${index}`, command: `/记忆检索 关键词${index}` }))
   });
 
@@ -152,17 +178,18 @@ test('budget-exceeded notices offer exactly the commands their copy tells users 
     const rendered = createMarkdownText(format.value[0].value, 'group');
 
     assert.match(rendered, /额度不足/);
-    assert.match(rendered, /qqbot-cmd-input/);
+    assert.deepEqual(commandsOf(format), [], 'two or three next steps stay inline, no duplicate keyboard');
     for (const action of actions) {
       assert.ok(copy.includes(action.command), `copy must mention ${action.command}`);
-      assert.ok(commandsOf(format).includes(action.command), `keyboard must expose ${action.command}`);
+      assert.ok(rendered.includes(`qqbot-cmd-input text="${action.command}"`), `inline must expose ${action.command}`);
       assert.ok(Array.from(action.label).length <= 4, `label ${action.label} stays short`);
     }
-    assert.ok(commandsOf(format).includes(isPrivate ? '/个人密钥 绑定' : '/群密钥 绑定'), 'the first step is one tap away');
+    assert.ok(rendered.includes(`qqbot-cmd-input text="${isPrivate ? '/个人密钥 绑定' : '/群密钥 绑定'}"`), 'the first step is one tap away');
   }
 
   const plain = noticeBubble(insufficientBudgetHelp(false), { platform: 'onebot', title: '额度不足', actions: budgetNoticeActions(false) });
 
   assert.equal(plain.value.length, 1);
   assert.equal(plain.value[0].type, 'Markdown', 'OneBot still gets the guidance without keyboard payloads');
+  assert.doesNotMatch(createMarkdownText(plain.value[0].value, 'group'), /qqbot-cmd-input/);
 });
