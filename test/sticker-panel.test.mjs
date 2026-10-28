@@ -51,6 +51,10 @@ test('loopback panel lists, uploads, serves, renames and removes stickers with t
     assert.match(await page.text(), /AgentLink 表情库/);
     const empty = await (await fetch(`${base}/api/stickers`, { headers: auth })).json();
     assert.deepEqual(empty.items, []);
+    for (const path of ['/api/import', '/api/sync']) {
+      const response = await fetch(`${base}${path}`, { method: 'POST', headers: auth, body: '{}' });
+      assert.equal(response.status, 503);
+    }
     const upload = await fetch(`${base}/api/stickers`, {
       method: 'POST',
       headers: { ...auth, 'Content-Type': 'application/json' },

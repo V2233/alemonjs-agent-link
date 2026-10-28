@@ -60,12 +60,45 @@ POOL_LOCK = threading.Lock()
 POOL_STATE: dict[str, dict] = {}
 POOL_CURSOR = 0
 
+def pool_state(endpoint_id: str) -> dict:
+    return POOL_STATE.setdefault(endpoint_id, {'active': 0, 'failures': 0, 'cooldownUntil': 0, 'disabled': False, 'disabledUntil': 0, 'healthy': None, 'latencyMs': 0})
+
+def header_value(headers, name: str) -> str:
+    if headers is None:
+        return ''
+    try:
+        return str(headers.get(name) or '')
+    except Exception:
+        return ''
+
+def retry_after_seconds(headers) -> float:
+    value = header_value(headers, 'Retry-After').strip()
+    if value:
+        try:
+            return max(0.0, float(value))
+        except ValueError:
+            pass
+    reset = header_value(headers, 'x-ratelimit-reset-requests').strip()
+    if reset:
+        match = re.match(r'^(\d+(?:\.\d+)?)(ms|s|m|h)?$', reset)
+        if match:
+            amount = float(match.group(1))
+            unit = match.group(2) or 's'
+            return amount * (0.001 if unit == 'ms' else 60 if unit == 'm' else 3600 if unit == 'h' else 1)
+    return 0.0
+
+def rate_reset_seconds(headers) -> float:
+    remaining = header_value(headers, 'x-ratelimit-remaining-requests') or header_value(headers, 'ratelimit-remaining')
+    if not remaining or not remaining.strip().isdigit() or int(remaining) > 0:
+        return 0.0
+    return retry_after_seconds(headers)
+
 def pool_available(now: float) -> list[dict]:
     available = []
     for endpoint in POOL_ENDPOINTS:
         if not isinstance(endpoint, dict) or endpoint.get('enabled') is False:
             continue
-        state = POOL_STATE.setdefault(endpoint.get('id', ''), {'active': 0, 'failures': 0, 'cooldownUntil': 0, 'disabled': False})
+        state = pool_state(endpoint.get('id', ''))
         if state['disabled'] or state['cooldownUntil'] > now or state['active'] >= max(1, int(endpoint.get('maxConcurrent', 2))):
             continue
         available.append(endpoint)
@@ -77,40 +110,130 @@ def pool_select(exclude: set[str] | None = None) -> dict | None:
         available = [endpoint for endpoint in pool_available(time.monotonic()) if not exclude or endpoint.get('id') not in exclude]
         if not available:
             return None
+        preferred = [endpoint for endpoint in available if pool_state(endpoint.get('id', '')).get('healthy') is not False]
+        candidates = preferred or available
         expanded = []
-        for endpoint in available:
+        for endpoint in candidates:
             expanded.extend([endpoint] * max(1, min(100, int(endpoint.get('weight', 1)))))
         endpoint = expanded[POOL_CURSOR % len(expanded)]
         POOL_CURSOR = (POOL_CURSOR + 1) % len(expanded)
-        state = POOL_STATE.setdefault(endpoint.get('id', ''), {'active': 0, 'failures': 0, 'cooldownUntil': 0, 'disabled': False})
-        state['active'] += 1
+        pool_state(endpoint.get('id', ''))['active'] += 1
         return endpoint
 
-def pool_report(endpoint: dict | None, status: int | None) -> None:
+def pool_report(endpoint: dict | None, status: int | None, headers=None) -> None:
     if not isinstance(endpoint, dict):
         return
     endpoint_id = endpoint.get('id', '')
+    now = time.monotonic()
     with POOL_LOCK:
-        state = POOL_STATE.setdefault(endpoint_id, {'active': 0, 'failures': 0, 'cooldownUntil': 0, 'disabled': False})
+        state = pool_state(endpoint_id)
         if state['active'] > 0:
             state['active'] -= 1
         if status is not None and 200 <= status < 300:
             state['failures'] = 0
-            state['cooldownUntil'] = 0
+            reset = rate_reset_seconds(headers)
+            if state['cooldownUntil'] <= now:
+                state['cooldownUntil'] = now + reset
+            elif reset > 0:
+                state['cooldownUntil'] = max(state['cooldownUntil'], now + reset)
+            state['healthy'] = True
+            state['disabled'] = False
+            state['disabledUntil'] = 0
             return
         if status in (401, 402, 403):
             state['disabled'] = True
+            state['disabledUntil'] = now + max(0, int((MODEL_POOL or {}).get('recoveryProbeSeconds', 300)))
+            state['healthy'] = False
             return
         if status == 429:
             state['failures'] += 1
+            state['healthy'] = False
             base = max(1, int((MODEL_POOL or {}).get('cooldownSeconds', 60)))
-            state['cooldownUntil'] = time.monotonic() + min(base * (2 ** min(4, state['failures'] - 1)), 3600)
+            backoff = min(base * (2 ** min(4, state['failures'] - 1)), 3600)
+            state['cooldownUntil'] = now + max(backoff, retry_after_seconds(headers))
             return
         if status is not None and 500 <= status <= 599:
             state['failures'] += 1
+            state['healthy'] = False
             threshold = max(1, int((MODEL_POOL or {}).get('failureThreshold', 2)))
             if state['failures'] >= threshold:
-                state['cooldownUntil'] = time.monotonic() + max(1, int((MODEL_POOL or {}).get('cooldownSeconds', 60)))
+                state['cooldownUntil'] = now + max(1, int((MODEL_POOL or {}).get('cooldownSeconds', 60)))
+
+def pool_probe_report(endpoint: dict, status: int | None, headers=None) -> None:
+    if not isinstance(endpoint, dict):
+        return
+    endpoint_id = endpoint.get('id', '')
+    now = time.monotonic()
+    with POOL_LOCK:
+        state = pool_state(endpoint_id)
+        if status is not None and 200 <= status < 300:
+            state['failures'] = 0
+            reset = rate_reset_seconds(headers)
+            if state['cooldownUntil'] <= now:
+                state['cooldownUntil'] = now + reset
+            elif reset > 0:
+                state['cooldownUntil'] = max(state['cooldownUntil'], now + reset)
+            state['healthy'] = True
+            state['disabled'] = False
+            state['disabledUntil'] = 0
+            return
+        if status in (401, 402, 403):
+            state['disabled'] = True
+            state['disabledUntil'] = now + max(0, int((MODEL_POOL or {}).get('recoveryProbeSeconds', 300)))
+            state['healthy'] = False
+            return
+        if status in (404, 405):
+            state['healthy'] = None
+            return
+        state['healthy'] = False
+        if status == 429:
+            state['failures'] += 1
+            base = max(1, int((MODEL_POOL or {}).get('cooldownSeconds', 60)))
+            backoff = min(base * (2 ** min(4, state['failures'] - 1)), 3600)
+            state['cooldownUntil'] = now + max(backoff, retry_after_seconds(headers))
+            return
+        if status is None or 500 <= status <= 599:
+            state['failures'] += 1
+            threshold = max(1, int((MODEL_POOL or {}).get('failureThreshold', 2)))
+            if state['failures'] >= threshold:
+                state['cooldownUntil'] = now + max(1, int((MODEL_POOL or {}).get('cooldownSeconds', 60)))
+
+def pool_probe_loop() -> None:
+    interval = max(0, int((MODEL_POOL or {}).get('probeIntervalSeconds', 60)))
+    if interval <= 0:
+        return
+    timeout = max(1, int((MODEL_POOL or {}).get('probeTimeoutMs', 5000))) / 1000
+    recovery = max(0, int((MODEL_POOL or {}).get('recoveryProbeSeconds', 300)))
+    while True:
+        for endpoint in list(POOL_ENDPOINTS):
+            if not isinstance(endpoint, dict) or endpoint.get('enabled') is False:
+                continue
+            state = pool_state(endpoint.get('id', ''))
+            if state.get('disabled') and (recovery <= 0 or state.get('disabledUntil', 0) > time.monotonic()):
+                continue
+            base = str(endpoint.get('baseUrl') or MODEL_BASE_URL or '').rstrip('/')
+            key = endpoint.get('apiKey') or MODEL_API_KEY
+            if not base or not key:
+                continue
+            request = urllib.request.Request(base + '/models', headers={'Authorization': f'Bearer {key}', 'Accept': 'application/json'}, method='GET')
+            status = None
+            headers = None
+            try:
+                response = urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout)
+                status = response.status
+                headers = response.headers
+                try: response.close()
+                except Exception: pass
+            except urllib.error.HTTPError as error:
+                status = error.status
+                headers = error.headers
+                try: error.close()
+                except Exception: pass
+            except Exception:
+                status = None
+            pool_probe_report(endpoint, status, headers)
+            time.sleep(0.2)
+        time.sleep(interval)
 
 def pool_model_body(body: bytes | None, endpoint: dict | None) -> bytes | None:
     if body is None or not isinstance(endpoint, dict) or not endpoint.get('model'):
@@ -865,11 +988,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if personal_api_key and response.status == 402: worker.personal_exhausted = True
             if endpoint and response.status in retry_statuses and attempt + 1 < attempts:
-                pool_report(endpoint, response.status)
+                pool_report(endpoint, response.status, response.headers)
                 try: response.close()
                 except Exception: pass
                 continue
-            pool_report(endpoint, response.status)
+            pool_report(endpoint, response.status, response.headers)
             elapsed_ms = int((time.monotonic() - started_at) * 1000)
             print(f'egress completed status={response.status} duration_ms={elapsed_ms}', file=sys.stderr)
             try:
@@ -892,6 +1015,8 @@ def main():
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True); HOME_ROOT.mkdir(parents=True, exist_ok=True); RUNTIME_ROOT.mkdir(parents=True, exist_ok=True); atexit.register(close_workers)
     cleanup_stale_group_data()
     schedule_local_cleanup()
+    if POOL_ENDPOINTS and int((MODEL_POOL or {}).get('probeIntervalSeconds', 60)) > 0:
+        threading.Thread(target=pool_probe_loop, name='model-pool-probe', daemon=True).start()
     print(f'DSH sandbox bridge ready: provider={PROVIDER} model={MODEL}', flush=True)
     ThreadingHTTPServer(('127.0.0.1', port), Handler).serve_forever()
 if __name__ == '__main__': main()

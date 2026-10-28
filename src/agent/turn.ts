@@ -113,9 +113,11 @@ const runModuleTurnInner = async (options: {
       (lease.transformsSystem && personaPrompt !== config.defaultSystemPrompt) ||
       hasImages
     ) {
+      const estimatedTokens = hasImages ? 6000 : Math.ceil(Buffer.byteLength(JSON.stringify(input)) / 3) + (config.budget?.maxOutputTokens ?? 2048);
       const credentials = await getChatCredentials({
         purpose: hasImages ? 'vision' : tools.length ? 'tools' : 'chat',
-        stickyKey: context.channelId
+        stickyKey: context.channelId,
+        estimatedTokens
       });
 
       if (!credentials) {

@@ -4,6 +4,10 @@ import { resolveOneBotConfig } from './config';
 import { normalizeOneBotEvent } from './events';
 import { OneBotActions } from './actions';
 
+let activeConnection: OneBotConnection | undefined;
+
+export const getActiveOneBotConnection = (): OneBotConnection | undefined => activeConnection;
+
 export const startOneBot = () => {
   const options = resolveOneBotConfig(getConfigValue());
   const bridge = cbpPlatform();
@@ -38,9 +42,15 @@ export const startOneBot = () => {
   bridge.onapis((frame, consume) => {
     void actions.api(frame).then(consume);
   });
+  activeConnection = connection;
   connection.start();
 
-  return { stop: () => connection.stop() };
+  return {
+    stop: () => {
+      if (activeConnection === connection) activeConnection = undefined;
+      connection.stop();
+    }
+  };
 };
 
 export default definePlatform({ name: 'onebot', main: startOneBot });

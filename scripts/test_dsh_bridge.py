@@ -83,6 +83,11 @@ class BridgeSafetyTests(unittest.TestCase):
         self.bridge.pool_report(second, 401)
         self.assertTrue(self.bridge.POOL_STATE['b']['disabled'])
         self.assertIsNone(self.bridge.pool_select())
+        self.bridge.POOL_STATE['c'] = {'active': 0, 'failures': 0, 'cooldownUntil': 0, 'disabled': False}
+        self.bridge.pool_probe_report({'id': 'c', 'apiKey': 'sk-c', 'maxConcurrent': 1}, 200)
+        self.assertTrue(self.bridge.POOL_STATE['c']['healthy'])
+        self.bridge.pool_probe_report({'id': 'c'}, 401)
+        self.assertTrue(self.bridge.POOL_STATE['c']['disabled'])
 
     def test_native_image_input(self):
         parts = [{'type': 'text', 'text': '看看图片'}, {'type': 'image', 'mimeType': 'image/png', 'data': 'aGVsbG8='}]

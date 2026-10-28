@@ -6,7 +6,10 @@ import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { getMediaConfig, MediaError, type MediaConfig } from '../media/config';
 import { imageMime } from '../media/download';
-import { collectSticker, ensureStickerRoot, listStickers, loadSticker, renameSticker, updateSticker, type Sticker } from '../media/stickers';
+import { collectSticker, ensureStickerRoot, listStickers, loadSticker, renameSticker, setStickerEmoji, updateSticker, type Sticker } from '../media/stickers';
+import { getActiveOneBotConnection } from '../onebot/index';
+import { addFavoriteDirect, deleteFavoriteDirect, fetchFavoriteUrlsDirect, renameFavoriteDirect } from '../media/onebot-direct';
+import { importStickerUrls } from '../media/sticker-import';
 
 export type StickerPanelConfig = { enabled: boolean; host: '127.0.0.1' | '::1'; port: number; token: string };
 export type StickerPanel = { server: Server; port: number; token: string; close: () => Promise<void> };
@@ -107,7 +110,7 @@ main{padding:18px 22px;display:grid;gap:14px;grid-template-columns:repeat(auto-f
 .card input{width:100%;box-sizing:border-box}.tags{color:#8b93a7;font-size:12px;word-break:break-all}
 #status{white-space:pre-wrap;color:#ffcf9e}.toolbar{padding:0 22px 8px}
 </style></head><body>
-<header><h1>AgentLink 表情库</h1><div class="row"><input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><input id="uploadName" placeholder="名称（可选）" maxlength="24"><input id="uploadTags" placeholder="标签，用逗号分隔" maxlength="100"><button id="upload">上传</button><button id="refresh">刷新</button></div></header>
+<header><h1>AgentLink 表情库</h1><div class="row"><input id="file" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><input id="uploadName" placeholder="名称（可选）" maxlength="24"><input id="uploadTags" placeholder="标签，用逗号分隔" maxlength="100"><button id="upload">上传</button><button id="importFav">从 QQ 导入</button><button id="syncFav">同步到 QQ</button><button id="refresh">刷新</button></div></header>
 <div class="toolbar"><span class="muted">token 从 URL 读取；面板只监听回环地址，不提供跨域访问。</span></div>
 <div id="status" class="toolbar"></div><main id="list"></main>
 <script>
@@ -140,7 +143,7 @@ const card = (item) => {
     } catch (error) { say('保存失败：' + error.message); }
   }));
   row.append(button('删除', 'danger', async () => {
-    if (!confirm('只从素材清单移除，不删除原文件。确定？')) return;
+    if (!confirm('从素材清单移除；如果已写入 QQ 收藏，也会尝试删除。原图片文件保留。确定？')) return;
     try { say('删除中…'); await api('/api/stickers/' + encodeURIComponent(item.id), { method: 'DELETE' }); say('已移除'); await refresh(); }
     catch (error) { say('删除失败：' + error.message); }
   }));
@@ -167,8 +170,90 @@ const upload = async () => {
   say('上传完成'); await refresh();
 };
 document.querySelector('#upload').onclick = upload;
+const importFav = async () => {
+  try {
+    say('正在读取 QQ 收藏…');
+    const result = await api('/api/import', { method: 'POST', body: '{}' });
+    say('导入完成：新增 ' + result.added + '，已有 ' + result.existing + '，失败 ' + result.failed);
+    await refresh();
+  } catch (error) { say('导入失败：' + error.message); }
+};
+const syncFav = async () => {
+  try {
+    say('正在同步到 QQ 收藏…');
+    const result = await api('/api/sync', { method: 'POST', body: '{}' });
+    say('同步完成：新增 ' + result.added + '，更新名称 ' + result.renamed + '，失败 ' + result.failed);
+    await refresh();
+  } catch (error) { say('同步失败：' + error.message); }
+};
+document.querySelector('#importFav').onclick = importFav;
+document.querySelector('#syncFav').onclick = syncFav;
 refresh();
 </script></body></html>`;
+
+const importFavorites = async (res: ServerResponse, media: MediaConfig): Promise<void> => {
+  const connection = getActiveOneBotConnection();
+
+  if (!connection) {
+    json(res, 503, { ok: false, message: 'OneBot 尚未连接，无法读取 QQ 收藏。' });
+
+    return;
+  }
+  const urls = await fetchFavoriteUrlsDirect(connection, 50);
+
+  if (urls === undefined) {
+    json(res, 502, { ok: false, message: '读取 QQ 收藏失败，网关可能不支持 fetch_custom_face。' });
+
+    return;
+  }
+  try {
+    const imported = await importStickerUrls(media, urls, AbortSignal.timeout(120_000));
+
+    json(res, 200, { ok: true, ...imported });
+  } catch {
+    json(res, 504, { ok: false, message: '导入超时或中断，已成功的部分仍保留。' });
+  }
+};
+const syncFavorites = async (res: ServerResponse, media: MediaConfig): Promise<void> => {
+  const connection = getActiveOneBotConnection();
+
+  if (!connection) {
+    json(res, 503, { ok: false, message: 'OneBot 尚未连接，无法写入 QQ 收藏。' });
+
+    return;
+  }
+  const signal = AbortSignal.timeout(120_000);
+  const items = (await listStickers(media)).filter(item => item.from !== 'import').slice(0, 20);
+  let added = 0;
+  let renamed = 0;
+  let failed = 0;
+
+  for (const item of items) {
+    if (signal.aborted) break;
+    const name = (item.name || item.tags[0] || '').trim().slice(0, 20);
+
+    if (item.emojiId) {
+      if (!name) continue;
+      if (await renameFavoriteDirect(connection, item.emojiId, name)) renamed++;
+      else failed++;
+      continue;
+    }
+    try {
+      const emojiId = await addFavoriteDirect(connection, await loadSticker(item, media), name || undefined);
+
+      if (!emojiId) {
+        failed++;
+        continue;
+      }
+      await setStickerEmoji(media, item.id, emojiId, signal);
+      added++;
+    } catch {
+      failed++;
+    }
+  }
+
+  json(res, 200, { ok: true, added, renamed, failed, total: items.length });
+};
 
 const handle = async (req: IncomingMessage, res: ServerResponse, config: DSHBridgeConfig, panel: StickerPanelConfig, media: MediaConfig): Promise<void> => {
   const url = new URL(req.url || '/', `http://${panel.host === '::1' ? `[${panel.host}]` : panel.host}`);
@@ -188,6 +273,16 @@ const handle = async (req: IncomingMessage, res: ServerResponse, config: DSHBrid
       'Content-Security-Policy':
         "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"
     });
+
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/import') {
+    await importFavorites(res, media);
+
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/sync') {
+    await syncFavorites(res, media);
 
     return;
   }
@@ -271,9 +366,15 @@ const handle = async (req: IncomingMessage, res: ServerResponse, config: DSHBrid
     return;
   }
   if (req.method === 'DELETE') {
+    const connection = getActiveOneBotConnection();
+    const qqDeleted = item.emojiId && connection ? await deleteFavoriteDirect(connection, item.emojiId) : false;
     const removed = await updateSticker(media, id, null, AbortSignal.timeout(10_000));
 
-    json(res, removed ? 200 : 404, { ok: removed, message: removed ? '已从素材清单移除，原文件保留。' : '表情不存在。' });
+    json(res, removed ? 200 : 404, {
+      ok: removed,
+      qqDeleted,
+      message: removed ? `已从素材清单移除，原文件保留。${item.emojiId ? (qqDeleted ? 'QQ 收藏已删除。' : 'QQ 收藏删除未确认。') : ''}` : '表情不存在。'
+    });
 
     return;
   }
@@ -351,6 +452,7 @@ export const startStickerPanel = async (config: DSHBridgeConfig, portOverride?: 
       await handle(req, res, config, active, media);
     })().catch(error => {
       if (res.headersSent) return;
+      logger.warn({ err: error }, 'Sticker panel request failed');
       json(res, error instanceof MediaError ? 400 : 500, { ok: false, message: error instanceof MediaError ? error.message : '面板请求失败。' });
     });
   });

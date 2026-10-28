@@ -296,6 +296,8 @@ test('expression decisions require configuration, remain stable on retry and do 
     assert.equal(selectExpressionSticker(items, '一起喝茶吧', 80, 'm').id, 'tea');
     assert.equal(selectExpressionSticker(items, '好呀', 80, 'm').id, 'happy');
     assert.equal(selectExpressionSticker(items, '好呀', 60, 'm'), undefined);
+    assert.ok(selectExpressionSticker(items, '好呀', 60, 'm', true));
+    assert.deepEqual(selectExpressionSticker(items, '好呀', 60, 'm', true), selectExpressionSticker(items, '好呀', 60, 'm', true));
     const { getMoodStore } = await import('../lib/companion/mood.js');
     const store = getMoodStore(config);
     let current;

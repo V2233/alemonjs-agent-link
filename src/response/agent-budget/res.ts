@@ -90,10 +90,10 @@ export default async (): Promise<void> => {
         `${target} · ${value.day}`,
         groupKey?.enabled ? '付费顺序：群 Key → 群充值 → 个人免费；感知判断另计。' : '',
         personal ? `当前模式：${personal.enabled ? '个人 Key 优先（不扣额度）' : '额度模式'}；/个人密钥 查看。` : '',
-        gate ? `群感知：免费已用 ${gate.freeUsed.toFixed(4)} / ${gate.limit.toFixed(2)} 元，剩余 ${gate.freeRemaining.toFixed(4)} 元` : '',
-        `${rechargeLabel}：已用 ${value.paidUsed.toFixed(4)} / ${value.paidLimit.toFixed(2)} 元，剩余 ${value.paidRemaining.toFixed(4)} 元（优先使用，不扣免费）`,
+        gate ? `群感知：免费 ${gate.freeUsed.toFixed(4)} / ${gate.limit.toFixed(2)} 元` : '',
+        `${rechargeLabel}：${value.paidUsed.toFixed(4)} / ${value.paidLimit.toFixed(2)} 元`,
         isPrivate || command.scope.channelId === getConversationId(event)
-          ? `个人免费（跨群和私聊共享）：已用 ${value.personalUsed.toFixed(4)} / ${value.personalLimit.toFixed(2)} 元，剩余 ${value.personalRemaining.toFixed(4)} 元\n聊天本次可用：${value.available.toFixed(4)} 元`
+          ? `个人额度：免费 ${value.personalUsed.toFixed(4)} / ${value.personalLimit.toFixed(2)} 元\n聊天本次可用：${value.available.toFixed(4)} 元`
           : '',
         '北京时间零点重置；群聊没有共享免费额度。',
         value.blocked && !groupKey?.enabled && !personal?.enabled
@@ -101,7 +101,9 @@ export default async (): Promise<void> => {
           : gate?.blocked && !groupKey?.enabled
             ? `\n后台感知预算不足，明确呼唤仍可使用。\n${groupKeyGuide}`
             : '',
-        event.IsPrivate && event.IsMaster ? `全局今日已用：${value.globalUsed.toFixed(4)} 元。` : ''
+        event.IsPrivate && event.IsMaster
+          ? `全局今日已用 ${value.globalUsed.toFixed(4)} 元${value.globalLimit > 0 ? ` / 上限 ${value.globalLimit.toFixed(2)} 元` : '（未设上限）'}。`
+          : ''
       ]
         .filter(Boolean)
         .join('\n');

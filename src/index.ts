@@ -16,6 +16,7 @@ import { interruptAllProactive } from './proactive/control';
 import { autoStickerCollector } from './media/sticker-auto';
 import { clearRecentMedia } from './media/recent';
 import { ensureStickerRoot } from './media/stickers';
+import { warmCredentialPool, stopCredentialPool } from './credentials/pool';
 import { getMediaConfig } from './media/config';
 import { startStickerPanel, type StickerPanel } from './panel/sticker-panel';
 let stopModuleConfigWatch: (() => void) | undefined;
@@ -50,6 +51,7 @@ export default defineChildren({
     try {
       const startupConfig = getDSHConfig();
 
+      warmCredentialPool(startupConfig);
       if (budgetEnabled(startupConfig)) {
         void budgetRedis()
           .then(() =>
@@ -73,6 +75,7 @@ export default defineChildren({
         try {
           const next = getDSHConfig();
 
+          warmCredentialPool(next);
           void syncStickerPanel(next);
           void getModuleRuntime(next)
             .then(runtime => runtime.refresh())
@@ -141,6 +144,7 @@ export default defineChildren({
     clearRecentMedia();
     stopModuleConfigWatch?.();
     stopModuleConfigWatch = undefined;
+    stopCredentialPool();
     panelStopped = true;
     const closePanel = panelChain.then(async () => {
       await stickerPanel?.close().catch(() => undefined);

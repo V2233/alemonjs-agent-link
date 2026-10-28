@@ -98,34 +98,85 @@ DSH 沙箱子进程通过环境变量接收模型配置；插件检测配置/凭
 
 ## 多 Key / 端点轮转
 
-配置 `modelPool` 后，正式聊天、工具轮次、主动识别和沙箱模型出口都会从池里选择端点；个人/群绑定的 Key 仍优先。不写 `modelPool` 时继续使用单个 `apiKey`，旧配置不受影响。
+最简单的写法：只列 Key，所有 Key 默认使用主配置的 `baseUrl` 和 `model`。
 
 ```yaml
 alemonjs-agent-link:
+  apiKey: '<MODEL_API_KEY>'
+  baseUrl: 'https://api.deepseek.com'
+  model: 'deepseek-v4-flash'
   modelPool:
-    enabled: true
-    strategy: weighted-round-robin # weighted-round-robin | least-busy | sticky
-    maxAttempts: 3
-    cooldownSeconds: 60
-    endpoints:
-      - id: ds-a
-        apiKey: sk-A
-        model: deepseek-v4-flash
-        weight: 2
-        capabilities: [chat, tools, replyGate]
-      - id: ds-b
-        apiKeyEnv: DSH_KEY_B
-        model: deepseek-v4-pro
-        weight: 1
-        capabilities: [chat, tools, vision, replyGate]
+    keys:
+      - '<MODEL_API_KEY_A>'
+      - '<MODEL_API_KEY_B>'
 ```
 
-- 401/402/403 会停用端点；429 指数冷却；5xx 达到阈值后冷却；成功会清零。
-- `sticky` 按会话保持端点，避免同一会话频繁换模型；失败时才切。
-- 带图轮次只选声明了 `vision` 的端点；工具轮次选 `tools`；主动识别选 `replyGate`。
-- `apiKeyEnv` 比明文 `apiKey` 更适合部署；日志只记录端点 id，不记录 Key。
-- 第一版按同一协议轮转（DeepSeek 官方或兼容 `/chat/completions` 的服务）。开启额度时，端点仍需使用 `https://api.deepseek.com` 和已核验的 DeepSeek 模型价格，否则额度保护会拒绝。
-- 池全部不可用时请求直接失败，不会绕过健康或并发限制去用旧 Key。
+需要某个 Key 用不同模型或地址时，把字符串换成对象；`key` 等同 `apiKey`，`api` 等同 `baseUrl`：
+
+```yaml
+modelPool:
+  keys:
+    - key: '<MODEL_API_KEY_A>'
+      model: 'deepseek-v4-flash'
+    - key: '<MODEL_API_KEY_B>'
+      model: 'deepseek-v4-pro'
+      api: 'https://api.deepseek.com'
+```
+
+需要保留官方贵价 Key 兜底时，给该端点加 `fallback: true`：平时聊天只选主端点，只有主端点全部不可用、超并发或冷却时才用它；沙箱仍可直接使用该端点。
+
+`priority` 控制严格优先级：数字越小越优先；只有同一优先级内才按 `weight` 和 `strategy` 分配。`fallback` 端点只在没有主端点可用时才启用。
+
+配置了 `modelPool` 后，外层 `apiKey` 只作为旧配置兼容，不再参与普通请求或沙箱兜底；沙箱必须在池里有一个 `provider: deepseek-official` 的端点。
+
+需要硬限流时给端点加 `account`、`rpm`、`tpm`：同一 `account` 共享 60 秒滑动窗口内的请求数和 token 数，达到 RPM/TPM 后不再选择该端点，不必等厂商返回 429。请求前会按估算 token 预留，响应后按真实 usage 结算；未完成的预留会在失败/取消时释放。`balanceAlertYuan` 控制 `/模型池` 的低余额提示阈值。`retryBudgetMs` 控制总重试时间，`retryJitterMs` 控制切换抖动。`queueMaxWaitMs` 让主端点并发满时短暂等待，超时才用 fallback，避免为了 200ms 的空档直接花贵价额度。
+
+`strategy: balanced` 会按每个端点当前在途数、会话绑定数和近期选择次数计算负载，新会话优先选压力小的端点；同一会话在 `stickySeconds` 内固定在上次端点，不因一次轮转随意更换。
+
+默认行为已经够用：启动时异步探测、之后每 60 秒复查一次，加权轮转、429/5xx 换 Key、401/402/403 停用、失败重试 3 次。启动时会额外发一次极小 chat 探测（`max_tokens: 16`），用于发现“`/models` 正常但计费冻结/模型不可用”的情况；可通过 `probeChat: false` 关闭。日常探测仍只请求 `/models`，不消耗对话 token；某些兼容网关没有 `/models` 时只保持“未知”，不会误停用。429 会优先读 `Retry-After` / `x-ratelimit-reset-requests`，`x-ratelimit-remaining-requests: 0` 也会提前冷却。以下高级项不写就用默认值：`strategy`、`maxAttempts`、`failureThreshold`、`cooldownSeconds`、`retryStatuses`、`probeIntervalSeconds`、`probeTimeoutMs`、`recoveryProbeSeconds`、`stickySeconds`、`balanceWindowSeconds`、`weight`、`maxConcurrent`、`capabilities`。
+
+- Node 聊天、工具轮次和主动识别统一使用 **OpenAI-compatible `/chat/completions`**；OpenAI、OpenRouter、SiliconFlow、Gemini 的 OpenAI 兼容入口等都可以。
+- 沙箱工作区任务仍走 DSH 的 `deepseek-official` 协议；只有 `provider: deepseek-official` 的端点会进入沙箱 Bridge。跨厂商端点可以参与普通聊天，但不能替代沙箱任务的模型。
+- 带图轮次需要 `capabilities` 里加 `vision`；工具轮次默认已包含 `tools`。
+- 开启额度时，非 `https://api.deepseek.com` 的端点必须提供 `pricing`（人民币/百万 tokens），否则额度保护会拒绝；DeepSeek 官方端点仍用内置价格。
+- 个人/群绑定 Key 仍优先于池；池全部不可用时请求失败，不绕过健康或并发限制。
+
+### 跨厂商示例
+
+```yaml
+modelPool:
+  keys:
+    - key: '<OPENROUTER_KEY>'
+      api: 'https://openrouter.ai/api/v1'
+      model: 'deepseek/deepseek-chat'
+      provider: 'openrouter'
+      pricing: { input: 2, output: 8, cached: 0.04 }
+      capabilities: [chat, tools, replyGate]
+
+    - key: '<OPENAI_KEY>'
+      api: 'https://api.openai.com/v1'
+      model: 'gpt-4o-mini'
+      provider: 'openai'
+      pricing: { input: 2, output: 8 }
+      capabilities: [chat, tools, vision, replyGate]
+```
+
+`provider` 只是端点的标签/沙箱筛选依据；Node 侧按 OpenAI 标准发请求，不按厂商名做特殊协议转换。原生 Anthropic Messages、Gemini GenerateContent 等非 OpenAI 协议需要先用兼容网关转换。
+
+每日请求数和 token 数会写入 `dshHomeRoot` 同级的 `model-pool-metrics.json`，重启后保留当天账本；跨天自动归零。
+
+主人私聊发送 `/模型池` 查看分页状态、余额和补货提示，`/模型池 2` 翻页；摘要会列出可用、冷却、停用、异常、在途和已知余额合计。DeepSeek 官方端点自动查 `/user/balance`；其他服务可配置 `balanceUrl` 模板，例如代金券查询页，`{key}` 会替换为端点 Key。
+
+余额查询会把 Key 发给 `balanceUrl` 指向的服务；只配置你信任的地址。多厂商建议按 provider 映射，避免把 A 厂商的 Key 发到 B 厂商的余额接口：
+
+```yaml
+modelPool:
+  balanceUrl:
+    senseaudio: 'https://xiaofengaicp.xyz/voucher/api/query?key={key}'
+    openai: 'https://你的余额接口?key={key}'
+```
+
+也可以写单个字符串作为所有非官方端点的默认值，或在某个 Key 下写 `balanceUrl` 单独覆盖。New API 网关（如 FreeToken）额外支持 `balanceStyle: 'newapi'`，显示已用金额而不是余额。
 
 完整字段见[配置字段参考](config-reference.md#411-模型端点池modelpool)。
 

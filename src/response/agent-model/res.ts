@@ -31,7 +31,10 @@ export default async (): Promise<void> => {
   const pool = getCredentialPool(config);
   const poolText = pool
     ? `\n端点池：${pool.status
-        .map(item => `${item.id}${item.disabled ? '（停用）' : item.cooldownUntil > Date.now() ? '（冷却）' : item.active ? `（${item.active} 在途）` : ''}`)
+        .map(
+          item =>
+            `${item.id}${item.disabled ? '（停用）' : item.cooldownUntil > Date.now() ? '（冷却）' : item.healthy === false ? '（探测异常）' : item.fallback ? '（备用）' : item.active ? `（${item.active} 在途）` : ''}`
+        )
         .join('、')}`
     : '';
 
@@ -39,12 +42,14 @@ export default async (): Promise<void> => {
     format: commandBubble(
       requestedModel
         ? `请将配置中的 alemonjs-agent-link.model 改为 ${requestedModel}，保存即生效。`
-        : `当前模型：${config.model}${poolText}\n查看可用列表：/模型列表`,
+        : `当前模型：${config.model}${poolText}\n查看模型池：/模型池
+查看可用列表：/模型列表`,
       '当前模型',
       {
         platform: event.Platform,
         actions: [
           { label: '模型列表', command: '/模型列表' },
+          { label: '模型池', command: '/模型池' },
           { label: '密钥配置', command: '/密钥配置' }
         ]
       }

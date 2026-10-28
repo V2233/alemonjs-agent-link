@@ -7,7 +7,7 @@ import { getMediaConfig, MediaError, unavailableMediaReply } from '@src/media/co
 import { prepareNativeMedia, hasUnconfiguredMedia } from '@src/media/providers';
 import { renderSpeech, type SpeechAudio } from '../../media/speech';
 import { SpeechError } from '../../media/speech-config';
-import { logger, useMessage, useMedia, type MessageMediaItem, type ReceivedMessage } from 'alemonjs';
+import { ResultCode, logger, useMessage, useMedia, type MessageMediaItem, type ReceivedMessage } from 'alemonjs';
 import { DSHError, getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { buildRecentChatContext, getRecentMessages } from '@src/chat-context/store';
 import { StreamOutput, assertMessageDelivered } from '@src/dsh/output';
@@ -20,6 +20,7 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { expressionOptions, planExpression, automaticVoiceText, selectExpressionSticker } from '../../companion/expression';
 import { getMoodStore, moodOptions } from '../../companion/mood';
 import { listStickers, loadSticker, markStickerUsed } from '../../media/stickers';
+import { sendOnebotSticker } from '../../media/onebot-sticker-send';
 import { imageMime } from '../../media/download';
 import { observeProactiveOutput } from '../../proactive/observe';
 import { currentVoiceTranscript } from '../../media/onebot-transcript';
@@ -293,10 +294,12 @@ export const runDSHChat = async (
     'DSH chat requested'
   );
   let expression = { voice: false, sticker: false, delayMs: 0 };
+  let stickerFallback = false;
 
   try {
     const settings = expressionOptions(config);
 
+    stickerFallback = settings.stickerFallback;
     if (settings.automatic && !config.modules?.disabled?.includes('expression')) {
       expression = planExpression(config, { platform: event.Platform || '', channelId }, event.MessageId || options.requestId || prompt, getMediaConfig());
     }
@@ -495,7 +498,7 @@ export const runDSHChat = async (
               config.modules?.disabled?.includes('mood') || !event.Platform
                 ? 60
                 : getMoodStore(config).snapshot({ platform: event.Platform, channelId }, moodOptions(config), config.retentionDays).value;
-            const item = selectExpressionSticker(await listStickers(settings), answer || expressionText, value, event.MessageId || prompt);
+            const item = selectExpressionSticker(await listStickers(settings), answer || expressionText, value, event.MessageId || prompt, stickerFallback);
 
             if (item) {
               const data = await loadSticker(item, settings);
@@ -503,12 +506,15 @@ export const runDSHChat = async (
               signal.throwIfAborted();
               if (await new SessionRegistry(config).claimSticker(channelId, settings.stickerCooldownSeconds)) {
                 await checkSend();
-                const sentSticker = await media.send({
-                  type: 'image',
-                  data: data.toString('base64'),
-                  name: item.file.split(/[\\/]/u).at(-1),
-                  replyId: replyTarget.messageId
-                });
+                const onebotReceipt = await sendOnebotSticker(event, data, replyTarget.messageId);
+                const sentSticker = onebotReceipt
+                  ? { code: ResultCode.Ok, data: { messageId: onebotReceipt.messageId } }
+                  : await media.send({
+                      type: 'image',
+                      data: data.toString('base64'),
+                      name: item.file.split(/[\\/]/u).at(-1),
+                      replyId: replyTarget.messageId
+                    });
 
                 assertMessageDelivered([sentSticker]);
                 await markStickerUsed(settings, item.id, signal).catch(() => undefined);
@@ -548,12 +554,15 @@ export const runDSHChat = async (
                   throw new MediaError('表情冷却中，请稍后再发。');
                 }
                 await checkSend();
-                const receipt = await media.send({
-                  type: 'image',
-                  data: data.toString('base64'),
-                  name: item.file.split(/[\\/]/u).at(-1),
-                  replyId: replyTarget.messageId
-                });
+                const onebotReceipt = await sendOnebotSticker(event, data, replyTarget.messageId);
+                const receipt = onebotReceipt
+                  ? { code: ResultCode.Ok, data: { messageId: onebotReceipt.messageId } }
+                  : await media.send({
+                      type: 'image',
+                      data: data.toString('base64'),
+                      name: item.file.split(/[\\/]/u).at(-1),
+                      replyId: replyTarget.messageId
+                    });
 
                 assertMessageDelivered([receipt]);
                 archiveReply(config, event, `[表情：${item.id}]`, receipt.data, replyTarget.messageId);

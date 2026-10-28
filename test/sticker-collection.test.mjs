@@ -180,3 +180,35 @@ test('multimodal model turn can collect the actual attachment through the tool',
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('add_sticker accepts an image inside the sticker root and rejects external paths', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sticker-add-'));
+  const outside = await mkdtemp(join(tmpdir(), 'sticker-add-outside-'));
+  const previous = globalThis.__config;
+  globalThis.__config = { value: { 'alemonjs-agent-link': { media: { stickerRoot: root } } } };
+  const tools = [];
+  stickerModule().setup({ tool: tool => tools.push(tool) });
+  const add = tools.find(tool => tool.name === 'add_sticker');
+  const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  try {
+    await writeFile(join(root, 'manifest.json'), '[]');
+    await writeFile(join(root, 'import.png'), image);
+    await writeFile(join(outside, 'outside.png'), image);
+    assert.equal(add.available(ctx({ owner: false })), false);
+    const result = await add.execute({ source: 'import.png', name: '导入图', tags: ['测试'] }, ctx({ userText: '把这个图片收藏进表情库' }));
+    assert.equal(result.ok, true);
+    assert.equal(result.name, '导入图');
+    const items = await listStickers(getMediaConfig());
+    assert.equal(items.length, 1);
+    assert.equal(items[0].name, '导入图');
+    assert.deepEqual(items[0].tags, ['测试']);
+    assert.equal(items[0].from, 'manual');
+    assert.equal((await add.execute({ source: join(outside, 'outside.png') }, ctx({ userText: '收藏这个图片' }))).ok, false);
+    assert.equal((await add.execute({ source: 'http://cdn.test/a.png' }, ctx({ userText: '收藏这个链接' }))).ok, false);
+    assert.equal((await add.execute({ source: 'import.png' }, ctx({ userText: '不要收藏这个图片' }))).ok, false);
+  } finally {
+    globalThis.__config = previous;
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});

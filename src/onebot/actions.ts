@@ -187,7 +187,23 @@ export class OneBotActions {
       const [args = {}] = payload.params || [];
       let data: unknown;
 
-      if (payload.key === 'agentLink.stickerFavorites') {
+      if (payload.key === 'agentLink.sendSticker') {
+        const encoded = args.data;
+        const replyId = validMessageId(args.replyId);
+
+        if (
+          typeof encoded !== 'string' ||
+          !encoded ||
+          encoded.length > Math.ceil((5 * 1024 * 1024 * 4) / 3) + 4 ||
+          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(encoded)
+        ) {
+          throw new Error('表情图片编码无效或过大。');
+        }
+        data = await this.send(payload, [
+          ...(replyId ? [{ type: 'reply' as const, data: { id: replyId } }] : []),
+          { type: 'image', data: { file: `base64://${encoded}`, sub_type: 1, summary: '[表情]' } }
+        ]);
+      } else if (payload.key === 'agentLink.stickerFavorites') {
         if (!event.IsMaster) throw new Error('只有主人能读取 QQ 收藏表情。');
         const count = args.count;
 

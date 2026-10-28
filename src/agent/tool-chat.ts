@@ -12,6 +12,7 @@ import { abortFailure } from '../dsh/errors';
 
 type ToolCall = { id: string; type: 'function'; function: { name: string; arguments: string } };
 type ModelMessage = { role: string; content: unknown; reasoning_content?: string; tool_calls?: ToolCall[]; tool_call_id?: string };
+type RequestMeta = { requestId?: string; channelId?: string };
 
 export const requestModelMessage = async (
   config: DSHBridgeConfig,
@@ -19,13 +20,46 @@ export const requestModelMessage = async (
   messages: ModelMessage[],
   tools: AgentTool[],
   signal: AbortSignal,
-  onContent?: (text: string) => Promise<void>
+  onContent?: (text: string) => Promise<void>,
+  meta: RequestMeta = {}
 ): Promise<{ content?: string | null; reasoning_content?: string; tool_calls?: ToolCall[] }> => {
   const containsImages = messages.some(message => Array.isArray(message.content) && message.content.some(block => block.type === 'image_url'));
   const maxBytes = containsImages ? MAX_IMAGE_REQUEST_BYTES : config.maxRequestBytes;
   let current = credentials;
+  const requestStartedAt = Date.now();
+  const lastUser = [...messages].reverse().find(message => message.role === 'user');
+  const promptPreview = typeof lastUser?.content === 'string' ? lastUser.content.slice(0, 120) : Array.isArray(lastUser?.content) ? '[structured content]' : '';
+  const attempts: Array<{ endpoint: string; model: string; status?: number; error?: string }> = [];
 
   for (;;) {
+    const budgetMs = current.retryBudgetMs ?? 12000;
+    const startedAt = current.startedAt ?? Date.now();
+    const endpoint = current.endpointId || 'legacy';
+    const model = current.model || config.model;
+    const elapsed = Date.now() - startedAt;
+
+    if (elapsed > budgetMs) {
+      logger.error(
+        { requestId: meta.requestId, endpoint, model, attempts, elapsedMs: elapsed, totalElapsedMs: Date.now() - requestStartedAt, budgetMs },
+        'Model request retry budget exhausted'
+      );
+      throw new Error('模型请求重试超时。');
+    }
+    logger.info(
+      {
+        requestId: meta.requestId,
+        endpoint,
+        model,
+        attempt: current.attempt,
+        maxAttempts: current.maxAttempts,
+        messages: messages.length,
+        tools: tools.length,
+        images: containsImages,
+        promptPreview,
+        requestElapsedMs: Date.now() - requestStartedAt
+      },
+      'Model request started'
+    );
     const base = current.baseUrl || (config.provider === 'deepseek-official' ? 'https://api.deepseek.com' : '');
     const url = new URL(`${base.replace(/\/+$/u, '')}/chat/completions`);
 
@@ -55,6 +89,7 @@ export const requestModelMessage = async (
       response = await budgetedFetch(config, url, {
         personalKey: current.personal,
         scopedKey: current.scoped,
+        pricing: current.pricing,
         method: 'POST',
         redirect: 'error',
         signal,
@@ -67,6 +102,19 @@ export const requestModelMessage = async (
       signal.throwIfAborted();
       const next = current.next?.();
 
+      logger.warn(
+        {
+          requestId: meta.requestId,
+          endpoint,
+          model,
+          attempt: current.attempt,
+          error: error instanceof Error ? error.message : 'network',
+          next: next?.endpointId,
+          promptPreview
+        },
+        'Model endpoint transport failed'
+      );
+
       if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) throw error;
       current = next;
       continue;
@@ -74,23 +122,105 @@ export const requestModelMessage = async (
 
     if (!response.ok) {
       const status = response.status;
+      let detail = '';
 
-      await response.body?.cancel();
-      current.report?.({ ok: false, status });
-      const next = current.retryable?.(status) ? current.next?.() : null;
+      try {
+        const payload = (await response.json()) as { error?: { message?: unknown }; message?: unknown };
+
+        detail = String(payload.error?.message || payload.message || '').slice(0, 500);
+      } catch {
+        // Provider error bodies are best-effort diagnostics.
+      }
+      attempts.push({ endpoint, model, status, error: detail });
+      logger.warn(
+        {
+          requestId: meta.requestId,
+          endpoint,
+          model,
+          attempt: current.attempt,
+          maxAttempts: current.maxAttempts,
+          status,
+          detail,
+          tools: tools.map(tool => tool.name),
+          messages: messages.map(message => [
+            message.role,
+            typeof message.content === 'string' ? message.content.length : Array.isArray(message.content) ? 'blocks' : 'none'
+          ]),
+          retryable: status === 400 || current.retryable?.(status) ? 'next' : 'stop',
+          promptPreview
+        },
+        'Model provider rejected request'
+      );
+      current.report?.({ ok: false, status, headers: response.headers });
+      const billing = /计费账户|余额不足|余额已|欠费|冻结|billing|insufficient|quota|frozen|credit/iu.test(detail);
+
+      if (billing) current.disable?.();
+      // A provider-specific 400 (tool schema, model routing, context quirk) can
+      // still be served by the reserved fallback endpoint.
+      const next = status === 400 || billing || current.retryable?.(status) ? current.next?.() : null;
 
       if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
-        throw new Error(`模型服务返回 HTTP ${status}。`);
+        throw new Error(`模型服务返回 HTTP ${status}${detail ? `：${detail}` : ''}。`);
       }
+      if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
       current = next;
       continue;
     }
-    current.report?.({ ok: true, status: response.status });
+    current.report?.({ ok: true, status: response.status, headers: response.headers });
+    logger.info(
+      {
+        requestId: meta.requestId,
+        endpoint,
+        model,
+        attempt: current.attempt,
+        elapsedMs: Date.now() - startedAt,
+        requestElapsedMs: Date.now() - requestStartedAt,
+        status: response.status
+      },
+      'Model response received'
+    );
+    const retryInvalid = async (status = 200): Promise<boolean> => {
+      current.invalidate?.(status);
+      const next = current.next?.();
+
+      if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) return false;
+      const failedEndpoint = current.endpointId;
+
+      if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
+      current = next;
+      logger.warn({ endpoint: failedEndpoint, next: current.endpointId, status }, 'Model returned an invalid response; trying next endpoint');
+
+      return true;
+    };
+
     if (!response.body) {
+      if (await retryInvalid(200)) continue;
       throw new Error('模型响应为空。');
     }
     if (onContent && response.headers.get('content-type')?.includes('text/event-stream')) {
-      return await readCompletionStream(response, config.maxRequestBytes, signal, onContent);
+      let emitted = false;
+
+      try {
+        const message = await readCompletionStream(response, config.maxRequestBytes, signal, async text => {
+          emitted = true;
+          await onContent(text);
+        });
+
+        current.reportUsage?.(message.usage || {});
+        if (!message.content?.trim() && !message.tool_calls?.length) {
+          if (await retryInvalid(200)) continue;
+          throw new Error('模型未返回有效消息。');
+        }
+
+        return message;
+      } catch (error) {
+        if (emitted) {
+          current.invalidate?.(200);
+          throw error;
+        }
+        if (await retryInvalid(200)) continue;
+        throw error;
+      }
     }
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
@@ -113,10 +243,13 @@ export const requestModelMessage = async (
       await reader.cancel();
     }
     try {
-      const message = JSON.parse(Buffer.concat(chunks).toString('utf8'))?.choices?.[0]?.message;
+      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      const message = payload?.choices?.[0]?.message;
 
-      if (!message || typeof message !== 'object') {
-        throw new Error();
+      current.reportUsage?.(payload?.usage || {});
+
+      if (!message || typeof message !== 'object' || (!message.content?.trim?.() && !message.tool_calls?.length)) {
+        throw new Error('invalid message');
       }
 
       if (onContent && typeof message.content === 'string') {
@@ -125,6 +258,7 @@ export const requestModelMessage = async (
 
       return message;
     } catch {
+      if (await retryInvalid(200)) continue;
       throw new Error('模型未返回有效消息。');
     }
   }
@@ -170,7 +304,7 @@ export const runToolChat = async (options: {
       ].join('\n')
     },
     ...(options.memoryContext ? [{ role: 'user', content: options.memoryContext }] : []),
-    ...(options.history || []),
+    ...(options.history || []).map(message => (message.role === 'assistant' ? { ...message, reasoning_content: '' } : message)),
     { role: 'user', content: modelContent(input) }
   ];
   const completed = new Map<string, { signature: string; result: string }>();
@@ -200,7 +334,9 @@ export const runToolChat = async (options: {
           }
         ],
         [],
-        context.signal
+        context.signal,
+        undefined,
+        { requestId: context.requestId, channelId: context.channelId }
       );
 
       context.signal.throwIfAborted();
@@ -229,7 +365,10 @@ export const runToolChat = async (options: {
       let response: Awaited<ReturnType<typeof requestModelMessage>>;
 
       try {
-        response = await requestModelMessage(config, credentials, messages, tools, context.signal, options.onContent);
+        response = await requestModelMessage(config, credentials, messages, tools, context.signal, options.onContent, {
+          requestId: context.requestId,
+          channelId: context.channelId
+        });
       } catch (error) {
         const failure = abortFailure(error, context.signal);
 
@@ -274,7 +413,7 @@ export const runToolChat = async (options: {
         role: 'assistant',
         content: response.content || null,
         tool_calls: response.tool_calls,
-        ...(typeof response.reasoning_content === 'string' ? { reasoning_content: response.reasoning_content } : {})
+        reasoning_content: typeof response.reasoning_content === 'string' ? response.reasoning_content : ''
       });
       for (const call of response.tool_calls) {
         const signature = JSON.stringify(call.function);

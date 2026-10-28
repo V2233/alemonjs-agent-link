@@ -1,6 +1,7 @@
 import { MediaError, type MediaConfig } from './config';
 import { downloadAttachment, imageMime } from './download';
 import { collectSticker } from './stickers';
+import { assessSticker } from './providers';
 
 export type StickerImportResult = { total: number; added: number; existing: number; failed: number };
 const MAX_IMPORT = 30;
@@ -14,7 +15,8 @@ export const importStickerUrls = async (
   config: MediaConfig,
   urls: string[],
   signal: AbortSignal,
-  download = downloadAttachment
+  download = downloadAttachment,
+  assess = assessSticker
 ): Promise<StickerImportResult> => {
   if (!config.stickerRoot) throw new MediaError('尚未配置表情素材目录。');
   const selected = urls.slice(0, MAX_IMPORT);
@@ -26,12 +28,26 @@ export const importStickerUrls = async (
     signal.throwIfAborted();
     try {
       const data = await download(url, { ...config, maxBytes: Math.min(config.maxBytes, MAX_IMPORT_BYTES) }, signal);
+      const mime = imageMime(data);
 
-      if (!imageMime(data)) {
+      if (!mime) {
         failed++;
         continue;
       }
-      const result = await collectSticker(config, data, ['导入'], signal, { from: 'import' });
+      let name = '';
+      let tags = ['导入'];
+
+      if (config.vision && mime !== 'image/gif') {
+        try {
+          const assessment = await assess(data, config, signal);
+
+          if (assessment.name) name = assessment.name;
+          if (assessment.tags.length) tags = assessment.tags;
+        } catch {
+          signal.throwIfAborted();
+        }
+      }
+      const result = await collectSticker(config, data, tags, signal, { from: 'import', ...(name ? { name } : {}) });
 
       if (result.existing) existing++;
       else added++;

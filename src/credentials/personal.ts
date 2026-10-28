@@ -84,9 +84,10 @@ export const personalKeyStatus = async (scope: BudgetScope) => {
  */
 export const personalKeyEntitled = async (target: { platform?: string; userId?: string }): Promise<boolean> => {
   if (!target.platform || !target.userId) return false;
+  if (!getConfigValue<{ db?: { redis?: unknown } }>()?.db?.redis) return false;
   const key = await encryptionKey();
 
-  if (!key && !getConfigValue<{ db?: { redis?: unknown } }>()?.db?.redis) return false;
+  if (!key) return false;
   const channelId = `private:${JSON.stringify([target.platform, target.userId])}`;
   const value = await recordFor({ platform: target.platform, channelId, userId: target.userId });
 
@@ -119,10 +120,12 @@ export const getPersonalCredential = async (): Promise<PersonalCredential | null
   const scope = getBudgetScope();
 
   if (!scope?.channelId.startsWith('private:')) return null;
+  // Group/personal key storage is Redis-backed; without a configured Redis there
+  // cannot be a bound key, even if a stale local encryption file remains.
+  if (!getConfigValue<{ db?: { redis?: unknown } }>()?.db?.redis) return null;
   const key = await encryptionKey();
 
-  // Installations that have never bound a personal key need no extra Redis dependency.
-  if (!key && !getConfigValue<{ db?: { redis?: unknown } }>()?.db?.redis) return null;
+  if (!key) return null;
   const value = await recordFor(scope);
 
   if (value?.enabled !== true) return null;

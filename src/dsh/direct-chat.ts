@@ -1,3 +1,5 @@
+import { setTimeout as delay } from 'node:timers/promises';
+import { logger } from 'alemonjs';
 import { withToolUsePolicy } from '../agent/tool-use-policy';
 import { budgetedFetch, BudgetExceededError } from '../billing/budget';
 import { readCompletionStream } from './completion-stream';
@@ -31,6 +33,10 @@ export const directChat = async (
   let response: Response;
 
   for (;;) {
+    const budgetMs = current.retryBudgetMs ?? 12000;
+    const startedAt = current.startedAt ?? Date.now();
+
+    if (Date.now() - startedAt > budgetMs) throw new Error('模型请求重试超时。');
     const base = current.baseUrl || (config.provider === 'deepseek-official' ? 'https://api.deepseek.com' : '');
     const url = new URL(`${base.replace(/\/+$/, '')}/chat/completions`);
 
@@ -61,6 +67,7 @@ export const directChat = async (
       response = await budgetedFetch(config, url, {
         personalKey: current.personal,
         scopedKey: current.scoped,
+        pricing: current.pricing,
         method: 'POST',
         redirect: 'error',
         signal,
@@ -80,18 +87,27 @@ export const directChat = async (
 
     if (!response.ok) {
       const status = response.status;
+      let detail = '';
 
-      await response.body?.cancel();
-      current.report?.({ ok: false, status });
-      const next = current.retryable?.(status) ? current.next?.() : null;
+      try {
+        const payload = (await response.json()) as { error?: { message?: unknown }; message?: unknown };
+
+        detail = String(payload.error?.message || payload.message || '').slice(0, 500);
+      } catch {
+        // Best-effort provider diagnostic.
+      }
+      logger.warn({ status, detail }, 'Direct model provider rejected request');
+      current.report?.({ ok: false, status, headers: response.headers });
+      const next = status === 400 ? current.next?.({ fallback: true }) : current.retryable?.(status) ? current.next?.() : null;
 
       if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
-        throw new Error(`模型服务返回 HTTP ${status}。`);
+        throw new Error(`模型服务返回 HTTP ${status}${detail ? `：${detail}` : ''}。`);
       }
+      if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
       current = next;
       continue;
     }
-    current.report?.({ ok: true, status: response.status });
+    current.report?.({ ok: true, status: response.status, headers: response.headers });
     if (!response.body) {
       throw new Error('模型响应为空。');
     }
@@ -105,6 +121,7 @@ export const directChat = async (
       await onEvent({ type: 'content', content });
     });
 
+    current.reportUsage?.(result.usage || {});
     answer = result.content || '';
   } else {
     const reader = response.body.getReader();
@@ -134,6 +151,7 @@ export const directChat = async (
     } catch {
       throw new Error('模型响应不是有效 JSON。');
     }
+    current.reportUsage?.(payload?.usage || {});
     answer = payload?.choices?.[0]?.message?.content;
   }
   if (typeof answer !== 'string' || !answer.trim()) {

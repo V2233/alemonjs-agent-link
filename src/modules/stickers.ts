@@ -1,7 +1,10 @@
 import type { AgentModule } from '../agent/types';
 import { getMediaConfig, MediaError } from '../media/config';
-import { chooseSticker, listStickers, loadSticker, collectSticker, updateSticker, markStickerUsed, renameSticker } from '../media/stickers';
+import { chooseSticker, listStickers, loadSticker, collectSticker, updateSticker, markStickerUsed, renameSticker, readStickerPath } from '../media/stickers';
 import { renderSticker } from '../media/sticker-forge';
+import { downloadAttachment, imageMime } from '../media/download';
+import { deleteFavoriteDirect } from '../media/onebot-direct';
+import { getActiveOneBotConnection } from '../onebot/index';
 import { takeRecentImage } from '../media/recent';
 
 export const stickerModule = (): AgentModule => ({
@@ -221,8 +224,67 @@ export const stickerModule = (): AgentModule => ({
       }
     });
     api.tool({
+      name: 'add_sticker',
+      description:
+        '主人明确要求把某个 HTTPS 图片地址，或表情素材目录内的本地图片，加入表情库时使用。不能读取目录外路径；URL 仍受媒体域名、大小、超时和重定向限制。',
+      parameters: {
+        type: 'object',
+        required: ['source'],
+        properties: {
+          source: { type: 'string', minLength: 1, maxLength: 2048 },
+          name: { type: 'string', minLength: 1, maxLength: 24 },
+          tags: { type: 'array', maxItems: 10, items: { type: 'string', maxLength: 20 } }
+        },
+        additionalProperties: false
+      },
+      available: context => context.owner && !context.autonomous,
+      execute: async ({ source, name, tags }, context) => {
+        const input = context.userText || '';
+        const asked =
+          /(?:收藏|收下|保存|存入|加入|导入|添加|收进|收录|加进).{0,20}(?:表情|图片|这张|这个|链接|地址|url|图)|(?:表情|图片|链接|地址|url).{0,20}(?:收藏|保存|收下|存入|导入|添加|收进|收录|加进)/iu.test(
+            input
+          );
+        const denied = /(?:不要|别|不许|禁止|不用|不需要|不能).{0,16}(?:收藏|保存|收下|存入|导入|添加)|能.{0,12}(?:收藏|保存|导入).{0,12}[吗么？?]/u.test(
+          input
+        );
+
+        if (!context.owner || context.autonomous || !asked || denied) return { ok: false, message: '需要主人明确要求添加图片。' };
+        try {
+          context.signal.throwIfAborted();
+          const config = getMediaConfig();
+          const text = String(source).trim();
+          const url = /^https?:\/\//iu.test(text);
+
+          if (!config.stickerRoot) return { ok: false, message: '尚未配置表情素材目录。' };
+          if (url && !/^https:\/\//iu.test(text)) return { ok: false, message: '图片地址必须是 HTTPS。' };
+          const data = url ? await downloadAttachment(text, config, context.signal) : await readStickerPath(config, text, 5 * 1024 * 1024);
+
+          context.signal.throwIfAborted();
+          if (!imageMime(data) || data.length > config.maxBytes) return { ok: false, message: '图片格式不支持或超过大小限制。' };
+          const cleanName = typeof name === 'string' ? name.replace(/\s+/gu, ' ').trim().slice(0, 24) : '';
+          const result = await collectSticker(config, data, Array.isArray(tags) && tags.length ? (tags as string[]) : ['表情'], context.signal, {
+            from: 'manual',
+            ...(cleanName ? { name: cleanName } : {})
+          });
+
+          return {
+            ok: true,
+            id: result.id,
+            ...(result.item.name ? { name: result.item.name } : {}),
+            tags: result.item.tags,
+            message: result.existing ? '这张表情已在素材库中。' : '图片已加入素材库。'
+          };
+        } catch (error) {
+          context.signal.throwIfAborted();
+
+          return { ok: false, message: error instanceof MediaError ? error.message : '图片添加未完成。' };
+        }
+      }
+    });
+    api.tool({
       name: 'manage_sticker',
-      description: '主人明确要求时修改指定表情编号的名称、标签，或从清单移除表情；移除只影响清单，不删除图片文件。必须在用户本轮文字中给出完整编号。',
+      description:
+        '主人明确要求时修改指定表情编号的名称、标签，或从清单移除表情；移除会从清单删除并尝试删除对应 QQ 收藏，但保留原图片文件。必须在用户本轮文字中给出完整编号。',
       parameters: {
         type: 'object',
         required: ['id', 'action'],
@@ -263,17 +325,27 @@ export const stickerModule = (): AgentModule => ({
         )
           return { ok: false, message: '需要主人明确指定表情编号和操作。' };
         try {
+          const config = getMediaConfig();
+          let qqDeleted = false;
+
+          if (action === 'remove') {
+            const target = (await listStickers(config)).find(item => item.id === identifier);
+            const connection = getActiveOneBotConnection();
+
+            if (target?.emojiId && connection) qqDeleted = await deleteFavoriteDirect(connection, target.emojiId);
+          }
           const changed =
             action === 'name'
-              ? await renameSticker(getMediaConfig(), identifier, String(name), context.signal)
-              : await updateSticker(getMediaConfig(), identifier, action === 'remove' ? null : (tags as string[]), context.signal);
+              ? await renameSticker(config, identifier, String(name), context.signal)
+              : await updateSticker(config, identifier, action === 'remove' ? null : (tags as string[]), context.signal);
 
           return {
             ok: changed,
+            ...(action === 'remove' ? { qqDeleted } : {}),
             message: !changed
               ? '未找到该表情编号。'
               : action === 'remove'
-                ? '已从表情清单移除，原图片文件保留。'
+                ? `已从表情清单移除，原图片文件保留。${qqDeleted ? 'QQ 收藏已删除。' : ''}`
                 : action === 'name'
                   ? '表情名称已更新。'
                   : '表情标签已更新。'

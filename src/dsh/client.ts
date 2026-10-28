@@ -287,6 +287,12 @@ export const purgeGroupHashData = async (config: DSHBridgeConfig, groupHash: str
 
 export const toUserMessage = (error: unknown): string => {
   if (!(error instanceof DSHError)) {
+    const message = error instanceof Error ? error.message : '';
+
+    if (/模型服务|模型响应|模型未返回|模型请求重试超时/u.test(message)) {
+      return '模型服务暂时不可用；已尝试切换节点，请联系主人查看日志。';
+    }
+
     return '服务暂时不可用，请稍后再试。';
   }
 

@@ -1,297 +1,522 @@
-# AgentLink 配置示例
+# AgentLink 配置示例（逐字段解释）
 #
-# 用法：复制为 alemon.config.yaml，删除用不到的注释后按需修改。
-# 字段含义、默认值与取值范围见 docs/config-reference.md；场景说明见 docs/config.md。
+# 用法：复制为 alemon.config.yaml，按需删掉用不到的注释再改值。
+# 具体范围与校验规则见 docs/config-reference.md，场景说明见 docs/config.md。
 # 占位符统一写成 '<...>'：`agent-link doctor` 会识别为“未填写”，不会当成真实凭证。
-# 所有时长单位为毫秒；名称以 Seconds / Days 结尾的除外。
+# 单位约定：时长一律毫秒；名称以 Seconds / Days 结尾的除外。
 #
-# 最小可用（只填模型 Key，QQ 凭证留空时启动器显示扫码）：
+# 最小可用（只填模型 Key；QQ 凭证留空时启动器会显示扫码）：
 #   alemonjs-agent-link:
 #     apiKey: '<MODEL_API_KEY>'
 
-# ---------------------------------------------------------------- 平台连接
+# ================================================================ 平台连接
 
-# QQ 官方机器人（transport 为 qq-bot 时使用）。
+# QQ 官方机器人凭证。transport 为 qq-bot 时使用这一段。
 qq-bot:
+  # 开放平台机器人的 AppID（数字串）。
   app_id: '<QQ_APP_ID>'
+  # 该机器人的 AppSecret；泄露等于别人能冒充机器人。
   secret: '<QQ_APP_SECRET>'
-  # 多机器人时改用 bots：键必须等于该机器人的 app_id，并指定 default_bot
+  # 多机器人部署时删掉上面的 app_id/secret，改用 bots + default_bot：
+  #   bots 的键必须等于该机器人的 app_id，值里再写各自的 secret。
   # bots:
   #   '102040992':
   #     secret: '<QQ_APP_SECRET>'
+  # 多机器人时必须指定，值必须是 bots 里的某个 app_id。
   # default_bot: '102040992'
-  # 强制把 Markdown 转纯文本（气泡退化为文字，不推荐）
+  # true 时把 Markdown 强制降级成纯文本：气泡卡片与按钮都会消失，不推荐。
   # markdownToText: false
-  # 客户端不支持内容的降级等级 0-4，0 时按钮与卡片显示最完整
+  # 客户端不支持内容的降级等级 0-4；0 时卡片、按钮、引用块显示最完整。
   # hideUnsupported: 0
 
-# OneBot（账号协议）：把 alemonjs-agent-link.transport 改成 onebot 才生效。
+# OneBot（账号协议）。只有 alemonjs-agent-link.transport: onebot 时才会读取。
 onebot:
+  # 反向 WebSocket 地址；远程必须是 wss://，且不能带账号密码或查询参数。
   url: 'ws://127.0.0.1:3001'
+  # 机器人自己的 QQ 号（字符串，1-16 位数字）。
   selfId: '1000000000'
-  # 远程地址必须是 wss:// 且提供 accessToken
+  # 连接令牌；远程地址必填，不能含换行。
   accessToken: '<ONEBOT_TOKEN>'
+  # 单次调用超时，单位毫秒。
   timeoutMs: 10000
+  # 单帧最大字节数，防止异常帧撑爆内存。
   maxPayloadBytes: 8388608
+  # 语音文件所在的本机绝对目录；不填则不能读取本地语音。
   recordDirectory: '/absolute/path/to/records'
+  # 图片文件所在的本机绝对目录；不填则不能读取本地图片。
   imageDirectory: '/absolute/path/to/images'
 
-# ---------------------------------------------------------------- 身份
+# ================================================================ 身份
 
-# 平台用户 ID 或映射写成的主人；命中任一即视为主人。
+# 平台用户 ID 写到这里的账号视为主人；也支持写成列表或映射。
 master_id: '123456789'
+# 按平台计算出的用户指纹识别主人（更抗改昵称/改号）；
+# 键是框架生成的 UserKey，值是 true。与 master_id 任一命中即可。
 # master_key:
 #   1khucc5: true
 
-# 机器人自身 ID，用于避免自问自答。
+# 机器人自己的平台 ID；用于把机器人自己发的消息标记成 IsBot，避免自问自答。
 bot_id: '987654321'
 
-# ---------------------------------------------------------------- 状态库（可选）
+# ================================================================ 状态库（可选）
 
-# 存在 db.redis 时，状态与额度默认走 Redis；没有 Redis 就保持注释，改用本地状态。
+# 配了 db.redis，状态与额度账本默认走 Redis；没有 Redis 就整段保持注释，用本地 SQLite。
 # db:
+#   # Redis 主机地址。
 #   redis:
 #     host: 127.0.0.1
+#     # 端口。
 #     port: 6379
+#     # 密码；空字符串表示无密码。
 #     password: ''
+#     # 库编号（0-15）。
 #     db: 0
 
-# ---------------------------------------------------------------- 子应用
+# ================================================================ 子应用
 
+# 其他子应用的开关；false 表示不加载它，别删掉不认识的键，升级后可能要用。
 apps:
+  # 修仙模拟器子应用：false 表示不加载它。
   xiuxian-game: false
 
-# ---------------------------------------------------------------- 框架级过滤（可选）
+# ================================================================ 框架级过滤（可选）
 
+# 事件处理器节奏与过滤，属于框架层，平时不用改。
 # processor:
-#   repeated_event_time: 60000   # 同一 MessageId 去重窗口
-#   repeated_user_time: 1000     # 同一用户连续事件窗口
+#   # 同一 MessageId 的去重窗口（毫秒），防止平台重推导致重复回复。
+#   repeated_event_time: 60000
+#   # 同一用户连续事件的窗口（毫秒）；调大可防刷屏，调小可让连发更灵敏。
+#   repeated_user_time: 1000
+#   # 按发送者限流；配了它，框架就不再按 repeated_user_time 过滤消息。
+#   # rateLimit:
+#   #   sender: { window: 1000, max: 3 }
+# 按事件名整体关闭处理，例如忽略消息编辑事件。
 # disabled_selects:
 #   message.update: true
+# 命中该正则的消息直接丢弃；这里是“空白消息”。
 # disabled_text_regular: '^\s*$'
 
-# ---------------------------------------------------------------- AgentLink
+# ================================================================ AgentLink 主配置
 
+# 本插件的全部业务配置都写在这一段下面。
 alemonjs-agent-link:
-  # ---- 模型 ----
+  # ---------------------------------------------------------------- 模型
+
+  # 模型服务密钥；留空时纯聊天与沙箱都不会启动，补填后自动生效。
   apiKey: '<MODEL_API_KEY>'
-  # 兼容 OpenAI 的 HTTPS 地址；使用 DeepSeek 官方时可不填
+  # 兼容 OpenAI 的 HTTPS 地址；用 DeepSeek 官方可留空。
   # baseUrl: 'https://api.deepseek.com'
+  # 默认模型 ID；额度计价按这个模型所属价目表计算。
   model: 'deepseek-v4-flash'
+  # 提供方标识；等于 deepseek-official 时 baseUrl 默认指向官方地址，
+  # 并决定“同源才复用主密钥”的判断。
   provider: 'deepseek-official'
+  # 传给 DSH 沙箱的配置档名（环境变量 DSH_PROFILE），一般保持 sdk。
   profile: 'sdk'
 
-  # ---- 多端点轮转（可选；不写则继续用上面的单 Key）----
-  # modelPool:
-  #   enabled: true
-  #   strategy: weighted-round-robin # weighted-round-robin | least-busy | sticky
-  #   maxAttempts: 3
-  #   failureThreshold: 2
-  #   cooldownSeconds: 60
-  #   retryStatuses: [401, 402, 403, 429, 500, 502, 503, 504]
-  #   endpoints:
-  #     - id: ds-a
-  #       provider: deepseek-official
-  #       baseUrl: 'https://api.deepseek.com'
-  #       apiKey: '<MODEL_API_KEY_A>'
-  #       model: 'deepseek-v4-flash'
-  #       weight: 1
-  #       maxConcurrent: 2
-  #       capabilities: [chat, tools, replyGate]
-  #     - id: ds-b
-  #       apiKeyEnv: 'DSH_MODEL_KEY_B' # 也可直接写 apiKey
-  #       model: 'deepseek-v4-flash'
-  #       weight: 1
-  #       capabilities: [chat, tools, replyGate]
+  # ---------------------------------------------------------------- 多 Key 轮转（可选）
 
-  # ---- 连接与运行 ----
-  transport: 'qq-bot' # qq-bot | onebot，修改后需重启
-  runtimeMode: 'auto' # auto | sandbox | chat-only
-  # 不写时：有 db.redis 即 redis，否则 local
+  # 不写 modelPool 就只用上面的单 Key。写了会按策略在多组 Key 之间分配，
+  # 某个 Key 失败后自动冷却并换下一个。
+  #
+  # 写法一：只给 Key，模型与地址沿用上面的 model/baseUrl。
+  # modelPool:
+  #   # 给出这些 Key；最多 20 个。
+  #   keys:
+  #     - '<MODEL_API_KEY_A>'
+  #     - '<MODEL_API_KEY_B>'
+  #   # 某个 Key 要单独换模型或地址时，写成对象：
+  #     - key: '<MODEL_API_KEY_C>'
+  #       # 这个 Key 使用的模型。
+  #       model: 'deepseek-v4-pro'
+  #       # 这个 Key 的服务地址；不写沿用上面。
+  #       # baseUrl: 'https://api.example.com'
+  #       # 非官方厂商且开启额度时，必须给出每百万 token 价格（元）。
+  #       # cached 是命中缓存的输入价格，可省略。
+  #       pricing: { input: 2, output: 8 }
+  #
+  # 写法二：完整端点列表，可分别控制权重与并发（与 keys 二选一）。
+  # modelPool:
+  #   # 是否启用池；false 等于回到单 Key。
+  #   enabled: true
+  #   # 分配策略：weighted-round-robin 按权重轮询 / least-busy 挑最闲 / sticky 会话粘住同一个 Key。
+  #   strategy: 'weighted-round-robin'
+  #   # 单次请求最多尝试几个端点（含首次）。
+  #   maxAttempts: 3
+  #   # 连续失败多少次后把端点标记为不可用。
+  #   failureThreshold: 2
+  #   # 不可用后冷却多少秒再试。
+  #   cooldownSeconds: 30
+  #   # 这些 HTTP 状态视为“可换 Key 重试”的失败。
+  #   retryStatuses: [401, 402, 403, 429, 500, 502, 503, 504]
+  #   # 探活间隔（秒），0 表示不主动探活。
+  #   probeIntervalSeconds: 60
+  #   # 探活超时（毫秒）。
+  #   probeTimeoutMs: 5000
+  #   # 再次探活前的等待（秒）。
+  #   recoveryProbeSeconds: 30
+  #   # 端点列表：每个 Key / 服务一条，可分别设置模型、权重与并发。
+  #   endpoints:
+  #     - # 端点编号（小写字母开头，用于日志区分）。
+  #       id: 'main'
+  #       # 提供方标识，与 provider 同义。
+  #       provider: 'deepseek-official'
+  #       # 服务地址，必须是 HTTPS。
+  #       baseUrl: 'https://api.deepseek.com'
+  #       # 这个端点的 Key；也可用 apiKeyEnv 从环境变量读取（两者只能选一个）。
+  #       apiKey: '<MODEL_API_KEY_A>'
+  #       # 模型名。
+  #       model: 'deepseek-v4-flash'
+  #       # 权重，越大分到越多请求。
+  #       weight: 1
+  #       # 这个端点允许同时跑几个请求。
+  #       maxConcurrent: 4
+  #       # 这个端点能承担的任务：chat 对话 / tools 工具 / vision 识图 / replyGate 接话判断。
+  #       capabilities: ['chat', 'tools']
+  #       # 是否启用该端点。
+  #       enabled: true
+  #       # 每百万 token 价格（元），开启额度时需要。
+  #       pricing: { input: 2, output: 8, cached: 0.5 }
+
+  # ---------------------------------------------------------------- 连接与运行
+
+  # 连接方式：qq-bot 官方机器人 / onebot 账号协议；修改后必须重启。
+  transport: 'qq-bot'
+  # auto：先纯聊天、后台准备沙箱；sandbox：强制沙箱，失败即拒服务；
+  # chat-only：不装 Python、不启 Worker，只走 Chat Completions。
+  runtimeMode: 'auto'
+  # 状态库：local 本地 SQLite / redis；不写时“有 db.redis 就用 redis，否则 local”。
   # stateBackend: 'local'
 
-  # ---- 开关 ----
+  # ---------------------------------------------------------------- 开关
+
+  # 总开关；false 时拒绝一切模型请求，命令与查询仍然可用。
   aiEnabled: true
+  # 关闭时回给用户的说明；留空则用内置文案。
   # aiDisabledReason: '维护中，稍后再试。'
+  # “AI 已关闭”提示的去重版本号；改一个值可让该提示重新推送一轮。
   # aiNoticeEpoch: '2026-10-28'
 
-  # ---- 人格 ----
-  persona: 'dafeiyu' # assistant | dafeiyu
+  # ---------------------------------------------------------------- 人格
+
+  # 默认人格：dafeiyu 为大肥鱼人设 / assistant 为通用助手。
+  persona: 'dafeiyu'
+  # 未选中人格文件时的系统提示词；persona: dafeiyu 时会默认换成人设提示词。
   # defaultSystemPrompt: '你是一个友好、可靠的助手。'
 
-  # ---- 私聊 ----
-  privateChatAccess: 'all' # owner | all；默认开放私聊，仍受额度和个人目录隔离限制
+  # ---------------------------------------------------------------- 私聊
+
+  # 谁可以私聊：all 任何人（默认）/ owner 仅主人；仍受额度和目录隔离限制。
+  privateChatAccess: 'all'
+  # 私聊普通消息是否自动回应；false 时只响应显式指令。
   privateAutoReply: true
+  # 纯聊天模式下保留的对话轮数（0-100）。
   privateHistoryMaxTurns: 10
+  # 私聊历史的过期时间（秒，1-2592000，这里 24 小时）。
   privateHistoryTtlSeconds: 86400
+  # 私聊历史的文本上限（字符，1-100000）。
   privateHistoryMaxChars: 12000
 
-  # ---- 群唤醒 ----
+  # ---------------------------------------------------------------- 群唤醒
+
+  # 群里出现这些词就当作叫机器人；最多 64 条，每条 ≤20 字，
+  # 不能有前后空格，也不能以 / 开头（那是指令）。
   groupWakeNames: ['肥鱼', '大肥鱼', '帮我', '求助']
 
-  # ---- 路径（默认在数据目录下；相对路径按本文件所在目录解析）----
+  # ---------------------------------------------------------------- 路径
+
+  # Agent 工作区根目录；不填默认 <数据目录>/workspaces。相对路径按本文件所在目录解析。
   # workspaceRoot: './.data/agent-link/workspaces'
+  # 沙箱 HOME 根目录；不填默认 <数据目录>/dsh-homes。
   # dshHomeRoot: './.data/agent-link/dsh-homes'
+  # Python 解释器路径；不填默认 <数据目录>/venv/bin/python（Windows 为 Scripts\python.exe）。
   # pythonExecutable: './.data/agent-link/venv/bin/python'
+  # 安装 Python 依赖用的索引地址，1-5 个 HTTPS 地址，不允许带凭证。
   # pythonPackageSources: ['https://pypi.org/simple']
-  # bridgePort: 0              # 0 自动分配，固定端口需 ≥1024
+  # DSH 桥接端口；0 表示自动分配，固定端口必须 ≥1024。
+  # bridgePort: 0
 
-  # ---- 输出与限额 ----
+  # ---------------------------------------------------------------- 输出与限额
+
+  # 单条回复字符上限，超出自动分条发送（1-10000）。
   maxMessageLength: 1000
+  # 流式回复的最小发送间隔（1-10000 毫秒），太小会产生大量气泡。
   streamFlushIntervalMs: 500
+  # 连续气泡之间的“思考”停顿（0-5000 毫秒）。
   bubbleDelayMs: 250
+  # 单次模型请求超时（1-300000 毫秒）。
   requestTimeoutMs: 120000
+  # 沙箱启动等待上限（1-300000 毫秒）。
   startupTimeoutMs: 30000
+  # 沙箱准备上限（1000-600000 毫秒）。
   preparationTimeoutMs: 120000
+  # 每个会话最多排队几个请求（0-3），超出的会被拒绝。
   maxQueuedPerGroup: 3
+  # 全局并发请求上限（1-100）。
   maxConcurrentRequests: 8
+  # 同时存活的 Worker 上限（1-200）。
   maxActiveWorkers: 16
+  # 单个用户每分钟最多几次请求（1-60）。
   maxCallsPerUserPerMinute: 6
+  # 单次请求体大小上限（字节，1-5MB）。
   maxRequestBytes: 1048576
-  retentionDays: 30 # 当前只接受 30
+  # 聊天记录、记忆、心情、平台记录的保留天数；当前只接受 30。
+  retentionDays: 30
 
-  # ---- 内容过滤 ----
+  # ---------------------------------------------------------------- 内容过滤
+
+  # 命中这些词的输入直接拒绝，不会发给模型。
   # inputBlockedKeywords: ['代开发票']
+  # 命中这些词的输出会被拦截，不会发出去。
   # outputBlockedKeywords: ['<script']
 
-  # ---- 近期群聊参考 ----
+  # ---------------------------------------------------------------- 近期群聊参考
+
+  # 采集最近多少条群消息作为上下文（0-10000）。
   recentChatMaxMessages: 20
+  # 采集的时间窗（秒，0-86400，这里 15 分钟）。
   recentChatWindowSeconds: 900
+  # 采集文本总量上限（字符）。
   recentChatMaxChars: 6000
+  # 注入提示词时的摘要上限（字符），防止上下文过长。
   recentChatSummaryMaxChars: 1600
 
-  # ---- 额度（需要 db.redis）----
+  # ---------------------------------------------------------------- 额度（需要 db.redis）
+
+  # 打开后按天计费并限制请求；没有 Redis 时不要开（付费请求会被全部拦下）。
   budget:
+    # 总开关。
     enabled: false
+    # 个人免费额度（元/天，跨群与私聊共享）；不填时依次回退 privateDailyYuan、1。
     personalDailyYuan: 1
+    # 群感知判断（决定要不要接话）的每日预算（元）。
     replyGateDailyYuan: 1
+    # 全局每日总额（元）；0 表示不设全局上限。
     globalDailyYuan: 0
+    # 单次输出 token 上限（1-8192）。
     maxOutputTokens: 2048
 
-  # ---- 接话判断用的小模型（可选，跨源时必须单独给 apiKey）----
+  # ---------------------------------------------------------------- 接话判断用的小模型（可选）
+
+  # 不写就用主模型。跨源（baseUrl 与主模型不同源）时必须单独给 apiKey，
+  # 否则感知判断会被跳过——表现为“群里不接话”。
   # replyGate:
   #   model: 'deepseek-flash'
   #   baseUrl: 'https://api.deepseek.com'
   #   apiKey: '<GATE_API_KEY>'
 
-  # ---- 群聊参与策略 ----
+  # ---------------------------------------------------------------- 群聊参与策略
+
+  # 群聊自主参与策略；可按群覆盖。
   groupChat:
+    # 是否允许自主参与（不 @ 也可能接话）；false 时只响应明确的呼叫与指令。
     enabled: true
+    # 是否调用感知模型判断“该不该接话”；关掉可省一次请求，但判断会更机械。
     replyGateEnabled: true
+    # 主动插话的基础概率（0-1）；越大越容易被话题吸引。
     interjectChance: 0.25
+    # 两次自主发言的最小间隔（秒）。
     cooldownSeconds: 60
+    # 每小时自主发言上限。
     maxPerHour: 10
+    # 静默时段 [开始, 结束]，小时计，可跨零点（这里 1 点到 8 点不主动说话）。
     quietHours: [1, 8]
+    # 计算静默时段和统计用的时区，必须是合法 IANA 时区。
     timezone: 'Asia/Shanghai'
+    # 兴趣词表，用来给话题相关度打分；最多 100 条，每条 ≤40 字。
     interests: ['游戏', '猫', '奶茶']
-    # 按群覆盖：键为群 ChannelId，可写任意策略字段
+    # 按群覆盖：键是群 ChannelId，值可写上面任意字段。
     # overrides:
     #   '123456789':
     #     interjectChance: 0
     #     quietHours: [0, 0]
 
-  # ---- 模块 ----
+  # ---------------------------------------------------------------- 模块
+
+  # 模块开关与各模块自己的设置。
   modules:
+    # 本地模块目录；不填默认 <workspaceRoot 的上一级>/modules。
     # directory: './modules'
+    # 停用的模块 ID 列表（如 ['bili', 'qzone']），模块名见 docs/modules.md。
     disabled: []
+    # 单轮最多几次工具调用（1-16）。
     maxToolRounds: 8
+    # 工具结果之后允许续写几次（0-4）。
     maxToolContinuations: 2
+    # 各模块自己的设置；键是模块 ID，不需要的整段删掉即可。
     settings:
+      # 长期记忆
       memory:
+        # 是否自动整理记忆（把对话提炼成长期事实）。
         automatic: true
+        # 自动整理的间隔（小时，1-168）。
         intervalHours: 12
+        # 每次注入提示词带回多少条记忆（1-20）。
         recallLimit: 8
+      # 心情
       mood:
+        # 基线心情值（20-80），长期会回归到这里。
         baseline: 60
+        # 回归基线的半衰期（小时，0.1-168），越大心情变化越慢。
         halfLifeHours: 6
+        # 是否让模型判断每条消息对心情的影响；开启后每条消息多一次模型请求。
         modelJudge: true
+      # 主动搭话
       proactive:
+        # 是否允许主动发消息（不 @ 也会找你）。
         enabled: true
+        # 主人首次私聊时自动订阅主动搭话，不需要再发 /主动搭话 开启。
         autoSubscribe: true
+        # 空闲多少分钟才考虑搭话（1-1440）。
         idleMinutes: 40
+        # 两次主动消息的最小间隔（分钟），不能大于 maxIntervalMinutes。
         minIntervalMinutes: 60
+        # 两次主动消息的最大间隔（分钟，1-2880）。
         maxIntervalMinutes: 180
+        # 每天最多主动说几次（0-20）。
         maxPerDay: 4
+        # 免打扰时段 [开始, 结束]，小时计，可跨零点。
         quietHours: [23, 8]
+        # 计算免打扰的时区，必须是合法 IANA 时区。
         timezone: 'Asia/Shanghai'
+        # 单条主动消息的字符上限（40-1000）。
         maxChars: 300
+      # 自动表达
       expression:
+        # 是否自动决定要不要用语音或发表情。
         automatic: true
+        # 用语音回复的概率（0-1）。
         voiceChance: 0.1
+        # 附带表情的概率（0-1）。
         stickerChance: 0.25
+        # 没有话题相关的表情时，是否随手发一个；false 表示宁可不发。
+        stickerFallback: false
+        # 发送前随机停顿区间 [最小, 最大]（0-3000 毫秒，前值不得大于后值）。
         delayMs: [0, 0]
+      # 人格文件
       persona:
+        # 默认人格编号（^[a-z][a-z0-9-]{0,63}$）；会被 /人格 使用 的选择覆盖。
         # defaultId: 'editor'
-        # commonRules: '称呼用户为“你”，不用敬语。'
+        # 所有会话共享的追加规则（≤4000 字）；空字符串表示不加。
         commonRules: ''
+      # 表情自动收集
       stickers:
+        # 是否自动收集表情素材。
         autoCollect: true
+        # 主人私聊里的图也收集。
         autoOwnerPrivate: true
-        autoGroups: [] # 为空且 autoAllGroups 为 true 时收集所有群
+        # 只收集这些群的素材（'平台:群号'）；留空且 autoAllGroups 为 true 时表示所有群。
+        autoGroups: []
+        # 上面留空时是否收集所有群；false 则只收集 autoGroups 里的群。
         autoAllGroups: true
+        # 是否让模型给素材打标签（额外模型费用）。
         autoLabel: true
+        # 是否先判定“像不像表情”再收集。
         autoDetect: true
+        # 是否把收集到的表情同步到机器人号 QQ 收藏。
         autoQQSync: true
+        # 每小时最多收集多少个（1-100）。
         autoMaxPerHour: 20
+        # 本地表情面板：只在回环地址监听，用于在浏览器里管理素材。
         panel:
-          # 默认开启，仅绑定回环地址；未填 token 时自动写入数据目录的 sticker-panel-token.txt
+          # 是否启用面板。
           enabled: true
+          # 监听地址；只允许 127.0.0.1 或 ::1，不能对外网开放。
+          host: '127.0.0.1'
+          # 监听端口（1-65535）。
           port: 8787
+          # 访问令牌；16-128 位且不含空白。留空时自动生成并写入
+          # 数据目录下的 sticker-panel-token.txt。
+          # token: '<PANEL_TOKEN>'
+      # B 站
       bili:
+        # 是否启用 B 站工具（搜索、看视频）。
         enabled: true
-        # 评论工具默认开放；主人本轮明确要求时才可调用，dryRun: true 可只预览
+        # 是否允许评论工具；仍要求主人本轮明确要求才会调用。
         allowComments: true
+        # 主动搭话时是否允许自行浏览 B 站。
         allowProactiveBrowse: true
+        # 演练模式：false 会真正发表评论，true 只生成预览（更安全）。
         dryRun: false
+      # QQ 空间
       qzone:
+        # 是否启用空间工具（读动态/发说说/互动）。
         enabled: true
+        # 是否允许发说说；仍需主人明确要求。
         allowPost: true
+        # 是否允许点赞、评论。
         allowInteract: true
+        # 演练模式：false 会真正发布，true 只预览。
         dryRun: false
+        # 说说可见范围：all 所有人 / friends 好友 / self 仅自己。
         visibility: 'friends'
+      # 群管理（OneBot）
       group-admin:
+        # 是否允许管理白名单外的群；true 表示不限制群。
         allGroups: true
+        # 群管理白名单；allGroups 为 false 时只有这些群可被管理。
         groups: []
 
-  # ---- 媒体 ----
+  # ---------------------------------------------------------------- 媒体
+
+  # 图片、语音、表情等媒体能力与上限。
   media:
+    # 单次媒体请求超时（1000-120000 毫秒）。
     timeoutMs: 60000
+    # 单个附件大小上限（字节，1024-25MB）。
     maxBytes: 10485760
+    # 单条消息最多几个附件（1-5）。
     maxAttachments: 3
+    # 一次语音合成最多多少字符（1-4000）。
     ttsMaxChars: 800
+    # 同一会话发表情的冷却时间（秒，0-3600）。
     stickerCooldownSeconds: 30
+    # 表情素材索引上限（1-500）。
     stickerMaxItems: 300
-    # 空数组表示允许任意公网 HTTPS；填了就是精确域名白名单
+    # 允许下载媒体的域名白名单；空数组表示允许任意公网 HTTPS。
+    # 填了就是精确域名（不支持通配符，也不能以 . 开头）。
     allowedHosts: []
-    # 独立识图服务；不填时用 DSH 当前模型识图
+    # 独立识图服务；整段不填时用 DSH 当前模型识图。
     # vision:
+    #   # 服务地址，必须是 HTTPS。
     #   baseUrl: 'https://api.example.com/v1'
+    #   # 服务密钥。
     #   apiKey: '<VISION_KEY>'
+    #   # 模型名。
     #   model: '<VISION_MODEL>'
-    # 语音转写（允许 http://localhost）
+    # 语音转写（ASR）；允许 http://localhost 的本地服务。
     # asr:
     #   baseUrl: 'https://api.example.com/v1'
     #   apiKey: '<ASR_KEY>'
     #   model: '<ASR_MODEL>'
-    # 语音合成（允许 http://localhost）
+    # 语音合成（TTS）；允许 http://localhost 的本地服务。
     # tts:
     #   baseUrl: 'https://api.example.com/v1'
     #   apiKey: '<TTS_KEY>'
     #   model: '<TTS_MODEL>'
     #   voice: '<VOICE>'
-    # 生图（允许 http://localhost）
+    # 独立生图服务；允许 http://localhost 的本地服务。
     # imageGen:
     #   baseUrl: 'https://api.example.com/v1'
     #   apiKey: '<IMAGE_KEY>'
     #   model: '<IMAGE_MODEL>'
+    #   # 出图尺寸，形如 1024x1024。
     #   size: '1024x1024'
+    #   # 追加的风格提示（≤2000 字）。
     #   stylePrompt: ''
+    #   # true 时只有主人能触发生图。
     #   ownerOnly: false
-    # 语音引擎
+    # 本地语音引擎参数（不依赖上面的 tts 服务）。
     # speech:
-    #   engine: 'auto'            # auto | system | edge | openai | cosyvoice | gptsovits | http
+    #   # 引擎：auto 自动挑 / system 系统语音 / edge / openai / cosyvoice / gptsovits / http。
+    #   engine: 'auto'
+    #   # 合成失败时是否回退成文字。
     #   fallback: true
+    #   # edge 引擎的音色名。
     #   edgeVoice: 'zh-CN-XiaoyiNeural'
+    #   # 说话人（部分引擎使用）。
     #   speaker: '中文女'
+    #   # 采样率（Hz）。
     #   sampleRate: 22050
+    #   # 语言代码。
     #   language: 'zh'

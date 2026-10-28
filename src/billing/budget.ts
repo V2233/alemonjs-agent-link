@@ -206,6 +206,30 @@ const requestKeys = (day: string, scope: BudgetScope, kind: BudgetKind = 'chat')
   `${prefix}:${day}:gate-all`
 ];
 
+export type BudgetBlockReason = 'none' | 'personal' | 'global';
+
+/**
+ * 唯一的额度判定入口，0 元表示“不设上限”，只有显式 > 0 才参与比较。
+ * 分开判断全局与个人两本账，错误文案才能说清是哪一项用满。
+ */
+export const budgetBlockReason = (state: {
+  /** 当前可用（个人免费剩余 + 已充值剩余），单位与全局一致。 */
+  available: number;
+  /** 上一次被拒时留下的需求金额；0 表示没有。 */
+  required: number;
+  /** 全局每日上限；0 = 不限。 */
+  globalLimit: number;
+  /** 全局今日已用。 */
+  globalUsed: number;
+  /** 上一次被拒时全局记录的额外需求；0 表示没有。 */
+  globalRequired: number;
+}): BudgetBlockReason => {
+  if (state.globalLimit > 0 && (state.globalUsed >= state.globalLimit || state.globalUsed + state.globalRequired > state.globalLimit)) return 'global';
+  if (state.available <= 0 || (state.required > 0 && state.available < state.required)) return 'personal';
+
+  return 'none';
+};
+
 export const budgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) => {
   if (scope.channelId.startsWith('private:')) scope = privateUserScope(scope);
   const redis = await budgetRedis();
@@ -228,13 +252,18 @@ export const budgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) 
   const globalUsed = Number(total.used || 0);
   const globalLimit = Math.floor((config.budget?.globalDailyYuan ?? 0) * units);
   const available = paidRemaining + personRemaining;
+  const reason = budgetBlockReason({
+    available,
+    required: Number(person.blockedRequired || 0),
+    globalLimit,
+    globalUsed,
+    globalRequired: Number(total.blockedRequired || 0)
+  });
 
   return {
     day,
-    blocked:
-      available <= 0 ||
-      available < Number(person.blockedRequired || 0) ||
-      (globalLimit > 0 && (globalUsed >= globalLimit || globalUsed + Number(total.blockedRequired || 0) > globalLimit)),
+    reason,
+    blocked: reason !== 'none',
     limit: (freeLimit + paidLimit) / units,
     defaultLimit: personalLimit(config) / units,
     freeLimit: freeLimit / units,
@@ -277,6 +306,12 @@ export const replyGateBudgetStatus = async (config: DSHBridgeConfig, scope: Budg
   const available = freeRemaining + paidRemaining;
   const globalLimit = Math.floor((config.budget?.globalDailyYuan ?? 0) * units);
   const gateGlobalLimit = Math.floor((config.budget?.replyGateGlobalDailyYuan ?? 0) * units);
+  const gateGlobalBlocked = gateGlobalLimit > 0 && Number(gateTotal.used || 0) + Number(gateTotal.blockedRequired || 0) >= gateGlobalLimit;
+  const mainGlobalBlocked =
+    globalLimit > 0 && (Number(total.used || 0) >= globalLimit || Number(total.used || 0) + Number(total.blockedRequired || 0) > globalLimit);
+  const requiredGate = Number(gate.blockedRequired || 0);
+  const reason: BudgetBlockReason =
+    gateGlobalBlocked || mainGlobalBlocked ? 'global' : available <= 0 || (requiredGate > 0 && available < requiredGate) ? 'personal' : 'none';
 
   return {
     limit: limit / units,
@@ -290,11 +325,8 @@ export const replyGateBudgetStatus = async (config: DSHBridgeConfig, scope: Budg
     globalUsed: Number(gateTotal.used || 0) / units,
     globalLimit: gateGlobalLimit / units,
     blockedRequired: Number(gate.blockedRequired || 0) / units,
-    blocked:
-      available <= 0 ||
-      available < Number(gate.blockedRequired || 0) ||
-      (gateGlobalLimit > 0 && Number(gateTotal.used || 0) + Number(gateTotal.blockedRequired || 0) >= gateGlobalLimit) ||
-      (globalLimit > 0 && (Number(total.used || 0) >= globalLimit || Number(total.used || 0) + Number(total.blockedRequired || 0) > globalLimit))
+    reason,
+    blocked: reason !== 'none'
   };
 };
 
@@ -354,10 +386,12 @@ export const textBudgetInput = (body: { messages?: unknown; tools?: unknown }): 
 
 // The debit is durable BEFORE fetch. Missing usage, cancellation and crashes retain
 // the reservation; only a complete provider response can refund it, exactly once.
+type CredentialPricing = { input: number; output: number; cached: number };
+
 export const budgetedFetch = async (
   config: DSHBridgeConfig,
   url: URL,
-  init: RequestInit & { personalKey?: boolean; scopedKey?: boolean },
+  init: RequestInit & { personalKey?: boolean; scopedKey?: boolean; pricing?: CredentialPricing },
   kind: BudgetKind = 'chat'
 ): Promise<Response> => {
   assertAIEnabled(config);
@@ -398,7 +432,7 @@ export const budgetedFetch = async (
   if (!scope?.channelId || !scope.platform) throw new DSHError('budget', '无法确定本次调用所属会话，已暂停付费调用。');
   if (kind === 'reply-gate' && scope.channelId.startsWith('private:')) throw new DSHError('budget', '主动搭话识别仅限群会话。');
   const body = JSON.parse(String(init.body));
-  const rates = officialRates(url, body.model);
+  const rates = init.pricing || officialRates(url, body.model);
 
   const textInput = textBudgetInput(body);
   const maxOutput = Math.min(
@@ -619,6 +653,8 @@ export type BudgetExceededDetails = {
   availableYuan?: number;
   requiredYuan?: number;
   isPrivate?: boolean;
+  /** 拦截原因，决定补充哪一句说明。 */
+  reason?: BudgetBlockReason;
   globalBlocked?: boolean;
 };
 
@@ -636,9 +672,10 @@ export class BudgetExceededError extends DSHError {
     const amounts = hasAmounts
       ? `本次请求预计需要 ${yuanLabel(Number(details.requiredYuan))} 元，当前可用约 ${yuanLabel(Number(details.availableYuan))} 元。`
       : '';
-    const globalNote = details.globalBlocked ? '今日全局每日上限也已用满。' : '';
+    const reason = details.reason ?? (details.globalBlocked ? 'global' : undefined);
+    const reasonNote = reason === 'global' ? '今日全局每日上限也已用满。' : reason === 'personal' && !hasAmounts ? '个人可用额度已用满。' : '';
 
-    super('budget', [headline, amounts, globalNote, ...rest].filter(Boolean).join('\n\n'));
+    super('budget', [headline, amounts, reasonNote, ...rest].filter(Boolean).join('\n\n'));
     this.name = 'BudgetExceededError';
     this.availableYuan = details.availableYuan;
     this.requiredYuan = details.requiredYuan;
@@ -656,11 +693,14 @@ async function budgetFailureDetails(config: DSHBridgeConfig, scope: BudgetScope,
   try {
     const status = kind === 'reply-gate' ? await replyGateBudgetStatus(config, scope) : await budgetStatus(config, scope);
 
+    // 被拒可能是因为上一次更大的请求留下了 blockedRequired：
+    // 只报本次金额会出现「需要 0.09、可用 1.00 却不让发」的矛盾说法。
     return {
       availableYuan: status.available,
-      requiredYuan,
+      requiredYuan: Math.max(requiredYuan, status.blockedRequired),
       isPrivate,
-      globalBlocked: status.globalLimit > 0 && status.globalUsed >= status.globalLimit
+      reason: status.reason,
+      globalBlocked: status.reason === 'global'
     };
   } catch {
     return { requiredYuan, isPrivate };
@@ -723,7 +763,7 @@ export const assertBudgetAvailable = async (config: DSHBridgeConfig): Promise<vo
     throw new BudgetExceededError({
       availableYuan: status.available,
       requiredYuan: status.blockedRequired > 0 ? status.blockedRequired : undefined,
-      globalBlocked: status.globalLimit > 0 && status.globalUsed >= status.globalLimit
+      reason: status.reason
     });
   }
 };
@@ -739,7 +779,7 @@ export const reserveWorkspaceText = async (config: DSHBridgeConfig, input: strin
   const { getDSHCredentials } = await import('../dsh/credentials');
   const credentials = await getDSHCredentials();
   const base = credentials?.baseUrl || (config.provider === 'deepseek-official' ? 'https://api.deepseek.com' : '');
-  const rates = officialRates(new URL(`${base.replace(/\/+$/u, '')}/chat/completions`), credentials?.model || config.model);
+  const rates = credentials?.pricing || officialRates(new URL(`${base.replace(/\/+$/u, '')}/chat/completions`), credentials?.model || config.model);
   const promptTokens = Math.ceil(Buffer.byteLength(input) / 3);
   const amount = usageCost({ prompt_tokens: promptTokens, completion_tokens: config.budget?.maxOutputTokens ?? 2048 }, rates);
   const redis = await budgetRedis();

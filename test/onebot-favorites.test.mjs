@@ -93,3 +93,35 @@ test('favorite writes reject non-owners, bad ids and invalid payloads', async ()
   });
   assert.equal(added[0].code, ResultCode.Fail);
 });
+
+test('dedicated sticker send builds a OneBot image segment with sub_type=1', async () => {
+  const calls = [];
+  const instance = adapter(async (action, args) => {
+    calls.push({ action, args });
+    return { message_id: '9001' };
+  });
+  const result = await instance.api({
+    payload: {
+      key: 'agentLink.sendSticker',
+      event: { Platform: 'onebot', IsPrivate: false, ChannelId: '200', UserId: '100', MessageId: '1' },
+      params: [{ data: png.toString('base64'), replyId: '5' }]
+    }
+  });
+  assert.equal(result[0].code, ResultCode.Ok);
+  assert.deepEqual(result[0].data, { id: '9001', messageId: '9001' });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].action, 'send_group_msg');
+  assert.equal(calls[0].args.group_id, 200);
+  assert.deepEqual(calls[0].args.message, [
+    { type: 'reply', data: { id: '5' } },
+    { type: 'image', data: { file: `base64://${png.toString('base64')}`, sub_type: 1, summary: '[表情]' } }
+  ]);
+  const invalid = await instance.api({
+    payload: {
+      key: 'agentLink.sendSticker',
+      event: { Platform: 'onebot', IsPrivate: false, ChannelId: '200', UserId: '100', MessageId: '1' },
+      params: [{ data: 'not-base64' }]
+    }
+  });
+  assert.equal(invalid[0].code, ResultCode.Fail);
+});

@@ -20,6 +20,8 @@ import {
   usageCost,
   budgetedFetch,
   budgetStatus,
+  budgetBlockReason,
+  BudgetExceededError,
   replyGateBudgetStatus,
   withBudgetScope,
   reserveScript,
@@ -590,4 +592,32 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
     } while (cursor !== '0');
     redis.disconnect();
   }
+});
+
+test('zero global limit means unlimited, positive limits still block', () => {
+  // 金额单位与 Redis 账本一致（百万分之一元）。
+  const base = { available: 1_000_000, required: 0, globalLimit: 0, globalUsed: 0, globalRequired: 0 };
+
+  // 0 = 不设上限：今天全局用了多少都不该拦。
+  assert.equal(budgetBlockReason({ ...base, globalUsed: 99_000_000 }), 'none');
+  // 显式上限：已用达到或加上本次需求超过上限都算全局拦截。
+  assert.equal(budgetBlockReason({ ...base, globalLimit: 1_000_000, globalUsed: 1_000_000 }), 'global');
+  assert.equal(budgetBlockReason({ ...base, globalLimit: 1_000_000, globalUsed: 900_000, globalRequired: 200_000 }), 'global');
+  // 个人可用不足（含上一次更大需求留下的 blockedRequired）。
+  assert.equal(budgetBlockReason({ ...base, available: 0 }), 'personal');
+  assert.equal(budgetBlockReason({ ...base, available: 500_000, required: 600_000 }), 'personal');
+  // 两项都没问题。
+  assert.equal(budgetBlockReason({ ...base, globalLimit: 1_000_000, globalUsed: 500_000, required: 100_000 }), 'none');
+});
+
+test('budget errors name the limit that actually blocked', () => {
+  const global = new BudgetExceededError({ availableYuan: 1, requiredYuan: 0.09, isPrivate: true, reason: 'global' }).message;
+
+  assert.match(global, /本次请求预计需要 0\.09 元，当前可用约 1\.00 元/);
+  assert.match(global, /今日全局每日上限也已用满/);
+
+  const personal = new BudgetExceededError({ availableYuan: 1, requiredYuan: 0.5, isPrivate: true, reason: 'personal' }).message;
+
+  assert.match(personal, /本次请求预计需要 0\.50 元/);
+  assert.doesNotMatch(personal, /全局每日上限/);
 });

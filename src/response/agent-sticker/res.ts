@@ -1,5 +1,5 @@
 import { commandBubble } from '../bubble';
-import { useEvent, useMessage, useMedia, useRoute } from 'alemonjs';
+import { ResultCode, useEvent, useMessage, useMedia, useRoute } from 'alemonjs';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { getConversationId, canPrivateChatWithKey } from '@src/response/dsh/util';
 import { runCoordinatedChat } from '@src/dsh/orchestrator';
@@ -9,6 +9,7 @@ import { getMediaConfig, MediaError } from '@src/media/config';
 import { chooseSticker, listStickers, loadSticker, markStickerUsed, setStickerEmoji, updateSticker } from '@src/media/stickers';
 import { addOnebotFavoriteSticker, deleteOnebotFavoriteSticker, fetchOnebotFavoriteStickers, renameOnebotFavoriteSticker } from '@src/media/onebot-favorites';
 import { importStickerUrls } from '@src/media/sticker-import';
+import { sendOnebotSticker } from '@src/media/onebot-sticker-send';
 
 export default async (): Promise<void> => {
   const [context] = useEvent({ selects: ['message.create', 'private.message.create'] });
@@ -217,9 +218,13 @@ export default async (): Promise<void> => {
             return;
           }
           signal.throwIfAborted();
-          assertMessageDelivered([
-            await media.send({ type: 'image', data: data.toString('base64'), name: selected.file.split(/[\\/]/u).at(-1), replyId: event.MessageId })
-          ]);
+          const onebotReceipt = await sendOnebotSticker(event, data, event.MessageId);
+
+          assertMessageDelivered(
+            onebotReceipt
+              ? [{ code: ResultCode.Ok, data: { messageId: onebotReceipt.messageId } }]
+              : [await media.send({ type: 'image', data: data.toString('base64'), name: selected.file.split(/[\\/]/u).at(-1), replyId: event.MessageId })]
+          );
           await markStickerUsed(settings, selected.id, signal).catch(() => undefined);
         }
       }

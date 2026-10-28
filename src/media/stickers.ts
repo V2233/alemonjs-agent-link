@@ -1,5 +1,5 @@
 import { open, realpath, mkdir, lstat, readFile, rename, unlink, writeFile } from 'node:fs/promises';
-import { resolve, sep, join } from 'node:path';
+import { relative, resolve, sep, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { MediaError, MediaUnavailableError, type MediaConfig } from './config';
 import { imageMime } from './download';
@@ -138,6 +138,16 @@ export const listStickers = async (config: MediaConfig): Promise<Sticker[]> => {
 
   return data;
 };
+export const readStickerPath = async (config: MediaConfig, source: string, maxBytes: number): Promise<Buffer> => {
+  if (!config.stickerRoot) throw new MediaError('尚未配置表情素材目录。');
+  const root = await realpath(config.stickerRoot);
+  const target = await realpath(resolve(root, source));
+
+  if (!target.startsWith(`${root}${sep}`)) throw new MediaError('本地图片必须位于表情素材目录内。');
+
+  return await readLocal(root, relative(root, target), Math.min(maxBytes, config.maxBytes));
+};
+
 export const chooseSticker = (items: Sticker[], query: string): Sticker | undefined =>
   items.find(item => item.id === query) ?? items.find(item => item.name === query) ?? items.find(item => item.tags.includes(query));
 export const loadSticker = async (item: Sticker, config: MediaConfig): Promise<Buffer> => {

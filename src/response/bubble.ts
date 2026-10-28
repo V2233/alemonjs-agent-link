@@ -39,6 +39,7 @@ export const KEYBOARD_LABELS: Record<string, string> = {
   '/群密钥 停用': '停用',
   '/群密钥 移除': '移除',
   '/当前模型': '当前模型',
+  '/模型池': '模型池',
   '/模型列表': '模型列表',
   '/密钥配置': '密钥配置',
   '/移除密钥': '移除密钥',
@@ -198,7 +199,7 @@ export const commandBubble = (text: string, title: string, options: BubbleOption
   }
 
   if (actions.length > 0) {
-    const block = Format.createMarkdown().addText(safe('按钮只填入，不发送。'));
+    const block = Format.createMarkdown();
 
     addInline(block, actions);
     md.addNewline().addBlockquote(block);

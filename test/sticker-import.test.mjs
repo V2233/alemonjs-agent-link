@@ -58,3 +58,26 @@ test('favorite import caps the batch, honors cancellation and requires a library
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('favorite import uses vision names and tags when available', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sticker-import-name-'));
+  const config = getMediaConfig({
+    media: { stickerRoot: root, vision: { baseUrl: 'https://vision.test/v1', apiKey: 'test', model: 'test' } }
+  });
+  try {
+    await writeFile(join(root, 'manifest.json'), '[]');
+    const result = await importStickerUrls(
+      config,
+      ['https://cdn.test/a'],
+      signal(),
+      async () => png,
+      async () => ({ sticker: true, suitable: true, name: '猫猫', tags: ['开心'], confidence: 0.9 })
+    );
+    assert.deepEqual(result, { total: 1, added: 1, existing: 0, failed: 0 });
+    const items = await listStickers(config);
+    assert.equal(items[0].name, '猫猫');
+    assert.deepEqual(items[0].tags, ['开心']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

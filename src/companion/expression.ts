@@ -12,11 +12,14 @@ export const expressionOptions = (config: DSHBridgeConfig) => {
     automatic: raw.automatic ?? true,
     voiceChance: raw.voiceChance ?? 0.1,
     stickerChance: raw.stickerChance ?? 0.25,
+    // 没有匹配到话题相关表情时，是否随手发一个（默认不发）。
+    stickerFallback: raw.stickerFallback ?? false,
     delayMs: raw.delayMs ?? [0, 0]
   };
 
   if (
     typeof options.automatic !== 'boolean' ||
+    typeof options.stickerFallback !== 'boolean' ||
     !Number.isFinite(options.voiceChance) ||
     Number(options.voiceChance) < 0 ||
     Number(options.voiceChance) > 1 ||
@@ -35,6 +38,7 @@ export const expressionOptions = (config: DSHBridgeConfig) => {
     automatic: options.automatic,
     voiceChance: Number(options.voiceChance),
     stickerChance: Number(options.stickerChance),
+    stickerFallback: options.stickerFallback,
     delayMs: options.delayMs as [number, number]
   };
 };
@@ -69,7 +73,7 @@ export const planExpression = (config: DSHBridgeConfig, scope: PersonaScope, inp
 export const automaticVoiceText = (text: string, limit: number): boolean =>
   Boolean(text.trim()) && Array.from(text).length <= Math.min(240, limit) && !/```|https?:\/\/|\|.*\||\[沉默\]/u.test(text);
 
-export const selectExpressionSticker = (items: Sticker[], text: string, moodValue: number, inputId: string): Sticker | undefined => {
+export const selectExpressionSticker = (items: Sticker[], text: string, moodValue: number, inputId: string, fallback = false): Sticker | undefined => {
   const related = moodValue >= 75 ? ['开心', '愉快', '高兴', '快乐', '笑'] : moodValue < 45 ? ['低落', '难过', '疲惫', '叹气'] : ['平和', '日常', '点头'];
   const ranked = items
     .map(item => ({
@@ -80,7 +84,11 @@ export const selectExpressionSticker = (items: Sticker[], text: string, moodValu
     .filter(row => row.score > 0)
     .sort((a, b) => b.score - a.score || a.tie - b.tie);
 
-  return ranked[0]?.item;
+  if (ranked[0]) return ranked[0].item;
+  if (!fallback || !items.length) return undefined;
+
+  // A deterministic per-input shuffle gives an unpredictable but retry-stable fallback.
+  return [...items].sort((a, b) => sample(inputId, a.id) - sample(inputId, b.id))[0];
 };
 
 export const moodGroupPolicy = (config: DSHBridgeConfig, scope: PersonaScope, policy: GroupChatPolicy): GroupChatPolicy => {

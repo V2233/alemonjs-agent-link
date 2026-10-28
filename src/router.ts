@@ -183,6 +183,11 @@ commandGroup.use(
   () => import('@src/response/agent-model/res')
 );
 
+commandGroup.use(
+  { path: '模型池', events: ['private.message.create'], description: '主人私聊查看模型池状态、翻页与补货提示' },
+  () => import('@src/response/agent-pool/res')
+);
+
 commandGroup.use({ path: '聊天参考 清除', description: '清除近期聊天参考' }, () => import('@src/response/agent-context-clear/res'));
 commandGroup.use({ path: '清除群数据', description: '主人清除当前群 Agent 数据' }, () => import('@src/response/agent-purge/res'));
 commandGroup.use({ path: '模块状态', events: ['private.message.create'], description: '主人查看模块状态' }, () => import('@src/response/agent-modules/res'));

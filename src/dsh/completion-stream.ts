@@ -2,6 +2,7 @@ export type CompletionMessage = {
   content?: string | null;
   reasoning_content?: string;
   tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; prompt_cache_hit_tokens?: number };
 };
 
 // Parse incrementally, including frames split across UTF-8/network boundaries.
@@ -35,6 +36,7 @@ export const readCompletionStream = async (
     if (payload.error) {
       throw new Error('模型流返回错误。');
     }
+    if (payload.usage && typeof payload.usage === 'object') message.usage = payload.usage;
     const choice = payload.choices?.[0];
     const delta = choice?.delta;
 

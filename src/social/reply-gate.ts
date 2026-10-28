@@ -84,7 +84,7 @@ export const resolveReplyGateConnection = (config: DSHBridgeConfig, credentials:
   const sameOrigin = Boolean(mainBase && new URL(mainBase).origin === url.origin);
   const apiKey = gate?.apiKey?.trim() || (sameOrigin ? credentials?.apiKey : undefined);
   const configuredModel = gate?.model?.trim();
-  const model = configuredModel || (url.hostname === 'api.deepseek.com' ? 'deepseek-flash' : sameOrigin ? config.model : undefined);
+  const model = configuredModel || (url.hostname === 'api.deepseek.com' ? 'deepseek-flash' : sameOrigin ? credentials?.model || config.model : undefined);
 
   // A new provider requires its own credentials and model; never forward a main key to it.
   // Reuse the pooled endpoint's health/report hooks only when its key is actually reused.
@@ -154,8 +154,9 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
       });
 
       if (Buffer.byteLength(body) > 20000) return reject();
-      const request: RequestInit & { scopedKey?: boolean } = {
+      const request: RequestInit & { scopedKey?: boolean; pricing?: NonNullable<DSHCredentials['pricing']> } = {
         scopedKey: Boolean(bound),
+        pricing: current.pricing,
         method: 'POST',
         redirect: 'error',
         signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
@@ -182,16 +183,17 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
       if (!response.ok) {
         const status = response.status;
 
-        await response.body?.cancel();
-        current.report?.({ ok: false, status });
-        const next = current.retryable?.(status) ? current.next?.() : null;
+        current.report?.({ ok: false, status, headers: response.headers });
+        const next = status === 400 ? current.next?.({ fallback: true }) : current.retryable?.(status) ? current.next?.() : null;
 
         if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) return reject();
         current = next;
         continue;
       }
-      current.report?.({ ok: true, status: response.status });
+      current.report?.({ ok: true, status: response.status, headers: response.headers });
       const result = JSON.parse((await readBounded(response, 16384)).toString('utf8'));
+
+      current.reportUsage?.(result?.usage || {});
       const content = result?.choices?.[0]?.message?.content;
 
       return typeof content === 'string' ? parseReplyVerdict(content) : reject();

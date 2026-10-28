@@ -25,7 +25,7 @@ alemonjs-agent-link:
 
 内置 `memory` 模块默认启用。明确保存工具仅向私聊提供；当前会话还可检索自动整理的资料、核对来源与人物档案。停用该模块使用 `disabled: [memory]`，已有记忆及手动命令继续保留。自动整理、版本恢复和删除语义见[长期记忆](memory.md)。
 
-内置 `stickers` 模块提供 `list_stickers`、`send_sticker`、`make_sticker`、`collect_sticker` 和 `manage_sticker`。查询及发送支持按编号或标签查找；收藏当前附件对主人在私聊和群聊开放，修改名称/标签和移除清单仅对主人私聊开放，均须有明确请求。`make_sticker` 把本轮唯一图片或素材库表情裁成方形 PNG，可上下配字并默认同轮发送；动图只取第一帧。发送每轮最多尝试一次，与命令及自动表情共用冷却。素材目录、收藏与二创限制见[媒体能力](media.md)。`modules.disabled: [stickers]` 停用模型工具，不影响手动命令或自动表达；后台自主搭话不开放这些工具。
+内置 `stickers` 模块提供 `list_stickers`、`send_sticker`、`make_sticker`、`collect_sticker`、`add_sticker` 和 `manage_sticker`。查询及发送支持按编号或标签查找；收藏当前附件对主人在私聊和群聊开放，修改名称/标签和移除清单（并尝试删除 QQ 收藏）仅对主人私聊开放，均须有明确请求。`add_sticker` 只接受 HTTPS 地址或素材目录内的本地图片；`make_sticker` 把本轮/最近图片或素材库表情裁成方形 PNG，可上下配字并默认同轮发送；动图只取第一帧。发送每轮最多尝试一次，与命令及自动表情共用冷却。素材目录、收藏与二创限制见[媒体能力](media.md)。`modules.disabled: [stickers]` 停用模型工具，不影响手动命令或自动表达；后台自主搭话不开放这些工具。
 
 ### 私聊主动搭话
 

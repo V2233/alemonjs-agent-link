@@ -54,6 +54,7 @@ test('tool loop returns real results to the model, retains reasoning, and does n
       return Response.json({ choices: [{ message: { content: null, reasoning_content: 'private reasoning', tool_calls: [call('one')] } }] });
     }
     assert.equal(body.messages.find(m => m.role === 'assistant').reasoning_content, 'private reasoning');
+    for (const message of body.messages.filter(m => m.role === 'assistant')) assert.equal(typeof message.reasoning_content, 'string');
     assert.deepEqual(JSON.parse(body.messages.find(m => m.role === 'tool').content), { ok: true, saved: '茶' });
     return Response.json({ choices: [{ message: requests === 2 ? { tool_calls: [call('one')] } : { content: '记住了。' } }] });
   };
@@ -425,6 +426,23 @@ test('repeated segment exhaustion only gives feedback after all continuation att
     assert.equal(runs, 3);
     assert.equal(requests, 4);
     assert.equal(bubbles.length, 1);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('assistant history always carries an empty reasoning_content placeholder', async () => {
+  const original = globalThis.fetch;
+  let body;
+  globalThis.fetch = async (_url, init) => {
+    body = JSON.parse(init.body);
+    return Response.json({ choices: [{ message: { content: '好' } }] });
+  };
+  try {
+    await runToolChat({ ...options([]), history: [{ role: 'assistant', content: '上一轮' }] });
+    const assistant = body.messages.find(message => message.role === 'assistant');
+    assert.equal(assistant.content, '上一轮');
+    assert.equal(assistant.reasoning_content, '');
   } finally {
     globalThis.fetch = original;
   }

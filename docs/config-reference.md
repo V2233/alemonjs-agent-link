@@ -114,25 +114,47 @@
 
 不配置时沿用上面的单 Key；配置后，按端点的健康、权重和并发选择。个人/群绑定的 Key 仍优先于池。
 
-| 字段                        | 类型     | 默认                                | 范围/取值                                          | 说明                                              |
-| --------------------------- | -------- | ----------------------------------- | -------------------------------------------------- | ------------------------------------------------- |
-| `enabled`                   | boolean  | `true`                              | —                                                  | 写 `false` 关闭池，回退单 Key                     |
-| `strategy`                  | string   | `weighted-round-robin`              | `weighted-round-robin` \| `least-busy` \| `sticky` | 选择策略；`sticky` 按会话保持端点                 |
-| `maxAttempts`               | number   | `3`                                 | 1–5                                                | 单次模型请求最多尝试几个端点                      |
-| `failureThreshold`          | number   | `2`                                 | 1–10                                               | 连续 5xx 达到几次后冷却                           |
-| `cooldownSeconds`           | number   | `60`                                | 1–86400                                            | 429/5xx 的冷却基数；429 会指数退避                |
-| `retryStatuses`             | number[] | `[401,402,403,429,500,502,503,504]` | 100–599，≤20 项                                    | 这些状态会换下一个端点；401/402/403 同时禁用端点  |
-| `endpoints`                 | array    | 无                                  | 1–20 个                                            | 端点列表；为空等同未配置                          |
-| `endpoints[].id`            | string   | 无                                  | `^[a-z][a-z0-9-]{0,39}$`，唯一                     | 日志和命令里使用的端点名，不含 Key                |
-| `endpoints[].provider`      | string   | 同主配置                            | 非空                                               | 提供方标识；第一版请使用同一协议                  |
-| `endpoints[].baseUrl`       | string   | 官方地址或主配置地址                | 无凭证、无查询参数的 HTTPS                         | 端点 API 地址                                     |
-| `endpoints[].apiKey`        | string   | 空                                  | 8–500 字，不能含换行                               | 直接写 Key                                        |
-| `endpoints[].apiKeyEnv`     | string   | 空                                  | 环境变量名                                         | 从环境变量读 Key；与 `apiKey` 二选一              |
-| `endpoints[].model`         | string   | 主配置 `model`                      | 非空                                               | 该端点使用的模型；请求体里的 `model` 会被改写     |
-| `endpoints[].weight`        | number   | `1`                                 | 1–100                                              | 加权轮转权重                                      |
-| `endpoints[].maxConcurrent` | number   | `2`                                 | 1–100                                              | 该端点同时在途请求上限                            |
-| `endpoints[].capabilities`  | string[] | `[chat,tools,replyGate]`            | `chat` \| `tools` \| `vision` \| `replyGate`       | 哪些请求可以使用该端点；视觉轮次需要显式 `vision` |
-| `endpoints[].enabled`       | boolean  | `true`                              | —                                                  | 单独停用某个端点                                  |
+最简写法是 `modelPool.keys: [sk-A, sk-B]`，每项可以是 Key 字符串或带 `key`/`api`/`model` 的对象；`key` 等同 `apiKey`，`api` 等同 `baseUrl`。`keys` 会自动展开成下面的 `endpoints`，不写的高级项使用默认值。
+
+| 字段                        | 类型             | 默认                                        | 范围/取值                                                        | 说明                                              |
+| --------------------------- | ---------------- | ------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------- |
+| `enabled`                   | boolean          | `true`                                      | —                                                                | 写 `false` 关闭池，回退单 Key                     |
+| `strategy`                  | string           | `weighted-round-robin`                      | `weighted-round-robin` \| `least-busy` \| `balanced` \| `sticky` | 选择策略；`balanced` 按近期负载均衡               |
+| `maxAttempts`               | number           | `3`                                         | 1–20                                                             | 单次模型请求最多尝试几个端点                      |
+| `failureThreshold`          | number           | `2`                                         | 1–10                                                             | 连续 5xx 达到几次后冷却                           |
+| `cooldownSeconds`           | number           | `60`                                        | 1–86400                                                          | 429/5xx 的冷却基数；429 会指数退避                |
+| `retryStatuses`             | number[]         | `[401,402,403,404,405,429,500,502,503,504]` | 100–599，≤20 项                                                  | 这些状态会换下一个端点；401/402/403 同时禁用端点  |
+| `probeIntervalSeconds`      | number           | `60`                                        | 0–3600                                                           | 异步健康探测间隔；0 关闭                          |
+| `probeTimeoutMs`            | number           | `5000`                                      | 1000–30000                                                       | 单次 `/models` 探测超时                           |
+| `probeChat`                 | boolean          | `true`                                      | —                                                                | 启动时额外发一次极小 chat 探测计费/模型是否可用   |
+| `recoveryProbeSeconds`      | number           | `300`                                       | 0–86400                                                          | 401/402/403 停用后多久重新探测；0 表示不自动恢复  |
+| `stickySeconds`             | number           | `1800`                                      | 0–86400                                                          | 同一会话固定端点的时间；0 关闭                    |
+| `balanceWindowSeconds`      | number           | `300`                                       | 0–86400                                                          | 近期负载统计窗口；0 关闭                          |
+| `retryBudgetMs`             | number           | `12000`                                     | 1000–300000                                                      | 单次请求失败切换的总重试预算                      |
+| `retryJitterMs`             | number           | `200`                                       | 0–5000                                                           | 切换端点前的随机抖动上限                          |
+| `queueMaxWaitMs`            | number           | `0`                                         | 0–30000                                                          | 主端点并发满时短暂等待，避免立刻用 fallback       |
+| `balanceUrl`                | string \| object | 无                                          | 字符串或 `provider: URL` 映射；URL 必须含 `{key}`                | `/模型池` 余额查询；映射按厂商选择，避免串用地址  |
+| `balanceAlertYuan`          | number           | `5`                                         | 0–1000000                                                        | 低于该余额时在 `/模型池` 提示补货                 |
+| `keys`                      | array            | 无                                          | 1–20 个字符串或对象                                              | 简写：自动生成 `key-1`… 的端点，复用主配置默认值  |
+| `endpoints`                 | array            | 无                                          | 1–20 个                                                          | 展开形式；与 `keys` 二选一                        |
+| `endpoints[].id`            | string           | 无                                          | `^[a-z][a-z0-9-]{0,39}$`，唯一                                   | 日志和命令里使用的端点名，不含 Key                |
+| `endpoints[].provider`      | string           | 同主配置                                    | 非空                                                             | 端点标签；沙箱只转发与主 `provider` 相同的端点    |
+| `endpoints[].baseUrl`       | string           | 官方地址或主配置地址                        | 无凭证、无查询参数的 HTTPS                                       | 端点 API 地址                                     |
+| `endpoints[].apiKey`        | string           | 空                                          | 8–500 字，不能含换行                                             | 直接写 Key                                        |
+| `endpoints[].apiKeyEnv`     | string           | 空                                          | 环境变量名                                                       | 从环境变量读 Key；与 `apiKey` 二选一              |
+| `endpoints[].model`         | string           | 主配置 `model`                              | 非空                                                             | 该端点使用的模型；请求体里的 `model` 会被改写     |
+| `endpoints[].pricing`       | object           | 无                                          | `input`/`output`/`cached` 为非负数字                             | 非官方端点开启额度时必填；人民币/百万 tokens      |
+| `endpoints[].balanceUrl`    | string           | 按 provider 映射或池级默认                  | HTTPS，必须含 `{key}`                                            | 单个端点覆盖；优先级最高                          |
+| `endpoints[].balanceStyle`  | string           | 无                                          | `newapi`                                                         | New API 网关：读取 `/v1/dashboard/billing/usage`  |
+| `endpoints[].fallback`      | boolean          | `false`                                     | —                                                                | 主端点全部不可用时才启用；沙箱仍可使用            |
+| `endpoints[].priority`      | number           | `0`                                         | 0–100                                                            | 数字越小越优先；同优先级再按权重/策略分配         |
+| `endpoints[].account`       | string           | 无                                          | ≤80 字符                                                         | 同一厂商账号共享 RPM/TPM 计数                     |
+| `endpoints[].rpm`           | number           | 无                                          | 1–1000000                                                        | 每分钟最多选多少次；按账号共享                    |
+| `endpoints[].tpm`           | number           | 无                                          | 1–1000000000                                                     | 每分钟 token 上限；按账号共享                     |
+| `endpoints[].weight`        | number           | `1`                                         | 1–100                                                            | 加权轮转权重                                      |
+| `endpoints[].maxConcurrent` | number           | `2`                                         | 1–100                                                            | 该端点同时在途请求上限                            |
+| `endpoints[].capabilities`  | string[]         | `[chat,tools,replyGate]`                    | `chat` \| `tools` \| `vision` \| `replyGate`                     | 哪些请求可以使用该端点；视觉轮次需要显式 `vision` |
+| `endpoints[].enabled`       | boolean          | `true`                                      | —                                                                | 单独停用某个端点                                  |
 
 ### 4.2 开关与提示
 
@@ -176,7 +198,7 @@
 | `workspaceRoot`        | string   | `<数据目录>/workspaces`      | Agent 工作区根目录；相对路径按配置目录解析 |
 | `dshHomeRoot`          | string   | `<数据目录>/dsh-homes`       | 沙箱 HOME 根目录                           |
 | `pythonExecutable`     | string   | `<数据目录>/venv/bin/python` | Python 解释器；含斜杠时按配置目录解析      |
-| `pythonPackageSources` | string[] | `pypi.org`、清华镜像         | 1–5 个 HTTPS 索引地址，不允许带凭证        |
+| `pythonPackageSources` | string[] | `pypi.org`、清华镜像         | 1–20 个 HTTPS 索引地址，不允许带凭证       |
 | `bridgePort`           | number   | `0`                          | 0 自动选端口；固定端口需 1024–65535        |
 
 > `pythonExecutable` 未配置且改过 `dshHomeRoot` 时，解释器会跟着 `dshHomeRoot` 的父目录走，避免把 venv 装到旧位置。
@@ -207,7 +229,7 @@
 | ----------------------- | -------- | --------- | -------------------------- |
 | `inputBlockedKeywords`  | string[] | `[]`      | 命中即拒绝，不发给模型     |
 | `outputBlockedKeywords` | string[] | `[]`      | 命中即拦截，不发出模型输出 |
-| `maxRequestBytes`       | number   | `1048576` | 1–5MB，单次请求体上限      |
+| `maxRequestBytes`       | number   | `1048576` | 1–20MB，单次请求体上限     |
 
 ### 4.10 近期群聊参考
 
@@ -234,7 +256,7 @@
 | `personalDailyYuan`        | number  | `1`     | 0–10000 | 个人免费额度（跨群与私聊共享）；取值顺序 `personalDailyYuan` → `privateDailyYuan` → 1 |
 | `replyGateDailyYuan`       | number  | `1`     | 0–10000 | 群感知判断（是否接话）的每日预算                                                      |
 | `replyGateGlobalDailyYuan` | number  | 无      | 0–10000 | 所有群感知判断的全局日预算，防止多群叠加                                              |
-| `globalDailyYuan`          | number  | `0`     | 0–10000 | 全局每日总额；0 表示不设全局上限                                                      |
+| `globalDailyYuan`          | number  | `0`     | 0–10000 | 全局每日总额；**0 = 不限**，只有 > 0 才拦截                                           |
 | `maxOutputTokens`          | number  | 无      | 1–8192  | 单次输出 token 上限                                                                   |
 
 额度不足时直接回复绑定密钥的步骤，按钮与文案逐条对应（`/群密钥 绑定`、`/个人密钥 绑定`、`/额度`）。
@@ -376,12 +398,13 @@
 
 ### 8.7 `modules.settings.expression`（表达方式）
 
-| 字段            | 类型             | 默认     | 范围   | 说明                                    |
-| --------------- | ---------------- | -------- | ------ | --------------------------------------- |
-| `automatic`     | boolean          | `true`   | —      | 自动决定语音/表情；未配置媒体时回退文字 |
-| `voiceChance`   | number           | `0.1`    | 0–1    | 用语音回复的概率                        |
-| `stickerChance` | number           | `0.25`   | 0–1    | 附带表情的概率                          |
-| `delayMs`       | [number, number] | `[0, 0]` | 0–3000 | 随机停顿区间，前值不得大于后值          |
+| 字段              | 类型             | 默认     | 范围   | 说明                                    |
+| ----------------- | ---------------- | -------- | ------ | --------------------------------------- |
+| `automatic`       | boolean          | `true`   | —      | 自动决定语音/表情；未配置媒体时回退文字 |
+| `voiceChance`     | number           | `0.1`    | 0–1    | 用语音回复的概率                        |
+| `stickerChance`   | number           | `0.25`   | 0–1    | 附带表情的概率                          |
+| `stickerFallback` | boolean          | `false`  | —      | 没有相关表情时是否随手发一个            |
+| `delayMs`         | [number, number] | `[0, 0]` | 0–3000 | 随机停顿区间，前值不得大于后值          |
 
 ### 8.8 `modules.settings.persona`
 
@@ -424,11 +447,11 @@
 | `allowedHosts`           | string[] | `[]`              | 精确域名，`[a-z0-9.-]`，不能以 `.` 开头 | 远程媒体下载白名单；空表示允许任意公网 HTTPS |
 | `timeoutMs`              | number   | `60000`           | 1000–120000                             | 媒体请求超时                                 |
 | `maxBytes`               | number   | `10485760`        | 1024–25MB                               | 单个附件上限                                 |
-| `maxAttachments`         | number   | `3`               | 1–5                                     | 单条消息附件数上限                           |
+| `maxAttachments`         | number   | `3`               | 1–20                                    | 单条消息附件数上限                           |
 | `ttsMaxChars`            | number   | `800`             | 1–4000                                  | 一次合成文本上限                             |
 | `stickerRoot`            | string   | 数据目录/stickers | 非空                                    | 表情素材目录；默认会在首次使用时创建空清单   |
 | `stickerCooldownSeconds` | number   | `30`              | 0–3600                                  | 表情发送冷却                                 |
-| `stickerMaxItems`        | number   | `300`             | 1–500                                   | 素材索引上限                                 |
+| `stickerMaxItems`        | number   | `300`             | 1–2000                                  | 素材索引上限                                 |
 
 ### 9.1 媒体服务对象（`vision`/`asr`/`tts`/`imageGen`）
 

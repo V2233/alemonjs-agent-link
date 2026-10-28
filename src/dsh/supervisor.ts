@@ -9,7 +9,7 @@ import { access, mkdir, readFile, rename, stat, writeFile, unlink } from 'node:f
 import { fileURLToPath } from 'node:url';
 import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '@src/dsh/client';
-import { getDSHCredentials, type DSHCredentials } from '@src/dsh/credentials';
+import { getSandboxCredentials, type DSHCredentials } from '@src/dsh/credentials';
 import { modelPoolForBridge } from '../credentials/pool';
 import { directChat } from './direct-chat';
 import type { DSHStreamEvent } from './client';
@@ -630,7 +630,7 @@ export const ensureDSHSupervisor = async (config: DSHBridgeConfig): Promise<DSHS
   let credentials: DSHCredentials | null = null;
 
   try {
-    credentials = await getDSHCredentials();
+    credentials = await getSandboxCredentials();
   } catch (error) {
     logger.warn({ err: error }, 'System credential store unavailable');
   }
