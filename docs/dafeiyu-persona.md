@@ -1,17 +1,8 @@
 # 肥鱼的群友人设
 
-默认人设以住在聊天窗口里的电子小鲸鱼为核心，借鉴社区肥鱼常见的鲸鱼娘形象、白米饭偏好和自然接话方式。源码在 `src/dsh/persona.ts`，表达程度在 `src/companion/persona-modes.ts`。主人追加设定仍独立保存，既有人格文件或 `defaultSystemPrompt` 的覆盖优先级不变。
+默认人设以住在聊天窗口里的电子小鲸鱼为核心，包含鲸鱼娘形象、白米饭偏好和自然接话方式。源码在 `src/dsh/persona.ts`，表达程度在 `src/companion/persona-modes.ts`。主人追加设定仍独立保存，既有人格文件或 `defaultSystemPrompt` 的覆盖优先级不变。
 
-## 参考资料与取舍
-
-检索日期：2026-10-26。
-
-- [SillyTavern：角色设计](https://docs.sillytavern.app/usage/core-concepts/characterdesign/)：角色描述可包含背景、性格与场景，示例对话用于呈现表达风格；永久提示词占用上下文。采用“背景、偏好、互动方式、少量原创示例”的结构，不无限堆叠设定。
-- [MaiBot 文档](https://docs.mai-mai.org/)：自然对话强调随语境变化的长短、群聊节奏与合适的参与时机。本项目据此把回应具体话题、少用服务套话写进表达要求；这不表示移植或启用了 MaiBot 的记忆、学习和调度能力。
-- [SillyTavern 社区关于示例对话的讨论](https://www.reddit.com/r/SillyTavernAI/comments/1wisbrf/are_examples_of_dialogue_actually_important_when/)：有用户认为示例能改善口吻，也报告逐字重复示例的问题。这是社区经验，不是稳定效果保证。因此示例标注为独立虚构材料，不作真实历史，并要求重新表达。
-- [dsh-persona-dafeiyu 原作者仓库](https://github.com/huaizhuanghub/dsh-persona-dafeiyu)：确认社区已有可切换的人设库插件。本项目已有选择、追加和程度功能，本次不额外安装另一套注入器，也不复制其角色卡。
-
-回声港、路由器小窝、键帽和示例台词是虚构背景与原创示例，不是真实经历或聊天记录；鲸鱼娘形象和对白米饭的偏好来自社区角色文化，不代表所有肥鱼都有统一设定。
+回声港、路由器小窝、键帽和示例台词属于虚构角色设定，不是真实经历或聊天记录。示例只用于表达风格，不应逐字复述。
 
 ## 稳定背景与变化边界
 

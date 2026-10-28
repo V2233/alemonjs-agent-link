@@ -60,7 +60,7 @@ test('群设置校验：档位、静默、上限与词表', () => {
   assert.equal(normalizeGroupSetting('activity', '默认'), undefined);
   assert.throws(() => normalizeGroupSetting('activity', '疯狂'), /强度只能是/u);
   assert.deepEqual(normalizeGroupSetting('quietHours', '1-8'), [1, 8]);
-  assert.equal(normalizeGroupSetting('quietHours', '关闭'), undefined);
+  assert.deepEqual(normalizeGroupSetting('quietHours', '关闭'), [0, 0]);
   assert.throws(() => normalizeGroupSetting('quietHours', '25-3'), /静默时段/u);
   assert.equal(normalizeGroupSetting('maxPerHour', '6'), 6);
   assert.throws(() => normalizeGroupSetting('maxPerHour', '101'), /每小时上限/u);
@@ -212,6 +212,53 @@ test('自动语音尊重群设置：关闭后 planExpression 不再选语音', a
     assert.equal(planExpression(config, { platform: 'qq', channelId: 'g1' }, 'msg-1', media).voice, false);
     assert.equal(planExpression(config, { platform: 'qq', channelId: 'g2' }, 'msg-1', media).voice, true);
   } finally {
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('静默关闭与恢复默认分开，非法时段和上限不被截断接受', () => {
+  const off = normalizeGroupSetting('quietHours', '关闭');
+  assert.deepEqual(getGroupChatPolicy({}, 'g', settingsToPolicy({ quietHours: off })).quietHours, [0, 0]);
+  assert.equal(normalizeGroupSetting('quietHours', '默认'), undefined);
+  assert.equal(normalizeGroupSetting('quietHours', '恢复'), undefined);
+  for (const value of ['-1-8', '1.5-8', '1-8abc', '1:30-8:30', '100-8', [1.5, 8], ['1', '8']]) {
+    assert.throws(() => normalizeGroupSetting('quietHours', value));
+  }
+  for (const value of ['-1', '1.5', 'abc4', '4次', '', '1e2', null]) {
+    assert.throws(() => normalizeGroupSetting('maxPerHour', value));
+  }
+  assert.equal(normalizeGroupSetting('maxPerHour', 0), 0);
+});
+
+test('同一毫秒的审计按最新写入排序，跨平台设置与清理隔离', async () => {
+  const f = await setup();
+  try {
+    f.store.update('qq', 'g1', 'a', { voiceEnabled: false });
+    f.store.update('qq', 'g1', 'a', { voiceAuto: false });
+    f.store.update('onebot', 'g1', 'b', { activity: 'active' });
+    assert.equal(f.store.audit('qq', 'g1')[0].field, 'voiceAuto');
+    f.store.reset('qq', 'g1', 'a');
+    assert.equal(f.store.audit('qq', 'g1')[0].field, 'reset');
+    assert.equal(f.store.get('onebot', 'g1').activity, 'active');
+    f.store.purge('qq', 'g1');
+    assert.deepEqual(f.store.audit('qq', 'g1'), []);
+    assert.equal(f.store.audit('onebot', 'g1').length, 1);
+  } finally {
+    f.store.close();
+    await rm(f.root, { recursive: true, force: true });
+  }
+});
+
+test('存储层拒绝非法字段值，失败不写入配置或审计', async () => {
+  const f = await setup();
+  try {
+    for (const patch of [{ maxPerHour: -1 }, { quietHours: [24, 8] }, { activity: 'invalid' }, { voiceAuto: 'invalid' }]) {
+      assert.equal(f.store.update('qq', 'g', 'admin', patch).ok, false);
+    }
+    assert.deepEqual(f.store.get('qq', 'g'), {});
+    assert.deepEqual(f.store.audit('qq', 'g'), []);
+  } finally {
+    f.store.close();
     await rm(f.root, { recursive: true, force: true });
   }
 });

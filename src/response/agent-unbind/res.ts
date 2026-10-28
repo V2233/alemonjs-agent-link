@@ -18,6 +18,12 @@ export default async (): Promise<void> => {
   }
 
   await message.send({
-    format: commandBubble('删除配置中的 alemonjs-agent-link.apiKey 并保存即可。', '移除密钥')
+    format: commandBubble('删除配置中的 alemonjs-agent-link.apiKey 并保存即可。', '移除密钥', {
+      platform: event.Platform,
+      actions: [
+        { label: '密钥配置', command: '/密钥配置' },
+        { label: '当前模型', command: '/当前模型' }
+      ]
+    })
   });
 };

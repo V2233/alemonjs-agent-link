@@ -41,9 +41,9 @@ export const canPrivateChatWithKey = async (event: ConversationEvent, access: 'o
   if (canPrivateChat(event, access)) return true;
   if (!event.IsPrivate || !event.Platform || !event.UserId) return false;
   try {
-    const [{ withBudgetScope }, { getPersonalCredential }] = await Promise.all([import('../../billing/budget'), import('../../credentials/personal')]);
+    const [{ withBudgetScope }, { getBoundCredential }] = await Promise.all([import('../../billing/budget'), import('../../credentials/scoped')]);
 
-    return Boolean(await withBudgetScope({ platform: event.Platform, userId: event.UserId, channelId: getConversationId(event) }, getPersonalCredential));
+    return Boolean(await withBudgetScope({ platform: event.Platform, userId: event.UserId, channelId: getConversationId(event) }, getBoundCredential));
   } catch {
     return false;
   }

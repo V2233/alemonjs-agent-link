@@ -407,9 +407,20 @@ export const budgetedFetch = async (
     if (personal) {
       const headers = new Headers(init.headers);
 
-      headers.set('Authorization', `Bearer ${personal.apiKey}`);
+      headers.delete('Authorization');
+      headers.delete('x-dsh-auth-token');
+      headers.set(
+        personal.auth === 'account' ? 'x-dsh-auth-token' : 'Authorization',
+        personal.auth === 'account' ? personal.apiKey : `Bearer ${personal.apiKey}`
+      );
       const result = await fetch(new URL('https://api.deepseek.com/chat/completions'), { ...init, headers, redirect: 'error' });
 
+      if (personal.auth === 'account' && [401, 402, 403].includes(result.status)) {
+        const status = result.status;
+
+        await result.body?.cancel();
+        throw new DSHError('budget', status === 402 ? '账户余额不足，请在 DeepSeek 平台充值。' : '账户授权不可用，请退出后重新登录。');
+      }
       if (result.status !== 402) return result;
       await result.body?.cancel();
       if (!(await disableBoundCredential(personal))) throw new DSHError('budget', '绑定 Key 设置已变更，请重新发送请求。');
@@ -422,6 +433,7 @@ export const budgetedFetch = async (
     if (!shared) throw new DSHError('budget', '绑定 Key 已停用，但机器人未配置模型凭证。');
     const headers = new Headers(init.headers);
 
+    headers.delete('x-dsh-auth-token');
     headers.set('Authorization', `Bearer ${shared.apiKey}`);
     init = { ...init, headers };
     url = new URL(`${(shared.baseUrl || 'https://api.deepseek.com').replace(/\/+$/u, '')}/chat/completions`);

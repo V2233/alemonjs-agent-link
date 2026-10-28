@@ -78,8 +78,8 @@ test('help and configuration guidance use structured Markdown with readable step
     );
     assert.ok(!items.some(item => item.type === 'BT.group'), 'detailed help keeps one inline next step, not a duplicate keyboard');
 
-    assert.match(messages[0], isPrivate ? /个人密钥 绑定 sk-你的Key/ : /群密钥 绑定 临时码 sk-你的Key/);
-    if (!isPrivate) assert.match(messages[0], /由申请人私聊/);
+    assert.match(messages[0], isPrivate ? /我的钥匙 私聊 添加 sk-你的Key/ : /我的钥匙 群聊 添加 sk-你的Key/);
+    if (!isPrivate) assert.match(messages[0], /授权钥匙/);
   }
   const formats = [];
   const messages = await runCommand((await import('../lib/response/agent-bind/res.js')).default, { master: false, formats });
@@ -89,19 +89,19 @@ test('help and configuration guidance use structured Markdown with readable step
     bindItems.every(item => item.type === 'Markdown' || item.type === 'BT.group'),
     'key guidance is Markdown plus an optional keyboard group'
   );
-  assert.match(messages[0], /个人密钥 绑定/);
+  assert.match(messages[0], /我的钥匙 私聊 添加/);
 });
 
 test('budget errors explain the correct private or group binding workflow without leaking credentials', () => {
   for (const isPrivate of [true, false]) {
     const error = withBudgetScope({ platform: 'test', userId: 'u', channelId: isPrivate ? 'private:["test","u"]' : 'g' }, () => new BudgetExceededError());
     assert.match(error.message, /额度不足/);
-    assert.match(error.message, isPrivate ? /个人密钥 绑定 sk-你的Key/ : /群密钥 绑定 临时码 sk-你的Key/);
+    assert.match(error.message, isPrivate ? /我的钥匙 私聊 添加 sk-你的Key/ : /我的钥匙 群聊 添加 sk-你的Key/);
     assert.doesNotMatch(error.message, /`|\*\*|\|/);
-    if (!isPrivate) assert.doesNotMatch(error.message, /个人密钥 绑定/);
+    if (!isPrivate) assert.doesNotMatch(error.message, /我的钥匙 私聊/);
   }
   assert.match(replyGateExceededMessage, /今天只提醒这一次/);
-  assert.match(replyGateExceededMessage, /群密钥 绑定 临时码 sk-你的Key/);
+  assert.match(replyGateExceededMessage, /我的钥匙 群聊 添加 sk-你的Key/);
 });
 
 test('budget errors show the shortfall above the binding guidance', () => {
@@ -111,7 +111,7 @@ test('budget errors show the shortfall above the binding guidance', () => {
   );
 
   assert.match(error.message, /本次请求预计需要 0\.13 元，当前可用约 0\.10 元/);
-  assert.match(error.message, /群密钥 绑定 临时码 sk-你的Key/);
+  assert.match(error.message, /我的钥匙 群聊 添加 sk-你的Key/);
   assert.doesNotMatch(error.message, /`|\*\*|\|/);
   assert.equal(error.requiredYuan, 0.1328);
   assert.equal(error.availableYuan, 0.1032);

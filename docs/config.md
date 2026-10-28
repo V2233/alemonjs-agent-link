@@ -480,7 +480,7 @@ alemonjs-agent-link:
 
 ## Redis 每日预算
 
-在 `alemonjs-agent-link.budget` 设置 `enabled: true` 开启。个人免费默认每天 1 元，跨群和私聊共用；群后台感知默认每天 1 元。群付款顺序为群 Key → 群充值 → 个人免费，后台判断最后回退群感知预算。没有群共享的免费聊天额度。详细配置见 [每日额度保护](budget.md)。
+在 `alemonjs-agent-link.budget` 设置 `enabled: true` 开启。跨群和私聊共用；。群付款顺序为群 Key → 群充值 → 个人免费，后台判断最后回退群感知预算。没有群共享的免费聊天额度。详细配置见 [每日额度保护](budget.md)。
 
 ### 减少额外判断与不必要工具调用
 
@@ -494,9 +494,9 @@ alemonjs-agent-link:
 
 ## 私聊个人 API Key
 
-用户可在本人私聊中用 `/个人密钥` 管理自己的 DeepSeek 官方 Key。它是独立的加密 Redis 记录，不修改这里的共享 `apiKey`；余额不足时自动停用，需手动恢复。指令、回退规则和加密文件备份要求见 [个人 Key 管理](personal-key.md)。
+用户可在本人私聊中用 `/我的钥匙 私聊` 管理自己的 DeepSeek 官方 Key。它是独立的加密 Redis 记录，不修改这里的共享 `apiKey`；余额不足时自动停用，需手动恢复。指令、回退规则和加密文件备份要求见 [个人 Key 管理](personal-key.md)。
 
-群管理员可用 `/群密钥` 申请 5 分钟临时码，再由本人私聊绑定、启用或停用该群的 DeepSeek Key。具体流程见 [群 Key 管理](group-key.md)。
+群管理员先私聊添加群聊钥匙，再到群里用 `/我的钥匙` 查看编号并 `/授权钥匙 编号`；提供者私聊 `/授权记录` 可撤销。具体流程见 [群 Key 管理](group-key.md)。
 
 ---
 

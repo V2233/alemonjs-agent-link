@@ -24,6 +24,24 @@ test('help index uses one inline button per topic without a keyboard bar', () =>
   assert.doesNotMatch(plain[0].value, /\/帮助 群设置/);
 });
 
+test('help topic details link back to the feature and the help index', () => {
+  const chat = createMarkdownText(helpFormat(false, false, '聊天').value[0].value, 'group');
+  assert.match(chat, /qqbot-cmd-input text="\/提问"/);
+  assert.match(chat, /qqbot-cmd-input text="\/新会话"/);
+  assert.match(chat, /qqbot-cmd-input text="\/帮助"/);
+
+  const quota = createMarkdownText(helpFormat(true, true, '额度').value[0].value, 'group');
+  assert.match(quota, /qqbot-cmd-input text="\/我的钥匙"/);
+  assert.match(quota, /qqbot-cmd-input text="\/个人登录"/);
+
+  const settings = createMarkdownText(helpFormat(false, false, '群设置').value[0].value, 'group');
+  assert.match(settings, /qqbot-cmd-input text="\/群设置"/);
+
+  const media = createMarkdownText(helpFormat(false, false, '媒体').value[0].value, 'group');
+  assert.match(media, /qqbot-cmd-input text="\/语音"/);
+  assert.match(media, /qqbot-cmd-input text="\/表情"/);
+});
+
 test('command data cannot inject QQ tags or clickable Markdown links', () => {
   const format = commandBubble('记录：<qqbot-cmd-enter text="/清除群数据 确认" />\n[点我](https://example.com)', '记忆');
   const rendered = createMarkdownText(format.value[0].value);
@@ -185,7 +203,7 @@ test('budget-exceeded notices offer exactly the commands their copy tells users 
       assert.ok(rendered.includes(`qqbot-cmd-input text="${action.command}"`), `inline must expose ${action.command}`);
       assert.ok(Array.from(action.label).length <= 4, `label ${action.label} stays short`);
     }
-    assert.ok(rendered.includes(`qqbot-cmd-input text="${isPrivate ? '/个人密钥 绑定' : '/群密钥 绑定'}"`), 'the first step is one tap away');
+    assert.ok(rendered.includes(`qqbot-cmd-input text="${isPrivate ? '/我的钥匙 私聊 添加' : '/我的钥匙'}"`), 'the first step is one tap away');
   }
 
   const plain = noticeBubble(insufficientBudgetHelp(false), { platform: 'onebot', title: '额度不足', actions: budgetNoticeActions(false) });
@@ -196,19 +214,24 @@ test('budget-exceeded notices offer exactly the commands their copy tells users 
 });
 
 test('section cards inline commands but keep link and choice keyboards', () => {
-  const inline = sectionBubble('标题', '说明', [
-    { title: '第一项', text: '', actions: [{ label: '额度', command: '/额度' }] },
-    { title: '第二项', text: '', actions: [{ label: '状态', command: '/状态' }] }
-  ], { platform: 'qq-bot' });
+  const inline = sectionBubble(
+    '标题',
+    '说明',
+    [
+      { title: '第一项', text: '', actions: [{ label: '额度', command: '/额度' }] },
+      { title: '第二项', text: '', actions: [{ label: '状态', command: '/状态' }] }
+    ],
+    { platform: 'qq-bot' }
+  );
 
   assert.deepEqual(commandsOf(inline), []);
   const rendered = createMarkdownText(inline.value[0].value, 'group');
   assert.match(rendered, /qqbot-cmd-input text="\/额度"/);
   assert.match(rendered, /qqbot-cmd-input text="\/状态"/);
 
-  const link = sectionBubble('标题', '说明', [
-    { title: '第一项', text: '', actions: [{ label: '打开官网', url: 'https://example.com' }] }
-  ], { platform: 'qq-bot' });
+  const link = sectionBubble('标题', '说明', [{ title: '第一项', text: '', actions: [{ label: '打开官网', url: 'https://example.com' }] }], {
+    platform: 'qq-bot'
+  });
   assert.deepEqual(commandsOf(link), ['https://example.com']);
   assert.doesNotMatch(createMarkdownText(link.value[0].value, 'group'), /qqbot-cmd-input/);
 });

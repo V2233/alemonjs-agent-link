@@ -29,15 +29,11 @@ export const KEYBOARD_LABELS: Record<string, string> = {
   '/额度 记录': '记录',
   '/额度 增加': '增加',
   '/额度 设置': '设置',
-  '/个人密钥': '个人密钥',
-  '/个人密钥 绑定': '绑定密钥',
-  '/个人密钥 启用': '启用密钥',
-  '/个人密钥 状态': '密钥状态',
-  '/群密钥 绑定': '申请密钥',
-  '/群密钥 状态': '群密钥',
-  '/群密钥 启用': '启用',
-  '/群密钥 停用': '停用',
-  '/群密钥 移除': '移除',
+  '/我的钥匙': '我的钥匙',
+  '/我的钥匙 私聊': '私聊钥匙',
+  '/我的钥匙 私聊 添加': '添加钥匙',
+  '/我的钥匙 私聊 启用': '启用钥匙',
+  '/授权记录': '授权记录',
   '/当前模型': '当前模型',
   '/模型池': '模型池',
   '/模型列表': '模型列表',
@@ -125,7 +121,7 @@ const inlineLabel = (value: string): string => {
 /** 键盘按钮只留 1-4 个字：优先用声明或内置短名，最后才截断。 */
 const keyboardLabel = (action: BubbleAction): string => clip(action.short || KEYBOARD_LABELS[action.command || ''] || action.label, MAX_KEYBOARD_LABEL);
 
-/** 只按指令去重；同一条指令的不同用途（/个人密钥 状态 与 /个人密钥 绑定）都保留。 */
+/** 只按指令去重；同一条指令的不同用途（/我的钥匙 私聊 与 /我的钥匙 私聊 添加）都保留。 */
 const normalizeActions = (actions: BubbleAction[]): BubbleAction[] => {
   const kept: BubbleAction[] = [];
 

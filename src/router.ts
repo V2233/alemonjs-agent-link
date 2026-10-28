@@ -7,6 +7,8 @@ const router = Router.create();
 
 router.res({ events: [...contextEvents] }, () => import('@src/response/platform-events/res'));
 
+router.res({ events: ['message.create', 'private.message.create'] }, () => import('@src/response/personal-login/res'));
+
 // Capture before command and wake handlers consume the event.
 router.res({ events: ['message.create', 'private.message.create'] }, () => import('@src/response/history-capture/res'));
 
@@ -33,14 +35,6 @@ commandGroup.use(
   { path: '主动搭话', events: ['private.message.create'], description: '主人管理自己的主动搭话订阅' },
   () => import('@src/response/agent-proactive/res')
 );
-
-for (const path of ['apikey', '个人密钥']) {
-  commandGroup.use({ path, description: '私聊绑定、启用、停用、移除本人的 DeepSeek API Key' }, () => import('@src/response/personal-key/res'));
-}
-
-for (const path of ['群密钥', 'groupapikey']) {
-  commandGroup.use({ path, description: '群管理员申请临时码，在本人私聊绑定或启停群 Key' }, () => import('@src/response/group-key/res'));
-}
 
 commandGroup.use({ path: '额度', description: '查询今日额度；主人可手动增加、设置、查看调整记录' }, () => import('@src/response/agent-budget/res'));
 
@@ -210,6 +204,10 @@ for (const path of ['记忆检索', '记忆来源', '过时记忆', '恢复记�
     { path, events: ['message.create', 'private.message.create'], description: '检索、核对和管理当前会话的长期记忆' },
     () => import('@src/response/memory-tools/res')
   );
+}
+
+for (const path of ['我的钥匙', '授权钥匙', '授权记录', '个人密钥', 'apikey', '群密钥', 'groupapikey']) {
+  commandGroup.use({ path, description: '按用途管理钥匙和可撤销的群授权' }, () => import('@src/response/keyring/res'));
 }
 
 // 保存近期群聊参考；后续群聊协调器按参与策略决定是否创建回合。

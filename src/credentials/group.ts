@@ -9,7 +9,8 @@ type Proof = { platform: string; channelId: string; userId: string; action: Grou
 export type GroupKeyRequester = { platform: string; channelId: string; userId: string; isPrivate: boolean; isAdmin: boolean; messageId: string };
 const prefix = 'data:{agent-link-group-keys}:v1';
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const keyFor = (scope: BudgetScope): string => {
+
+export const groupStorageKey = (scope: BudgetScope): string => {
   if (!scope.platform || !scope.channelId || scope.channelId.startsWith('private:')) throw new DSHError('budget', '无法确定目标群。');
 
   return `${prefix}:group:${hash([scope.platform, scope.channelId])}`;
@@ -21,7 +22,7 @@ const fail = () => new DSHError('budget', '临时码无效、已过期或不属�
 export const issueGroupKeyCode = async (requester: GroupKeyRequester, action: GroupKeyAction) => {
   if (requester.isPrivate || !requester.isAdmin) throw new DSHError('budget', '只有本群管理员可以在群里申请临时码。');
   if (!requester.userId || !requester.messageId || !['bind', 'enable', 'disable', 'remove'].includes(action)) throw fail();
-  keyFor(requester);
+  groupStorageKey(requester);
   const redis = await budgetRedis();
   const code = randomBytes(12).toString('hex');
   const slot = `${prefix}:slot:${hash([requester.platform, requester.channelId, requester.userId])}`;
@@ -73,7 +74,7 @@ export const redeemGroupKeyCode = async (scope: BudgetScope, code: string, actio
   if (proof?.platform !== scope.platform || proof.userId !== scope.userId || proof.action !== action) throw fail();
   if (previous) return { channelId: proof.channelId, action, duplicate: true };
   const target = { platform: proof.platform, channelId: proof.channelId };
-  const storageKey = keyFor(target);
+  const storageKey = groupStorageKey(target);
   const encrypted = action === 'bind' ? await encryptStoredKey(storageKey, apiKey) : '';
   const record: RecordValue = { encrypted, enabled: true, revision: randomUUID(), reason: '' };
   const result = String(
@@ -125,7 +126,7 @@ return 'ok'`,
 };
 
 export const groupKeyStatus = async (scope: BudgetScope) => {
-  const raw = await (await budgetRedis()).get(keyFor(scope));
+  const raw = await (await budgetRedis()).get(groupStorageKey(scope));
   const value = raw ? (JSON.parse(raw) as RecordValue) : null;
 
   return { bound: Boolean(value), enabled: value?.enabled === true, reason: value?.reason || '' };
@@ -147,7 +148,7 @@ value.revision = ARGV[2]
 redis.call('SET', KEYS[1], cjson.encode(value))
 return 1`,
         1,
-        keyFor(scope),
+        groupStorageKey(scope),
         revision,
         randomUUID()
       )
@@ -162,13 +163,13 @@ export const getGroupCredential = async (): Promise<PersonalCredential | null> =
   const key = await encryptionKey();
 
   if (!key) return null;
-  const raw = await (await budgetRedis()).get(keyFor(scope));
+  const raw = await (await budgetRedis()).get(groupStorageKey(scope));
   const value = raw ? (JSON.parse(raw) as RecordValue) : null;
 
   if (value?.enabled !== true) return null;
   if (!key) throw new DSHError('budget', '群密钥加密文件缺失，请联系主人恢复或重新绑定。');
 
-  return decryptStoredKey(keyFor(scope), value, scope, key);
+  return decryptStoredKey(groupStorageKey(scope), value, scope, key);
 };
 export const checkedGroupCredential = async (signal?: AbortSignal): Promise<PersonalCredential | null> =>
   checkCredentialBalance(await getGroupCredential(), credential => updateGroupKey(credential.scope, credential.revision), getGroupCredential, signal);

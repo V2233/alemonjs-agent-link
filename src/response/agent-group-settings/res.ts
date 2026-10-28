@@ -1,7 +1,8 @@
 import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
-import { canReset } from '../dsh/util';
+import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
+import { boundKeyGroupPolicy } from '../../social/group-policy';
 import { isKeyEntitledGroup } from '../../social/groups';
 import { getPersonaStore } from '../../companion/personas';
 import {
@@ -22,6 +23,8 @@ const fieldLabels: Record<string, string> = {
   interests: '兴趣词',
   wakeNames: '补充唤醒词',
   bannedWords: '禁语词',
+  voiceEnabled: '语音',
+  voiceAuto: '自动语音',
   reset: '重置'
 };
 
@@ -44,8 +47,8 @@ const activityAliases: Record<string, 'quiet' | 'balanced' | 'active'> = {
 
 const helpFor: Record<GroupSettingsField, string> = {
   activity: '三选一：\n/群设置 安静 — 只在被叫时说话\n/群设置 正常 — 偶尔接一句（默认）\n/群设置 活跃 — 更主动接话',
-  quietHours: '安静时段只影响主动参与，被叫仍会回。\n/群设置 静默 1-8 — 凌晨 1 点到早 8 点\n/群设置 静默 关闭 — 取消',
-  maxPerHour: '只能往下调，当前档位有上限。\n/群设置 每小时 4 — 每小时最多 4 次\n/群设置 每小时 默认 — 恢复档位默认',
+  quietHours: '安静时段只影响主动参与，被叫仍会回。\n/群设置 静默 1-8 — 凌晨 1 点到早 8 点\n/群设置 静默 关闭 — 取消\n/群设置 静默 默认 — 恢复配置',
+  maxPerHour: '只能往下调，当前档位有上限。\n/群设置 每小时 4 — 每小时最多主动插话 4 次\n/群设置 每小时 默认 — 恢复档位默认',
   interests: '只影响普通模式的话题相关度。\n/群设置 兴趣 吃饭,游戏,猫 — 整组替换\n/群设置 兴趣 清空 — 回落到配置',
   wakeNames: '群里说到这些词也会当成在叫它。\n/群设置 唤醒词 加 小鱼\n/群设置 唤醒词 删 小鱼\n/群设置 唤醒词 查看\n/群设置 唤醒词 清空',
   bannedWords: '只过滤它自己的输出，等长遮盖。\n/群设置 禁语 加 某词\n/群设置 禁语 删 某词\n/群设置 禁语 查看\n/群设置 禁语 清空',
@@ -91,7 +94,8 @@ const helpSections = [
       { label: '看人设', command: '/群设置 人设 查看' },
       { label: '清空人设', command: '/群设置 人设 清空' },
       { label: '调整记录', command: '/群设置 记录' },
-      { label: '恢复默认', command: '/群设置 重置' }
+      { label: '恢复默认', command: '/群设置 重置' },
+      { label: '返回设置', command: '/群设置 查看' }
     ]
   }
 ];
@@ -140,7 +144,7 @@ export default async (): Promise<void> => {
     const policy = groupPolicy(config, channelId, platform);
     const args = route.rawArgs.map(String).filter(Boolean);
     const action = args[0] || '查看';
-    const canEdit = canReset(event);
+    const canEdit = event.IsMaster === true || (await verifyGroupKeyAdmin(event));
     const requireEdit = async (): Promise<boolean> => {
       if (canEdit) return true;
       await reply('只有群管理员或机器人主人能改。设置可以看，改法可以问，但不会保存。', [{ label: '指令说明', command: '/群设置 帮助' }]);
@@ -153,19 +157,20 @@ export default async (): Promise<void> => {
     if (action === '查看' || action === '状态' || action === '菜单') {
       const entitled = await isKeyEntitledGroup({ platform, channelId }).catch(() => false);
       const voice = groupVoicePolicy(config, channelId, platform);
-      const activity = settings.activity || policy.activity;
-      const quiet = settings.quietHours ?? policy.quietHours;
+      const effective = entitled ? boundKeyGroupPolicy(policy) : policy;
+      const activity = effective.activity;
+      const quiet = effective.quietHours;
       const quietText = quiet[0] === quiet[1] ? '关闭' : `${quiet[0]}–${quiet[1]} 点`;
-      const maxPerHour = settings.maxPerHour ?? policy.maxPerHour;
+      const maxPerHour = effective.maxPerHour;
       const wake = settings.wakeNames?.length ? settings.wakeNames.join('、') : '无';
       const banned = settings.bannedWords?.length ? settings.bannedWords.join('、') : '无';
-      const interests = settings.interests?.length ? settings.interests.join('、') : '跟随配置';
+      const interests = effective.interests.length ? effective.interests.join('、') : '无';
       const personaAddition = getPersonaStore(config).scopeAdditions({ platform, channelId });
       const personaText = personaAddition ? `已设置 ${Array.from(personaAddition).length} 字` : '未设置';
       const sections = [
         {
           title: '说话频率',
-          text: `当前：${activityLabels[activity] || activity}；每小时最多 ${maxPerHour} 次`,
+          text: `当前：${activityLabels[activity] || activity}；每小时主动插话上限 ${maxPerHour} 次${entitled ? '；群钥匙权益已生效' : ''}`,
           actions: canEdit
             ? [
                 { label: '安静', command: '/群设置 安静' },
@@ -194,7 +199,7 @@ export default async (): Promise<void> => {
         },
         {
           title: '语音与其他',
-          text: `语音：${voice.allowed ? `已允许（自动语音${voice.auto ? '开' : '关'}）` : '已关闭'}\n人设：${personaText} · 兴趣：${interests}${entitled ? '；本群已绑定 Key' : ''}`,
+          text: `语音：${voice.allowed ? `已允许（自动语音${voice.auto ? '开' : '关'}）` : '已关闭'}\n人设：${personaText} · 兴趣：${interests}${entitled ? '；本群钥匙权益已生效' : ''}`,
           actions: [
             { label: '语音设置', command: '/群设置 语音 查看' },
             { label: '人设', command: '/群设置 人设 查看' },
@@ -238,7 +243,7 @@ export default async (): Promise<void> => {
     if (action === '重置') {
       if (!(await requireEdit())) return;
       store.reset(platform, channelId, event.UserId || 'admin');
-      await reply('已恢复默认设置，下一条消息生效。', [{ label: '查看当前', command: '/群设置 查看' }]);
+      await reply('已恢复群设置默认值；人设补充和钥匙授权保持原状。下一条消息生效。', [{ label: '查看当前', command: '/群设置 查看' }]);
 
       return;
     }
@@ -403,9 +408,7 @@ export default async (): Promise<void> => {
 
         return;
       }
-      await reply(
-        oral === 'quiet' ? '好，改成安静模式：以后只有被叫到才说话。' : oral === 'active' ? '好，改成活跃模式：会更主动接话。' : '好，恢复到正常模式。'
-      );
+      await reply(`已保存${activityLabels[oral]}档位。主人配置优先，请通过 /群设置 查看 确认生效设置。`);
 
       return;
     }
@@ -523,14 +526,19 @@ export default async (): Promise<void> => {
     }
     const done: Record<string, string> = {
       activity: `说话频率已改成「${activityLabels[String(value)] || show(value)}」。`,
-      quietHours: value === undefined ? '已取消夜间静默。' : `已设置 ${show(value)} 不主动说话；被叫仍会回。`,
-      maxPerHour: value === undefined ? '已恢复当前档位的默认上限。' : `每小时最多说 ${show(value)} 次了。`,
+      quietHours:
+        value === undefined
+          ? '静默已恢复配置默认。'
+          : Array.isArray(value) && value[0] === value[1]
+            ? '已取消夜间静默。'
+            : `已设置 ${show(value)} 不主动说话；被叫仍会回。`,
+      maxPerHour: value === undefined ? '已恢复当前档位的默认上限。' : `每小时主动插话上限已保存为 ${show(value)} 次。`,
       interests: `兴趣词已更新：${show(value) || '无'}。`,
       wakeNames: value === undefined ? '已清空本群补充的唤醒词。' : `好，以后群里说到「${show(value)}」也会找我。`,
       bannedWords: value === undefined ? '已清空本群禁语词。' : `好，本群不会再说「${show(value)}」这个词。`
     };
 
-    await reply(`${done[field] || '已保存。'}\n下一条消息生效。`, [
+    await reply(`${done[field] || '已保存。'}\n主人配置优先，群钥匙权益可能调整参与上限，请查看当前生效设置。`, [
       { label: '看看现在', command: '/群设置 查看' },
       { label: '指令说明', command: '/群设置 帮助' }
     ]);

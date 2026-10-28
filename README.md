@@ -14,19 +14,9 @@ QQ Bot / OneBot 11 · Node.js 22.13+ · DSH 沙箱会话 · 单进程 · MIT
 
 在群里 @ 它、喊一声“肥鱼”，或者直接 `/提问`，就能收到一段带上下文、会用工具的回答。每个群有自己的会话、Worker、工具权限和额度；私聊里它记得你说过的事。
 
-AgentLink 是 AlemonJS 插件，不是又一个转发壳：消息编排、状态库、预算、工具权限都在 Node 里，模型执行交给本机 DSH Worker，每个群一份独立的沙箱与人格。
+AgentLink 是 AlemonJS 插件：消息编排、状态库、预算、工具权限都在 Node 里，模型执行交给本机 DSH Worker，每个群一份独立的沙箱与人格。
 
 > **项目状态：可用，但边界明确。** 代码路径、模拟收发和本地状态已有测试覆盖；真实 QQ 收发、群管理权限与部分外部服务仍要在你的账号上验收，见[能力建设与验收](docs/capabilities.md)。只支持**一个 Node 进程**连接同一个机器人，暂不支持多副本。
-
-## 最近更新 · 2026 年 10 月
-
-- **问答库**：遇到“为什么/为何”或“指令怎么用”先查已确认答案；内置 26 条大白话问答（10 条为什么 + 16 条指令用法，尽量用日常比喻，少堆术语），覆盖不回、不主动、慢、忘、工具、媒体、群管理、私聊、额度与常用命令。未命中的问答在回复送达后自动记录，按会话隔离。[问答库](docs/qa.md)
-- **额度与轮转**：多 Key 端点池支持余额查询、探活与临时启停，`/模型池` 分页查看；预算按群和私聊分别记账，主人可手动增加或设置额度。[每日额度](docs/budget.md) · [端点轮转](docs/config.md#多-key--端点轮转)
-- **群管理闭环**：OneBot 禁言、解禁、踢人、头衔与公告接入主人工具，执行前由适配器重新核对权限，结果未知时记录而不重放。[OneBot 接入](docs/onebot.md)
-- **插件能力发现**：可检索同机器人实例里其他插件（例如修仙）通过 Expose 提供的能力，先看目录与 schema，再按需调用。[模块与工具](docs/modules.md)
-- **紧急开关**：主人一句 `/关闭 原因` 全局停掉新请求，`/开启` 恢复；关闭状态写入配置，重启仍有效。
-- **媒体链路**：识图默认复用当前模型，GIF 抽帧、语音合成、生图、搜图与表情工坊可分别配置；未配置的能力会明确说明看不懂，而不是编造内容。[媒体能力](docs/media.md)
-- **更像群友**：默认“活跃”人格、积极群聊节奏和更主动的私聊搭话，吸收竞品的分条、表情、语音和接话方式；仍保留地址/上下文判断与防循环。
 
 ## 运行模型
 
@@ -128,14 +118,10 @@ npm start          # 之后直接 npm start
 
 ## 文档
 
-| 分类       | 文档                                                                                                                                                                                                                                     |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 开始使用   | [快速开始](#快速开始) · [配置指南](docs/config.md) · [运维手册](docs/operations.md)                                                                                                                                                      |
-| 日常使用   | [命令速查](docs/commands.md) · [人格与表达](docs/companion.md) · [长期记忆](docs/memory.md) · [问答库](docs/qa.md) · [媒体能力](docs/media.md) · [每日额度](docs/budget.md) · [气泡与长度](docs/bubble-copy.md)                          |
-| 接入与架构 | [架构与开发](docs/architecture.md) · [模块与工具](docs/modules.md) · [OneBot 接入](docs/onebot.md)                                                                                                                                       |
-| 凭证与安全 | [安全与数据](docs/security.md) · [个人 Key](docs/personal-key.md) · [群 Key](docs/group-key.md)                                                                                                                                          |
-| 设计与对标 | [能力建设与验收](docs/capabilities.md) · [竞品与活跃设计](docs/dafeiyu-competitive-design.md) · [真实群聊验收](docs/dafeiyu-live-validation.md) · [大肥鱼能力对标](docs/dafeiyu-roadmap.md) · [肥鱼体验对齐](docs/dafeiyu-experience.md) |
-| 参考       | [配置字段参考](docs/config-reference.md) · [配置示例](alemon.config.example.yaml) · [全部文档](docs/README.md)                                                                                                                           |
+- [文档导航](docs/README.md)：按使用、接入、运维和设计查找专题。
+- [配置指南](docs/config.md) · [配置字段参考](docs/config-reference.md) · [配置示例](alemon.config.example.yaml)
+- [命令速查](docs/commands.md) · [能力建设与验收](docs/capabilities.md)
+- [个人账户扫码登录（试验）](docs/deepseek-account-login-experiment.md)：需要 Google Chrome，沙箱工作区暂不支持，QQ 实机链路待验收。
 
 ## 状态与已知边界
 
@@ -150,5 +136,3 @@ npm start          # 之后直接 npm start
 欢迎提交 Issue 和 Pull Request。反馈时请提供版本、系统、复现步骤与脱敏错误，**不要上传 Key、完整配置、真实聊天或登录二维码**。
 
 代码使用 [MIT License](LICENSE)。仓库不含任何可用的账号、Key、二维码或私聊原文；演示只使用占位数据。头图与架构图为项目自绘示意图，不是真实聊天或界面截图。
-
-**关键词**：QQ机器人、QQ群机器人、AI聊天、AgentLink、AlemonJS、DSH、OneBot 11、大肥鱼、人格切换、长期记忆、上下文压缩、引用回复、群管理、表情包、语音合成、生图、模型池、每日额度、沙箱、工具权限。

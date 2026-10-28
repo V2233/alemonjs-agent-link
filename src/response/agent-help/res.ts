@@ -1,4 +1,4 @@
-import { commandBubble, sectionBubble, type BubbleSection } from '../bubble';
+import { commandBubble, sectionBubble, type BubbleAction, type BubbleSection } from '../bubble';
 import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
 import { quotaHelp } from '../../billing/help';
 
@@ -32,7 +32,7 @@ const topics: Record<string, string[]> = {
     '常用：/群设置 安静｜正常｜活跃、/群设置 静默 1-8、/群设置 唤醒词 加 小鱼、/群设置 禁语 加 某词。',
     '语音：/群设置 语音 关闭 让本群一律文字；/群设置 语音 开启 恢复。',
     '人设：/群设置 人设 群里可以叫我阿鱼（重发覆盖）；/群设置 人设 查看｜清空。',
-    '改错了发 /群设置 重置；谁在什么时候改的看 /群设置 记录。'
+    '改错了发 /群设置 重置（不清除人设与钥匙授权）；谁在什么时候改的看 /群设置 记录。'
   ],
   媒体: [
     '图片、语音与表情',
@@ -127,6 +127,46 @@ const helpSections = (isPrivate: boolean, owner: boolean): BubbleSection[] => [
     : [])
 ];
 
+const topicActions = (topic: string, isPrivate: boolean): BubbleAction[] => {
+  switch (topic) {
+    case '聊天':
+      return [
+        { label: '提问', command: '/提问' },
+        { label: '新会话', command: '/新会话' }
+      ];
+    case '记忆':
+      return [
+        { label: '查看', command: isPrivate ? '/记忆' : '/群记忆' },
+        { label: '检索', command: '/记忆检索' }
+      ];
+    case '人格':
+      return [
+        { label: '列表', command: '/人格' },
+        { label: '心情', command: '/心情' }
+      ];
+    case '群设置':
+      return isPrivate ? [] : [{ label: '设置', command: '/群设置' }];
+    case '媒体':
+      return [
+        { label: '语音', command: '/语音' },
+        { label: '表情', command: '/表情' }
+      ];
+    case '额度':
+      return isPrivate
+        ? [
+            { label: '钥匙', command: '/我的钥匙' },
+            { label: '登录', command: '/个人登录' }
+          ]
+        : [{ label: '钥匙', command: '/我的钥匙' }];
+    case '数据':
+      return [{ label: '隐私', command: '/隐私说明' }];
+    case '管理':
+      return [{ label: '状态', command: '/状态' }];
+    default:
+      return [];
+  }
+};
+
 export const helpFormat = (isPrivate: boolean, owner: boolean, topic = '', platform = 'qq-bot') => {
   if (platform !== 'qq-bot') return Format.create().addText(helpText(isPrivate, owner, topic));
   if (!topic) {
@@ -167,7 +207,7 @@ export const helpFormat = (isPrivate: boolean, owner: boolean, topic = '', platf
   return commandBubble(content, `大肥鱼 · ${topic === '全部' ? '完整说明' : topic}`, {
     platform,
     layout: 'inline',
-    actions: [{ label: '帮助目录', command: '/帮助' }]
+    actions: [...topicActions(topic, isPrivate), { label: '目录', command: '/帮助' }]
   });
 };
 

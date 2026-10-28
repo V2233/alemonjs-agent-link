@@ -10,7 +10,7 @@ import { parseBudgetCommand, budgetHelp } from '../../billing/commands';
 const budgetActions = (event: { IsMaster?: boolean; IsPrivate?: boolean }): { label: string; command: string }[] => [
   { label: '重新查询', command: '/额度' },
   ...(event.IsMaster ? [{ label: '调整记录', command: '/额度 记录' }] : []),
-  event.IsPrivate ? { label: '个人密钥', command: '/个人密钥' } : { label: '群密钥', command: '/群密钥 状态' },
+  event.IsPrivate ? { label: '个人密钥', command: '/我的钥匙 私聊' } : { label: '群密钥', command: '/我的钥匙' },
   { label: '额度教程', command: '/帮助 额度' }
 ];
 
@@ -99,7 +99,7 @@ export default async (): Promise<void> => {
       const target = sameTarget ? (event.IsPrivate ? '本人私聊' : '本群') : command.scope.channelId;
 
       const keyName = groupKey ? '群密钥' : '个人密钥';
-      const keyCommand = groupKey ? '/群密钥 状态' : '/个人密钥';
+      const keyCommand = groupKey ? '/我的钥匙' : '/我的钥匙 私聊';
       const money = (amount: number): string => (amount > 0 && amount < 0.01 ? '<0.01' : amount.toFixed(2));
       const table = [
         '| 来源 | 已用 / 上限 | 可用 |',

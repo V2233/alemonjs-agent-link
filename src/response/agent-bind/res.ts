@@ -17,7 +17,7 @@ export default async (): Promise<void> => {
       format: commandBubble(`公共密钥仅限机器人主人配置。个人使用请按下面操作：\n\n${personalKeyGuide}`, '密钥配置', {
         platform: event.Platform,
         actions: [
-          { label: '个人密钥', command: '/个人密钥' },
+          { label: '个人密钥', command: '/我的钥匙 私聊' },
           { label: '额度教程', command: '/帮助 额度' }
         ]
       })

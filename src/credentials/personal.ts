@@ -6,12 +6,13 @@ import { budgetRedis, getBudgetScope, type BudgetScope } from '../billing/budget
 import { DSHError } from '../dsh/errors';
 import { balanceWasConfirmed, confirmBalance } from './balance-scope';
 
-export const isPersonalKeyCommand = (text: unknown): boolean => /^\/(?:apikey|个人密钥|群密钥|groupapikey)(?:\s|$)/iu.test(String(text ?? '').trimStart());
+export const isPersonalKeyCommand = (text: unknown): boolean =>
+  /^(?:\/(?:我的钥匙|授权钥匙|授权记录|apikey|个人密钥|群密钥|groupapikey)|[#/]个人(?:登录|退出))(?:\s|$)/iu.test(String(text ?? '').trimStart());
 const keyFile = () => resolve(process.env.AGENT_LINK_PERSONAL_KEY_FILE || '.data/agent-link/personal-key.key');
 
-export type RecordValue = { encrypted: string; enabled: boolean; revision: string; reason: 'manual' | 'balance' | '' };
-export type PersonalCredential = { apiKey: string; revision: string; scope: BudgetScope };
-const keyFor = (scope: BudgetScope): string => {
+export type RecordValue = { auth?: 'account'; accountId?: string; encrypted: string; enabled: boolean; revision: string; reason: 'manual' | 'balance' | '' };
+export type PersonalCredential = { apiKey: string; auth?: 'account'; revision: string; scope: BudgetScope };
+export const personalStorageKey = (scope: BudgetScope): string => {
   if (!scope.platform || !scope.userId || scope.channelId !== `private:${JSON.stringify([scope.platform, scope.userId])}`) {
     throw new DSHError('budget', '个人 API Key 只能在本人私聊中管理和使用。');
   }
@@ -40,7 +41,7 @@ export const encryptionKey = async (create = false): Promise<Buffer | null> => {
   }
 };
 const recordFor = async (scope: BudgetScope): Promise<RecordValue | null> => {
-  const key = keyFor(scope);
+  const key = personalStorageKey(scope);
   const raw = await (await budgetRedis()).get(key);
 
   return raw ? (JSON.parse(raw) as RecordValue) : null;
@@ -50,7 +51,7 @@ export const claimPersonalKeyCommand = async (scope: BudgetScope, messageId: str
   if (!messageId) throw new DSHError('budget', '缺少消息编号，请重新发送个人密钥管理指令。');
   const command = createHash('sha256').update(messageId).digest('hex');
 
-  return (await (await budgetRedis()).set(`${keyFor(scope)}:command:${command}`, '1', 'EX', 32 * 86400, 'NX')) === 'OK';
+  return (await (await budgetRedis()).set(`${personalStorageKey(scope)}:command:${command}`, '1', 'EX', 32 * 86400, 'NX')) === 'OK';
 };
 
 export const encryptStoredKey = async (storageKey: string, apiKey: string): Promise<string> => {
@@ -66,7 +67,7 @@ export const encryptStoredKey = async (storageKey: string, apiKey: string): Prom
 };
 
 export const bindPersonalKey = async (scope: BudgetScope, apiKey: string): Promise<void> => {
-  const storageKey = keyFor(scope);
+  const storageKey = personalStorageKey(scope);
 
   if (!/^sk-[A-Za-z0-9_-]{8,240}$/u.test(apiKey)) throw new DSHError('budget', 'Key 格式无效，请使用 DeepSeek 官方 API Key。');
   const encrypted = await encryptStoredKey(storageKey, apiKey);
@@ -108,7 +109,7 @@ value.revision = ARGV[3]
 redis.call('SET', KEYS[1], cjson.encode(value))
 return 1`,
     1,
-    keyFor(scope),
+    personalStorageKey(scope),
     action,
     revision || '',
     randomUUID()
@@ -131,7 +132,7 @@ export const getPersonalCredential = async (): Promise<PersonalCredential | null
   if (value?.enabled !== true) return null;
   if (!key) throw new DSHError('budget', '个人密钥加密文件缺失，请联系主人恢复或重新绑定。');
 
-  return decryptStoredKey(keyFor(scope), value, scope, key);
+  return decryptStoredKey(personalStorageKey(scope), value, scope, key);
 };
 
 export const decryptStoredKey = (storageKey: string, value: RecordValue, scope: BudgetScope, key: Buffer): PersonalCredential => {
@@ -142,7 +143,12 @@ export const decryptStoredKey = (storageKey: string, value: RecordValue, scope: 
     decipher.setAuthTag(bytes.subarray(12, 28));
     decipher.setAAD(Buffer.from(storageKey));
 
-    return { apiKey: Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8'), revision: value.revision, scope };
+    return {
+      apiKey: Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8'),
+      revision: value.revision,
+      scope,
+      ...(value.auth ? { auth: value.auth } : {})
+    };
   } catch {
     throw new DSHError('budget', '个人密钥无法解密，请重新绑定。');
   }
@@ -155,6 +161,7 @@ export const checkCredentialBalance = async (
 ): Promise<PersonalCredential | null> => {
   if (!credential) return null;
   signal?.throwIfAborted();
+  if (credential.auth === 'account') return credential;
   const balanceId = createHash('sha256')
     .update(
       JSON.stringify([

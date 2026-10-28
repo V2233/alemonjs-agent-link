@@ -6,9 +6,9 @@ import type { DSHBridgeConfig } from '../dsh/config';
 import { getGroupChatPolicy, groupActivityPresets, type GroupChatActivity, type GroupChatPolicy } from './group-policy';
 
 /**
- * 群管理员可改的运行时设置。刻意只开放四项：
+ * 群管理员可改的运行时设置。开放有限的本群设置：
  * 活跃档位（预设值，不能自填极端参数）、静默时段、活跃时段上限（只能往下调）、兴趣词与补充唤醒词。
- * 网页/文件工具不在这里——它们只跟群 Key 绑定。
+ * 网页/文件工具不在这里，由工具策略与群钥匙权益决定。
  */
 export type GroupSettings = {
   activity?: GroupChatActivity;
@@ -68,8 +68,10 @@ export const normalizeGroupSetting = (field: GroupSettingsField, value: unknown)
     return activity as GroupChatActivity;
   }
   if (field === 'quietHours') {
-    if (value === undefined || value === null || value === '关闭') return undefined;
-    const hours = Array.isArray(value) ? value.map(Number) : (String(value).match(/\d{1,2}/gu) || []).map(Number);
+    if (value === undefined || value === null || value === '默认' || value === '恢复') return undefined;
+    if (value === '关闭') return [0, 0];
+    const match = typeof value === 'string' ? /^(\d{1,2})\s*[-–—]\s*(\d{1,2})$/u.exec(value.trim()) : null;
+    const hours = Array.isArray(value) ? value : match ? match.slice(1).map(Number) : [];
 
     if (hours.length !== 2 || hours.some(hour => !Number.isInteger(hour) || hour < 0 || hour > 23)) {
       throw new Error('静默时段需要两个 0–23 的整点，例如 1-8；写“关闭”表示不静默。');
@@ -78,7 +80,8 @@ export const normalizeGroupSetting = (field: GroupSettingsField, value: unknown)
     return [hours[0], hours[1]] as [number, number];
   }
   if (field === 'maxPerHour') {
-    const number = Number(String(value).match(/\d+/u)?.[0] ?? value);
+    const text = String(value).trim();
+    const number = /^\d+$/u.test(text) ? Number(text) : NaN;
 
     if (!Number.isInteger(number) || number < 0 || number > 100) throw new Error('每小时上限需要 0–100 的整数。');
 
@@ -164,7 +167,7 @@ export class GroupSettingsStore {
 
   audit(platform: string, channelId: string, limit = 10): GroupSettingsAudit[] {
     return this.db
-      .prepare('SELECT field,before,after,operator,at FROM group_settings_audit WHERE scope=? ORDER BY at DESC LIMIT ?')
+      .prepare('SELECT field,before,after,operator,at FROM group_settings_audit WHERE scope=? ORDER BY at DESC, id DESC LIMIT ?')
       .all(scopeKey(platform, channelId), Math.max(1, Math.min(50, limit))) as unknown as GroupSettingsAudit[];
   }
 
@@ -178,15 +181,20 @@ export class GroupSettingsStore {
     for (const field of fields) {
       if (!groupSettingsFields.includes(field)) return { ok: false, reason: '不支持的设置项。' };
     }
-    const previous = this.get(platform, channelId);
-    const next: GroupSettings = { ...previous };
+    const normalized: GroupSettings = {};
 
-    for (const field of fields) {
-      // 赋 undefined 而不是 delete：序列化时会省略，避免动态键删除。
-      (next as Record<string, unknown>)[field] = patch[field];
+    try {
+      for (const field of fields) {
+        (normalized as Record<string, unknown>)[field] = patch[field] === undefined ? undefined : normalizeGroupSetting(field, patch[field]);
+      }
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : '设置值无效。' };
     }
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      const previous = this.get(platform, channelId);
+      const next: GroupSettings = { ...previous, ...normalized };
+
       this.db
         .prepare(
           `INSERT INTO group_settings(scope,platform,channel_id,settings,updated_at,updated_by) VALUES(?,?,?,?,?,?)
@@ -196,7 +204,7 @@ export class GroupSettingsStore {
       const insert = this.db.prepare('INSERT INTO group_settings_audit(scope,platform,channel_id,field,before,after,operator,at) VALUES(?,?,?,?,?,?,?,?)');
 
       for (const field of fields) {
-        insert.run(scopeKey(platform, channelId), platform, channelId, field, describe(previous[field]), describe(patch[field]), operator, now);
+        insert.run(scopeKey(platform, channelId), platform, channelId, field, describe(previous[field]), describe(normalized[field]), operator, now);
       }
       this.db.exec('COMMIT');
 

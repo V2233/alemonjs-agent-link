@@ -147,6 +147,8 @@ export const streamChat = async (
     }
     const bridge = await getDSHBridge();
     const personal = await checkedBoundCredential(signal);
+
+    if (personal?.auth === 'account') throw new DSHError('budget', '扫码账户暂不支持沙箱工作区；请使用普通聊天，或退出后使用个人 API Key。');
     const settleText = personal
       ? async (_output: string) => {}
       : await reserveWorkspaceText(config, `${config.defaultSystemPrompt}\n${inputText(message)}\n${privateHistory?.memoryContext || ''}`);
