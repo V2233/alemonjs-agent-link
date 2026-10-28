@@ -30,7 +30,10 @@ export default defineChildren({
         void budgetRedis()
           .then(() =>
             logger.info(
-              { groupDailyYuan: startupConfig.budget?.groupDailyYuan ?? 2, privateDailyYuan: startupConfig.budget?.privateDailyYuan ?? 1 },
+              {
+                replyGateDailyYuan: startupConfig.budget?.replyGateDailyYuan ?? 1,
+                personalDailyYuan: startupConfig.budget?.personalDailyYuan ?? startupConfig.budget?.privateDailyYuan ?? 1
+              },
               'AgentLink Redis budget protection enabled'
             )
           )

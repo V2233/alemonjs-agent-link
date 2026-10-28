@@ -1,4 +1,5 @@
 import { useMention, type MessageMediaItem, type ReceivedMessage, type ActionTarget } from 'alemonjs';
+import { groupAdminStatus } from '../platform/member-role';
 
 type Mention = { UserId: string; UserName?: string; IsBot?: boolean };
 export type MessageContextEvent = {
@@ -105,7 +106,7 @@ export const buildMessageContext = (event: MessageContextEvent, mentions: Mentio
       id: label(event.UserId),
       name: label(event.UserName, 80),
       platformRole: label(event.Role, 40),
-      isAdmin: flag(event.IsAdmin),
+      isAdmin: groupAdminStatus(event),
       isBot: flag(event.IsBot)
     },
     message: {

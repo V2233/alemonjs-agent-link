@@ -11,10 +11,11 @@ export type BudgetConfig = {
   privateDailyYuan?: number;
   personalDailyYuan?: number;
   replyGateDailyYuan?: number;
+  replyGateGlobalDailyYuan?: number;
   globalDailyYuan?: number;
   maxOutputTokens?: number;
 };
-export type BudgetScope = { platform: string; channelId: string; userId?: string };
+export type BudgetScope = { platform: string; channelId: string; userId?: string; autonomous?: boolean };
 const context = new AsyncLocalStorage<BudgetScope>();
 
 export const getBudgetScope = (): BudgetScope | undefined => context.getStore();
@@ -27,16 +28,17 @@ const units = 1_000_000;
 
 export const budgetDay = (ms: number): string => new Date(ms + 8 * 3600000).toISOString().slice(0, 10);
 export const budgetLimit = (config: DSHBridgeConfig, scope: BudgetScope): number =>
-  Math.floor((scope.channelId.startsWith('private:') ? (config.budget?.privateDailyYuan ?? 1) : (config.budget?.groupDailyYuan ?? 2)) * units);
+  scope.channelId.startsWith('private:') ? personalLimit(config) : gateLimit(config);
 const scopeHash = (scope: BudgetScope): string =>
   createHash('sha256')
     .update(JSON.stringify([scope.platform, scope.channelId]))
     .digest('hex');
 
-// Keys: conversation/day, global/day, reservation, person/day or recognition/day. Keep the v1
-// conversation keys so existing spend and owner overrides survive this upgrade.
+// Keep existing spend and recharge keys. Conversation usage is reporting only;
+// free admission uses the person or recognition ledger, never a shared chat limit.
 export const reserveScript = `
 local gate = ARGV[6] == 'reply-gate'
+local autonomous = ARGV[6] == 'autonomous'
 local amount = tonumber(ARGV[1])
 local used = tonumber(redis.call('HGET', KEYS[1], 'used') or '0')
 local paidUsed = tonumber(redis.call('HGET', KEYS[1], 'paidUsed') or '0')
@@ -44,22 +46,30 @@ local paidLimit = tonumber(redis.call('HGET', KEYS[1], 'paidLimit') or '0')
 local paid = math.min(amount, math.max(0, paidLimit - paidUsed))
 local free = amount - paid
 local total = tonumber(redis.call('HGET', KEYS[2], 'used') or '0')
+local gateTotal = gate and KEYS[5] and tonumber(redis.call('HGET', KEYS[5], 'used') or '0') or 0
+local gateGlobalBlocked = gate and tonumber(ARGV[7] or '0') > 0 and gateTotal + amount > tonumber(ARGV[7])
 local person = tonumber(redis.call('HGET', KEYS[4], 'used') or '0')
-local limit = tonumber(redis.call('HGET', KEYS[1], 'limitOverride') or ARGV[2])
-local freeUsed = gate and person - tonumber(redis.call('HGET', KEYS[4], 'paidUsed') or '0') or used - paidUsed
-if gate then limit = tonumber(ARGV[2]) end
-local groupBlocked = free > 0 and freeUsed + free > limit
-local personBlocked = not gate and free > 0 and person + free > tonumber(ARGV[5])
-if groupBlocked or personBlocked or (tonumber(ARGV[3]) > 0 and total + amount > tonumber(ARGV[3])) then
- if groupBlocked then redis.call('HSET', gate and KEYS[4] or KEYS[1], 'blockedRequired', amount) end
+local limit = tonumber(redis.call('HGET', KEYS[4], 'limitOverride') or (gate and ARGV[2] or ARGV[5]))
+local freeUsed = gate and person - tonumber(redis.call('HGET', KEYS[4], 'paidUsed') or '0') or person
+local groupBlocked = gate and free > 0 and freeUsed + free > limit
+local personBlocked = not gate and free > 0 and (autonomous or person + free > limit)
+if groupBlocked or personBlocked or gateGlobalBlocked or (tonumber(ARGV[3]) > 0 and total + amount > tonumber(ARGV[3])) then
+ if groupBlocked then redis.call('HSET', KEYS[4], 'blockedRequired', free) end
  if personBlocked then redis.call('HSET', KEYS[4], 'blockedRequired', free) end
  if tonumber(ARGV[3]) > 0 and total + amount > tonumber(ARGV[3]) then redis.call('HSET', KEYS[2], 'blockedRequired', amount) end
+ if gateGlobalBlocked then redis.call('HSET', KEYS[5], 'blockedRequired', amount) redis.call('EXPIRE', KEYS[5], ARGV[4]) end
  for _,i in ipairs({1,2,4}) do redis.call('EXPIRE', KEYS[i], ARGV[4]) end
  return 0
 end
 if redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
-redis.call('HDEL', gate and KEYS[4] or KEYS[1], 'blockedRequired')
+if free > 0 then redis.call('HDEL', KEYS[4], 'blockedRequired') end
 redis.call('HDEL', KEYS[2], 'blockedRequired')
+if gate and KEYS[5] then
+ redis.call('HDEL', KEYS[5], 'blockedRequired')
+ redis.call('HINCRBY', KEYS[5], 'used', amount)
+ redis.call('HINCRBY', KEYS[5], 'reserved', amount)
+ redis.call('EXPIRE', KEYS[5], ARGV[4])
+end
 redis.call('SET', KEYS[3], cjson.encode({amount=amount,paid=paid,gate=gate}), 'EX', ARGV[4])
 for _,i in ipairs({1,2,4}) do
  local debit = gate and (i == 1 and paid or amount) or (i == 4 and free or amount)
@@ -95,6 +105,10 @@ end
 redis.call('HINCRBY', KEYS[1], 'paidUsed', paid - reservation.paid)
 redis.call('HINCRBY', KEYS[1], 'paidReserved', -reservation.paid)
 if reservation.gate then redis.call('HINCRBY', KEYS[4], 'paidUsed', paid - reservation.paid) end
+if reservation.gate and KEYS[5] then
+ redis.call('HINCRBY', KEYS[5], 'used', actual - reserved)
+ redis.call('HINCRBY', KEYS[5], 'reserved', -reserved)
+end
 redis.call('DEL', KEYS[3])
 return 1
 `;
@@ -155,23 +169,43 @@ export const budgetRedis = async (): Promise<Redis> => {
 const keysFor = (day: string, scope: BudgetScope): [string, string] => [`${prefix}:${day}:${scopeHash(scope)}`, `${prefix}:${day}:all`];
 const redisDay = async (redis: Redis): Promise<string> => budgetDay(Number((await bounded(redis.time()))[0]) * 1000);
 
-const personalLimit = (config: DSHBridgeConfig): number => Math.floor((config.budget?.personalDailyYuan ?? 1) * units);
+const personalLimit = (config: DSHBridgeConfig): number => Math.floor((config.budget?.personalDailyYuan ?? config.budget?.privateDailyYuan ?? 1) * units);
 const personalKey = (day: string, scope: BudgetScope): string => {
   if (!scope.userId) throw new DSHError('budget', '无法确定本次调用所属用户，已暂停付费调用。');
 
   return `${prefix}:${day}:person:${scopeHash({ platform: scope.platform, channelId: scope.userId })}`;
 };
 
-type BudgetKind = 'chat' | 'reply-gate';
+type BudgetKind = 'chat' | 'reply-gate' | 'autonomous';
 const gateLimit = (config: DSHBridgeConfig): number => Math.floor((config.budget?.replyGateDailyYuan ?? 1) * units);
 const gateKey = (day: string, scope: BudgetScope): string => `${prefix}:${day}:gate:${scopeHash(scope)}`;
+// Private management targets carry their trusted user ID inside the canonical
+// conversation ID. Never infer it from a nickname or a group ID.
+const privateUserScope = (scope: BudgetScope): BudgetScope => {
+  try {
+    const [platform, userId] = JSON.parse(scope.channelId.slice('private:'.length));
+
+    if (platform === scope.platform && typeof userId === 'string' && userId && scope.channelId === `private:${JSON.stringify([platform, userId])}`) {
+      return { ...scope, userId };
+    }
+  } catch {
+    // Reject malformed remote private targets before touching a ledger.
+  }
+  throw new DSHError('budget', '无法确定私聊额度所属用户。');
+};
 const requestKeys = (day: string, scope: BudgetScope, kind: BudgetKind = 'chat'): string[] => [
   ...keysFor(day, scope),
   `${prefix}:${day}:request:${randomUUID()}`,
-  kind === 'reply-gate' ? gateKey(day, scope) : personalKey(day, scope)
+  kind === 'reply-gate'
+    ? gateKey(day, scope)
+    : kind === 'autonomous' || scope.autonomous
+      ? `${prefix}:${day}:autonomous:${scopeHash(scope)}`
+      : personalKey(day, scope),
+  `${prefix}:${day}:gate-all`
 ];
 
 export const budgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) => {
+  if (scope.channelId.startsWith('private:')) scope = privateUserScope(scope);
   const redis = await budgetRedis();
   const day = await redisDay(redis);
   const [key, totalKey] = keysFor(day, scope);
@@ -182,42 +216,37 @@ export const budgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) 
       scope.userId ? redis.hgetall(personalKey(day, scope)) : Promise.resolve({} as Record<string, string>)
     ])
   );
-  const freeLimit = value.limitOverride === undefined ? budgetLimit(config, scope) : Number(value.limitOverride);
+  const freeLimit = person.limitOverride === undefined ? personalLimit(config) : Number(person.limitOverride);
   const used = Number(value.used || 0);
   const paidUsed = Number(value.paidUsed || 0);
   const paidLimit = Number(value.paidLimit || 0);
   const paidRemaining = Math.max(0, paidLimit - paidUsed);
-  const freeUsed = used - paidUsed;
-  const freeRemaining = Math.max(0, freeLimit - freeUsed);
   const personUsed = Number(person.used || 0);
-  const personRemaining = Math.max(0, personalLimit(config) - personUsed);
-  const required = Number(value.blockedRequired || 0);
-  const personRequired = Number(person.blockedRequired || 0);
+  const personRemaining = scope.userId && !scope.autonomous ? Math.max(0, freeLimit - personUsed) : 0;
   const globalUsed = Number(total.used || 0);
   const globalLimit = Math.floor((config.budget?.globalDailyYuan ?? 0) * units);
-  const available = paidRemaining + Math.min(freeRemaining, scope.userId ? personRemaining : freeRemaining);
+  const available = paidRemaining + personRemaining;
 
   return {
     day,
     blocked:
       available <= 0 ||
-      available < required ||
-      (Boolean(scope.userId) && personRemaining + paidRemaining < personRequired) ||
+      available < Number(person.blockedRequired || 0) ||
       (globalLimit > 0 && (globalUsed >= globalLimit || globalUsed + Number(total.blockedRequired || 0) > globalLimit)),
     limit: (freeLimit + paidLimit) / units,
-    defaultLimit: budgetLimit(config, scope) / units,
+    defaultLimit: personalLimit(config) / units,
     freeLimit: freeLimit / units,
-    freeUsed: freeUsed / units,
-    freeRemaining: freeRemaining / units,
+    freeUsed: personUsed / units,
+    freeRemaining: personRemaining / units,
     paidLimit: paidLimit / units,
     paidUsed: paidUsed / units,
     paidRemaining: paidRemaining / units,
-    personalLimit: personalLimit(config) / units,
+    personalLimit: freeLimit / units,
     personalUsed: personUsed / units,
     personalRemaining: personRemaining / units,
     personalReserved: Number(person.reserved || 0) / units,
     used: used / units,
-    remaining: (freeRemaining + paidRemaining) / units,
+    remaining: available / units,
     available: available / units,
     reserved: Number(value.reserved || 0) / units,
     requests: Number(value.requests || 0),
@@ -233,24 +262,31 @@ export const replyGateBudgetStatus = async (config: DSHBridgeConfig, scope: Budg
   const redis = await budgetRedis();
   const day = await redisDay(redis);
   const [groupKey, totalKey] = keysFor(day, scope);
-  const [gate, group, total] = await bounded(Promise.all([redis.hgetall(gateKey(day, scope)), redis.hgetall(groupKey), redis.hgetall(totalKey)]));
+  const [gate, group, total, gateTotal] = await bounded(
+    Promise.all([redis.hgetall(gateKey(day, scope)), redis.hgetall(groupKey), redis.hgetall(totalKey), redis.hgetall(`${prefix}:${day}:gate-all`)])
+  );
   const used = Number(gate.used || 0);
   const paidUsed = Number(gate.paidUsed || 0);
-  const freeRemaining = Math.max(0, gateLimit(config) - (used - paidUsed));
+  const limit = gate.limitOverride === undefined ? gateLimit(config) : Number(gate.limitOverride);
+  const freeRemaining = Math.max(0, limit - (used - paidUsed));
   const paidRemaining = Math.max(0, Number(group.paidLimit || 0) - Number(group.paidUsed || 0));
   const available = freeRemaining + paidRemaining;
   const globalLimit = Math.floor((config.budget?.globalDailyYuan ?? 0) * units);
+  const gateGlobalLimit = Math.floor((config.budget?.replyGateGlobalDailyYuan ?? 0) * units);
 
   return {
-    limit: gateLimit(config) / units,
+    limit: limit / units,
     used: used / units,
     freeUsed: (used - paidUsed) / units,
     freeRemaining: freeRemaining / units,
     paidUsed: paidUsed / units,
     reserved: Number(gate.reserved || 0) / units,
+    globalUsed: Number(gateTotal.used || 0) / units,
+    globalLimit: gateGlobalLimit / units,
     blocked:
       available <= 0 ||
       available < Number(gate.blockedRequired || 0) ||
+      (gateGlobalLimit > 0 && Number(gateTotal.used || 0) + Number(gateTotal.blockedRequired || 0) >= gateGlobalLimit) ||
       (globalLimit > 0 && (Number(total.used || 0) >= globalLimit || Number(total.used || 0) + Number(total.blockedRequired || 0) > globalLimit))
   };
 };
@@ -318,6 +354,7 @@ export const budgetedFetch = async (
   kind: BudgetKind = 'chat'
 ): Promise<Response> => {
   assertAIEnabled(config);
+  if (kind === 'chat' && getBudgetScope()?.autonomous) kind = 'autonomous';
   if (kind === 'reply-gate' && getBudgetScope()?.channelId.startsWith('private:')) throw new DSHError('budget', '主动搭话识别仅限群会话。');
   if (init.personalKey && !getBudgetScope()?.channelId.startsWith('private:')) throw new DSHError('budget', '个人 Key 只能用于本人私聊。');
   const { getBoundCredential, checkedBoundCredential, disableBoundCredential } = await import('../credentials/scoped');
@@ -373,14 +410,15 @@ export const budgetedFetch = async (
   const admitted = await bounded(
     redis.eval(
       reserveScript,
-      4,
+      keys.length,
       ...keys,
       amount,
       kind === 'reply-gate' ? gateLimit(config) : budgetLimit(config, scope),
       Math.floor((config.budget?.globalDailyYuan ?? 0) * units),
       ttl,
       personalLimit(config),
-      kind
+      kind,
+      Math.floor((config.budget?.replyGateGlobalDailyYuan ?? 0) * units)
     )
   );
 
@@ -425,7 +463,15 @@ export const budgetedFetch = async (
 
     // Even a provider overrun remains visible and charged, never silently clipped.
     await bounded(
-      redis.eval(settleScript, 4, ...keys, usageCost(counted, rates), counted.prompt_tokens, counted.completion_tokens, counted.prompt_cache_hit_tokens || 0)
+      redis.eval(
+        settleScript,
+        keys.length,
+        ...keys,
+        usageCost(counted, rates),
+        counted.prompt_tokens,
+        counted.completion_tokens,
+        counted.prompt_cache_hit_tokens || 0
+      )
     );
   };
 
@@ -522,7 +568,8 @@ export const manageBudget = async (
   }
   const redis = await budgetRedis();
   const day = await redisDay(redis);
-  const [key] = keysFor(day, scope);
+  const [conversationKey] = keysFor(day, scope);
+  const key = operation === 'add' ? conversationKey : scope.channelId.startsWith('private:') ? personalKey(day, privateUserScope(scope)) : gateKey(day, scope);
   // Source message identity, independent of target/arguments/day: delivery retries
   // and edited commands cannot grant money twice, including across midnight.
   const id = createHash('sha256')
@@ -535,7 +582,7 @@ export const manageBudget = async (
         3,
         key,
         `${prefix}:admin:${id}`,
-        `${key}:adjustments`,
+        `${conversationKey}:adjustments`,
         budgetLimit(config, scope),
         operation,
         amount,
@@ -593,7 +640,8 @@ export const claimBudgetNotice = async (scope: BudgetScope, messageId?: string):
   }
 };
 
-export const replyGateExceededMessage = '本群今日回复判断额度已用完，已暂停自动判断；聊天额度单独计算。/额度 查看余额，可联系主人调整或等北京时间零点重置。';
+export const replyGateExceededMessage =
+  '本群今日感知预算不足，已暂停后台判断；@我、喊肥鱼或 /chat 仍可发问，聊天额度单独计算。/额度 可查余额，北京时间零点重置。';
 
 // Independent daily claim: neither recharge nor process restarts reset it.
 // Claim before delivery; failures stay claimed to avoid retry spam.
@@ -644,13 +692,14 @@ export const reserveWorkspaceText = async (config: DSHBridgeConfig, input: strin
       await bounded(
         redis.eval(
           reserveScript,
-          4,
+          keys.length,
           ...keys,
           amount,
           budgetLimit(config, scope),
           Math.floor((config.budget?.globalDailyYuan ?? 0) * units),
           ttl,
-          personalLimit(config)
+          personalLimit(config),
+          scope.autonomous ? 'autonomous' : 'chat'
         )
       )
     ) !== 1
@@ -660,6 +709,6 @@ export const reserveWorkspaceText = async (config: DSHBridgeConfig, input: strin
   return async output => {
     const usage = { prompt_tokens: promptTokens, completion_tokens: Math.ceil(Buffer.byteLength(output) / 3) };
 
-    await bounded(redis.eval(settleScript, 4, ...keys, usageCost(usage, rates), usage.prompt_tokens, usage.completion_tokens, 0));
+    await bounded(redis.eval(settleScript, keys.length, ...keys, usageCost(usage, rates), usage.prompt_tokens, usage.completion_tokens, 0));
   };
 };

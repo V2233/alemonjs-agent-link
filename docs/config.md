@@ -321,7 +321,7 @@ alemonjs-agent-link:
 
 ## Redis 每日预算
 
-在 `alemonjs-agent-link.budget` 设置 `enabled: true` 开启，默认群 2 元/天、每个私聊用户 1 元/天。详细配置与暂停的未计费能力见 [每日额度保护](budget.md)。
+在 `alemonjs-agent-link.budget` 设置 `enabled: true` 开启。个人免费默认每天 1 元，跨群和私聊共用；群后台感知默认每天 1 元。群付款顺序为群 Key → 群充值 → 个人免费，后台判断最后回退群感知预算。没有群共享的免费聊天额度。详细配置见 [每日额度保护](budget.md)。
 
 ### 减少额外判断与不必要工具调用
 

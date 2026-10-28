@@ -605,7 +605,7 @@ test('automated and loop-risk rejections are not replayed as unfinished human fr
   h.coordinator.close();
 });
 
-test('exhausted recognition routes both direct and ambient calls to the independently capped notice path', async () => {
+test('exhausted recognition preserves wake calls and only routes ambient messages to the notice path', async () => {
   for (const direct of [true, false]) {
     const h = harness({ classify: async () => ({ reply: false, reason: 'none', budgetBlocked: true }) });
     const batches = [];
@@ -616,7 +616,7 @@ test('exhausted recognition routes both direct and ambient calls to the independ
     await h.coordinator.flush('group');
     await done;
     assert.equal(batches.length, 1);
-    assert.equal(batches[0].budgetBlocked, true);
+    assert.equal(Boolean(batches[0].budgetBlocked), !direct);
     assert.equal(batches[0].mode === 'direct', direct);
     h.coordinator.close();
   }

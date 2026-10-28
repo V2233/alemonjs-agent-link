@@ -1,10 +1,8 @@
+import { groupAdminStatus, type MemberRoleEvent } from '../../platform/member-role';
+
 export type BotMention = {
   UserId: string;
   UserName?: string;
-};
-
-type AdminEvent = {
-  IsAdmin?: boolean;
 };
 
 export const getSessionId = (channelId: string): string =>
@@ -22,7 +20,7 @@ export const extractPrompt = (messageText: string, bot: BotMention): string => {
   return patterns.reduce((text, pattern) => text.replace(pattern, ''), messageText).trim();
 };
 
-export const canReset = (event: { IsMaster: boolean }): boolean => event.IsMaster || Boolean((event as AdminEvent).IsAdmin);
+export const canReset = (event: { IsMaster: boolean } & MemberRoleEvent): boolean => event.IsMaster || groupAdminStatus(event) === true;
 
 export type ConversationEvent = { IsPrivate?: boolean; IsMaster?: boolean; Platform?: string; UserId?: string; UserKey?: string; ChannelId?: string };
 

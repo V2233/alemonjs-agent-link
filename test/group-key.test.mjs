@@ -12,7 +12,7 @@ import { issueGroupKeyCode, redeemGroupKeyCode, groupKeyStatus, getGroupCredenti
 import { getPersonalCredential, isPersonalKeyCommand } from '../lib/credentials/personal.js';
 import { getBoundCredential } from '../lib/credentials/scoped.js';
 import { getChatCredentials, getDSHCredentials } from '../lib/dsh/credentials.js';
-import { budgetedFetch, budgetStatus, withBudgetScope } from '../lib/billing/budget.js';
+import { budgetedFetch, budgetStatus, manageBudget, withBudgetScope } from '../lib/billing/budget.js';
 import { resolveDSHConfig } from '../lib/dsh/config.js';
 
 const requestor = { platform: 'test', channelId: 'g1', userId: 'admin', isPrivate: false, isAdmin: true, messageId: 'issue-message' };
@@ -79,7 +79,7 @@ test('group key grants, encrypted storage, scope isolation and quota fallback', 
     if (mode === '402' && new Headers(init.headers).get('Authorization') === `Bearer ${secret}`) return Response.json({}, { status: 402 });
     return Response.json({
       choices: [{ message: { content: '{"reply":true,"reason":"direct_call","source":"human","loopRisk":false}' } }],
-      usage: { prompt_tokens: 100, completion_tokens: 20 }
+      ...(mode === 'missing-usage' ? {} : { usage: { prompt_tokens: 100, completion_tokens: 20 } })
     });
   };
   const request = (s = scope) =>
@@ -184,6 +184,31 @@ test('group key grants, encrypted storage, scope isolation and quota fallback', 
       await redeemGroupKeyCode(privateScope, bind.code, 'bind', secret);
       assert.equal(await updateGroupKey(scope, credential.revision), false);
       assert.equal((await groupKeyStatus(scope)).enabled, true);
+    });
+    await t.test('payment priority is group key, group recharge, then the initiating person free allowance', async () => {
+      mode = 'ok';
+      const before = await budgetStatus(config, scope);
+      const actor = { isMaster: true, platform: scope.platform, channelId: 'owner-private', userId: 'owner', messageId: randomUUID() };
+      await manageBudget(config, scope, actor, 'add', 20000);
+      await request();
+      assert.equal((await budgetStatus(config, scope)).paidUsed, 0);
+      assert.equal((await budgetStatus(config, scope)).personalUsed, before.personalUsed);
+      mode = 'empty';
+      await request();
+      assert.equal((await budgetStatus(config, scope)).paidUsed, 0.00036);
+      assert.equal((await budgetStatus(config, scope)).personalUsed, before.personalUsed);
+      mode = 'missing-usage'; // retain a reservation larger than the remaining recharge
+      await request();
+      const exhausted = await budgetStatus(config, scope);
+      assert.equal(exhausted.paidRemaining, 0);
+      assert.ok(exhausted.personalUsed > before.personalUsed);
+      mode = 'ok';
+      await request();
+      const free = await budgetStatus(config, scope);
+      assert.ok(Math.abs(free.personalUsed - exhausted.personalUsed - 0.00036) < 1e-9);
+      assert.equal(free.paidUsed, exhausted.paidUsed);
+      const enable = await issue('enable');
+      await redeemGroupKeyCode(privateScope, enable.code, 'enable');
     });
     await t.test('workspace uses this group key and reports depletion without repeating tools', async () => {
       const { streamChat } = await import('../lib/dsh/client.js');

@@ -425,7 +425,7 @@ export class GroupConversationCoordinator {
         } finally {
           gateMs = this.now() - gateStarted;
         }
-        if (verdict.budgetBlocked) {
+        if (verdict.budgetBlocked && !pending.anchor.message.direct) {
           if (!state.retired && !state.gateAbort.signal.aborted) {
             await pending.anchor.respond({
               id: `group-batch:${pending.anchor.message.id || randomUUID()}`,
@@ -439,6 +439,9 @@ export class GroupConversationCoordinator {
 
           return;
         }
+        // Exhausting background recognition must not disable a local wake call.
+        // Bot/stop/hold/loop checks have already run before reaching this point.
+        if (verdict.budgetBlocked) verdict = { reply: true, reason: 'direct_call' };
         // A second fragment arrived while the first was being classified: decide the combined turn next.
         const continued = state.pending?.entries.some(entry =>
           pending.entries.some(old => old.message.userId === entry.message.userId && old.message.platform === entry.message.platform)

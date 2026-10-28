@@ -39,7 +39,7 @@ const scope = { platform: 'test', channelId: 'group-1', userId: 'u1' };
 test('Shanghai day boundaries, group/private limits, price aliases and validation', () => {
   assert.equal(budgetDay(Date.parse('2026-10-26T15:59:59Z')), '2026-10-26');
   assert.equal(budgetDay(Date.parse('2026-10-26T16:00:00Z')), '2026-10-27');
-  assert.equal(budgetLimit(config, scope), 2_000_000);
+  assert.equal(budgetLimit(config, scope), 1_000_000);
   assert.equal(budgetLimit(config, { ...scope, channelId: 'private:["qq","u"]' }), 1_000_000);
   assert.deepEqual(officialRates(url, 'deepseek-v4-flash'), officialRates(url, 'deepseek-flash'));
   assert.equal(
@@ -49,7 +49,14 @@ test('Shanghai day boundaries, group/private limits, price aliases and validatio
   assert.equal(parseUsage({ prompt_tokens: 10, completion_tokens: -1 }), undefined);
   assert.equal(parseUsage({ prompt_tokens: 10, completion_tokens: 1, prompt_cache_hit_tokens: 11 }), undefined);
   assert.throws(() => officialRates(new URL('https://relay.invalid/chat/completions'), 'deepseek-flash'), /价格/);
-  for (const budget of [{ enabled: 'true' }, { groupDailyYuan: -1 }, { privateDailyYuan: Infinity }, { replyGateDailyYuan: -1 }, { maxOutputTokens: 0 }]) {
+  for (const budget of [
+    { enabled: 'true' },
+    { groupDailyYuan: -1 },
+    { privateDailyYuan: Infinity },
+    { replyGateDailyYuan: -1 },
+    { replyGateGlobalDailyYuan: -1 },
+    { maxOutputTokens: 0 }
+  ]) {
     assert.throws(() => resolveDSHConfig({ budget }), /budget/);
   }
 });
@@ -155,7 +162,7 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
     });
     await t.test('concurrent reservations cannot all spend the same balance', async () => {
       const s = { ...scope, channelId: 'parallel' };
-      const c = { ...config, budget: { enabled: true, groupDailyYuan: 0.04 } };
+      const c = { ...config, budget: { enabled: true, personalDailyYuan: 0.04 } };
       const fetchBefore = fetched;
       const pending = [];
       globalThis.fetch = async () => {
@@ -259,23 +266,24 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
       const actor = { isMaster: true, platform: s.platform, channelId: 'owner-private', userId: 'owner', messageId: randomUUID() };
       const grants = await Promise.all(Array.from({ length: 8 }, () => manageBudget(config, s, actor, 'add', 1000000)));
       assert.ok(grants.every(grant => grant.after === 1000000));
-      assert.equal((await budgetStatus(config, s)).limit, 3);
+      assert.equal((await budgetStatus(config, s)).limit, 2);
       assert.equal((await budgetAdjustments(s, true)).length, 1);
       await assert.rejects(manageBudget(config, s, actor, 'add', 2000000), /已处理/);
       await assert.rejects(manageBudget(config, s, { ...actor, messageId: '' }, 'add', 1000000), /消息编号/);
       await Promise.all(Array.from({ length: 5 }, () => manageBudget(config, s, { ...actor, messageId: randomUUID() }, 'add', 1000000)));
-      assert.equal((await budgetStatus(config, s)).limit, 8);
+      assert.equal((await budgetStatus(config, s)).limit, 7);
       globalThis.fetch = async () => Response.json({ usage: { prompt_tokens: 100, completion_tokens: 20 }, choices: [] });
       await request(s);
       const spent = (await budgetStatus(config, s)).used;
       assert.ok(spent > 0);
       await manageBudget(config, s, { ...actor, messageId: randomUUID() }, 'set', 0);
       const frozen = await budgetStatus(config, s);
-      assert.equal(frozen.freeLimit, 0);
+      assert.equal(frozen.freeLimit, 1);
+      assert.equal((await replyGateBudgetStatus(config, s)).limit, 0);
       assert.equal(frozen.paidLimit, 6);
       assert.ok(frozen.paidRemaining > 0);
       assert.equal(frozen.used, spent);
-      assert.equal(frozen.defaultLimit, 2);
+      assert.equal(frozen.defaultLimit, 1);
       await request(s); // recharge remains usable when free allowance is zero
       await manageBudget(config, s, { ...actor, messageId: randomUUID() }, 'add', 1000000);
       await request(s);
@@ -353,7 +361,7 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
       const { classifyGroupReply } = await import('../lib/social/reply-gate.js');
       const oldConfig = globalThis.__config;
       globalThis.__config = { value: { 'alemonjs-agent-link': { budget: { enabled: true }, apiKey: 'test-key' } } };
-      const s = { ...scope, channelId: 'free-classifier' };
+      const s = { ...scope, channelId: 'free-classifier', userId: 'classifier-user' };
       const actor = { isMaster: true, platform: s.platform, channelId: 'owner', userId: 'owner', messageId: randomUUID() };
       const input = {
         scope: { platform: s.platform, channelId: s.channelId },
@@ -373,7 +381,7 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
         assert.equal((await budgetStatus(config, s)).used, 0);
         assert.equal((await replyGateBudgetStatus(config, s)).freeUsed, 0.0028);
         const personalBefore = (await budgetStatus(config, s)).personalUsed;
-        await manageBudget(config, s, actor, 'set', 1000);
+        await manageBudget(config, { ...s, channelId: `private:${JSON.stringify([s.platform, s.userId])}` }, actor, 'set', 1000);
         await assert.rejects(request(s), /额度不足/);
         assert.equal((await budgetStatus(config, s)).blocked, true);
         assert.equal((await classifyGroupReply(input, new AbortController().signal)).reply, true); // chat exhaustion does not block recognition
@@ -387,7 +395,7 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
         const after = await budgetStatus(config, s);
         assert.equal(after.used, 0.0028);
         assert.equal(after.paidUsed, 0.0028);
-        assert.equal(after.freeUsed, 0);
+        assert.equal(after.freeUsed, personalBefore);
         assert.equal(after.personalUsed, personalBefore);
         assert.equal((await replyGateBudgetStatus(config, s)).paidUsed, 0.0028);
       } finally {
@@ -437,7 +445,7 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
       const after = await budgetStatus(c, b);
       assert.equal(after.personalUsed, first.personalUsed);
       assert.equal(after.paidUsed, 0.00036);
-      assert.equal(after.freeUsed, 0);
+      assert.equal(after.freeUsed, first.personalUsed);
       assert.equal(after.globalUsed >= after.used, true);
       assert.equal((await budgetStatus(c, privateScope)).blocked, true);
       await manageBudget(c, privateScope, { ...actor, messageId: randomUUID() }, 'add', 2000000);
@@ -445,7 +453,7 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
       await request(privateScope, c);
       const privateAfter = await budgetStatus(c, privateScope);
       assert.equal(privateAfter.personalUsed, first.personalUsed);
-      assert.equal(privateAfter.freeUsed, 0);
+      assert.equal(privateAfter.freeUsed, first.personalUsed);
       assert.equal(privateAfter.paidLimit, 2);
       assert.equal(privateAfter.paidUsed, 0.00036);
       assert.equal((await budgetStatus(c, b)).paidRemaining, after.paidRemaining);
@@ -519,6 +527,49 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
       const keys = ['global:scope1', 'global:all', 'global:req1', 'global:person'];
       assert.equal(await redis.eval(reserveScript, 4, ...keys, 90, 200, 100, 3600, 200), 1);
       assert.equal(await redis.eval(reserveScript, 4, 'global:scope2', 'global:all', 'global:req2', 'global:person2', 90, 200, 100, 3600, 200), 0);
+    });
+    await t.test('group chat has no shared free ceiling and personal overrides apply across group and private', async () => {
+      const c = { ...config, budget: { enabled: true, groupDailyYuan: 0, privateDailyYuan: 0, personalDailyYuan: 1 } };
+      const a = { ...scope, channelId: 'no-shared-chat-limit', userId: 'fresh-a' };
+      const b = { ...a, userId: 'fresh-b' };
+      globalThis.fetch = async () => Response.json({ usage: { prompt_tokens: 100, completion_tokens: 20 } });
+      await request(a, c);
+      await request(b, c);
+      assert.equal((await budgetStatus(c, a)).personalUsed, 0.00036);
+      assert.equal((await budgetStatus(c, b)).personalUsed, 0.00036);
+      const actor = { isMaster: true, platform: a.platform, channelId: 'owner', userId: 'owner', messageId: randomUUID() };
+      await manageBudget(c, { ...a, channelId: `private:${JSON.stringify([a.platform, a.userId])}` }, actor, 'set', 0);
+      await assert.rejects(request(a, c), /额度不足/);
+      await request(b, c);
+      assert.equal((await budgetStatus(c, b)).personalUsed, 0.00072);
+      assert.equal((await replyGateBudgetStatus(c, a)).limit, 1);
+    });
+    await t.test('recognition global cap blocks only recognition and settles exactly once', async () => {
+      const keys = ['gate-global:g', 'gate-global:all', 'gate-global:r', 'gate-global:ledger', 'gate-global:shared'];
+      assert.equal(await redis.eval(reserveScript, 5, ...keys, 70, 200, 0, 3600, 0, 'reply-gate', 100), 1);
+      assert.equal(
+        await redis.eval(reserveScript, 5, 'gate-global:g2', keys[1], 'gate-global:r2', 'gate-global:l2', keys[4], 70, 200, 0, 3600, 0, 'reply-gate', 100),
+        0
+      );
+      assert.equal(await redis.eval(settleScript, 5, ...keys, 20, 10, 0, 0), 1);
+      assert.equal(await redis.eval(settleScript, 5, ...keys, 20, 10, 0, 0), 0);
+      assert.equal(await redis.hget(keys[4], 'used'), '20');
+      assert.equal(
+        await redis.eval(reserveScript, 5, 'gate-global:chat', keys[1], 'gate-global:chat-r', 'gate-global:person', keys[4], 100, 0, 0, 3600, 200, 'chat', 100),
+        1
+      );
+    });
+    await t.test('unsolicited autonomous messages use only recharge and never debit a member free allowance', async () => {
+      const s = { ...scope, channelId: 'autonomous-paid-only', userId: 'not-a-requester', autonomous: true };
+      await assert.rejects(request(s), /额度不足/);
+      assert.equal((await budgetStatus(config, s)).personalUsed, 0);
+      const actor = { isMaster: true, platform: s.platform, channelId: 'owner', userId: 'owner', messageId: randomUUID() };
+      await manageBudget(config, s, actor, 'add', 1000000);
+      globalThis.fetch = async () => Response.json({ usage: { prompt_tokens: 100, completion_tokens: 20 } });
+      await request(s);
+      const after = await budgetStatus(config, s);
+      assert.equal(after.paidUsed, 0.00036);
+      assert.equal(after.personalUsed, 0);
     });
   } finally {
     globalThis.fetch = oldFetch;

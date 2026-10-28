@@ -1,5 +1,5 @@
 import { Format, useEvent, useMessage } from 'alemonjs';
-import { getConversationId } from '@src/response/dsh/util';
+import { canReset, getConversationId } from '@src/response/dsh/util';
 import { cancelChatForUser } from '@src/dsh/orchestrator';
 import { groupConversations } from '../../social/groups';
 
@@ -20,7 +20,7 @@ export default async (): Promise<void> => {
   }
 
   const userKey = event.UserKey || event.UserId || 'unknown';
-  const privileged = event.IsMaster || Boolean(event.IsAdmin);
+  const privileged = canReset(event);
   let result = cancelChatForUser(channelId, userKey, privileged);
 
   const cancelledPending = groupConversations.cancelPending(channelId, userKey, privileged);
