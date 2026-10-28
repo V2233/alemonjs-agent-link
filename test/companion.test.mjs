@@ -6,7 +6,15 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { PersonaStore, getPersonaStore } from '../lib/companion/personas.js';
 import { MoodStore, keywordMoodDelta, moodOptions } from '../lib/companion/mood.js';
-import { automaticVoiceText, planExpression, selectExpressionSticker, moodGroupPolicy, expressionOptions } from '../lib/companion/expression.js';
+import {
+  automaticVoiceText,
+  hasStickerIntent,
+  needsTextSupplement,
+  planExpression,
+  selectExpressionSticker,
+  moodGroupPolicy,
+  expressionOptions
+} from '../lib/companion/expression.js';
 import { getDSHConfig } from '../lib/dsh/client.js';
 import { ModuleRuntime, getModuleRuntime } from '../lib/agent/modules.js';
 import { moodModule } from '../lib/modules/mood.js';
@@ -297,6 +305,15 @@ test('expression decisions require configuration, remain stable on retry and do 
     assert.equal(selectExpressionSticker(items, '好呀', 80, 'm').id, 'happy');
     assert.equal(selectExpressionSticker(items, '好呀', 60, 'm'), undefined);
     assert.ok(selectExpressionSticker(items, '好呀', 60, 'm', true));
+    assert.equal(hasStickerIntent('在不在'), true);
+    assert.equal(hasStickerIntent('今天吃什么'), false);
+    const intentItems = [
+      { id: 'zai', name: '在呢', tags: ['可爱', '日常'], category: '日常', context: '平静招呼' },
+      { id: 'ting', name: '在听', tags: ['可爱', '日常'], category: '日常', context: '回应' }
+    ];
+    assert.equal(selectExpressionSticker(intentItems, '在的呀', 60, 'm', false, '在不在').id, 'zai');
+    assert.equal(needsTextSupplement('在不在', '在的呀'), false);
+    assert.equal(needsTextSupplement('在不在，顺便帮我看看服务器', '在的，CPU 80%，建议重启'), true);
     assert.deepEqual(selectExpressionSticker(items, '好呀', 60, 'm', true), selectExpressionSticker(items, '好呀', 60, 'm', true));
     const { getMoodStore } = await import('../lib/companion/mood.js');
     const store = getMoodStore(config);
@@ -369,6 +386,102 @@ test('actual expression delivery sends automatic audio, falls back to text on TT
     assert.equal(texts.length, 1);
   }));
 
+test('explicit intent replies with only a matching sticker in either mode', () =>
+  fixture(async ({ root }) => {
+    const { runDSHChat } = await import('../lib/response/dsh/chat.js');
+    const { ResultCode } = await import('alemonjs');
+    const stickerRoot = join(root, 'stickers');
+    await mkdir(stickerRoot);
+    await writeFile(
+      join(stickerRoot, 'manifest.json'),
+      JSON.stringify([{ id: 'zai', file: 'zai.png', name: '在呢', tags: ['日常'], category: '日常', context: '平静招呼、自然回应' }])
+    );
+    await writeFile(join(stickerRoot, 'zai.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
+      modules: {
+        settings: {
+          memory: { automatic: false },
+          mood: { modelJudge: false },
+          expression: { automatic: true, voiceChance: 0, stickerChance: 0, stickerIntentAlways: true, stickerMode: 'either' }
+        }
+      },
+      media: { stickerRoot }
+    });
+    let modelCalls = 0;
+    globalThis.fetch = async () => {
+      modelCalls++;
+      return Response.json({ choices: [{ message: { content: '在的呀' } }] });
+    };
+    let texts = 0;
+    let stickers = 0;
+    let outcome;
+    const transport = {
+      message: {
+        send: async () => {
+          texts++;
+          return [{ code: ResultCode.Ok, data: null }];
+        }
+      },
+      media: {
+        send: async () => {
+          stickers++;
+          return { code: ResultCode.Ok, data: { messageId: 's1' } };
+        }
+      }
+    };
+    await runDSHChat({ Platform: 'qq', UserId: 'one', IsPrivate: true, IsMaster: true, MessageId: 'intent' }, '在不在', {
+      transport,
+      onOutcome: result => {
+        outcome = result;
+      }
+    });
+    assert.equal(modelCalls, 1);
+    assert.equal(texts, 0);
+    assert.equal(stickers, 1);
+    assert.equal(outcome.delivered, true);
+  }));
+
+test('sticker-first intent adds text only when the answer has extra meaning', () =>
+  fixture(async ({ root }) => {
+    const { runDSHChat } = await import('../lib/response/dsh/chat.js');
+    const { ResultCode } = await import('alemonjs');
+    const stickerRoot = join(root, 'stickers');
+    await mkdir(stickerRoot);
+    await writeFile(
+      join(stickerRoot, 'manifest.json'),
+      JSON.stringify([{ id: 'zai', file: 'zai.png', name: '在呢', tags: ['日常'], category: '日常', context: '平静招呼、自然回应' }])
+    );
+    await writeFile(join(stickerRoot, 'zai.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
+      modules: {
+        settings: {
+          memory: { automatic: false },
+          mood: { modelJudge: false },
+          expression: { automatic: true, voiceChance: 0, stickerChance: 0, stickerIntentAlways: true, stickerMode: 'either' }
+        }
+      },
+      media: { stickerRoot }
+    });
+    globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '在的，CPU 80%，建议重启。' } }] });
+    const order = [];
+    const transport = {
+      message: {
+        send: async () => {
+          order.push('text');
+          return [{ code: ResultCode.Ok, data: null }];
+        }
+      },
+      media: {
+        send: async () => {
+          order.push('sticker');
+          return { code: ResultCode.Ok, data: { messageId: 's1' } };
+        }
+      }
+    };
+    await runDSHChat({ Platform: 'qq', UserId: 'one', IsPrivate: true, IsMaster: true, MessageId: 'supplement' }, '在不在，顺便帮我看看服务器', { transport });
+    assert.deepEqual(order, ['sticker', 'text']);
+  }));
+
 test('optional sticker receipt failure does not invalidate delivered text or cause a replay', () =>
   fixture(async ({ root }) => {
     const { runDSHChat } = await import('../lib/response/dsh/chat.js');
@@ -378,7 +491,13 @@ test('optional sticker receipt failure does not invalidate delivered text or cau
     await writeFile(join(stickerRoot, 'manifest.json'), JSON.stringify([{ id: 'tea', file: 'tea.png', tags: ['喝茶'] }]));
     await writeFile(join(stickerRoot, 'tea.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
-      modules: { settings: { memory: { automatic: false }, mood: { modelJudge: false }, expression: { automatic: true, voiceChance: 0, stickerChance: 1 } } },
+      modules: {
+        settings: {
+          memory: { automatic: false },
+          mood: { modelJudge: false },
+          expression: { automatic: true, voiceChance: 0, stickerChance: 1, stickerMode: 'both' }
+        }
+      },
       media: { stickerRoot }
     });
     let modelCalls = 0;

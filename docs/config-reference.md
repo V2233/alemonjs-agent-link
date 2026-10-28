@@ -402,13 +402,15 @@
 
 ### 8.7 `modules.settings.expression`（表达方式）
 
-| 字段              | 类型             | 默认     | 范围   | 说明                                    |
-| ----------------- | ---------------- | -------- | ------ | --------------------------------------- |
-| `automatic`       | boolean          | `true`   | —      | 自动决定语音/表情；未配置媒体时回退文字 |
-| `voiceChance`     | number           | `0.1`    | 0–1    | 用语音回复的概率                        |
-| `stickerChance`   | number           | `0.25`   | 0–1    | 附带表情的概率                          |
-| `stickerFallback` | boolean          | `false`  | —      | 没有相关表情时是否随手发一个            |
-| `delayMs`         | [number, number] | `[0, 0]` | 0–3000 | 随机停顿区间，前值不得大于后值          |
+| 字段                  | 类型             | 默认     | 范围        | 说明                                             |
+| --------------------- | ---------------- | -------- | ----------- | ------------------------------------------------ |
+| `automatic`           | boolean          | `true`   | —           | 自动决定语音/表情；未配置媒体时回退文字          |
+| `voiceChance`         | number           | `0.1`    | 0–1         | 用语音回复的概率                                 |
+| `stickerChance`       | number           | `0.25`   | 0–1         | `both` 模式下正文后补表情的概率                  |
+| `stickerFallback`     | boolean          | `false`  | —           | `both` 模式下没有相关表情时是否随手发            |
+| `stickerIntentAlways` | boolean          | `true`   | —           | 明确意图（在不在/晚安等）优先尝试表情            |
+| `stickerMode`         | string           | `either` | either/both | either=表情优先，必要时补文字；both=正文后补一张 |
+| `delayMs`             | [number, number] | `[0, 0]` | 0–3000      | 随机停顿区间，前值不得大于后值                   |
 
 ### 8.8 `modules.settings.persona`
 

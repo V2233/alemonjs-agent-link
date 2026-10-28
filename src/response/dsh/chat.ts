@@ -17,7 +17,15 @@ import { ownerPrivatePolicy, publicPrivatePolicy, SessionRegistry } from '@src/s
 import { messageReferences } from '../../social/references';
 import { archiveReply } from '../../history/capture';
 import { setTimeout as wait } from 'node:timers/promises';
-import { expressionOptions, planExpression, automaticVoiceText, selectExpressionSticker } from '../../companion/expression';
+import {
+  expressionOptions,
+  planExpression,
+  automaticVoiceText,
+  selectExpressionSticker,
+  selectIntentSticker,
+  hasStickerIntent,
+  needsTextSupplement
+} from '../../companion/expression';
 import { getMoodStore, moodOptions } from '../../companion/mood';
 import { listStickers, loadSticker, markStickerUsed } from '../../media/stickers';
 import { sendOnebotSticker } from '../../media/onebot-sticker-send';
@@ -294,14 +302,35 @@ export const runDSHChat = async (
     'DSH chat requested'
   );
   let expression = { voice: false, sticker: false, delayMs: 0 };
+  const intentText = options.userText || event.MessageText || prompt.split(/\n\n当前消息上下文/u)[0] || prompt;
   let stickerFallback = false;
+  let stickerMode: 'either' | 'both' = 'either';
+  let stickerOnlyIntent = false;
+  let stickerOnlySent = false;
+  let stickerDelivered = false;
 
   try {
     const settings = expressionOptions(config);
 
     stickerFallback = settings.stickerFallback;
+    stickerMode = settings.stickerMode;
     if (settings.automatic && !config.modules?.disabled?.includes('expression')) {
       expression = planExpression(config, { platform: event.Platform || '', channelId }, event.MessageId || options.requestId || prompt, getMediaConfig());
+
+      if (!expression.sticker && settings.stickerIntentAlways && hasStickerIntent(intentText)) {
+        expression = { ...expression, sticker: true };
+      }
+      stickerOnlyIntent =
+        stickerMode === 'either' &&
+        settings.stickerIntentAlways &&
+        expression.sticker &&
+        !options.voice &&
+        !expression.voice &&
+        !options.allowSilence &&
+        !options.autonomous &&
+        hasStickerIntent(intentText);
+
+      if (stickerOnlyIntent) expression = { ...expression, sticker: false };
     }
     expressionDelay = expression.delayMs;
   } catch {
@@ -344,7 +373,8 @@ export const runDSHChat = async (
   let coordinated: CoordinatedChatResult | undefined;
   let answer = '';
   let visibleAnswer = '';
-  const buffered = options.voice || expression.voice || options.allowSilence || Boolean(options.replyReferences) || Boolean(options.autonomous);
+  const buffered =
+    options.voice || expression.voice || options.allowSilence || Boolean(options.replyReferences) || Boolean(options.autonomous) || stickerOnlyIntent;
   const prefixFilter = !event.IsPrivate && !options.replyReferences ? new ReplyPrefixFilter() : undefined;
   let expressionText = '';
   let renderedAnswer: string | undefined;
@@ -432,6 +462,55 @@ export const runDSHChat = async (
         const useVoice = !generatedSpeech && (options.voice || (expression.voice && automaticVoiceText(speechText, getMediaConfig().ttsMaxChars)));
         let audioSent = false;
 
+        if (stickerDelivered && stickerMode === 'either') {
+          stickerOnlySent = true;
+          if (!answer.trim() || !needsTextSupplement(intentText, answer)) {
+            silent = true;
+            output.abort();
+
+            return;
+          }
+        }
+        if (!stickerDelivered && stickerOnlyIntent && !useVoice) {
+          try {
+            const settings = getMediaConfig();
+            const item = selectIntentSticker(await listStickers(settings), intentText);
+
+            if (item) {
+              await checkSend();
+              if (await new SessionRegistry(config).claimSticker(channelId, settings.stickerCooldownSeconds)) {
+                await checkSend();
+                const data = await loadSticker(item, settings);
+                const onebotReceipt = await sendOnebotSticker(event, data, replyTarget.messageId);
+                const receipt = onebotReceipt
+                  ? { code: ResultCode.Ok, data: { messageId: onebotReceipt.messageId } }
+                  : await media.send({
+                      type: 'image',
+                      data: data.toString('base64'),
+                      name: item.file.split(/[\\/]/u).at(-1),
+                      replyId: replyTarget.messageId
+                    });
+
+                assertMessageDelivered([receipt]);
+                await markStickerUsed(settings, item.id, signal).catch(() => undefined);
+                archiveReply(config, event, `[表情：${item.id}]`, receipt.data, replyTarget.messageId);
+                stickerDelivered = true;
+                stickerOnlySent = true;
+
+                if (!answer.trim() || !needsTextSupplement(intentText, answer)) {
+                  silent = true;
+                  output.abort();
+
+                  return;
+                }
+                // Sticker first; the buffered text follows as a supplement.
+              }
+            }
+          } catch {
+            signal.throwIfAborted();
+            logger.warn('Intent sticker unavailable; falling back to text');
+          }
+        }
         if (buffered && !useVoice) {
           output.append(answer);
         }
@@ -491,14 +570,21 @@ export const runDSHChat = async (
         if (!options.autonomous) {
           observeProactiveOutput(config, event, renderedAnswer || normalizeBubbleText(answer) || visibleAnswer);
         }
-        if (expression.sticker && !stickerAttempted) {
+        if (stickerMode === 'both' && expression.sticker && !stickerAttempted) {
           try {
             const settings = getMediaConfig();
             const value =
               config.modules?.disabled?.includes('mood') || !event.Platform
                 ? 60
                 : getMoodStore(config).snapshot({ platform: event.Platform, channelId }, moodOptions(config), config.retentionDays).value;
-            const item = selectExpressionSticker(await listStickers(settings), answer || expressionText, value, event.MessageId || prompt, stickerFallback);
+            const item = selectExpressionSticker(
+              await listStickers(settings),
+              answer || expressionText,
+              value,
+              event.MessageId || prompt,
+              stickerFallback,
+              intentText
+            );
 
             if (item) {
               const data = await loadSticker(item, settings);
@@ -565,6 +651,7 @@ export const runDSHChat = async (
                     });
 
                 assertMessageDelivered([receipt]);
+                stickerDelivered = true;
                 archiveReply(config, event, `[表情：${item.id}]`, receipt.data, replyTarget.messageId);
               },
         onStickerCollect:
@@ -631,7 +718,7 @@ export const runDSHChat = async (
 
     await coordinated.confirmDelivery().catch(error => logger.warn({ err: error }, 'Unable to finalize DSH response delivery'));
     options.onOutcome?.({
-      delivered: !silent,
+      delivered: !silent || stickerOnlySent,
       completed: true,
       ...(!silent ? { replyText: renderedAnswer || normalizeBubbleText(answer) || visibleAnswer } : {})
     });
