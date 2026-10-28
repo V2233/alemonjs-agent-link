@@ -24,3 +24,5 @@ __pycache__/
 /redis-data
 /dist-desktop
 /.github/skills
+
+/packages

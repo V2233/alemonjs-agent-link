@@ -116,6 +116,6 @@ export default async (): Promise<void> => {
   }
 
   await message.send({
-    format: Format.create().addMarkdownOriginal(text)
+    format: Format.create().addText(text)
   });
 };

@@ -11,12 +11,12 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   if (!event.IsMaster) {
-    await message.send({ format: Format.create().addMarkdownOriginal('公共密钥仅限机器人主人移除。') });
+    await message.send({ format: Format.create().addText('公共密钥仅限机器人主人移除。') });
 
     return;
   }
 
   await message.send({
-    format: Format.create().addMarkdownOriginal('删除配置中的 `alemonjs-agent-link.apiKey` 并保存即可。')
+    format: Format.create().addText('删除配置中的 alemonjs-agent-link.apiKey 并保存即可。')
   });
 };

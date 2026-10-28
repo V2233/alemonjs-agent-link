@@ -14,7 +14,7 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   if (!event.IsMaster) {
-    await message.send({ format: Format.create().addMarkdownOriginal('公共模型列表仅限机器人主人查看。') });
+    await message.send({ format: Format.create().addText('公共模型列表仅限机器人主人查看。') });
 
     return;
   }
@@ -24,7 +24,7 @@ export default async (): Promise<void> => {
 
     if (!credentials) {
       await message.send({
-        format: Format.create().addMarkdownOriginal('尚未配置模型密钥，请查看 /密钥配置。')
+        format: Format.create().addText('尚未配置模型密钥，请查看 /密钥配置。')
       });
 
       return;
@@ -32,14 +32,14 @@ export default async (): Promise<void> => {
 
     const config = getDSHConfig();
     const models = await listAvailableModels(credentials);
-    const lines = ['# 可用模型', `当前模型：\`${credentials.model || config.model}\``];
+    const lines = ['可用模型', `当前模型：${credentials.model || config.model}`];
     const footer = '\n修改指引：/当前模型 模型ID';
     // Reserve the footer and overflow hint before adding model rows.
     let length = lines.join('\n').length + footer.length + 40;
     let displayed = 0;
 
     for (const model of models) {
-      const line = `- \`${model}\``;
+      const line = `${displayed + 1}. ${model}`;
 
       if (length + line.length + 1 > config.maxMessageLength || lines.length >= 32) {
         lines.push(`- …其余 ${models.length - displayed} 个模型未展示。`);
@@ -53,8 +53,8 @@ export default async (): Promise<void> => {
     }
 
     lines.push(footer);
-    await message.send({ format: Format.create().addMarkdownOriginal(lines.join('\n')) });
+    await message.send({ format: Format.create().addText(lines.join('\n')) });
   } catch {
-    await message.send({ format: Format.create().addMarkdownOriginal('模型列表读取失败，请检查密钥和服务地址。') });
+    await message.send({ format: Format.create().addText('模型列表读取失败，请检查密钥和服务地址。') });
   }
 };

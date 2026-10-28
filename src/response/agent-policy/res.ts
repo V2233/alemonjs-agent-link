@@ -14,13 +14,13 @@ export default async (): Promise<void> => {
   const event = eventContext.current;
 
   if (event.IsPrivate) {
-    await message.send({ format: Format.create().addMarkdownOriginal('请到需要管理的目标群里使用 `/工具策略`。') });
+    await message.send({ format: Format.create().addText('请到需要管理的目标群里使用 /工具策略。') });
 
     return;
   }
 
   if (!event.ChannelId || !event.IsMaster) {
-    await message.send({ format: Format.create().addMarkdownOriginal('只有机器人主人可在群内管理 Agent 策略。') });
+    await message.send({ format: Format.create().addText('只有机器人主人可在群内管理 Agent 策略。') });
 
     return;
   }
@@ -46,12 +46,12 @@ export default async (): Promise<void> => {
     const enabled = rawEnabled === '开启' ? 'on' : rawEnabled === '关闭' ? 'off' : rawEnabled;
 
     if (!['chat', 'web', 'files', 'terminal'].includes(requested) || !['on', 'off'].includes(enabled)) {
-      await message.send({ format: Format.create().addMarkdownOriginal('用法：/工具策略 状态，或 /工具策略 聊天|网页|文件 开启|关闭') });
+      await message.send({ format: Format.create().addText('用法：/工具策略 状态，或 /工具策略 聊天|网页|文件 开启|关闭') });
 
       return;
     }
     if (requested === 'terminal') {
-      await message.send({ format: Format.create().addMarkdownOriginal('终端禁止。文件操作仅限本群隔离目录。') });
+      await message.send({ format: Format.create().addText('终端禁止。文件操作仅限本群隔离目录。') });
 
       return;
     }
@@ -60,9 +60,9 @@ export default async (): Promise<void> => {
     await registry.setPolicy(event.ChannelId, { ...policy, [requested]: enabled === 'on' });
     await resetGroupSession(event.ChannelId, getDSHConfig());
     await message.send({
-      format: Format.create().addMarkdownOriginal(`本群${capabilityNames[requested]}已${enabled === 'on' ? '开启' : '关闭'}，已开始新话题。`)
+      format: Format.create().addText(`本群${capabilityNames[requested]}已${enabled === 'on' ? '开启' : '关闭'}，已开始新话题。`)
     });
   } catch {
-    await message.send({ format: Format.create().addMarkdownOriginal('策略暂时无法读取，请稍后再试。') });
+    await message.send({ format: Format.create().addText('策略暂时无法读取，请稍后再试。') });
   }
 };

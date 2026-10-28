@@ -1,9 +1,11 @@
 import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
+import { quotaHelp } from '../../billing/help';
 
 const topics: Record<string, string[]> = {
   聊天: [
     '聊天',
-    '@我、喊“大肥鱼”或发送 /提问 问题；私聊可直接说。',
+    '群里可以@我，或说“肥鱼，帮我……”。私聊直接说即可。',
+    '也可以发送：/提问 你的问题',
     '/取消：取消自己的生成或最后一条排队请求。',
     '/新会话：开始新话题，保留长期记忆和聊天记录；群内需管理员或主人。',
     '/聊天参考：查看本群近期参考；/聊天参考 清除 需管理员或主人。'
@@ -19,9 +21,12 @@ const topics: Record<string, string[]> = {
   ],
   人格: [
     '人格与心情',
-    '/人格：查看；/人格 使用 编号或默认：切换，群内需管理员或主人，会开始新话题。',
+    '/人格：查看可用人格。',
+    '/人格 使用 编号：切换人格，群内需管理员或主人，会开始新话题。',
+    '/人格 使用 默认：恢复默认人格。',
     '/心情：查看当前心情。',
-    '主人：/人格 程度 个性|工作|专业；主人私聊可用 /人格 全局程度 工作。',
+    '主人可发送 /人格 程度 工作，切换交流方式；可选个性、工作、专业。',
+    '主人私聊可发送 /人格 全局程度 工作，设置全局默认。',
     '主人私聊：/人格 追加 编号 内容；/人格 查看追加 编号；/人格 清空追加 编号。',
     '/人格 查看 编号；/人格 保存 编号 名称|提示词；/人格 删除 编号。'
   ],
@@ -30,7 +35,8 @@ const topics: Record<string, string[]> = {
     '可直接发图片、语音，或提出绘图要求；以实际可用能力为准。',
     '/语音 问题：语音回答，不可用时回退文字。',
     '/表情：查看素材；/表情 标签：发送。',
-    '主人私聊：/语音引擎 状态|安装|试听 [文本]。'
+    '主人私聊发送 /语音引擎 状态 查看；需要安装时发送 /语音引擎 安装。',
+    '试听示例：/语音引擎 试听 你好'
   ],
   数据: [
     '记录与隐私',
@@ -46,33 +52,43 @@ const topics: Record<string, string[]> = {
     '/状态；/模块状态；/额度 帮助：服务、功能与额度。',
     '/模型列表；/当前模型；/当前模型 模型ID：模型及修改指引。',
     '/密钥配置；/移除密钥：公共凭证配置指引，不要在聊天中发送公共密钥。',
-    '/工具策略 状态；/工具策略 聊天|网页|文件 开启|关闭：目标群内设置，随后开始新会话。',
-    '/主动搭话 开启|关闭|状态|现在|暂停 分钟|恢复：管理自己的私聊订阅。',
+    '/工具策略 状态：查看目标群权限。',
+    '/工具策略 网页 开启：开启本群网页能力；把网页换成聊天或文件也可设置，用关闭停用。设置后开始新会话。',
+    '/主动搭话 开启：订阅自己的私聊主动消息；/主动搭话 关闭：退订。',
+    '/主动搭话 状态：查看；/主动搭话 现在：立即尝试。',
+    '/主动搭话 暂停 分钟：暂时停用；/主动搭话 恢复：恢复。',
     'OneBot 群管理需白名单及平台权限；请明确指定操作。',
     '首次验证：私聊 /我是主人，到服务端日志取验证码，再发 /我的主人 验证码（5分钟有效，最多5次）。'
   ]
 };
 
 export const helpText = (isPrivate: boolean, owner: boolean, topic = ''): string => {
+  if (topic === '额度' || topic === '密钥') return quotaHelp(isPrivate);
   if (topic === '管理' && !(isPrivate && owner)) return '管理说明请主人私聊发送 /帮助 管理。';
-  if (topic && topic !== '全部') return topics[topic]?.join('\n') || '帮助分类：聊天、记忆、人格、媒体、数据、管理。例：/帮助 记忆';
+  if (topic && topic !== '全部') return topics[topic]?.join('\n') || '发送 /帮助 聊天、/帮助 记忆、/帮助 人格、/帮助 媒体、/帮助 数据 或 /帮助 额度。';
   if (topic === '全部')
-    return Object.entries(topics)
-      .filter(([key]) => key !== '管理' || (isPrivate && owner))
-      .map(([, lines]) => lines.join('\n'))
-      .join('\n\n');
+    return (
+      Object.entries(topics)
+        .filter(([key]) => key !== '管理' || (isPrivate && owner))
+        .map(([, lines]) => lines.join('\n'))
+        .join('\n\n') + `\n\n${quotaHelp(isPrivate)}`
+    );
 
   return [
-    '大肥鱼 · 帮助',
-    isPrivate ? '直接说，或 /提问 问题。私聊是否开放由主人设置。' : '@我、喊“大肥鱼”，或 /提问 问题。',
-    '/新会话：开始新话题；/取消：取消请求。',
-    '/人格、/心情：查看当前设定。',
-    '/语音 问题；/表情 标签；也可直接发图片或语音。',
-    isPrivate ? '/记住 内容；/记忆；/个人密钥：管理自己的偏好或 Key。' : '/群记忆：查看本群记忆。',
-    '/状态；/额度；/群密钥：群管理员绑定群 Key；/隐私说明。',
-    isPrivate && owner ? '主人：/关闭 原因；/开启；/帮助 管理。' : '首次设置主人：私聊发送 /我是主人。',
-    '详细用法：/帮助 聊天|记忆|人格|媒体|数据。'
-  ].join('\n');
+    '大肥鱼使用说明',
+    isPrivate ? '直接发消息给我就能聊天，私聊需主人已开放。' : '在群里@我，或说“肥鱼，帮我……”。',
+    '发图片、语音，或直接说想画什么。',
+    '/新会话：换个话题，保留长期记忆。',
+    '/取消：停止自己的请求。',
+    isPrivate ? '/记忆：查看记住的内容。' : '/群记忆：查看本群记忆。',
+    '/额度：查看剩余。',
+    '/帮助 额度：添加密钥、继续使用的教程。',
+    '/帮助 人格：切换性格和交流方式。',
+    '其他说明：/帮助 聊天、/帮助 记忆、/帮助 媒体、/帮助 数据。',
+    isPrivate && owner ? '主人设置：/帮助 管理。' : ''
+  ]
+    .filter(Boolean)
+    .join('\n');
 };
 
 export default async (): Promise<void> => {
@@ -86,6 +102,6 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   await message.send({
-    format: Format.create().addMarkdownOriginal(helpText(Boolean(event.IsPrivate), Boolean(event.IsMaster), route.rawArgs.join(' ').trim()))
+    format: Format.create().addText(helpText(Boolean(event.IsPrivate), Boolean(event.IsMaster), route.rawArgs.join(' ').trim()))
   });
 };

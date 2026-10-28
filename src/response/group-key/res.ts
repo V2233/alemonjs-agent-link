@@ -3,6 +3,7 @@ import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
 import { groupKeyStatus, issueGroupKeyCode, redeemGroupKeyCode, type GroupKeyAction } from '../../credentials/group';
 import { getConversationId } from '../dsh/util';
 import { DSHError } from '../../dsh/errors';
+import { groupKeyGuide } from '../../billing/help';
 
 const actions: Record<string, GroupKeyAction> = { 绑定: 'bind', 启用: 'enable', 开启: 'enable', 停用: 'disable', 关闭: 'disable', 移除: 'remove' };
 const labels = { bind: '绑定', enable: '启用', disable: '停用', remove: '移除' } as const;
@@ -25,11 +26,11 @@ export default async (): Promise<void> => {
       if (args.length === 0 || (args.length === 1 && args[0] === '状态')) {
         const status = await groupKeyStatus({ platform: event.Platform || '', channelId: event.ChannelId || '' });
 
-        text = `本群 Key：${!status.bound ? '未绑定' : status.enabled ? '已启用' : status.reason === 'balance' ? '余额不足，已自动停用' : '已停用'}。\n管理员在群里发送 /群密钥 绑定|启用|停用|移除 申请临时码，再由本人私聊提交；请勿在群里发送 Key。`;
+        text = `本群密钥：${!status.bound ? '未绑定' : status.enabled ? '已启用' : status.reason === 'balance' ? '余额不足，已自动停用' : '已停用'}。\n\n${groupKeyGuide}\n\n已有密钥充值后，在群里发送 /群密钥 启用 申请新的临时码，再按提示私聊确认。\n停用或移除时，在群里发送 /群密钥 停用 或 /群密钥 移除。`;
       } else {
         const action = actions[args[0]];
 
-        if (!action || args.length !== 1) throw new DSHError('budget', '请在群里发送 /群密钥 绑定|启用|停用|移除，仅申请临时码；不要附带 Key。');
+        if (!action || args.length !== 1) throw new DSHError('budget', groupKeyGuide);
         const proof = await issueGroupKeyCode(
           {
             platform: event.Platform || '',
@@ -51,8 +52,7 @@ export default async (): Promise<void> => {
       const apiKey = action === 'bind' ? args[shorthand ? 1 : 2] : undefined;
       const expected = shorthand ? 2 : action === 'bind' ? 3 : 2;
 
-      if (!action || args.length !== expected)
-        throw new DSHError('budget', '先由本群管理员在群里申请临时码，再由同一人私聊：/群密钥 绑定 临时码 sk-你的Key，或 /群密钥 启用|停用|移除 临时码。');
+      if (!action || args.length !== expected) throw new DSHError('budget', groupKeyGuide);
       const result = await redeemGroupKeyCode(
         { platform: event.Platform || '', userId: event.UserId || '', channelId: getConversationId(event) },
         code,

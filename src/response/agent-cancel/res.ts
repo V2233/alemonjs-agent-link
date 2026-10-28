@@ -35,5 +35,5 @@ export default async (): Promise<void> => {
     forbidden: '这是其他成员的请求，请由本人或管理员取消。'
   }[result];
 
-  await message.send({ format: Format.create().addMarkdownOriginal(text) });
+  await message.send({ format: Format.create().addText(text) });
 };

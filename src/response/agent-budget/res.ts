@@ -5,6 +5,7 @@ import { budgetEnabled, budgetStatus, replyGateBudgetStatus, manageBudget, budge
 import { getDSHConfig, toUserMessage } from '../../dsh/client';
 import { getConversationId } from '../dsh/util';
 import { parseBudgetCommand, budgetHelp } from '../../billing/commands';
+import { insufficientBudgetHelp, groupKeyGuide } from '../../billing/help';
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: ['message.create', 'private.message.create'] });
@@ -85,6 +86,11 @@ export default async (): Promise<void> => {
           ? `个人免费（跨群和私聊共享）：已用 ${value.personalUsed.toFixed(4)} / ${value.personalLimit.toFixed(2)} 元，剩余 ${value.personalRemaining.toFixed(4)} 元\n聊天本次可用：${value.available.toFixed(4)} 元`
           : '',
         '北京时间零点重置。群聊没有共享的免费聊天额度。',
+        value.blocked && !groupKey?.enabled && !personal?.enabled
+          ? `\n${insufficientBudgetHelp(isPrivate)}`
+          : gate?.blocked && !groupKey?.enabled
+            ? `\n后台感知预算不足，明确呼唤仍可使用。\n${groupKeyGuide}`
+            : '',
         event.IsPrivate && event.IsMaster ? `全局今日已用：${value.globalUsed.toFixed(4)} 元。` : ''
       ]
         .filter(Boolean)

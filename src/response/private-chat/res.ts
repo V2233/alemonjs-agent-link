@@ -32,7 +32,7 @@ export default async (): Promise<void> => {
   } catch (error) {
     const [message] = useMessage();
 
-    await message.send({ format: Format.create().addMarkdownOriginal(toUserMessage(error)) });
+    await message.send({ format: Format.create().addText(toUserMessage(error)) });
 
     return;
   }

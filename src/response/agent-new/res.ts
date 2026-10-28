@@ -14,7 +14,7 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
   const reply = async (text: string): Promise<unknown> =>
     await message.send({
-      format: Format.create().addMarkdownOriginal(text)
+      format: Format.create().addText(text)
     });
 
   const channelId = getConversationId(event);

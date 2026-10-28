@@ -23,5 +23,5 @@ export default async (): Promise<void> => {
 
   const [message] = useMessage();
 
-  await message.send({ format: Format.create().addMarkdownOriginal(privacyText) });
+  await message.send({ format: Format.create().addText(privacyText) });
 };

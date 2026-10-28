@@ -25,6 +25,7 @@ import { observeProactiveOutput } from '../../proactive/observe';
 import { currentVoiceTranscript } from '../../media/onebot-transcript';
 import { readCurrentForwards } from '../../social/onebot-forward';
 import { resolveCurrentImages } from '../../media/onebot-images';
+import { createChatReplyFormat } from '../../dsh/reply-format';
 
 export type ChatEvent = MessageContextEvent & {
   Platform?: string;
@@ -96,18 +97,13 @@ export const runDSHChat = async (
     options.autonomous
       ? undefined
       : await message.send({
-          format: Format.create().addMarkdownOriginal(text)
+          format: Format.create().addText(text)
         });
   let firstAgentReply = true;
   const replyAgent = async (text: string): Promise<unknown> => {
     await beforeExpression();
     await checkSend();
-    const format = Format.create();
-
-    if (firstAgentReply && replyTarget.userId && !event.IsPrivate) {
-      format.addMention(replyTarget.userId).addText('\n');
-    }
-    format.addMarkdownOriginal(text);
+    const format = createChatReplyFormat(text, event.Platform, firstAgentReply && !event.IsPrivate ? replyTarget.userId : undefined);
     const result = await message.send({
       format,
       replyId: firstAgentReply ? replyTarget.messageId : undefined

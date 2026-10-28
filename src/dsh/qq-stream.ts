@@ -101,7 +101,7 @@ export class QQStreamOutput {
       text: snapshot,
       mode: 'replace',
       state: complete ? 'complete' : 'generating',
-      contentType: 'markdown',
+      contentType: 'text',
       sequence: this.sequence,
       index: this.index,
       streamId: this.id,

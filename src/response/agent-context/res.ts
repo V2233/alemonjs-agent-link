@@ -13,7 +13,7 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   if (event.IsPrivate || !event.ChannelId) {
-    await message.send({ format: Format.create().addMarkdownOriginal('/聊天参考 仅可在群聊中使用。') });
+    await message.send({ format: Format.create().addText('/聊天参考 仅可在群聊中使用。') });
 
     return;
   }
@@ -34,9 +34,9 @@ export default async (): Promise<void> => {
     const preview = buildRecentChatContext(recent, previewBudget);
 
     await message.send({
-      format: Format.create().addMarkdownOriginal(preview ? `近期聊天参考\n${preview}` : '暂无近期聊天参考。')
+      format: Format.create().addText(preview ? `近期聊天参考\n${preview}` : '暂无近期聊天参考。')
     });
   } catch {
-    await message.send({ format: Format.create().addMarkdownOriginal('聊天参考暂不可用，请稍后重试。') });
+    await message.send({ format: Format.create().addText('聊天参考暂不可用，请稍后重试。') });
   }
 };

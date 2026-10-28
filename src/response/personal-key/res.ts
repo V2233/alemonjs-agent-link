@@ -1,6 +1,7 @@
 import { Format, useEvent, useMessage, useRoute } from 'alemonjs';
 import { bindPersonalKey, claimPersonalKeyCommand, personalKeyStatus, updatePersonalKey } from '../../credentials/personal';
 import { getConversationId } from '../dsh/util';
+import { personalKeyGuide } from '../../billing/help';
 
 export default async (): Promise<void> => {
   const [context] = useEvent({ selects: ['message.create', 'private.message.create'] });
@@ -34,8 +35,8 @@ export default async (): Promise<void> => {
       } else if (!args.length || (args.length === 1 && args[0] === '状态')) {
         const status = await personalKeyStatus(scope);
 
-        text = `个人 Key：${!status.bound ? '未绑定' : status.enabled ? '已启用（优先使用）' : status.reason === 'balance' ? '余额不足，已自动停用；充值后需手动启用' : '已手动停用'}。\n/个人密钥 绑定 sk-你的Key\n/个人密钥 启用|停用|移除\n仅支持 DeepSeek；不会显示已保存的 Key。`;
-      } else text = '指令格式：/个人密钥 绑定 sk-你的Key，或 /个人密钥 状态、启用、停用、移除。';
+        text = `个人密钥：${!status.bound ? '未绑定' : status.enabled ? '已启用，私聊优先使用' : status.reason === 'balance' ? '余额不足，充值后请发送 /个人密钥 启用' : '已停用'}。\n\n${personalKeyGuide}\n\n暂停使用：/个人密钥 停用\n删除绑定：/个人密钥 移除`;
+      } else text = personalKeyGuide;
     } catch {
       // Never echo raw arguments, provider errors, or storage exceptions.
       text = '个人 Key 操作失败，请检查格式；仍失败请联系主人。';

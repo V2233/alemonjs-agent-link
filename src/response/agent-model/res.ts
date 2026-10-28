@@ -13,7 +13,7 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
 
   if (!event.IsMaster) {
-    await message.send({ format: Format.create().addMarkdownOriginal('公共模型仅限机器人主人设置。') });
+    await message.send({ format: Format.create().addText('公共模型仅限机器人主人设置。') });
 
     return;
   }
@@ -23,10 +23,8 @@ export default async (): Promise<void> => {
   const config = getDSHConfig();
 
   await message.send({
-    format: Format.create().addMarkdownOriginal(
-      requestedModel
-        ? `请将配置中的 \`alemonjs-agent-link.model\` 改为 \`${requestedModel}\`，保存即生效。`
-        : `当前模型：\`${config.model}\`\n查看可用列表：/模型列表`
+    format: Format.create().addText(
+      requestedModel ? `请将配置中的 alemonjs-agent-link.model 改为 ${requestedModel}，保存即生效。` : `当前模型：${config.model}\n查看可用列表：/模型列表`
     )
   });
 };

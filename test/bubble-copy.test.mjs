@@ -6,9 +6,10 @@ import { join } from 'node:path';
 import { ResultCode, withEventContext, getConfig } from 'alemonjs';
 import { helpText } from '../lib/response/agent-help/res.js';
 import { withToolUsePolicy } from '../lib/agent/tool-use-policy.js';
+import { BudgetExceededError, withBudgetScope, replyGateExceededMessage } from '../lib/billing/budget.js';
 const { runtimeScope } = await import(new URL('./common/runtime-scope.js', import.meta.resolve('alemonjs')));
 
-const runCommand = async (module, { private: isPrivate = true, master = true, key = '帮助', args = [] } = {}) => {
+const runCommand = async (module, { private: isPrivate = true, master = true, key = '帮助', args = [], formats = [] } = {}) => {
   const messages = [];
   const event = {
     name: isPrivate ? 'private.message.create' : 'message.create',
@@ -31,6 +32,7 @@ const runCommand = async (module, { private: isPrivate = true, master = true, ke
       now: Date.now,
       action: async frame => {
         const format = frame.payload.params?.format || [];
+        formats.push(format);
         messages.push(format.map(item => (typeof item.value === 'string' ? item.value : '')).join(''));
         return [{ code: ResultCode.Ok, data: { id: 'fixture', messageId: 'fixture' } }];
       }
@@ -58,6 +60,35 @@ test('default help fits one bubble while detailed commands remain discoverable',
   assert.match(helpText(true, true, '管理'), /关闭 原因/);
   assert.match(helpText(true, true, '全部'), /主动搭话/);
   assert.doesNotMatch(helpText(false, false, '全部'), /服务端日志取验证码/);
+});
+
+test('help and public configuration guidance use plain Text messages with copyable steps', async () => {
+  const handler = (await import('../lib/response/agent-help/res.js')).default;
+  for (const isPrivate of [true, false]) {
+    const formats = [];
+    const messages = await runCommand(handler, { private: isPrivate, master: false, args: ['额度'], formats });
+    assert.equal(messages.length, 1);
+    assert.ok(formats.flat().every(item => item.type === 'Text'));
+    assert.doesNotMatch(messages[0], /`|\*\*|\|/);
+    assert.match(messages[0], isPrivate ? /\n\/个人密钥 绑定 sk-你的Key\n/ : /\n\/群密钥 绑定 临时码 sk-你的Key\n/);
+    if (!isPrivate) assert.match(messages[0], /由申请人私聊/);
+  }
+  const formats = [];
+  const messages = await runCommand((await import('../lib/response/agent-bind/res.js')).default, { master: false, formats });
+  assert.ok(formats.flat().every(item => item.type === 'Text'));
+  assert.match(messages[0], /个人密钥 绑定/);
+});
+
+test('budget errors explain the correct private or group binding workflow without leaking credentials', () => {
+  for (const isPrivate of [true, false]) {
+    const error = withBudgetScope({ platform: 'test', userId: 'u', channelId: isPrivate ? 'private:["test","u"]' : 'g' }, () => new BudgetExceededError());
+    assert.match(error.message, /额度不足/);
+    assert.match(error.message, isPrivate ? /个人密钥 绑定 sk-你的Key/ : /群密钥 绑定 临时码 sk-你的Key/);
+    assert.doesNotMatch(error.message, /`|\*\*|\|/);
+    if (!isPrivate) assert.doesNotMatch(error.message, /个人密钥 绑定/);
+  }
+  assert.match(replyGateExceededMessage, /今天只提醒这一次/);
+  assert.match(replyGateExceededMessage, /群密钥 绑定 临时码 sk-你的Key/);
 });
 
 test('persona list has one response; explicit help retains management actions', async () => {

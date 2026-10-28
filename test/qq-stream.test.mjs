@@ -47,6 +47,7 @@ test('model chunks reach the QQ stream before model completion; updates coalesce
   await sleep(30);
   assert.equal(sends.length, 1, 'first model delta must leave before upstream is closed');
   assert.equal(sends[0].state, 'generating');
+  assert.equal(sends[0].contentType, 'text');
   assert.equal(sends[0].index, 0);
   controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"，"}}]}\n\ndata: {"choices":[{"delta":{"content":"世界"}}]}\n\ndata: [DONE]\n\n'));
   await reading;

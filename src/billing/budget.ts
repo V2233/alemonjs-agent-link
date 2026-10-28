@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { DSHError } from '../dsh/errors';
+import { groupKeyGuide, insufficientBudgetHelp } from './help';
 
 export type BudgetConfig = {
   enabled?: boolean;
@@ -608,10 +609,10 @@ export const budgetAdjustments = async (scope: BudgetScope, isMaster: boolean): 
   return (await bounded(redis.lrange(`${key}:adjustments`, 0, 4))).map(row => JSON.parse(row) as BudgetAdjustment);
 };
 
-export const budgetExceededMessage = '今日可用额度不足。/额度 查看余额，可联系主人调整或等北京时间零点重置。';
+export const budgetExceededMessage = insufficientBudgetHelp(false);
 export class BudgetExceededError extends DSHError {
   constructor() {
-    super('budget', budgetExceededMessage);
+    super('budget', insufficientBudgetHelp(Boolean(getBudgetScope()?.channelId.startsWith('private:'))));
   }
 }
 
@@ -640,8 +641,7 @@ export const claimBudgetNotice = async (scope: BudgetScope, messageId?: string):
   }
 };
 
-export const replyGateExceededMessage =
-  '本群今日感知预算不足，已暂停后台判断；@我、喊肥鱼或 /chat 仍可发问，聊天额度单独计算。/额度 可查余额，北京时间零点重置。';
+export const replyGateExceededMessage = `本群今日感知预算不足，已暂停后台判断，今天只提醒这一次。\n@我、喊肥鱼或 /chat 仍可发问，聊天额度单独计算。\n\n${groupKeyGuide}\n\n也可请机器人主人为本群增加额度，或等北京时间零点重置。`;
 
 // Independent daily claim: neither recharge nor process restarts reset it.
 // Claim before delivery; failures stay claimed to avoid retry spam.

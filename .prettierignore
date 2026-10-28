@@ -39,3 +39,5 @@ frontend/build/
 
 # 测试文件
 testone/
+
+/packages
