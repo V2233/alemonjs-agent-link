@@ -136,7 +136,7 @@ export default async (): Promise<void> => {
         await store.read(id);
       }
       await resetGroupSession(channelId, config, () => store.select(scope, id === '默认' ? undefined : id));
-      await reply('当前会话的人格已切换，已开始新话题。');
+      await reply('好，接下来就按这个人设聊。当前会话也已经切到新话题了。');
 
       return;
     }
@@ -154,7 +154,7 @@ export default async (): Promise<void> => {
       return;
     }
     if (id === '默认') {
-      await reply('请指定实际人格编号。');
+      await reply('要用哪个人格？请带上具体编号。');
 
       return;
     }
@@ -200,6 +200,6 @@ export default async (): Promise<void> => {
       await reply('保存格式：/人格 保存 编号 名称|提示词；查看和删除只接受编号。');
     }
   } catch {
-    await reply('人格操作未完成，请检查编号和文件格式。');
+    await reply('这次没能完成修改，请核对一下人格编号和文件格式。');
   }
 };

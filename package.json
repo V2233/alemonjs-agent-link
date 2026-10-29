@@ -7,21 +7,19 @@
     "email": "ningmengchongshui@gmail.com",
     "url": "https://github.com/ningmengchongshui"
   },
+  "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
   "files": [
     "bin",
     "lib",
+    "dist",
     "python/chat_only.patch.yml",
     "python/dsh_bridge.py",
     "python/dsh_worker.py",
     "python/requirements.txt",
     "python/sandbox_profile.py",
-    "scripts/replay-reply-gate.mjs",
-    "scripts/live-gate-metrics.mjs",
-    "README.md",
-    "scripts/compare-companion.mjs",
-    "benchmarks/companion-scenarios.json"
+    "README.md"
   ],
   "exports": {
     ".": {
@@ -37,7 +35,9 @@
     "start": "node bin/agent-link.cjs",
     "view": "npx lvy dev --jsxp",
     "build": "lvy build",
-    "bundle": "lvy build",
+    "install-fe": "yarn --cwd frontend install",
+    "build[-fe": "yarn --cwd frontend build",
+    "bundle": "yarn install-fe && yarn build-fe && yarn install && yarn build",
     "test": "npx lvy build && npx eslint src && node --test --test-force-exit test/*.test.mjs && python3 -m unittest scripts/test_dsh_bridge.py scripts/test_dsh_worker.py",
     "eslint": "eslint src --fix",
     "link-codex": "ln -s \"$PWD/.github/skills\" \"$PWD/.codex/skills\"",
@@ -51,7 +51,8 @@
     "validate:gate": "node scripts/replay-reply-gate.mjs",
     "validate:live": "node scripts/live-gate-metrics.mjs",
     "prepack": "npm run build",
-    "validate:companion": "node scripts/compare-companion.mjs"
+    "validate:companion": "node scripts/compare-companion.mjs",
+    "sample:companion": "node scripts/sample-companion.mjs"
   },
   "devDependencies": {
     "@alemonjs/db": "^0.0.21",

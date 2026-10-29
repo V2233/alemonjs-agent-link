@@ -43,6 +43,10 @@ export const summarizeComparison = (corpus, submitted) => {
     .sort((a, b) => a - b);
   const percentile = ratio => (latency.length ? latency[Math.ceil(latency.length * ratio) - 1] : null);
   const pendingMetadata = ['subject', 'model', 'settings', 'generationEvidence'].filter(key => typeof submitted[key] !== 'string' || !submitted[key].trim());
+  const sampled = submitted.responses.filter(
+    row =>
+      typeof row.response === 'string' && (row.kind === 'silence' ? row.response === '' : ['text', 'media'].includes(row.kind) && Boolean(row.response.trim()))
+  );
   const ready = !pending.length && !pendingMetadata.length;
   return {
     subject: submitted.subject || '未填写',
@@ -53,6 +57,11 @@ export const summarizeComparison = (corpus, submitted) => {
     reviewed: complete.length,
     pending,
     pendingMetadata,
+    generation: {
+      sampled: sampled.length,
+      truncated: sampled.filter(row => row.truncated === true).length,
+      failed: submitted.responses.filter(row => row.kind == null && row.sampleFailure).length
+    },
     scores: Object.fromEntries(
       dimensions.map(key => [key, complete.length ? Number((complete.reduce((sum, row) => sum + row.scores[key], 0) / complete.length).toFixed(2)) : null])
     ),
@@ -62,15 +71,27 @@ export const summarizeComparison = (corpus, submitted) => {
 };
 
 const main = async () => {
-  const corpus = JSON.parse(await readFile(corpusUrl, 'utf8'));
   const args = process.argv.slice(2);
+  const corpusIndex = args.indexOf('--corpus');
+  let selectedCorpus = corpusUrl;
+  if (corpusIndex !== -1) {
+    if (!args[corpusIndex + 1] || args[corpusIndex + 1].startsWith('--')) throw new Error('--corpus 缺少场景文件。');
+    selectedCorpus = args[corpusIndex + 1];
+    args.splice(corpusIndex, 2);
+  }
+  let corpus;
+  try {
+    corpus = JSON.parse(await readFile(selectedCorpus, 'utf8'));
+  } catch {
+    throw new Error('场景文件无法读取或JSON无效。');
+  }
   if (args[0] === '--template' && args.length === 2) {
     await writeFile(args[1], JSON.stringify(comparisonTemplate(corpus), null, 2) + '\n', { flag: 'wx' });
     return;
   }
   if (!args.length || args.includes('--help')) {
     process.stdout.write(
-      '生成评分表：node scripts/compare-companion.mjs --template /绝对路径/sample.json\n汇总：node scripts/compare-companion.mjs /绝对路径/fish.json /绝对路径/reference.json\n场景：benchmarks/companion-scenarios.json；脚本不调用模型，不连接 QQ。\n'
+      '生成评分表：node scripts/compare-companion.mjs --template /绝对路径/sample.json\n汇总：node scripts/compare-companion.mjs /绝对路径/fish.json /绝对路径/reference.json\n可用 --corpus 场景.json 指定独立场景；默认 benchmarks/companion-scenarios.json。脚本不调用模型，不连接 QQ。\n'
     );
     return;
   }

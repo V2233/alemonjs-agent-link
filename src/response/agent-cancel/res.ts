@@ -30,10 +30,10 @@ export default async (): Promise<void> => {
     result = 'cancelled-queued';
   }
   const text = {
-    'cancelled-running': '已取消正在生成的回复。',
-    'cancelled-queued': '已取消你最后一条排队请求。',
-    empty: '当前没有待处理请求。',
-    forbidden: '这是其他成员的请求，请由本人或管理员取消。'
+    'cancelled-running': '好，这条我不继续写了。',
+    'cancelled-queued': '好，你最后一条排队的提问已经撤掉了。',
+    empty: '现在没有待处理的提问了。',
+    forbidden: '这是其他成员的提问，需要由本人或管理员来取消。'
   }[result];
 
   await message.send({

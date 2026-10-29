@@ -29,9 +29,9 @@ export default function AdminLayout() {
         { key: '/dictionary', label: '热词词典' },
         { key: '/events', label: '事件库' },
         { key: '/opinions', label: '对象评价' },
-        { key: '/work-model', label: '工作模型', icon: <RobotOutlined /> },
+        { key: '/work-model', label: '工作模型' },
         { key: '/voices', label: '音色库' },
-        { key: '/rotation', label: '额度轮转', icon: <SwapOutlined /> }
+        { key: '/rotation', label: '额度轮转' }
       ]}
       onClick={({ key }) => {
         navigate(key);

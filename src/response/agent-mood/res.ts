@@ -1,3 +1,4 @@
+import { commandExpression, commandMoodText } from '../../companion/command-expression';
 import { commandBubble } from '../bubble';
 import { useEvent, useMessage } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
@@ -46,12 +47,14 @@ export default async (): Promise<void> => {
       ].join('\n')
     : '';
   const text = config.modules?.disabled?.includes('mood')
-    ? '心情模块已停用。'
-    : [`心情：${snapshot.label} ${snapshot.value.toFixed(1)}/100`, table].filter(Boolean).join('\n\n');
+    ? '心情功能目前没有开启。'
+    : [commandExpression(config, scope, commandMoodText(snapshot.value), ''), `心情：${snapshot.label} ${snapshot.value.toFixed(1)}/100`, table]
+        .filter(Boolean)
+        .join('\n\n');
 
   assertMessageDelivered(
     await message.send({
-      format: commandBubble(text, '肥鱼的心情', {
+      format: commandBubble(text, '当前心情', {
         platform: event.Platform,
         layout: 'inline',
         actions: [

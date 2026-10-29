@@ -1,4 +1,5 @@
 import { rankMemories } from '../memory/retrieval';
+import { GroupInbox } from './inbox';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -52,6 +53,7 @@ export class ChatArchive {
   private db: DatabaseSync;
   private lastCleanup = 0;
   private readonly insertMessage: StatementSync;
+  private readonly inbox: GroupInbox;
   constructor(
     path: string,
     private readonly days = 30
@@ -90,6 +92,7 @@ export class ChatArchive {
       `INSERT OR IGNORE INTO messages(scope,group_hash,message_id,speaker_id,speaker,role,text,timestamp,truncated,reference_id,reply_to_id,source_message_id,metadata)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`
     );
+    this.inbox = new GroupInbox(this.db);
     this.cleanup();
   }
   close(): void {
@@ -97,6 +100,7 @@ export class ChatArchive {
   }
   cleanup(): void {
     this.db.prepare('DELETE FROM messages WHERE timestamp < ?').run(Date.now() - this.days * 86400000);
+    this.db.prepare('DELETE FROM group_inbox_receipts WHERE issued_at < ?').run(Date.now() - 15 * 60000);
     this.lastCleanup = Date.now();
   }
   append(scope: HistoryScope, message: ArchivedMessage): void {
@@ -257,13 +261,25 @@ export class ChatArchive {
     return row ? decodeRow(row) : undefined;
   }
   invalidate(scope: HistoryScope, id: string): void {
-    this.db.prepare('DELETE FROM messages WHERE scope=? AND (message_id=? OR reference_id=?)').run(scopeKey(scope), id, id);
+    this.mutateSources(() => {
+      this.inbox.invalidate(scopeKey(scope));
+      this.db.prepare('DELETE FROM messages WHERE scope=? AND (message_id=? OR reference_id=?)').run(scopeKey(scope), id, id);
+    });
   }
   purgeHash(groupHash: string): void {
-    this.db.prepare('DELETE FROM messages WHERE group_hash=?').run(groupHash);
+    this.mutateSources(() => {
+      this.inbox.purge('group_hash', groupHash);
+      this.db.prepare('DELETE FROM messages WHERE group_hash=?').run(groupHash);
+    });
   }
   latestSeq(scope: HistoryScope): number {
     return Number(this.db.prepare('SELECT coalesce(max(seq),0) AS seq FROM messages WHERE scope=?').get(scopeKey(scope)).seq);
+  }
+  readGroupInbox(scope: HistoryScope, botId: string, limit = 20, previousReceipt?: string) {
+    return this.inbox.read(scopeKey(scope), hash(scope.channelId), botId, limit, previousReceipt);
+  }
+  acknowledgeGroupInbox(scope: HistoryScope, botId: string, receipt: string) {
+    return this.inbox.acknowledge(scopeKey(scope), botId, receipt);
   }
   recallDialogues(scope: HistoryScope, speakerId: string, query: string, excludeText = '') {
     const rows = this.db
@@ -373,7 +389,20 @@ export class ChatArchive {
     return { sources, checkpoint: hasMore ? sources.at(-1).seq : upper, hasMore };
   }
   purge(scope: HistoryScope): void {
-    this.db.prepare('DELETE FROM messages WHERE scope=?').run(scopeKey(scope));
+    this.mutateSources(() => {
+      this.inbox.purge('scope', scopeKey(scope));
+      this.db.prepare('DELETE FROM messages WHERE scope=?').run(scopeKey(scope));
+    });
+  }
+  private mutateSources(operation: () => void): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      operation();
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 }
 const state = globalThis as typeof globalThis & { __agentLinkArchives?: Map<string, ChatArchive> };

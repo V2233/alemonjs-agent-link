@@ -69,7 +69,7 @@ export default async (): Promise<void> => {
       const notes = getMemoryStore(config).list(scope, { status: 'active', limit: 10 });
 
       if (!notes.length) {
-        await reply('还没有保存的长期记忆。\n可以告诉我你希望记住的偏好，例如：\n/记住 回答时先说结论\n保存后用 /记忆 查看；不想保留时用 /忘记 编号 删除。');
+        await reply('我还没有保存长期记忆。\n想让我记住什么偏好？可以这样发：\n/记住 回答时先说结论\n保存后用 /记忆 查看；不想保留时用 /忘记 编号 删除。');
 
         return;
       }
@@ -99,12 +99,12 @@ export default async (): Promise<void> => {
       return;
     }
     if (command === '/记住' && (!args || Array.from(args).length > privateMemoryTextLimit)) {
-      await reply(`用法：/记住 内容（最多 ${privateMemoryTextLimit} 字）。`);
+      await reply(`想让我记住什么？发 /记住 内容 就行，最多 ${privateMemoryTextLimit} 字。`);
 
       return;
     }
     if (command === '/忘记' && !/^[a-f0-9]{8}(?:[a-f0-9]{4})?$/u.test(args)) {
-      await reply('用法：/忘记 编号；/记忆 查看编号。');
+      await reply('想删掉哪条记忆？发 /忘记 编号；编号可以用 /记忆 查看。');
 
       return;
     }
@@ -129,16 +129,16 @@ export default async (): Promise<void> => {
     });
     await reply(
       status === 'full'
-        ? '长期记忆已满（20 条），请先用 /忘记 编号 删除旧条目。'
+        ? '已经记满 20 条了。先用 /忘记 编号 删掉不再需要的，再记新的吧。'
         : status === 'missing'
-          ? '没有找到这个编号，请用 /记忆 查看。'
+          ? '我没找到这条记忆，用 /记忆 核对一下编号吧。'
           : status === 'exists'
-            ? '这条记忆已经保存。已开始新话题。'
+            ? '这条之前就记下了，不用重复记。当前会话已经切到新话题了。'
             : action === 'add'
-              ? '记忆已保存，已开始新话题。'
-              : '记忆已删除，已开始新话题。'
+              ? '记下了。接下来从新话题开始聊。'
+              : '记忆已删除，聊天记录仍然保留。接下来从新话题开始聊。'
     );
   } catch {
-    await reply('操作未完成，请用 /记忆 核对，必要时 /新会话。');
+    await reply('这次操作没能完成，先用 /记忆 核对一下，必要时再发 /新会话。');
   }
 };

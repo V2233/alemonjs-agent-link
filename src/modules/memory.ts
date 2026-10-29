@@ -4,6 +4,7 @@ import { requestModelMessage } from '../agent/tool-chat';
 import { withBudgetScope } from '../billing/budget';
 import { budgetEnabled } from '../billing/budget';
 import { MemoryQueryContext } from '../memory/query-context';
+import { requestedMemorySave } from '../memory/save-intent';
 import { SessionRegistry } from '../state/registry';
 import { getDSHConfig, type DSHBridgeConfig } from '../dsh/client';
 import type { AgentModule, TurnContext } from '../agent/types';
@@ -305,7 +306,11 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
       description: '查看当前私聊用户明确保存的长期资料。仅返回当前用户的资料，编号可用于 /忘记。',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       available: context => context.private,
-      execute: async (_args, context) => ({ ok: true, notes: await registry.privateMemories(context.channelId) })
+      execute: async (_args, context) => ({
+        ok: true,
+        notes: await registry.privateMemories(context.channelId),
+        notice: '这里只是当前私聊用户现在的明确保存列表；空列表不代表从未保存或说过，也不代表聊天归档和其他记忆都不存在。'
+      })
     });
     api.tool({
       name: 'remember_private_fact',
@@ -318,11 +323,8 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
       },
       available: context => context.private,
       execute: async ({ text }, context) => {
-        if (
-          !/(记住|记下来|记一下|帮我记|remember|save.*memor)/iu.test(context.userText) ||
-          /(别|不要|不准|无需|不用).{0,5}(记住|记下来|记一下|帮我记)|do not remember|don.t remember/iu.test(context.userText)
-        ) {
-          return { ok: false, message: '当前用户没有明确要求保存资料，请先询问用户。' };
+        if (!requestedMemorySave(context.userText)) {
+          return { ok: false, persistence: { state: 'not_saved' }, message: '本次没有保存：当前文字不是明确的资料保存请求。不要把当前线索说成已经长期记住。' };
         }
         const result = await registry.changePrivateMemory(context.channelId, 'add', String(text));
 
@@ -331,10 +333,25 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
           store.syncExplicit(context, context.userId, result.notes);
         }
 
+        const note = result.notes.find(note => note.text === String(text).trim());
+        const saved = Boolean(note) && (result.status === 'ok' || result.status === 'exists');
+
         return {
-          ok: result.status === 'ok' || result.status === 'exists',
+          ok: saved,
           status: result.status,
-          message: result.status === 'full' ? '记忆已满，请让用户用 /忘记 编号 删除旧条目。' : '请按 status 判断是否已保存。',
+          persistence: {
+            state: saved ? (result.status === 'exists' ? 'already_saved' : 'saved') : 'not_saved',
+            recordId: saved ? note.id : undefined,
+            retentionDays: config.retentionDays,
+            scope: 'current_private_user'
+          },
+          message: saved
+            ? result.status === 'exists'
+              ? '这条资料原本已在私聊长期保存列表中，本次没有新增。'
+              : '这条资料已保存到当前私聊长期记忆，按保留策略管理，不代表永久保存。'
+            : result.status === 'full'
+              ? '本次没有保存：记忆已满，可用 /忘记 编号 删除旧条目。'
+              : '本次未确认保存，不要声称已经记住。',
           notes: result.notes
         };
       }

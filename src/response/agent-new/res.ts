@@ -1,3 +1,4 @@
+import { commandExpression } from '../../companion/command-expression';
 import { logger, useEvent, useMessage } from 'alemonjs';
 import { noticeBubble } from '../bubble';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
@@ -27,7 +28,7 @@ export default async (): Promise<void> => {
   }
 
   if (!event.IsPrivate && !canReset(event)) {
-    await reply('你没有权限开始新会话。');
+    await reply('在群里开始新会话，需要管理员或机器人主人来操作。');
 
     return;
   }
@@ -43,10 +44,18 @@ export default async (): Promise<void> => {
       return;
     }
     await resetGroupSession(channelId, config);
-    await reply(event.IsPrivate ? '已开始新话题，长期记忆和聊天记录保留。' : '本群已开始新话题，长期记忆和聊天记录保留。', [
-      { label: '帮助', command: '/帮助 聊天' },
-      { label: '查看额度', command: '/额度' }
-    ]);
+    await reply(
+      commandExpression(
+        config,
+        { platform: event.Platform, channelId },
+        event.IsPrivate ? '好，我们换个话题聊。长期记忆和聊天记录都还在。' : '好，群里接下来从新话题聊起。长期记忆和聊天记录都还在。',
+        event.IsPrivate ? '已开始新话题，长期记忆和聊天记录保留。' : '本群已开始新话题，长期记忆和聊天记录保留。'
+      ),
+      [
+        { label: '帮助', command: '/帮助 聊天' },
+        { label: '查看额度', command: '/额度' }
+      ]
+    );
   } catch (error) {
     logger.error({ err: error, sessionId }, 'DSH session clear failed');
     await reply(toUserMessage(error));

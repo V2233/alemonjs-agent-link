@@ -101,6 +101,7 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
         buildGroupBatchPrompt(currentBatch),
         {
           requestId,
+          onGroupWait: batch.onGroupWait,
           referencesPrepared: true,
           voice: anchor.voice,
           userText: anchor.text,

@@ -14,6 +14,7 @@ export type TurnContext = {
   onSticker?: (item: import('../media/stickers').Sticker, data: Buffer) => Promise<void>;
   onStickerCollect?: (signal: AbortSignal) => Promise<Buffer>;
   onCurrentImages?: (signal: AbortSignal) => Promise<Buffer[]>;
+  onGroupWait?: (request: import('../social/group-wait').GroupWaitRequest) => import('../social/group-wait').GroupWaitResult;
   channelId: string;
   userId: string;
   platform: string;

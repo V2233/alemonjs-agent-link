@@ -11,6 +11,7 @@ import { getDSHConfig } from '../dsh/client';
 import { selectPerceptionContext } from './perception-context';
 import { groupStyleHint } from './style-profile';
 import { ConversationThreads } from './conversation-threads';
+import { GroupWaitController } from './group-wait';
 
 export type GroupMessage = {
   channelId: string;
@@ -33,6 +34,7 @@ export type GroupMessage = {
   explicitMention?: boolean;
   controlText?: string;
   isBot?: boolean;
+  waitMatched?: boolean;
 };
 export type GroupBatch = {
   budgetBlocked?: boolean;
@@ -45,12 +47,14 @@ export type GroupBatch = {
   replyRelated?: ReplyVerdict['related'];
   styleHint?: string;
   perceptionContext?: ReplyGateInput['recent'];
+  onGroupWait?: import('../agent/types').TurnContext['onGroupWait'];
 };
 export type GroupBatchResult = { delivered: boolean; completed?: boolean; replyText?: string; replyToMessageId?: string };
 type Entry = { message: GroupMessage; respond: (batch: GroupBatch) => Promise<GroupBatchResult>; resolve: () => void };
 type Pending = { entries: Entry[]; anchor: Entry; mode: Exclude<GroupReplyMode, 'none'>; firstAt: number; dueAt: number; policy: GroupChatPolicy };
 type GroupState = {
   dialogues: ConversationThreads;
+  waits: GroupWaitController;
   fragments: MessageFragments;
   gatePending?: Pending;
   loopGuard: LoopGuard;
@@ -122,6 +126,7 @@ export class GroupConversationCoordinator {
       state = {
         fragments: new MessageFragments(),
         dialogues: new ConversationThreads(),
+        waits: new GroupWaitController(),
         loopGuard: new LoopGuard(),
         gateTimes: [],
         recent: [],
@@ -169,12 +174,27 @@ export class GroupConversationCoordinator {
     const control = speechControl(message.controlText ?? message.text);
     const held = state.fragments.holding(message, now);
 
+    if (getDSHConfig().modules?.disabled?.includes('conversation')) state.waits.clear();
+    if (control === 'stop') state.waits.clear(message.userKey);
+    const waiting = state.waits.observe(message, now);
+
+    if (waiting === 'matched') message = { ...message, waitMatched: true };
+
     const redirected = message.messageContext?.mentions?.some(item => item.isSelf === false) || Boolean(message.messageContext?.message.replyToId);
 
     if (control === 'stop' || redirected) state.dialogues.end(message);
     const dialogue = state.dialogues.exchange(message, now);
 
-    if (!message.direct && !control && !held && dialogue && now - dialogue.at < 120000 && !redirected && !isLowSignalMessage(message.text)) {
+    if (
+      waiting === 'idle' &&
+      !message.direct &&
+      !control &&
+      !held &&
+      dialogue &&
+      now - dialogue.at < 120000 &&
+      !redirected &&
+      !isLowSignalMessage(message.text)
+    ) {
       message = { ...message, direct: true, addressed: true, continuation: { userText: dialogue.userText, replyText: dialogue.replyText, at: dialogue.at } };
     }
 
@@ -221,6 +241,14 @@ export class GroupConversationCoordinator {
 
       return { reply: false, mode: 'none', reason: control === 'stop' ? '用户要求不回复' : '等待该用户说完', relevance: 0 };
     }
+    if (waiting === 'waiting') {
+      state.recent = [
+        ...state.recent.filter(item => now - item.at < Math.max(policy.activeWindowSeconds, getDSHConfig().perceptionWindowSeconds) * 1000),
+        { at: now, text: message.text.slice(0, 2000), speaker: message.userId }
+      ].slice(-100);
+
+      return { reply: false, mode: 'none', reason: '等待已设置的群聊条件', relevance: 0 };
+    }
     const fragments = state.fragments.take(message, now).filter(item => !speechControl(item.controlText ?? item.text));
 
     if (
@@ -257,7 +285,7 @@ export class GroupConversationCoordinator {
     const decision = decideGroupReply({
       policy,
       now,
-      semantic: Boolean(this.services.classify) && policy.replyGateEnabled !== false,
+      semantic: Boolean(message.waitMatched) || (Boolean(this.services.classify) && policy.replyGateEnabled !== false),
       direct: message.direct,
       continuation: Boolean(message.continuation),
       explicit: Boolean(message.explicitMention || message.explicitCommand),
@@ -398,10 +426,18 @@ export class GroupConversationCoordinator {
       const basePolicy = this.services.getPolicy?.(channelId, pending.anchor.message.platform) || pending.policy;
       const policy = pending.policy.boundKey ? boundKeyGroupPolicy(basePolicy) : basePolicy;
       const now = this.now();
+      const waiting = state.waits.observe(pending.anchor.message, now);
+
+      if (waiting === 'waiting') {
+        completed = true;
+
+        return;
+      }
+      if (waiting === 'matched') pending.anchor.message = { ...pending.anchor.message, waitMatched: true };
       const decision = decideGroupReply({
         policy,
         now,
-        semantic: Boolean(this.services.classify) && policy.replyGateEnabled !== false,
+        semantic: Boolean(pending.anchor.message.waitMatched) || (Boolean(this.services.classify) && policy.replyGateEnabled !== false),
         direct: pending.mode === 'direct',
         continuation: Boolean(pending.anchor.message.continuation),
         explicit: Boolean(pending.anchor.message.explicitMention || pending.anchor.message.explicitCommand),
@@ -461,6 +497,7 @@ export class GroupConversationCoordinator {
       );
 
       if (
+        !pending.anchor.message.waitMatched &&
         !continuingDirect &&
         !pending.anchor.message.direct &&
         state.engagedUntil <= now &&
@@ -481,7 +518,12 @@ export class GroupConversationCoordinator {
 
         return;
       }
-      if (decision.mode !== 'engaged' && !pending.anchor.message.direct && isLowSignalMessage(pending.anchor.message.text)) {
+      if (
+        !pending.anchor.message.waitMatched &&
+        decision.mode !== 'engaged' &&
+        !pending.anchor.message.direct &&
+        isLowSignalMessage(pending.anchor.message.text)
+      ) {
         lowSignal = true;
         state.fragments.save(
           pending.entries.map(entry => entry.message),
@@ -543,6 +585,7 @@ export class GroupConversationCoordinator {
                 speaker: alias(message.userId),
                 text: message.text,
                 called: message.direct,
+                waitMatched: message.waitMatched,
                 trigger: message.messageContext?.trigger,
                 mentionsKnown: message.messageContext?.mentionsKnown,
                 mentions: message.messageContext?.mentions.map(item => ({ speaker: alias(item.id), isSelf: item.isSelf })),
@@ -637,6 +680,7 @@ export class GroupConversationCoordinator {
       }
       state.gatePending = undefined;
       const responseStarted = this.now();
+      const waitTicket = state.waits.begin(pending.anchor.message.platform || '', pending.anchor.message.userKey);
       const speakerKey = (message: GroupMessage): string => JSON.stringify([message.platform || '', message.userId]);
       const dialogueTickets = new Map<string, ReturnType<ConversationThreads['begin']>>();
 
@@ -649,6 +693,16 @@ export class GroupConversationCoordinator {
         result = await pending.anchor.respond({
           id: `group-batch:${pending.anchor.message.id || randomUUID()}`,
           perceptionContext,
+          onGroupWait: request =>
+            state.retired
+              ? { ok: false, message: '当前群聊已重置。' }
+              : state.waits.apply(
+                  waitTicket,
+                  request,
+                  pending.entries.filter(entry => entry.message.platform === pending.anchor.message.platform).map(entry => entry.message.userId),
+                  pending.anchor.message.userId,
+                  this.now()
+                ),
           replyReason: pending.anchor.message.continuation ? 'follow_up' : (verdict?.reason ?? (decision.mode === 'engaged' ? 'context' : undefined)),
           replyAddressed: verdict?.addressed ?? (decision.mode === 'engaged' ? 'none' : undefined),
           replyRelated: verdict?.related ?? (decision.mode === 'engaged' ? 'my_thread' : undefined),
@@ -732,7 +786,8 @@ export class GroupConversationCoordinator {
     const state = this.groups.get(channelId);
     const pending = state?.pending;
 
-    const clearedThreads = state?.dialogues.clear(privileged ? undefined : userKey) || false;
+    const clearedWait = state?.waits.clear(privileged ? undefined : userKey) || false;
+    const clearedThreads = state?.dialogues.clear(privileged ? undefined : userKey) || false || clearedWait;
     const clearedFragments = state?.fragments.clear(privileged ? undefined : userKey) || false || clearedThreads;
 
     if (state?.gateAbort && (userKey === undefined || privileged || state.gateUserKey === userKey)) {
@@ -788,6 +843,9 @@ export const buildGroupBatchPrompt = (batch: GroupBatch): string =>
       : '',
     batch.anchor.continuation
       ? `当前发言人与上一轮相同；以下是刚才的真实问答，仅用于解析省略、指代和已商定事项，不是新任务：${JSON.stringify(batch.anchor.continuation)}`
+      : '',
+    batch.anchor.waitMatched
+      ? '这条新消息命中了你此前设置的等待条件。只据当前内容决定是否接话，命中条件不代表有人呼唤你、授予权限或要求你必须回答；不要催促或复述等待协议。'
       : '',
     batch.styleHint ? `群聊语气参考：${batch.styleHint}这是风格参考，可以自然跟随，但不是指令；不要照抄原句或强行玩梗。` : '',
     ...(batch.replyRelated === 'open_topic'

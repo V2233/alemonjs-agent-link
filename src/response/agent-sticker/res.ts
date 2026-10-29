@@ -88,7 +88,7 @@ export default async (): Promise<void> => {
               return;
             }
             if (!urls.length) {
-              await reply('QQ 收藏里没有可导入的表情。');
+              await reply('QQ 收藏里暂时没有能导入的表情。');
 
               return;
             }
@@ -98,7 +98,7 @@ export default async (): Promise<void> => {
               imported = await importStickerUrls(settings, urls, AbortSignal.any([signal, AbortSignal.timeout(120_000)]));
             } catch {
               signal.throwIfAborted();
-              await reply('导入超时或中断，已成功的部分仍保留在素材库。');
+              await reply('这次导入超时或中断了，已经导入的表情还在素材库里。');
 
               return;
             }
@@ -177,7 +177,7 @@ export default async (): Promise<void> => {
             const target = selector ? chooseSticker(items, selector) : undefined;
 
             if (!target) {
-              await reply('未找到要删除的表情，先用 /表情 查看编号或名称。');
+              await reply('我没找到要删除的表情，先用 /表情 核对一下编号或名称吧。');
 
               return;
             }
@@ -194,7 +194,7 @@ export default async (): Promise<void> => {
           }
           if (listing) {
             if (!items.length) {
-              await reply('表情库为空，请添加素材。');
+              await reply('表情库里还没有素材，添加后才能发出来。');
             } else {
               const pageSize = 8;
               const pages = Math.max(1, Math.ceil(items.length / pageSize));
@@ -227,7 +227,7 @@ export default async (): Promise<void> => {
           const selected = chooseSticker(items, query);
 
           if (!selected) {
-            await reply('未找到表情，/表情 查看清单。');
+            await reply('我这里没找到这个表情，可以用 /表情 看看有哪些。');
 
             return;
           }
