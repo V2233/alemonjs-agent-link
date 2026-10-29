@@ -47,6 +47,8 @@ for (const scenario of ['reading', 'silence', 'cancelled']) {
       assert.ok(address.includes('/chat/completions'), `unexpected network destination: ${address}`);
       const request = JSON.parse(init.body);
       assert.match(JSON.stringify(request.messages), /海洋生态/);
+      assert.match(JSON.stringify(request.messages), /priorThoughts/);
+      if (scenario === 'reading') assert.match(JSON.stringify(request.messages), /还不清楚鲸鱼如何交流/);
       assert.match(JSON.stringify(request.messages), /恐怖/);
       assert.deepEqual(request.tools.map(tool => tool.function.name).sort(), ['bili_diary', 'bili_search', 'bili_watch']);
       calls++;
@@ -67,15 +69,29 @@ for (const scenario of ['reading', 'silence', 'cancelled']) {
           ]
         });
       assert.match(JSON.stringify(request.messages), /研究鲸鱼歌声的资料/);
+      const toolResults = request.messages.filter(item => item.role === 'tool').map(item => JSON.parse(item.content));
+      const reading = toolResults.find(item => item.video);
+      assert.equal(reading.evidence.basis, 'metadata');
+      assert.equal(reading.evidence.visualObserved, false);
       return Response.json({ choices: [{ message: { content: scenario === 'silence' ? '[沉默]' : '鲸鱼歌声这个主题很有趣，我想继续了解。' } }] });
     };
     try {
+      if (scenario === 'reading')
+        getMemoryStore(config).recordDiary(
+          { platform: scope.platform, channelId: proactiveChannel(scope) },
+          {
+            key: 'previous-thought',
+            subjectId: scope.botId,
+            tags: ['B站', '阅读感想'],
+            text: '想法：{"title":"海洋生态","thought":"还不清楚鲸鱼如何交流"}'
+          }
+        );
       if (scenario === 'cancelled') await assert.rejects(() => browseDaily(config, scope, controller.signal));
       else assert.equal(await browseDaily(config, scope, controller.signal), 'recorded');
       const entries = getMemoryStore(config).list({ platform: scope.platform, channelId: proactiveChannel(scope) }, { subjectId: scope.botId });
       assert.equal(entries.filter(item => item.origin === 'event').length, scenario === 'cancelled' ? 0 : 1);
-      assert.equal(entries.filter(item => item.origin === 'diary').length, scenario === 'reading' ? 1 : 0);
-      if (scenario === 'reading') assert.match(entries.find(item => item.origin === 'diary').text, /想继续了解/);
+      assert.equal(entries.filter(item => item.origin === 'diary').length, scenario === 'reading' ? 2 : 0);
+      if (scenario === 'reading') assert.ok(entries.some(item => item.origin === 'diary' && item.text.includes('想继续了解')));
       assert.deepEqual(getMemoryStore(config).list({ platform: scope.platform, channelId: 'other' }), []);
     } finally {
       await (await getModuleRuntime(config)).close();

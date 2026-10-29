@@ -5,7 +5,7 @@ import { getDSHConfig } from '../dsh/runtime-config';
 import { runDSHChat } from '../response/dsh/chat';
 import { conversationBusy } from '../dsh/orchestrator';
 import { getDedupeTtlSeconds } from '../state/registry';
-import { proactiveChannel, beginProactive, type ProactiveScope } from './control';
+import { proactiveChannel, proactiveScopeId, beginProactive, type ProactiveScope } from './control';
 import { getProactiveStore, type ProactiveStore, type ProactiveAttempt, type ProactiveResult } from './store';
 import { entitledProactiveOptions, proactiveEnabled, proactiveOptions, type ProactiveOptions } from './options';
 import { personalKeyEntitled } from '../credentials/personal';
@@ -139,23 +139,32 @@ export class ProactiveWorker {
 
       this.cursor += selected.length;
       await Promise.allSettled(selected.map(scope => this.run(scope)));
+      const latest = this.current();
+
+      if (!this.closed && proactiveEnabled(latest) && latest.workspaceRoot === config.workspaceRoot) {
+        await this.browseOne(latest, store, new Set(selected.map(proactiveScopeId)));
+      }
     } finally {
       this.ticking = false;
     }
   }
 
-  private async browseOne(config: DSHBridgeConfig, store: ProactiveStore): Promise<void> {
+  private async browseOne(config: DSHBridgeConfig, store: ProactiveStore, excluded = new Set<string>()): Promise<void> {
     const raw = config.modules?.settings?.bili || {};
     const bili = biliOptions(raw);
 
-    if (raw.dailyBrowse !== true || !bili.enabled || !bili.allowProactiveBrowse || config.modules?.disabled?.includes('bili')) return;
+    if (!bili.enabled || !bili.allowProactiveBrowse || config.modules?.disabled?.includes('bili')) return;
     for (const scope of store.list()) {
+      if (excluded.has(proactiveScopeId(scope))) continue;
+      const reading = store.dailyBrowseSettings(scope, raw.dailyBrowse === true, browseWindow(raw.dailyBrowseWindow));
+
+      if (!reading.enabled) continue;
       if (!this.owner(scope) || conversationBusy(proactiveChannel(scope))) continue;
       const job = beginProactive(dirname(config.workspaceRoot), scope);
 
       if (!job) continue;
       try {
-        if (!store.claimDailyBrowse(scope, await this.options(scope, config), browseWindow(raw.dailyBrowseWindow))) continue;
+        if (!store.claimDailyBrowse(scope, await this.options(scope, config), reading.window)) continue;
         this.running.add(job.stop);
         const at = store.dailyBrowseStatus(scope).at;
         const signal = AbortSignal.any([job.signal, AbortSignal.timeout(60000)]);

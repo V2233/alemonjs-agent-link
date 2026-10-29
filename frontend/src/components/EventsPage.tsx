@@ -110,7 +110,7 @@ export default function EventsPage() {
     }
   };
   return (
-    <Layout.Content style={{ padding: 24, minWidth: 0 }}>
+    <Layout.Content className='workspace-content'>
       <Typography.Title level={2}>事件库</Typography.Title>
       <Typography.Paragraph type='secondary'>维护事件触发词和应对方式。匹配聊天内容后提供行为参考；节日前准备在已有主动回合中生效。</Typography.Paragraph>
       {error && <Alert type='error' message={error} action={<Button onClick={load}>重试</Button>} />}

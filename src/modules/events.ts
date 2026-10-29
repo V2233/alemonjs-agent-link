@@ -32,6 +32,8 @@ export const eventsModule = (config: DSHBridgeConfig): AgentModule => ({
       JSON.stringify([c.platform, c.channelId, getPersonaStore(config).selected(c) || config.modules?.settings?.persona?.defaultId || config.persona]);
 
     api.on('context', c => {
+      if (!c.platform || !c.channelId) return '';
+
       const matched = store.match(c.userText);
       const festivals = store.festivals(new Date(), scope(c));
       const evaluations = store.evaluations(scope(c));
@@ -53,7 +55,7 @@ export const eventsModule = (config: DSHBridgeConfig): AgentModule => ({
         required: ['quote'],
         additionalProperties: false
       },
-      available: c => !c.autonomous && Boolean(c.userId && c.channelId) && c.addressed !== false,
+      available: c => !c.autonomous && Boolean(c.platform && c.userId && c.channelId) && c.addressed !== false,
       execute: (args, c) => {
         const quote = String(args.quote).trim();
 

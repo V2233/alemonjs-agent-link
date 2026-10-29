@@ -80,7 +80,7 @@ export default function DictionaryPage() {
     }
   };
   return (
-    <Layout.Content style={{ padding: 24, minWidth: 0 }}>
+    <Layout.Content className='workspace-content'>
       <Typography.Title level={2}>热词词典</Typography.Title>
       <Typography.Paragraph type='secondary'>解释网络热词、烂梗和缩写。启用的词条对所有会话生效，聊天命中后提供释义参考。</Typography.Paragraph>
       {error && <Alert type='error' message={error} action={<Button onClick={load}>重试</Button>} />}

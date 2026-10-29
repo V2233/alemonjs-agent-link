@@ -1,3 +1,5 @@
+import { logger } from 'alemonjs';
+import { AdminInputError } from './panel/admin-error';
 import { voiceSnapshot, probeVoices, voiceBalances, readVoiceSettings, updateVoiceSettings } from './panel/voice-service';
 import { getOpinionStore } from './opinions/store';
 import { getEventStore } from './events/store';
@@ -43,10 +45,32 @@ apiRouter.use(async (ctx, next) => {
   } catch (error) {
     const conflict = /配置已|正在保存/.test(String(error));
 
-    ctx.status = conflict ? 409 : (error as { status?: number }).status === 413 ? 413 : 400;
+    // Do not log request bodies, credentials, or arbitrary exception messages.
+    logger.warn(
+      {
+        method: ctx.method,
+        path: ctx.path,
+        errorType: error instanceof Error ? error.name : 'UnknownError',
+        errorCode: (error as { code?: unknown })?.code,
+        stack:
+          error instanceof Error
+            ? error.stack
+                ?.split('\n')
+                .filter(line => /^\s+at /.test(line))
+                .slice(0, 8)
+                .join('\n')
+            : undefined
+      },
+      '管理接口操作失败'
+    );
+    ctx.status = conflict ? 409 : (error as { status?: number })?.status === 413 ? 413 : 400;
     ctx.body = {
       code: ctx.status,
-      message: conflict ? '内容已被更新，请刷新后重试' : '操作未完成，请检查填写内容后重试；若持续失败，请查看服务日志',
+      message: conflict
+        ? '内容已被更新，请刷新后重试'
+        : error instanceof AdminInputError
+          ? error.message
+          : '操作未完成，请检查填写内容后重试；若持续失败，请查看服务日志',
       data: null
     };
   }

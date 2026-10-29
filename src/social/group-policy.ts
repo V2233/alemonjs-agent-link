@@ -197,6 +197,7 @@ export const decideGroupReply = (input: {
   policy: GroupChatPolicy;
   direct: boolean;
   explicit?: boolean;
+  continuation?: boolean;
   semantic?: boolean;
   owner: boolean;
   now: number;
@@ -211,6 +212,7 @@ export const decideGroupReply = (input: {
   const decision = (reply: boolean, mode: GroupReplyMode, reason: string): GroupReplyDecision => ({ reply, mode, reason, relevance });
   const burst = input.replyTimes.filter(time => now - time < policy.burstWindowSeconds * 1000).length;
 
+  if (input.continuation && input.direct) return decision(true, 'direct', '继续与当前发言人的对话');
   if (burst >= policy.burstMax && !input.explicit && !(input.owner && input.direct)) {
     return decision(false, 'none', '近期发言过多');
   }

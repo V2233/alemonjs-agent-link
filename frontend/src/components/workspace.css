@@ -20,8 +20,10 @@
 }
 .workspace-content {
   width: 100%;
-  max-width: 1280px;
-  margin: auto;
+  max-width: 1600px;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0 auto;
   padding: 32px;
 }
 @media (max-width: 700px) {
@@ -31,4 +33,16 @@
   .workspace-header {
     padding: 16px;
   }
+}
+
+/* Shared page rhythm, matching the rotation workspace. */
+.workspace-content > h2.ant-typography,
+.workspace-content > .workspace-page-heading {
+  margin: 0 0 20px;
+}
+.workspace-content > div.ant-typography {
+  margin: -4px 0 20px;
+}
+.workspace-content > .ant-alert {
+  margin-bottom: 16px;
 }

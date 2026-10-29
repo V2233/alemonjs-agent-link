@@ -254,3 +254,41 @@ test('bubble copy stays inside its length budget', async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('reading diary command returns persisted evidence without a model request and restricts owner access', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'reading-diary-command-'));
+  const previous = globalThis.__config;
+  const oldFetch = globalThis.fetch;
+  globalThis.__config = { value: { 'alemonjs-agent-link': { stateBackend: 'local', workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home') } } };
+  globalThis.fetch = () => assert.fail('reading a diary must not call a model or external service');
+  const { getDSHConfig } = await import('../lib/dsh/client.js');
+  const { getMemoryStore } = await import('../lib/memory/store.js');
+  const { proactiveChannel } = await import('../lib/proactive/control.js');
+  const config = getDSHConfig();
+  const store = getMemoryStore(config);
+  const scope = { platform: 'qq-bot', channelId: proactiveChannel({ platform: 'qq-bot', botId: '900', userId: '100' }) };
+  store.recordExperience(scope, {
+    key: 'reading',
+    subjectId: '900',
+    tags: ['B站'],
+    text: '我读取了 B 站视频资料：{"title":"鲸鱼歌声","bvid":"BV1234567890"}。'
+  });
+  try {
+    const handler = (await import('../lib/response/agent-proactive/res.js')).default;
+    const replies = await runCommand(handler, { key: '主动搭话', args: ['阅读', '日记'] });
+    assert.match(replies.join(''), /鲸鱼歌声/);
+    assert.match(replies.join(''), /BV1234567890/);
+    const queried = await runCommand(handler, { key: '主动搭话', args: ['阅读', '日记', '7', '鲸鱼'] });
+    assert.match(queried.join(''), /关键词：鲸鱼/);
+    assert.match(queried.join(''), /BV1234567890/);
+    const miss = await runCommand(handler, { key: '主动搭话', args: ['阅读', '日记', '7', '未出现的关键词'] });
+    assert.ok(!miss.join('').includes('BV1234567890'));
+    const forbidden = await runCommand(handler, { key: '主动搭话', args: ['阅读', '日记'], master: false });
+    assert.ok(!forbidden.join('').includes('鲸鱼歌声'));
+  } finally {
+    globalThis.fetch = oldFetch;
+    globalThis.__config = previous;
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

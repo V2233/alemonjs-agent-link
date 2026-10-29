@@ -50,7 +50,7 @@ export const rankBrowseCandidates = <T extends { title: string; description: str
 };
 
 export const parseBrowseFeedback = (text: string): { topic: string; preference: 'like' | 'avoid' | 'clear' } | undefined => {
-  const match = text.trim().match(/^(以后多看|以后少看|以后别看|以后不要看|恢复推荐)[：:、\s]*(.{1,40}?)[。！!]*$/u);
+  const match = text.trim().match(/^(以后多看|以后别看|以后不要看|恢复推荐)[：:、\s]*(.{1,40}?)[。！!]*$/u);
 
   if (!match || /[“”"「」<>\r\n？?]/u.test(match[2])) return undefined;
   const topic = match[2].trim();
@@ -74,4 +74,12 @@ export const mergeBrowseFeedback = (
     ),
     exclude: [...new Set([...configured.exclude, ...avoid])]
   };
+};
+
+/** Rotate through explicit topics by local calendar day rather than choosing randomly each turn. */
+export const dailyReadingTopic = (topics: string[], day: string, offset: number): string => {
+  if (!topics.length) return '';
+  const ordinal = Math.floor(Date.parse(`${day}T12:00:00Z`) / 86400000);
+
+  return topics[(((ordinal + offset) % topics.length) + topics.length) % topics.length] || '';
 };

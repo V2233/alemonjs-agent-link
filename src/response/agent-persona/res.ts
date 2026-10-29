@@ -25,7 +25,7 @@ export default async (): Promise<void> => {
     for (const [index, chunk] of chunks.entries()) {
       assertMessageDelivered(
         await message.send({
-          format: commandBubble(chunk, '人格与交流方式', { platform: event.Platform, actions: index === chunks.length - 1 ? actions : [] })
+          format: commandBubble(chunk, '人格', { platform: event.Platform, actions: index === chunks.length - 1 ? actions : [] })
         })
       );
     }
@@ -105,18 +105,13 @@ export default async (): Promise<void> => {
         text: row.error ? '文件无效' : '',
         actions: canSwitch && !row.error ? [{ label: '使用', command: `/人格 使用 ${row.id}` }] : []
       }));
-      const more = [...(canSwitch ? [{ label: '恢复默认', command: '/人格 使用 默认' }] : []), { label: '人格帮助', command: '/人格 帮助' }];
+      const more = [...(canSwitch ? [{ label: '默认', command: '/人格 使用 默认' }] : []), { label: '人格帮助', command: '/人格 帮助' }];
 
       if (more.length > 0) sections.push({ title: '更多', text: '', actions: more });
       if (rows.length > visible.length) sections.push({ title: `还有 ${rows.length - visible.length} 个人格`, text: '用 /人格 使用 编号 切换。', actions: [] });
       assertMessageDelivered(
         await message.send({
-          format: sectionBubble(
-            '人格与交流方式',
-            `表达程度：${store.expressionMode(scope)}。点按钮会开始新话题；群内需管理员或主人。更多设置见 /人格 帮助。`,
-            sections,
-            { platform: event.Platform }
-          )
+          format: sectionBubble('人格', `${store.expressionMode(scope)}；切换新话题。/人格 帮助`, sections, { platform: event.Platform })
         })
       );
 

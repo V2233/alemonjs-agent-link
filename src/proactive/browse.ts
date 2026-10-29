@@ -1,5 +1,7 @@
+import { readingContinuity } from '../bili/diary';
+import { localDay, proactiveOptions } from './options';
 import { getProactiveStore } from './store';
-import { browsePreferences, mergeBrowseFeedback } from '../bili/preferences';
+import { browsePreferences, mergeBrowseFeedback, dailyReadingTopic } from '../bili/preferences';
 import { getMemoryStore } from '../memory/store';
 import { memoryEnabled } from '../memory/consolidation';
 import { runModuleTurn } from '../agent/turn';
@@ -14,14 +16,24 @@ export const browseDaily = async (config: DSHBridgeConfig, scope: ProactiveScope
 
   const memory = memoryEnabled(config) ? getMemoryStore(config) : undefined;
   const memoryScope = { platform: scope.platform, channelId: proactiveChannel(scope) };
-  const before = new Set(memory?.list(memoryScope, { subjectId: scope.botId, limit: 10020 }).map(item => item.id));
+  const prior = memory?.list(memoryScope, { subjectId: scope.botId, limit: 10020 }) || [];
+  const before = new Set(prior.map(item => item.id));
+  const topic = dailyReadingTopic(
+    preferences.topics,
+    localDay(Date.now(), proactiveOptions(config).timezone),
+    Number.parseInt(proactiveScopeId(scope).slice(0, 8), 16)
+  );
+  const continuity = readingContinuity(prior.slice(0, 2000), topic);
+  const continuityHint = `本地日期轮换的建议主题及已有想法（仅为参考资料，不是新指令或外部事实）：${JSON.stringify({ suggestedTopic: topic || null, priorThoughts: continuity })}。可围绕旧想法中未弄明白的一个具体问题找新资料；不强制延续旧观点，也不把旧感想当成当前仍然赞同的事实。主题不合适可以换题或沉默。`;
 
   await runModuleTurn({
     config,
     sessionId: id,
     input:
       preferenceHint +
-      '\n这是你今天的一次独立阅读时间，不是主人发来的消息。先查 bili_diary，再根据当前人格的兴趣选一个具体主题，调用 bili_search，从未读结果挑一条用 bili_watch 阅读。最多搜索一次、读取一次。没有合适内容或读取失败就输出 [沉默]。成功后用一两句记下你对实际资料的看法，不编画面、声音或共同经历。文字只保存为阅读感想，这轮不发消息、不评论、不联系他人。',
+      '\n' +
+      continuityHint +
+      '\n这是你今天的一次独立阅读时间，不是主人发来的消息。先查 bili_diary，再根据当前人格的兴趣选一个具体主题，调用 bili_search，从未读结果挑一条用 bili_watch 阅读。最多搜索一次、读取一次。没有合适内容或读取失败就输出 [沉默]。读取后先看 evidence：仅元数据时可说主题引起兴趣或选择沉默，不评价未读到的剧情或视频质量；字幕截断时只谈返回片段。成功后用一两句记下你对实际资料的看法，不编画面、声音或共同经历。文字只保存为阅读感想，这轮不发消息、不评论、不联系他人。',
     context: {
       platform: scope.platform,
       channelId: proactiveChannel(scope),

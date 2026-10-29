@@ -79,7 +79,7 @@ test('model tool call crosses the framework bridge and checks OneBot publication
   try {
     await runtimeScope.run(runtime, async () => {
       getConfig().saveValue({ 'alemonjs-agent-link': { apiKey: 'test', model: 'test', runtimeMode: 'chat-only', stateBackend: 'local',
-        workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), modules: { settings: { qzone } } } });
+        workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), modules: { disabled: ['opinions'], settings: { qzone } } } });
       config = getDSHConfig();
       let answer = '';
       await runModuleTurn({ config, sessionId: 'qzone-test', input: '帮我发一条空间说说', context: context('model-1'),
@@ -228,7 +228,7 @@ test('model reads a feed then comments through the OneBot bridge', async () => {
   try {
     await runtimeScope.run(runtime, async () => {
       getConfig().saveValue({ 'alemonjs-agent-link': { apiKey: 'test', model: 'test', runtimeMode: 'chat-only', stateBackend: 'local',
-        workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), modules: { settings: { qzone } } } });
+        workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), modules: { disabled: ['opinions'], settings: { qzone } } } });
       config = getDSHConfig();
       let answer = '';
       await runModuleTurn({ config, sessionId: 'qzone-interact', input: '帮我给好友动态写一条评论',
@@ -297,7 +297,7 @@ test('model posts actual current attachment bytes through OneBot', async () => {
   try {
     await runtimeScope.run(runtime, async () => {
       getConfig().saveValue({ 'alemonjs-agent-link': { apiKey: 'test', model: 'test', runtimeMode: 'chat-only', stateBackend: 'local',
-        workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), modules: { settings: { qzone } } } });
+        workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), modules: { disabled: ['opinions'], settings: { qzone } } } });
       config = getDSHConfig();
       await runModuleTurn({ config, sessionId: 'qzone-image', input: '发一条空间说说，带上这张图片',
         context: context('image-turn', { userText: '发一条空间说说，带上这张图片' }), onCurrentImages: async () => [photo], onEvent: async () => {} });

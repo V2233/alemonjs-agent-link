@@ -299,8 +299,8 @@ export default function PoolPage() {
     { total: 0, success: 0, failed: 0 }
   );
   return (
-    <Layout.Content className='workspace-content' style={{ maxWidth: 1600 }}>
-      <Flex justify='space-between' align='center' wrap gap={16} style={{ marginBottom: 20 }}>
+    <Layout.Content className='workspace-content'>
+      <Flex justify='space-between' align='center' wrap gap={16} className='workspace-page-heading'>
         <Typography.Title level={2} style={{ margin: 0 }}>
           额度轮转
         </Typography.Title>

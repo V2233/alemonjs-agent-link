@@ -795,3 +795,150 @@ test('explicit reading feedback is scoped, replaceable, persistent and reversibl
     for (let i = 0; i < 25; i++) f.store.setBrowseFeedback(scope, `topic-${i}`, 'like');
     assert.equal(f.store.browseFeedback(scope).length, 20);
   }));
+
+test('verified owner feedback is captured once while group and non-owner text cannot alter it', () =>
+  fixture(f => {
+    const store = getProactiveStore(f.config);
+    const event = {
+      Platform: scope.platform,
+      BotId: scope.botId,
+      UserId: scope.userId,
+      IsPrivate: true,
+      IsMaster: true,
+      MessageId: 'feedback-1',
+      MessageText: '以后别看恐怖'
+    };
+    observeProactiveInput(f.config, event);
+    assert.deepEqual(store.browseFeedback(scope), [{ topic: '恐怖', preference: 'avoid' }]);
+    observeProactiveInput(f.config, { ...event, MessageText: '恢复推荐恐怖' });
+    assert.equal(store.browseFeedback(scope).length, 1);
+    observeProactiveInput(f.config, { ...event, MessageId: 'group', IsPrivate: false, MessageText: '恢复推荐恐怖' });
+    observeProactiveInput(f.config, { ...event, MessageId: 'non-owner', IsMaster: false, MessageText: '恢复推荐恐怖' });
+    assert.equal(store.browseFeedback(scope).length, 1);
+    observeProactiveInput(f.config, { ...event, MessageId: 'feedback-2', MessageText: '恢复推荐恐怖' });
+    assert.deepEqual(store.browseFeedback(scope), []);
+  }));
+
+test('private reading settings persist, isolate scope, retain the other field and reset to global defaults', () =>
+  fixture(f => {
+    assert.deepEqual(f.store.dailyBrowseSettings(scope, false, [9, 22]), { enabled: false, window: [9, 22] });
+    f.store.setDailyBrowse(scope, { enabled: true });
+    f.store.setDailyBrowse(scope, { window: [22, 2] });
+    f.reopen();
+    assert.deepEqual(f.store.dailyBrowseSettings(scope, false), { enabled: true, window: [22, 2] });
+    assert.deepEqual(f.store.dailyBrowseSettings({ ...scope, userId: 'other' }, false), { enabled: false, window: undefined });
+    assert.throws(() => f.store.setDailyBrowse(scope, { window: [24, 2] }));
+    const job = beginProactive(f.root, scope);
+    assert.ok(job);
+    f.store.setDailyBrowse(scope, { enabled: false });
+    assert.equal(job.signal.aborted, true);
+    job.release();
+    assert.deepEqual(f.store.dailyBrowseSettings(scope, true), { enabled: false, window: [22, 2] });
+    f.store.resetDailyBrowse(scope);
+    assert.deepEqual(f.store.dailyBrowseSettings(scope, true, [18, 22]), { enabled: true, window: [18, 22] });
+  }));
+
+test('private opt-in drives independent reading without enabling it globally', () =>
+  fixture(async f => {
+    const config = { ...f.config, modules: { settings: { proactive: { ownKeyMax: false } } } };
+    f.store.subscribe(scope, true, f.options);
+    f.store.setDailyBrowse(scope, { enabled: true });
+    let readings = 0;
+    const worker = new ProactiveWorker(config, {
+      store: f.store,
+      config: () => config,
+      owner: () => true,
+      browse: async () => {
+        readings++;
+      }
+    });
+    try {
+      await worker.tick();
+      assert.equal(readings, 1);
+      f.advance(1440);
+      f.store.setDailyBrowse(scope, { enabled: false });
+      // Keep the outgoing-message branch inactive to isolate the independent reading check.
+      f.store.input(scope, 'new-day');
+      await worker.tick();
+      assert.equal(readings, 1);
+    } finally {
+      worker.stop();
+    }
+  }));
+
+test('offline due messages cannot starve another subscribed conversations daily reading', () =>
+  fixture(async f => {
+    const config = { ...f.config, modules: { settings: { bili: { dailyBrowse: true }, proactive: { activity: 'balanced', ownKeyMax: false } } } };
+    const other = { ...scope, userId: '101' };
+    const reader = { ...scope, userId: '102' };
+    f.store.subscribe(scope, true, f.options);
+    f.store.subscribe(other, true, f.options);
+    f.advance(60);
+    f.store.subscribe(reader, true, f.options);
+    const read = [];
+    let onlineChecks = 0;
+    const worker = new ProactiveWorker(config, {
+      store: f.store,
+      config: () => config,
+      owner: () => true,
+      online: async () => {
+        onlineChecks++;
+        return false;
+      },
+      browse: async (_config, target) => {
+        read.push(target.userId);
+      }
+    });
+    try {
+      await worker.tick();
+      await worker.tick();
+      assert.deepEqual(read, ['102']);
+      assert.equal(onlineChecks, 4);
+      assert.equal(f.store.get(reader).count, 0);
+    } finally {
+      worker.stop();
+    }
+  }));
+
+test('turning off proactive work during message handling blocks the subsequent reading phase', () =>
+  fixture(async f => {
+    let config = { ...f.config, modules: { settings: { bili: { dailyBrowse: true }, proactive: { activity: 'balanced', ownKeyMax: false } } } };
+    f.store.subscribe(scope, true, f.options);
+    f.advance(60);
+    f.store.subscribe({ ...scope, userId: 'reader' }, true, f.options);
+    const worker = new ProactiveWorker(config, {
+      store: f.store,
+      config: () => config,
+      owner: () => true,
+      online: async () => {
+        config = { ...config, modules: { disabled: ['proactive'] } };
+        return false;
+      },
+      browse: () => assert.fail('changed configuration must be checked before reading')
+    });
+    try {
+      await worker.tick();
+    } finally {
+      worker.stop();
+    }
+  }));
+
+test('AI master switch prevents independent reading without consuming the daily attempt', () =>
+  fixture(async f => {
+    const config = { ...f.config, aiEnabled: false, modules: { settings: { bili: { dailyBrowse: true }, proactive: { ownKeyMax: false } } } };
+    f.store.subscribe(scope, true, f.options);
+    const worker = new ProactiveWorker(config, {
+      store: f.store,
+      config: () => config,
+      owner: () => true,
+      browse: () => assert.fail('AI disabled must not start a reading'),
+      online: () => assert.fail('AI disabled must not start message handling')
+    });
+    try {
+      await worker.tick();
+      assert.equal(f.store.dailyBrowseStatus(scope), undefined);
+      assert.equal(await worker.run(scope, true), 'disabled');
+    } finally {
+      worker.stop();
+    }
+  }));

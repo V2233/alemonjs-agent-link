@@ -38,14 +38,14 @@ export default function WorkModelPage() {
     void run(load);
   }, []);
   return (
-    <Layout.Content style={{ padding: 24 }}>
+    <Layout.Content className='workspace-content'>
       <Typography.Title level={2}>工作模型</Typography.Title>
       <Typography.Paragraph type='secondary'>
         使用现有顶层 apiKey、baseUrl、model、provider 配置，默认提供方为 DeepSeek 官方，模型为 deepseek-v4-flash。目前用于「额度轮转 →
         智能识别」，后续文本生成、AI 总结等能力将在对应功能中提供入口。
       </Typography.Paragraph>
       {error && <Alert type='error' showIcon title={error} style={{ marginBottom: 16 }} />}
-      <Card title='模型配置' style={{ marginBottom: 20 }}>
+      <Card title='模型配置'>
         <Form
           form={form}
           layout='vertical'

@@ -1,3 +1,8 @@
+import { readingDiary, formatReadingDiary, searchReadingDiary } from '../../bili/diary';
+import { getMemoryStore } from '../../memory/store';
+import { memoryEnabled } from '../../memory/consolidation';
+import { proactiveChannel } from '../../proactive/control';
+import { browseWindow } from '../../proactive/browse-schedule';
 import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/runtime-config';
@@ -64,7 +69,67 @@ export default async (): Promise<void> => {
     const args = route.rawArgs.join(' ').trim();
     const time = (value: number): string => new Date(value).toLocaleString('zh-CN', { timeZone: options.timezone, hour12: false });
 
-    if (args === '开启') {
+    if (args.startsWith('阅读')) {
+      const readingArgs = args.slice(2).trim();
+      const windowMatch = readingArgs.match(/^作息\s+(\d{1,2})\s+(\d{1,2})$/u);
+
+      if (readingArgs === '开启' || readingArgs === '关闭') {
+        store.setDailyBrowse(scope, { enabled: readingArgs === '开启' });
+        await reply(
+          readingArgs === '开启'
+            ? '本私聊的每日阅读已开启；需保持主动搭话订阅，遵守暂停、免打扰和每日次数限制。'
+            : '本私聊的每日阅读已关闭，正在阅读的任务已取消。'
+        );
+      } else if (windowMatch) {
+        if (
+          Number(windowMatch[1]) > 23 ||
+          Number(windowMatch[2]) > 23 ||
+          windowMatch[1] === windowMatch[2] ||
+          Number(windowMatch[1]) === Number(windowMatch[2])
+        ) {
+          await reply('阅读作息需要两个不同的 0–23 整点，例如“/主动搭话 阅读 作息 18 22”。');
+
+          return;
+        }
+        const window = browseWindow([Number(windowMatch[1]), Number(windowMatch[2])]);
+
+        store.setDailyBrowse(scope, { window });
+        await reply(`阅读作息已保存：${window[0]}:00–${window[1]}:00（${options.timezone}），结束时间不包含在窗口内。`);
+      } else if (readingArgs === '恢复默认') {
+        store.resetDailyBrowse(scope);
+        await reply('阅读开关和作息已恢复跟随全局配置。');
+      } else if (/^日记(?:\s+[1-7](?:\s+.{1,80})?)?$/u.test(readingArgs)) {
+        if (!memoryEnabled(config)) {
+          await reply('记忆模块已停用，暂不能查看阅读日记。');
+
+          return;
+        }
+        const [, dayText, ...words] = readingArgs.split(/\s+/u);
+        const days = Number(dayText || 1);
+        const query = words.join(' ');
+        const records = getMemoryStore(config).list(
+          { platform: scope.platform, channelId: proactiveChannel(scope) },
+          { subjectId: scope.botId, status: 'active', limit: 2000 }
+        );
+        const entries = searchReadingDiary(readingDiary(records, days * 24), query);
+
+        await reply(
+          (query ? `关键词：${query}（字面匹配）\n` : '') +
+            formatReadingDiary(entries, days * 24, options.timezone) +
+            (records.length >= 2000 ? '\n仅检查最近 2000 条机器人记录，更早内容可能未包含。' : '')
+        );
+      } else if (readingArgs === '偏好') {
+        const feedback = store.browseFeedback(scope);
+
+        await reply(
+          feedback.length
+            ? feedback.map(item => `${item.preference === 'like' ? '多看' : '避开'}：${item.topic}`).join('\n')
+            : '尚无已保存的私聊阅读反馈。可以说“以后多看独立游戏”“以后别看恐怖”或“恢复推荐恐怖”。'
+        );
+      } else {
+        await reply('用法：/主动搭话 阅读 开启|关闭|作息 18 22|恢复默认|偏好|日记 [1-7] [关键词]。');
+      }
+    } else if (args === '开启') {
       if (!proactiveEnabled(config)) {
         await reply('主动搭话模块或总设置已停用，请在配置中启用后再开启订阅。');
 
@@ -118,6 +183,11 @@ export default async (): Promise<void> => {
       const row = store.get(scope);
       const attempts = store.attempts(scope);
       const browsing = store.dailyBrowseStatus(scope);
+      const reading = store.dailyBrowseSettings(
+        scope,
+        config.modules?.settings?.bili?.dailyBrowse === true,
+        browseWindow(config.modules?.settings?.bili?.dailyBrowseWindow)
+      );
       const browseLabels: Record<string, string> = {
         running: '已启动，尚无结束记录',
         recorded: '已保存阅读经历',
@@ -143,7 +213,12 @@ export default async (): Promise<void> => {
             },
             {
               title: '独立阅读',
-              text: `${config.modules?.settings?.bili?.dailyBrowse === true ? '每日阅读已配置开启' : '每日阅读未开启'}。${browsing ? `最近尝试 ${time(browsing.at)}：${browseLabels[browsing.status] || '结果待核查'}。可询问“看看你的浏览日记”。` : '暂无尝试记录。'}`
+              text: `${reading.enabled ? '每日阅读已配置开启' : '每日阅读未开启'}。${reading.window ? `作息 ${reading.window[0]}:00–${reading.window[1]}:00（${options.timezone}）。` : ''}${browsing ? `最近尝试 ${time(browsing.at)}：${browseLabels[browsing.status] || '结果待核查'}。可询问“看看你的浏览日记”。` : '暂无尝试记录。'}`,
+              actions: [
+                { label: reading.enabled ? '关闭阅读' : '开启阅读', command: `/主动搭话 阅读 ${reading.enabled ? '关闭' : '开启'}` },
+                { label: '阅读偏好', command: '/主动搭话 阅读 偏好' },
+                { label: '阅读日记', command: '/主动搭话 阅读 日记' }
+              ]
             },
             ...(paused
               ? [

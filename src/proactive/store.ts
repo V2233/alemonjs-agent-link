@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { proactiveScopeId, proactiveChannel, type ProactiveScope, interruptProactive } from './control';
-import { dailyBrowseSlot } from './browse-schedule';
+import { browseWindow, dailyBrowseSlot } from './browse-schedule';
 import { isQuiet, localDay, type ProactiveOptions } from './options';
 
 export type ProactiveSubscription = ProactiveScope & {
@@ -62,6 +62,7 @@ export class ProactiveStore {
         nudgedFor TEXT NOT NULL,unanswered INTEGER NOT NULL,day TEXT NOT NULL,count INTEGER NOT NULL,nudges INTEGER NOT NULL,nextAt INTEGER NOT NULL,
         pendingId TEXT NOT NULL,leaseUntil INTEGER NOT NULL,updatedAt INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS proactive_attempts(id TEXT PRIMARY KEY,scope TEXT NOT NULL,kind TEXT NOT NULL,status TEXT NOT NULL,at INTEGER NOT NULL,updatedAt INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS proactive_browse_settings(scope TEXT PRIMARY KEY,enabled INTEGER,start INTEGER,end INTEGER);
       CREATE TABLE IF NOT EXISTS proactive_browse_preferences(scope TEXT NOT NULL,topic TEXT NOT NULL,preference TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(scope,topic));
       CREATE TABLE IF NOT EXISTS proactive_shares(scope TEXT NOT NULL,key TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(scope,key));
       CREATE TABLE IF NOT EXISTS proactive_browse_outcomes(scope TEXT PRIMARY KEY,at INTEGER NOT NULL,status TEXT NOT NULL);
@@ -106,10 +107,37 @@ export class ProactiveStore {
     return result.changes === 1;
   }
 
+  dailyBrowseSettings(scope: ProactiveScope, enabled: boolean, window?: [number, number]): { enabled: boolean; window?: [number, number] } {
+    const row = this.db.prepare('SELECT enabled,start,end FROM proactive_browse_settings WHERE scope=?').get(proactiveScopeId(scope));
+
+    return {
+      enabled: row?.enabled === undefined || row.enabled === null ? enabled : Boolean(row.enabled),
+      window: row?.start === undefined || row.start === null ? window : [Number(row.start), Number(row.end)]
+    };
+  }
+
+  setDailyBrowse(scope: ProactiveScope, patch: { enabled?: boolean; window?: [number, number] }): void {
+    this.validate(scope);
+    browseWindow(patch.window);
+    interruptProactive(this.root, scope);
+    this.db
+      .prepare(
+        `INSERT INTO proactive_browse_settings(scope,enabled,start,end) VALUES(?,?,?,?)
+      ON CONFLICT(scope) DO UPDATE SET enabled=COALESCE(excluded.enabled,enabled),start=COALESCE(excluded.start,start),end=COALESCE(excluded.end,end)`
+      )
+      .run(proactiveScopeId(scope), patch.enabled === undefined ? null : Number(patch.enabled), patch.window?.[0] ?? null, patch.window?.[1] ?? null);
+  }
+
+  resetDailyBrowse(scope: ProactiveScope): void {
+    interruptProactive(this.root, scope);
+    this.db.prepare('DELETE FROM proactive_browse_settings WHERE scope=?').run(proactiveScopeId(scope));
+  }
+
   browseFeedback(scope: ProactiveScope): { topic: string; preference: string }[] {
     return this.db
       .prepare('SELECT topic,preference FROM proactive_browse_preferences WHERE scope=? ORDER BY at DESC,topic LIMIT 20')
-      .all(proactiveScopeId(scope)) as { topic: string; preference: string }[];
+      .all(proactiveScopeId(scope))
+      .map(row => ({ topic: String(row.topic), preference: String(row.preference) }));
   }
 
   setBrowseFeedback(scope: ProactiveScope, topic: string, preference: 'like' | 'avoid' | 'clear'): void {
@@ -481,6 +509,7 @@ export class ProactiveStore {
     this.db.prepare('DELETE FROM proactive_inputs WHERE scope=?').run(row.id);
     this.db.prepare('DELETE FROM proactive_shares WHERE scope=?').run(row.id);
     this.db.prepare('DELETE FROM proactive_browse_preferences WHERE scope=?').run(row.id);
+    this.db.prepare('DELETE FROM proactive_browse_settings WHERE scope=?').run(row.id);
     this.db.prepare('DELETE FROM proactive_browse_days WHERE scope=?').run(row.id);
     this.db.prepare('DELETE FROM proactive_browse_outcomes WHERE scope=?').run(row.id);
   }

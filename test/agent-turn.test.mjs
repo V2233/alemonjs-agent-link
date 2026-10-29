@@ -95,7 +95,7 @@ test('image turn without modules sends bytes to the model instead of DSH text pr
         stateBackend: 'local',
         workspaceRoot: join(root, 'work'),
         dshHomeRoot: join(root, 'home'),
-        modules: { disabled: ['memory', 'chat-history', 'persona', 'mood'] }
+        modules: { disabled: ['memory', 'chat-history', 'persona', 'mood', 'affinity', 'events', 'opinions'] }
       }
     }
   };
@@ -357,7 +357,7 @@ test('drawing request exposes a real render tool and queues a PNG before final r
         stateBackend: 'local',
         workspaceRoot: join(root, 'work'),
         dshHomeRoot: join(root, 'home'),
-        modules: { disabled: ['memory', 'chat-history', 'persona', 'mood'] }
+        modules: { disabled: ['memory', 'chat-history', 'persona', 'mood', 'affinity', 'events', 'opinions'] }
       }
     }
   };

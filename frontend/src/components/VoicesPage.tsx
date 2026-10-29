@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { App, Alert, Button, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography } from 'antd';
+import { App, Alert, Button, Form, Input, Modal, Layout, Select, Space, Switch, Table, Tag, Typography } from 'antd';
 
 type Voice = { id: string; name: string; enabled?: boolean; speech: Record<string, unknown>; ttsVoice?: string; balanceUrl?: string; probeUrl?: string };
 type Settings = { revision: string; activeVoice: string; voices: Voice[] };
@@ -56,15 +56,15 @@ export default function VoicesPage() {
     );
   };
   return (
-    <Space orientation='vertical' style={{ width: '100%' }} size='large'>
-      <Typography.Title level={3}>音色库</Typography.Title>
+    <Layout.Content className='workspace-content'>
+      <Typography.Title level={2}>音色库</Typography.Title>
       <Alert
         type='info'
         showIcon
         title='供应商余额独立查询；未知额度不当作零。测活成功不代表能合成或额度已恢复。'
         description='额度明确不足时按音色的 fallback 设置降级到本机。测活仅使用你配置的免费 GET 地址，不携带密钥。'
       />
-      <Space wrap>
+      <Space wrap style={{ marginBottom: 16 }}>
         <Button loading={busy} onClick={() => run(refresh)}>
           刷新
         </Button>
@@ -219,6 +219,6 @@ export default function VoicesPage() {
           </Form.Item>
         </Form>
       </Modal>
-    </Space>
+    </Layout.Content>
   );
 }

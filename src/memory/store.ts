@@ -45,6 +45,8 @@ const normalize = (text: string): string =>
     .normalize('NFKC')
     .toLowerCase()
     .replace(/[\p{P}\p{Z}\s]/gu, '');
+
+export const experienceMemoryId = (key: string): string => hash(JSON.stringify(['experience', key])).slice(0, 12);
 const scopeKey = (scope: MemoryScope): string => {
   if (!scope.platform || !scope.channelId) {
     throw new Error('记忆缺少平台或会话标识。');
@@ -115,6 +117,11 @@ export class MemoryStore {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(path);
     chmodSync(path, 0o600);
+    this.db
+      .exec(`CREATE TABLE IF NOT EXISTS shared_checkpoints (scope TEXT NOT NULL,subject_id TEXT NOT NULL,seq INTEGER NOT NULL,PRIMARY KEY(scope,subject_id));
+      CREATE TABLE IF NOT EXISTS shared_threads (
+      scope TEXT NOT NULL,id TEXT NOT NULL,subject_id TEXT NOT NULL,revision INTEGER NOT NULL,
+      payload TEXT NOT NULL,updated_at INTEGER NOT NULL,PRIMARY KEY(scope,id,revision));`);
     this.db.exec(`PRAGMA busy_timeout=3000; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
       CREATE TABLE IF NOT EXISTS memory_scopes (
         scope TEXT PRIMARY KEY, platform TEXT NOT NULL, channel_id TEXT NOT NULL, group_hash TEXT NOT NULL,
@@ -265,17 +272,131 @@ export class MemoryStore {
     return row ? this.decode(row) : undefined;
   }
 
+  sharedCheckpoint(scope: MemoryScope, userId: string): number {
+    return Number(this.db.prepare('SELECT seq FROM shared_checkpoints WHERE scope=? AND subject_id=?').get(scopeKey(scope), userId)?.seq || 0);
+  }
+  advanceSharedCheckpoint(scope: MemoryScope, userId: string, seq: number): void {
+    this.db
+      .prepare('INSERT INTO shared_checkpoints(scope,subject_id,seq) VALUES(?,?,?) ON CONFLICT(scope,subject_id) DO UPDATE SET seq=max(seq,excluded.seq)')
+      .run(scopeKey(scope), userId, seq);
+  }
+
+  sharedThreads(scope: MemoryScope, subjectId: string) {
+    return this.db
+      .prepare(
+        `SELECT t.payload FROM shared_threads t WHERE t.scope=? AND t.subject_id=?
+      AND t.revision=(SELECT max(revision) FROM shared_threads WHERE scope=t.scope AND id=t.id)
+      ORDER BY t.updated_at DESC LIMIT 10`
+      )
+      .all(scopeKey(scope), subjectId)
+      .map(row => JSON.parse(String(row.payload)));
+  }
+
+  sharedThreadHistory(scope: MemoryScope, subjectId: string, id: string) {
+    return this.db
+      .prepare('SELECT payload FROM shared_threads WHERE scope=? AND subject_id=? AND id=? ORDER BY revision DESC LIMIT 20')
+      .all(scopeKey(scope), subjectId, id)
+      .map(row => JSON.parse(String(row.payload)));
+  }
+
+  recordSharedThread(
+    scope: MemoryScope,
+    subjectId: string,
+    input: {
+      id?: string;
+      expectedRevision?: number;
+      text: string;
+      state: string;
+      sources: MemorySource[];
+    }
+  ) {
+    if (
+      !subjectId ||
+      !input.text?.trim() ||
+      input.text.length > 800 ||
+      !['discussed', 'agreed', 'cancelled', 'claimed_done'].includes(input.state) ||
+      !input.sources.length ||
+      input.sources.length > 10 ||
+      !input.sources.some(source => source.speakerId === subjectId)
+    )
+      throw new Error('共同经历缺少有效来源或状态。');
+
+    this.observe(scope);
+
+    return this.transaction(() => {
+      const id = input.id || randomUUID().replaceAll('-', '').slice(0, 12);
+      const old = this.sharedThreadHistory(scope, subjectId, id)[0];
+
+      if (input.id && old?.revision !== input.expectedRevision) throw new Error('事项版本已变化，请重新读取。');
+      if (old && Math.max(...input.sources.map(source => source.seq)) <= Math.max(...old.sources.map(source => source.seq)))
+        throw new Error('更新事项必须提供更新的聊天证据。');
+      const count = this.db.prepare('SELECT count(*) AS n FROM shared_threads WHERE scope=?').get(scopeKey(scope));
+
+      if (Number(count.n) >= 10000) throw new Error('共同经历版本容量已满。');
+      const duplicate = this.sharedThreads(scope, subjectId).find(item => item.text === input.text.trim() && item.state === input.state);
+
+      if (!input.id && duplicate) return duplicate;
+      const item = {
+        id,
+        subjectId,
+        revision: (old?.revision || 0) + 1,
+        text: input.text.trim(),
+        state: input.state,
+        sources: input.sources,
+        previousRevision: old?.revision || null,
+        updatedAt: this.now(),
+        evidenceType: 'conversation_only'
+      };
+
+      this.db
+        .prepare('INSERT INTO shared_threads(scope,id,subject_id,revision,payload,updated_at) VALUES(?,?,?,?,?,?)')
+        .run(scopeKey(scope), id, subjectId, item.revision, JSON.stringify(item), item.updatedAt);
+
+      return item;
+    });
+  }
+
+  linkSharedExecution(scope: MemoryScope, subjectId: string, id: string, expectedRevision: number, memoryId: string, botId: string) {
+    return this.transaction(() => {
+      const old = this.sharedThreadHistory(scope, subjectId, id)[0];
+      const evidence = this.get(scope, memoryId);
+
+      if (old?.revision !== expectedRevision) throw new Error('事项版本已变化，请重新读取。');
+      if (evidence?.origin !== 'event' || evidence.kind !== 'event' || evidence.subjectId !== botId || evidence.status !== 'active')
+        throw new Error('缺少当前机器人真实执行经历。');
+      if (old.execution?.memoryId === memoryId) return old;
+      const item = {
+        ...old,
+        revision: old.revision + 1,
+        previousRevision: old.revision,
+        updatedAt: this.now(),
+        execution: { memoryId: evidence.id, text: evidence.text, at: evidence.createdAt },
+        notice: '执行经历只证明记录中明确取得的结果，不代表整个约定已完成；取消状态保持有效。'
+      };
+
+      this.db
+        .prepare('INSERT INTO shared_threads(scope,id,subject_id,revision,payload,updated_at) VALUES(?,?,?,?,?,?)')
+        .run(scopeKey(scope), id, subjectId, item.revision, JSON.stringify(item), item.updatedAt);
+
+      return item;
+    });
+  }
+
   recordExperience(scope: MemoryScope, input: { key: string; subjectId: string; text: string; tags: string[] }, guard?: MemoryGuard): boolean {
     return this.recordPersonalEntry(scope, input, 'event', guard);
   }
 
-  recordDiary(scope: MemoryScope, input: { key: string; subjectId: string; text: string; tags: string[] }, guard?: MemoryGuard): boolean {
+  recordDiary(
+    scope: MemoryScope,
+    input: { key: string; subjectId: string; text: string; tags: string[]; sourceReadingId?: string },
+    guard?: MemoryGuard
+  ): boolean {
     return this.recordPersonalEntry(scope, input, 'diary', guard);
   }
 
   private recordPersonalEntry(
     scope: MemoryScope,
-    input: { key: string; subjectId: string; text: string; tags: string[] },
+    input: { key: string; subjectId: string; text: string; tags: string[]; sourceReadingId?: string },
     origin: 'event' | 'diary',
     guard?: MemoryGuard
   ): boolean {
@@ -298,7 +419,16 @@ export class MemoryStore {
       const state = this.state(scope);
 
       if (guard && (state?.epoch !== guard.epoch || state?.revision !== guard.revision)) return false;
-      const id = hash(JSON.stringify([origin === 'event' ? 'experience' : 'diary', input.key])).slice(0, 12);
+      const id = origin === 'event' ? experienceMemoryId(input.key) : hash(JSON.stringify(['diary', input.key])).slice(0, 12);
+      const tags = [...input.tags];
+
+      if (origin === 'diary' && input.sourceReadingId) {
+        const parent = this.get(scope, input.sourceReadingId);
+
+        if (parent?.status !== 'active' || parent.origin !== 'event' || parent.subjectId !== input.subjectId) return false;
+        if (tags.length >= 10 || !/^[a-f0-9]{12}$/u.test(parent.id)) return false;
+        tags.push(`reading:${parent.id}`);
+      }
 
       if (this.db.prepare('SELECT id FROM memories WHERE scope=? AND id=?').get(key, id)) return false;
       const capacity = scope.channelId.startsWith('private:') ? 1980 : 2000;
@@ -312,7 +442,7 @@ export class MemoryStore {
         subjectName: '机器人',
         kind: origin,
         text: input.text.trim(),
-        tags: input.tags,
+        tags,
         importance: 0.5,
         confidence: origin === 'event' ? 1 : 0.8,
         status: 'active',
@@ -712,20 +842,25 @@ export class MemoryStore {
     const links = all
       .filter(item => item.id !== id)
       .map(item => {
-        const relation = target.supersedes.includes(item.id)
-          ? 'previous_version'
-          : item.supersedes.includes(id)
-            ? 'next_version'
-            : item.sourceRefs.some(source => sources.has(source.seq))
-              ? 'shared_evidence'
-              : item.tags.some(tag => target.tags.includes(tag))
-                ? 'possibly_related'
-                : undefined;
+        const relation =
+          target.origin === 'diary' && item.origin === 'event' && target.tags.includes(`reading:${item.id}`)
+            ? 'reading_source'
+            : item.origin === 'diary' && target.origin === 'event' && item.tags.includes(`reading:${target.id}`)
+              ? 'reading_reflection'
+              : target.supersedes.includes(item.id)
+                ? 'previous_version'
+                : item.supersedes.includes(id)
+                  ? 'next_version'
+                  : item.sourceRefs.some(source => sources.has(source.seq))
+                    ? 'shared_evidence'
+                    : item.tags.some(tag => target.tags.includes(tag))
+                      ? 'possibly_related'
+                      : undefined;
 
         return { item, relation };
       })
       .filter(entry => entry.relation);
-    const priority = ['previous_version', 'next_version', 'shared_evidence', 'possibly_related'];
+    const priority = ['reading_source', 'reading_reflection', 'previous_version', 'next_version', 'shared_evidence', 'possibly_related'];
 
     links.sort((a, b) => priority.indexOf(a.relation) - priority.indexOf(b.relation) || b.item.updatedAt - a.item.updatedAt);
     const selected = links.slice(0, Math.max(1, Math.min(20, limit)));
@@ -760,6 +895,15 @@ export class MemoryStore {
       }
       const removed = connectedMemoryIds(all, target, true);
 
+      for (const item of all) {
+        if (item.subjectId !== target.subjectId || item.origin !== 'diary') continue;
+        if (item.tags.some(tag => tag.startsWith('reading:') && removed.has(tag.slice(8)))) removed.add(item.id);
+      }
+
+      // Shared conversations can contain the same personal evidence. Remove all
+      // versions for this person so forgetting cannot reveal it through another recall path.
+      this.db.prepare('DELETE FROM shared_threads WHERE scope=? AND subject_id=?').run(key, target.subjectId);
+
       this.suppressFallback(scope, target.subjectId, skipThrough);
 
       for (const entryId of removed) {
@@ -779,6 +923,8 @@ export class MemoryStore {
 
       this.suppressFallback(scope, '', skipThrough);
       this.db.prepare('DELETE FROM memories WHERE scope=?').run(key);
+      this.db.prepare('DELETE FROM shared_threads WHERE scope=?').run(key);
+      this.db.prepare('DELETE FROM shared_checkpoints WHERE scope=?').run(key);
       this.db.prepare('DELETE FROM memory_recalls WHERE scope=?').run(key);
       this.db.prepare('UPDATE memory_scopes SET revision=revision+1,checkpoint=max(checkpoint,?) WHERE scope=?').run(skipThrough, key);
     });
@@ -813,10 +959,12 @@ export class MemoryStore {
   }
 
   purgeHash(groupHash: string): void {
+    this.db.prepare('DELETE FROM shared_threads WHERE scope IN (SELECT scope FROM memory_scopes WHERE group_hash=?)').run(groupHash);
     this.db.prepare('DELETE FROM memory_scopes WHERE group_hash=?').run(groupHash);
   }
 
   cleanup(days = 30): void {
+    this.db.prepare('DELETE FROM shared_threads WHERE updated_at<?').run(this.now() - days * 86400000);
     this.db.prepare('DELETE FROM memory_scopes WHERE active_at<?').run(this.now() - days * 86400000);
   }
 }

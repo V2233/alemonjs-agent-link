@@ -69,3 +69,12 @@ test('feedback requires an explicit topic and configuration exclusions retain pr
     { topics: ['海洋'], exclude: ['恐怖', '游戏'] }
   );
 });
+
+test('daily topic rotation covers every configured topic and is stable for a local date', async () => {
+  const { dailyReadingTopic } = await import('../lib/bili/preferences.js');
+  const topics = ['海洋', '游戏', '音乐'];
+  const chosen = ['2026-10-29', '2026-10-30', '2026-10-31'].map(day => dailyReadingTopic(topics, day, 123));
+  assert.equal(new Set(chosen).size, 3);
+  assert.equal(dailyReadingTopic(topics, '2026-10-29', 123), chosen[0]);
+  assert.equal(dailyReadingTopic([], '2026-10-29', 0), '');
+});

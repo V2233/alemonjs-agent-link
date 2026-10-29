@@ -863,3 +863,64 @@ test('active public topic reaches the reply model with participation context', a
   assert.match(buildGroupBatchPrompt(batch), /主动加入公开闲聊/);
   h.coordinator.close();
 });
+
+test('same speaker follow-ups retain actual exchange and bypass ambient limits without another wake', async () => {
+  const h = harness({
+    classify: async () => {
+      throw new Error('follow-up must not need classifier');
+    }
+  });
+  const batches = [];
+  const respond = async batch => {
+    batches.push(batch);
+    return { delivered: true, replyText: batches.length === 1 ? '在呢，什么事' : '可以聊游戏，也能查资料。' };
+  };
+  const p = policy({ enabled: false, burstMax: 1 });
+  try {
+    const first = h.coordinator.receive(message('first', { userId: 'person', text: '肥鱼', addressed: true }), p, respond);
+    await h.coordinator.flush('group');
+    await first;
+    h.advance(5000);
+    const next = h.coordinator.receive(message('second', { userId: 'person', text: '你是干嘛的', direct: false }), p, respond);
+    await h.coordinator.flush('group');
+    await next;
+    assert.equal(batches.length, 2);
+    assert.equal(batches[1].replyReason, 'follow_up');
+    assert.equal(batches[1].anchor.continuation.replyText, '在呢，什么事');
+    assert.match(buildGroupBatchPrompt(batches[1]), /在呢，什么事/);
+    const other = await h.coordinator.receive(message('other', { text: '你能做什么', direct: false }), p, respond);
+    assert.equal(other.reply, false);
+    h.advance(120001);
+    const expired = await h.coordinator.receive(message('expired', { userId: 'person', text: '你能做什么', direct: false }), p, respond);
+    assert.equal(expired.reply, false);
+  } finally {
+    h.coordinator.close();
+  }
+});
+
+test('stop and redirection never inherit a previous conversation invitation', async () => {
+  for (const redirected of [true, false]) {
+    const h = harness();
+    const p = policy({ enabled: false });
+    const respond = async () => ({ delivered: true, replyText: '在呢' });
+    try {
+      const first = h.coordinator.receive(message('wake', { userId: 'person' }), p, respond);
+      await h.coordinator.flush('group');
+      await first;
+      if (!redirected) await h.coordinator.receive(message('stop', { userId: 'person', text: '别回了', direct: false }), p, respond);
+      const next = await h.coordinator.receive(
+        message('next', {
+          userId: 'person',
+          text: '你能做什么',
+          direct: false,
+          ...(redirected ? { messageContext: { mentions: [{ isSelf: false }], message: {} } } : {})
+        }),
+        p,
+        respond
+      );
+      assert.equal(next.reply, false);
+    } finally {
+      h.coordinator.close();
+    }
+  }
+});

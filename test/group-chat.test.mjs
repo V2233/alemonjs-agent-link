@@ -116,7 +116,7 @@ test('group batch reaches the actual model once, quotes a selected participant a
         workspaceRoot: join(root, 'workspaces'),
         dshHomeRoot: join(root, 'homes'),
         groupChat: { interjectChance: 0, batchWindowMs: 5000, maxBatchWaitMs: 5000 },
-        modules: { settings: { mood: { modelJudge: false } } }
+        modules: { disabled: ['opinions'], settings: { mood: { modelJudge: false } } }
       }
     }
   };

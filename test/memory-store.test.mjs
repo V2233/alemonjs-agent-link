@@ -231,3 +231,24 @@ test('subjective diary entries retain a distinct origin and deletion blocks stal
     assert.equal(store.recordDiary(scope, { ...entry, key: 'late-thought' }, guard), false);
     assert.deepEqual(store.list(scope), []);
   }));
+
+test('reading-linked thoughts require a live scoped source and delete in one direction', () =>
+  fixture(store => {
+    const reading = { key: 'reading-source', subjectId: 'bot', text: '读取了鲸鱼资料', tags: ['B站', '资料'] };
+    store.recordExperience(scope, reading);
+    const parent = store.list(scope)[0];
+    const thought = { key: 'thought-source', subjectId: 'bot', text: '我还想了解鲸鱼', tags: ['B站', '阅读感想'], sourceReadingId: parent.id };
+    assert.equal(store.recordDiary({ ...scope, channelId: 'other' }, thought), false);
+    assert.equal(store.recordDiary(scope, { ...thought, subjectId: 'another-bot' }), false);
+    assert.equal(store.recordDiary(scope, thought), true);
+    const diary = store.list(scope).find(item => item.origin === 'diary');
+    assert.ok(diary.tags.includes(`reading:${parent.id}`));
+    assert.equal(store.trace(scope, diary.id).links.find(item => item.id === parent.id).relation, 'reading_source');
+    assert.equal(store.trace(scope, parent.id).links.find(item => item.id === diary.id).relation, 'reading_reflection');
+    store.forget(scope, diary.id, 0);
+    assert.ok(store.get(scope, parent.id));
+    assert.equal(store.recordDiary(scope, { ...thought, key: 'second-thought' }), true);
+    store.forget(scope, parent.id, 0);
+    assert.deepEqual(store.list(scope), []);
+    assert.equal(store.recordDiary(scope, { ...thought, key: 'late-thought' }), false);
+  }));

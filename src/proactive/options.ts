@@ -116,7 +116,8 @@ export const proactiveOptions = (config: DSHBridgeConfig): ProactiveOptions => {
 
   return options as ProactiveOptions;
 };
-export const proactiveEnabled = (config: DSHBridgeConfig): boolean => !config.modules?.disabled?.includes('proactive') && proactiveOptions(config).enabled;
+export const proactiveEnabled = (config: DSHBridgeConfig): boolean =>
+  config.aiEnabled !== false && !config.modules?.disabled?.includes('proactive') && proactiveOptions(config).enabled;
 /**
  * 绑定个人 Key 的私聊不花机器人额度，主动搭话直接拉满：
  * 更快空闲、更多次数、更长连发。免打扰时段与平台限制不在此提权范围内。

@@ -142,7 +142,7 @@ test('model tool loop receives actual Bilibili comment confirmation', async () =
         stateBackend: 'local',
         workspaceRoot: join(root, 'work'),
         dshHomeRoot: join(root, 'home'),
-        modules: { settings: { bili: { enabled: true, allowComments: true, dryRun: false, cookie } } }
+        modules: { disabled: ['opinions'], settings: { bili: { enabled: true, allowComments: true, dryRun: false, cookie } } }
       }
     }
   };

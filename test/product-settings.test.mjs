@@ -129,7 +129,7 @@ test('product routes work while removed configuration endpoints cannot read or w
     assert.equal((await post({ revision: beforeRemove.revision, action: 'remove', id: 'first' })).status, 200);
     assert.deepEqual((await (await fetch(settingsUrl)).json()).data.modelPool.endpoints, []);
     const personasUrl = url.replace('/config', '/personas');
-    const persona = { id: 'test-persona', name: '测试人设', prompt: '只用于临时测试' };
+    const persona = { revision: '', id: 'test-persona', name: '测试人设', prompt: '只用于临时测试' };
     assert.equal((await fetch(personasUrl, { method: 'POST', headers, body: JSON.stringify(persona) })).status, 200);
     const personas = (await (await fetch(personasUrl)).json()).data;
     assert.equal(personas.find(item => item.id === 'test-persona').prompt, persona.prompt);

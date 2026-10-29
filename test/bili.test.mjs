@@ -47,12 +47,16 @@ test('video reading combines signed metadata, subtitle and comments without leak
   const downloader = async (url, config) => {
     assert.equal(url, 'https://i0.hdslb.com/subtitle.json');
     assert.deepEqual(config.allowedHosts, ['i0.hdslb.com']);
-    return Buffer.from(JSON.stringify({ body: [{ content: '真实字幕' }] }));
+    return Buffer.from(JSON.stringify({ body: [{ from: 1, to: 3, content: '真实字幕' }] }));
   };
   const client = createBiliClient({ cookie: 'SESSDATA=test', timeoutMs: 5000 }, fetcher, downloader);
   const result = await client.watch(bv, signal());
   assert.equal(result.video.title, '标题');
   assert.equal(result.subtitles.text, '真实字幕');
+  assert.deepEqual(result.subtitles.segments, [{ from: 1, to: 3, text: '真实字幕' }]);
+  assert.equal(result.subtitles.truncated, false);
+  assert.equal(result.evidence.basis, 'subtitles');
+  assert.equal(result.evidence.visualObserved, false);
   assert.equal(result.comments.items[0].text, '好看');
   assert.match(result.notice, /不代表已经观看画面/);
   assert.equal((await client.search('鲸鱼', signal())).items[0].title, '鲸鱼');
@@ -73,6 +77,7 @@ test('short-link destinations are checked and partial sources never masquerade a
   const result = await client.watch('https://b23.tv/Ab3', signal());
   assert.equal(result.subtitles.status, 'not_available');
   assert.equal(result.comments.status, 'unavailable');
+  assert.equal(result.evidence.basis, 'metadata');
   target = `https://evil.example/video/${bv}`;
   await assert.rejects(client.watch('https://b23.tv/Ab3', signal()), /跳转地址/);
   const aborted = new AbortController();
@@ -144,6 +149,7 @@ test('model reads the actual Bilibili result through a normal tool turn', async 
     if (calls === 2) {
       const result = JSON.parse(request.messages.find(item => item.role === 'tool').content);
       assert.equal(result.video.title, '真实标题');
+      assert.equal(result.evidence.basis, 'metadata');
       assert.equal(result.subtitles.status, 'not_available');
     } else {
       assert.match(JSON.stringify(request.messages), /近期经历/);
@@ -183,6 +189,7 @@ test('model reads the actual Bilibili result through a normal tool turn', async 
     assert.match(experiences[0].text, /真实标题/);
     assert.match(experiences[0].text, /实测鲸鱼资料/);
     assert.match(experiences[0].text, /这是条蓝鲸/);
+    assert.match(experiences[0].text, /contentBasis.*metadata/);
     assert.deepEqual(store.list({ ...scope, channelId: 'private:other' }), []);
     await runModuleTurn({
       config,
@@ -312,6 +319,7 @@ test('opt-in proactive turn searches and reads Bilibili with per-turn bounds and
     assert.match(reading.text, /没有读取视频画面或声音/);
     assert.equal(reflection.origin, 'diary');
     assert.equal(reflection.kind, 'diary');
+    assert.ok(reflection.tags.includes(`reading:${reading.id}`));
     assert.match(reflection.text, /未证明已发送/);
     assert.match(reflection.text, /标题挺有意思/);
   } finally {
@@ -458,6 +466,9 @@ test('reading diary exposes only scoped Bilibili evidence and respects deletion 
     const result = await diary.execute({}, context);
     assert.equal(result.entries.length, 1);
     assert.equal(result.entries[0].evidence, '真实阅读资料 A');
+    assert.equal((await diary.execute({ query: '资料 A' }, context)).entries.length, 1);
+    assert.equal((await diary.execute({ query: '其他活动' }, context)).entries.length, 0);
+    assert.equal((await diary.execute({ query: 'a'.repeat(81) }, context)).ok, false);
     assert.equal((await diary.execute({ hours: 169 }, context)).ok, false);
     assert.equal((await diary.execute({}, { ...context, botId: 'another' })).entries.length, 0);
     store.forget(context, result.entries[0].id, 0);
@@ -587,6 +598,11 @@ test('autonomous candidate selection excludes confirmed shares even without read
     );
     assert.equal(result.excludedAlreadyShared, 1);
     assert.equal(result.excludedRecentlyRead, 0);
+    store.setBrowseFeedback(scope, '新内容', 'avoid');
+    const feedbackFiltered = await search.execute({ keyword: '鲸鱼' }, { ...context });
+    assert.equal(feedbackFiltered.items.length, 0);
+    assert.equal(feedbackFiltered.excludedByTopic, 1);
+
     assert.equal((await search.execute({ keyword: '鲸鱼' }, { ...context, autonomous: false })).items.length, 2);
     const other = { ...context, userId: 'other', channelId: proactiveChannel({ ...scope, userId: 'other' }) };
     assert.equal((await search.execute({ keyword: '鲸鱼' }, other)).items.length, 2);

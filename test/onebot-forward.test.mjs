@@ -89,7 +89,7 @@ test('group batch puts each forwarded message into the actual model request', as
         stateBackend: 'local',
         workspaceRoot: join(root, 'work'),
         dshHomeRoot: join(root, 'home'),
-        modules: { settings: { mood: { modelJudge: false }, expression: { automatic: false } } }
+        modules: { disabled: ['opinions'], settings: { mood: { modelJudge: false }, expression: { automatic: false } } }
       }
     }
   };
