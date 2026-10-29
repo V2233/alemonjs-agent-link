@@ -139,12 +139,16 @@ export class RegistryUnavailableError extends Error {
   }
 }
 
-const redis = async (config: DSHBridgeConfig): Promise<Redis> => {
+const redis = async (config: DSHBridgeConfig, probe = false): Promise<Redis> => {
   if (config.stateBackend === 'local') {
     return (await getLocalStore(join(dirname(config.dshHomeRoot), 'state.json'))) as unknown as Redis;
   }
   const { getIoRedis } = await import('@alemonjs/db');
   const client = getIoRedis({ connectTimeout: Math.min(config.requestTimeoutMs, 5000) });
+
+  // Business commands already perform network I/O and report failures themselves.
+  // Keep explicit startup/health probes, but avoid a PING before every command.
+  if (!probe && client.status === 'ready') return client;
 
   let healthTimeout: ReturnType<typeof setTimeout>;
 
@@ -491,11 +495,11 @@ export class SessionRegistry {
     );
   }
   async ready(): Promise<void> {
-    await redis(this.config);
+    await redis(this.config, true);
   }
   async health(): Promise<boolean> {
     try {
-      await redis(this.config);
+      await redis(this.config, true);
 
       return true;
     } catch {

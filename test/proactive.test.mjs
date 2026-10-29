@@ -446,8 +446,11 @@ test('proactive delivery can browse a real tool result and remember the actual r
       assert.equal(watchCalls, 1);
       assert.equal(f.nativeCalls.filter(item => item.action === 'send_private_msg').length, 1);
       const events = getMemoryStore(config).list({ platform: scope.platform, channelId: proactiveChannel(scope) }, { subjectId: scope.botId });
-      assert.equal(events.length, 1);
-      assert.match(events[0].text, /研究鲸鱼的歌声/);
+      assert.equal(events.length, 2);
+      assert.match(events.find(item => item.tags.includes('资料')).text, /研究鲸鱼的歌声/);
+      assert.match(events.find(item => item.tags.includes('阅读感想')).text, /标题有点意思/);
+      assert.notEqual(await worker.run(scope, true), 'confirmed');
+      assert.equal(f.nativeCalls.filter(item => item.action === 'send_private_msg').length, 1);
     } finally {
       worker.stop();
     }
@@ -612,4 +615,183 @@ test('ordinary proactive messages stay text and use the explicit recipient inste
       f.nativeCalls[0].params.message.some(segment => segment.type === 'reply'),
       false
     );
+  }));
+
+test('daily reading survives restart and respects quiet hours and subscriptions', () =>
+  fixture(f => {
+    f.store.subscribe(scope, true, f.options);
+    assert.equal(f.store.claimDailyBrowse(scope, f.options), true);
+    f.reopen();
+    assert.equal(f.store.claimDailyBrowse(scope, f.options), false);
+    f.setTime(Date.parse('2026-10-27T02:00:00+08:00'));
+    assert.equal(f.store.claimDailyBrowse(scope, f.options), false);
+    f.setTime(Date.parse('2026-10-27T10:00:00+08:00'));
+    assert.equal(f.store.claimDailyBrowse(scope, f.options), true);
+    f.store.subscribe(scope, false, f.options);
+    f.advance(1440);
+    assert.equal(f.store.claimDailyBrowse(scope, f.options), false);
+  }));
+
+test('daily browsing runs without a due outgoing message and does not send or consume message quota', () =>
+  fixture(async f => {
+    const config = { ...f.config, modules: { settings: { bili: { dailyBrowse: true }, proactive: { activity: 'balanced', ownKeyMax: false } } } };
+    f.store.subscribe(scope, true, f.options);
+    let readings = 0;
+    const worker = new ProactiveWorker(config, {
+      store: f.store,
+      config: () => config,
+      owner: () => true,
+      browse: async (_config, target, signal) => {
+        assert.equal(signal.aborted, false);
+        assert.deepEqual(target.userId, scope.userId);
+        readings++;
+      },
+      deliver: () => assert.fail('reading must not dispatch an outgoing message')
+    });
+    try {
+      await worker.tick();
+      await worker.tick();
+      assert.equal(readings, 1);
+      assert.equal(f.store.dailyBrowseStatus(scope).status, 'completed');
+      assert.equal(f.store.get(scope).count, 0);
+      assert.equal(f.store.get(scope).unanswered, 0);
+    } finally {
+      worker.stop();
+    }
+  }));
+
+test('background tool restriction cannot be bypassed through execution', async () => {
+  let called = false;
+  const tool = {
+    name: 'unrelated_read',
+    readOnly: true,
+    parameters: { type: 'object' },
+    execute: async () => {
+      called = true;
+    }
+  };
+  await assert.rejects(() => executeTool(tool, {}, { autonomous: true, allowedTools: ['bili_watch'], signal: new AbortController().signal }), /未开放/);
+  assert.equal(called, false);
+});
+
+test('stopping the worker aborts independent reading and does not retry it after restart that day', () =>
+  fixture(async f => {
+    const config = { ...f.config, modules: { settings: { bili: { dailyBrowse: true }, proactive: { activity: 'balanced', ownKeyMax: false } } } };
+    f.store.subscribe(scope, true, f.options);
+    let begin;
+    const started = new Promise(resolve => {
+      begin = resolve;
+    });
+    const worker = new ProactiveWorker(config, {
+      store: f.store,
+      config: () => config,
+      owner: () => true,
+      browse: (_config, _scope, signal) =>
+        new Promise((resolve, reject) => {
+          begin();
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+        })
+    });
+    const pending = worker.tick();
+    await started;
+    worker.stop();
+    await assert.rejects(() => pending);
+    assert.equal(f.store.dailyBrowseStatus(scope).status, 'cancelled');
+    const restarted = new ProactiveWorker(config, {
+      store: f.store,
+      config: () => config,
+      owner: () => true,
+      browse: () => assert.fail('same-day interrupted reading must not be retried')
+    });
+    try {
+      await restarted.tick();
+    } finally {
+      restarted.stop();
+    }
+  }));
+
+test('daily browse outcomes persist and late results cannot replace a newer attempt', () =>
+  fixture(f => {
+    f.store.subscribe(scope, true, f.options);
+    assert.equal(f.store.claimDailyBrowse(scope, f.options), true);
+    const first = f.store.dailyBrowseStatus(scope);
+    assert.equal(first.status, 'running');
+    f.store.finishDailyBrowse(scope, first.at, 'recorded');
+    f.reopen();
+    assert.equal(f.store.dailyBrowseStatus(scope).status, 'recorded');
+    f.advance(1440);
+    assert.equal(f.store.claimDailyBrowse(scope, f.options), true);
+    const next = f.store.dailyBrowseStatus(scope);
+    f.store.finishDailyBrowse(scope, first.at, 'failed');
+    assert.equal(f.store.dailyBrowseStatus(scope).status, 'running');
+    f.store.finishDailyBrowse(scope, next.at, 'failed');
+    assert.equal(f.store.dailyBrowseStatus(scope).status, 'failed');
+  }));
+
+test('only confirmed initial shares enter the scoped seven-day duplicate index', () =>
+  fixture(f => {
+    const options = { ...f.options, maxPerDay: 20, maxUnanswered: 20 };
+    f.store.subscribe(scope, true, options);
+    const text = '这条鲸鱼视频很有意思 https://www.bilibili.com/video/BV1234567890';
+    const first = f.store.claim(scope, options, 1000, true);
+    assert.ok(first);
+    f.store.finish(first, 'failed', text);
+    assert.equal(f.store.duplicateShare(scope, text), false);
+    const confirmed = f.store.claim(scope, options, 1000, true);
+    assert.ok(confirmed);
+    f.store.finish(confirmed, 'confirmed', text);
+    assert.equal(f.store.duplicateShare(scope, text), true);
+    assert.equal(f.store.duplicateShare(scope, '换一种说法 BV1234567890'), true);
+    assert.deepEqual(f.store.recentSharedVideos(scope), ['BV1234567890']);
+    assert.deepEqual(f.store.recentSharedVideos({ ...scope, userId: 'other' }), []);
+    assert.equal(f.store.duplicateShare({ ...scope, userId: 'other' }, text), false);
+    assert.equal(f.store.duplicateShare(scope, '全新的消息'), false);
+    const split = f.store.claim(scope, options, 1000, true);
+    f.store.finish(split, 'confirmed', '今天看到一条视频\n内容很有趣');
+    assert.equal(f.store.duplicateShare(scope, '今天看到一条视频|||内容很有趣'), true);
+    f.reopen();
+    assert.equal(f.store.duplicateShare(scope, text), true);
+    f.advance(7 * 1440);
+    assert.equal(f.store.duplicateShare(scope, text), false);
+  }));
+
+test('duplicate share is rejected before entering the sending state', () =>
+  fixture(async f => {
+    const options = { ...f.options, maxPerDay: 20, maxUnanswered: 20 };
+    f.store.subscribe(scope, true, options);
+    const text = '值得看看 BV1234567890';
+    const old = f.store.claim(scope, options, 1000, true);
+    f.store.finish(old, 'confirmed', text);
+    let allowed;
+    const worker = new ProactiveWorker(f.config, {
+      store: f.store,
+      config: () => f.config,
+      owner: () => true,
+      online: async () => true,
+      deliver: async (_scope, _prompt, dispatch) => {
+        allowed = await dispatch.beforeSend('又发现这条 BV1234567890');
+        return { completed: false, delivered: false };
+      }
+    });
+    try {
+      assert.equal(await worker.run(scope, true), 'failed');
+      assert.equal(allowed, false);
+      assert.notEqual(f.store.get(scope).pausedUntil, Number.MAX_SAFE_INTEGER);
+    } finally {
+      worker.stop();
+    }
+  }));
+
+test('explicit reading feedback is scoped, replaceable, persistent and reversible', () =>
+  fixture(f => {
+    f.store.setBrowseFeedback(scope, 'ＡＰＥＸ', 'like');
+    assert.deepEqual(f.store.browseFeedback(scope), [{ topic: 'apex', preference: 'like' }]);
+    f.store.setBrowseFeedback(scope, 'apex', 'avoid');
+    f.reopen();
+    assert.deepEqual(f.store.browseFeedback(scope), [{ topic: 'apex', preference: 'avoid' }]);
+    assert.deepEqual(f.store.browseFeedback({ ...scope, userId: 'other' }), []);
+    f.store.setBrowseFeedback(scope, 'apex', 'clear');
+    assert.deepEqual(f.store.browseFeedback(scope), []);
+    for (let i = 0; i < 25; i++) f.store.setBrowseFeedback(scope, `topic-${i}`, 'like');
+    assert.equal(f.store.browseFeedback(scope).length, 20);
   }));

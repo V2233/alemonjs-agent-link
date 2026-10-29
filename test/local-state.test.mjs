@@ -245,3 +245,44 @@ test('disabled notices have durable per-conversation limits and reset only with 
   const reopened = new SessionRegistry({ ...config, aiNoticeEpoch: 'cycle-two' });
   assert.deepEqual(await Promise.all(Array.from({ length: 4 }, () => reopened.claimDisabledNotice('qq', id, false))), [true, true, false, false]);
 });
+
+test('no-op transactions preserve snapshot while mutations, expiry and rollback stay durable', async () => {
+  const { getLocalStore } = await import('../lib/state/local-store.js');
+  const { stat, mkdir, rm } = await import('node:fs/promises');
+  const path = join(await mkdtemp(join(tmpdir(), 'agent-link-noop-')), 'state.json');
+  const store = await getLocalStore(path);
+  await store.set('key', 'original');
+  const before = await stat(path, { bigint: true });
+  for (let i = 0; i < 20; i++) {
+    assert.equal(await store.set('key', 'duplicate', 'NX'), null);
+    assert.equal(await store.del('missing'), 0);
+    await store.zrem('missing', 'member');
+    await store.multi().expire('missing', 60).zremrangebyscore('missing', 0, 100).exec();
+    assert.equal(await store.eval('-- agent-link:releaseDedupe', 1, 'key', 'wrong-token'), 0);
+    assert.equal(await store.eval('-- agent-link:appendPrivateTurn', 2, 'missing', 'history', '1', '{}', '10', '60'), 0);
+  }
+  const after = await stat(path, { bigint: true });
+  assert.equal(after.ino, before.ino);
+  assert.equal(after.mtimeNs, before.mtimeNs);
+  await store.multi().zadd('sorted', 10, 'member').rpush('list', 'one').rpush('list', 'two').ltrim('list', -1, -1).expire('list', 60).exec();
+  let saved = JSON.parse(await readFile(path, 'utf8'));
+  assert.deepEqual(saved.entries.list.value, ['two']);
+  assert.ok(saved.entries.list.expires > Date.now());
+  await store.zrem('sorted', 'member');
+  saved = JSON.parse(await readFile(path, 'utf8'));
+  assert.deepEqual(saved.entries.sorted.value, {});
+  await store.set('expired', 'value', 'EX', -1);
+  await store.set('key', 'duplicate', 'NX');
+  saved = JSON.parse(await readFile(path, 'utf8'));
+  assert.equal(saved.entries.expired, undefined);
+  // Force rename failure after mutation; both memory and the next transaction recover.
+  const original = await readFile(path, 'utf8');
+  await rm(path);
+  await mkdir(path);
+  await assert.rejects(store.set('key', 'not-committed'));
+  assert.equal(await store.get('key'), 'original');
+  await rm(path, { recursive: true });
+  await writeFile(path, original);
+  await store.set('key', 'committed');
+  assert.equal(JSON.parse(await readFile(path, 'utf8')).entries.key.value, 'committed');
+});

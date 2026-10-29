@@ -1,3 +1,4 @@
+import { parseBrowseFeedback } from '../bili/preferences';
 import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '../dsh/config';
 import type { ChatEvent } from '../response/dsh/chat';
@@ -27,6 +28,9 @@ export const observeProactiveInput = (config: DSHBridgeConfig, event: ChatEvent)
     if (!store.input(recipient, event.MessageId)) {
       return;
     }
+    const feedback = parseBrowseFeedback(String(event.MessageText || ''));
+
+    if (feedback) store.setBrowseFeedback(recipient, feedback.topic, feedback.preference);
     if (
       /^(?:请|先|以后|最近|你|麻烦你|拜托你){0,3}(?:别|不要|不用)(?:再)?主动(?:来)?(?:找|联系|打扰)我(?:了)?[。！!\s]*$/u.test(
         String(event.MessageText || '').trim()

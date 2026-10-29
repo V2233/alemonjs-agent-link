@@ -86,7 +86,9 @@ alemonjs-agent-link:
 - 如果用户还提了别的要求（“在不在，顺便看看服务器”），或回复包含数字、链接、步骤、建议等额外信息，**先发表情，再补一条文字**；不会把文字和表情合成一条。
 - 没有精确匹配、冷却中、发送失败等情况，回退为正常文字回复。
 - `stickerIntentAlways: true` 让明确意图优先尝试，不再受 `stickerChance` 概率限制。
-- `stickerChance` 和 `stickerFallback` 只在 `stickerMode: both` 下生效：旧行为是先发正文、再补一张表情（`stickerFallback` 控制没匹配时是否随机）。
+- `stickerIntentAlways: false` 时，`either` 模式下的明确意图按 `stickerChance` 抽样尝试匹配表情；`both` 模式仍按概率在正文后补一张，`stickerFallback` 只控制 `both` 无匹配时是否随机。
+- 群聊自动接话也可用匹配表情回应；模型明确返回 `[沉默]` 时不发图。关闭 `stickers` 模块后自动选图停止。
+- 自动选图避开当前会话最近 30 分钟成功发出的最后 3 张，找不到合适新图则保留文字；主动工具发送成功也纳入近期记录。近期记录仅存在进程内。
 - 自动选择会参考用户意图、表情名称、分类、`context`、标签和心情；例如“在不在”优先“在呢”，“晚安”优先“晚安”。
 - 显式让肥鱼发表情（`send_sticker` 工具）仍可能产生文字+表情，因为那是模型主动调用工具；自动表达默认走 `either`。
 

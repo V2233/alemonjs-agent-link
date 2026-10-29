@@ -32,6 +32,7 @@ export const getLocalStore = (path: string): Promise<LocalStore> => {
 
 export class LocalStore {
   private entries: Record<string, Entry> = Object.create(null);
+  private changed = false;
   private queue: Promise<unknown> = Promise.resolve();
 
   private constructor(
@@ -66,7 +67,7 @@ export class LocalStore {
           throw error;
         }
       }
-      await store.transaction(() => 'OK');
+      await store.transaction(() => 'OK', true);
 
       return store;
     } catch (error) {
@@ -75,19 +76,24 @@ export class LocalStore {
     }
   }
 
-  private transaction<T>(action: () => T): Promise<T> {
+  private transaction<T>(action: () => T, forceWrite = false): Promise<T> {
     const result = this.queue.then(async () => {
       this.assertOwnership();
+      this.changed = forceWrite;
       const previous = structuredClone(this.entries);
       const temp = `${this.path}.${randomUUID()}.tmp`;
 
       try {
         for (const [key, entry] of Object.entries(this.entries)) {
           if (entry.expires !== undefined && entry.expires <= Date.now()) {
+            this.changed = true;
             Reflect.deleteProperty(this.entries, key);
           }
         }
         const value = action();
+
+        // Rejected guards and duplicate claims must not rewrite the snapshot.
+        if (!this.changed) return value;
 
         await writeFile(temp, JSON.stringify({ version: 1, entries: this.entries }), { mode: 0o600, flush: true });
         this.assertOwnership();
@@ -134,6 +140,7 @@ export class LocalStore {
         }
         const ex = args.indexOf('EX');
 
+        this.changed = true;
         this.entries[key] = { value: String(args[1]), ...(ex >= 0 ? { expires: Date.now() + Number(args[ex + 1]) * 1000 } : {}) };
 
         return 'OK';
@@ -142,17 +149,20 @@ export class LocalStore {
         return args.reduce<number>((count, item) => {
           const present = Boolean(this.entries[String(item)]);
 
+          if (present) this.changed = true;
           Reflect.deleteProperty(this.entries, String(item));
 
           return count + Number(present);
         }, 0);
       case 'expire':
         if (entry) {
+          this.changed = true;
           entry.expires = Date.now() + Number(args[1]) * 1000;
         }
 
         return Number(Boolean(entry));
       case 'rpush':
+        this.changed = true;
         this.entries[key] = { ...entry, value: [...list(), String(args[1])] };
 
         return (this.entries[key].value as string[]).length;
@@ -167,6 +177,7 @@ export class LocalStore {
           return selected;
         }
         if (entry) {
+          this.changed = true;
           entry.value = selected;
         }
 
@@ -175,6 +186,7 @@ export class LocalStore {
       case 'zadd': {
         const values = sorted();
 
+        this.changed = true;
         values[String(args[2])] = Number(args[1]);
         this.entries[key] = { ...entry, value: values };
 
@@ -185,6 +197,7 @@ export class LocalStore {
       case 'zrem': {
         const values = sorted();
 
+        if (Object.hasOwn(values, String(args[1]))) this.changed = true;
         Reflect.deleteProperty(values, String(args[1]));
 
         return 1;
@@ -194,6 +207,7 @@ export class LocalStore {
 
         for (const [member, score] of Object.entries(values)) {
           if (score >= Number(args[1]) && score <= Number(args[2])) {
+            this.changed = true;
             Reflect.deleteProperty(values, member);
           }
         }

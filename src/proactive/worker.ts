@@ -9,10 +9,12 @@ import { proactiveChannel, beginProactive, type ProactiveScope } from './control
 import { getProactiveStore, type ProactiveStore, type ProactiveAttempt, type ProactiveResult } from './store';
 import { entitledProactiveOptions, proactiveEnabled, proactiveOptions, type ProactiveOptions } from './options';
 import { personalKeyEntitled } from '../credentials/personal';
+import { browseWindow } from './browse-schedule';
+import { browseDaily } from './browse';
 import { biliOptions } from '../bili/client';
 
 type Delivery = { delivered: boolean; completed: boolean; replyText?: string };
-type Dispatch = { kind?: ProactiveAttempt['kind']; signal: AbortSignal; maxChars: number; beforeSend: () => Promise<boolean>; requestId: string };
+type Dispatch = { kind?: ProactiveAttempt['kind']; signal: AbortSignal; maxChars: number; beforeSend: (text?: string) => Promise<boolean>; requestId: string };
 const destination = (scope: ProactiveScope) => ({
   Platform: scope.platform,
   BotId: scope.botId,
@@ -73,6 +75,7 @@ export class ProactiveWorker {
       owner?: (scope: ProactiveScope) => boolean;
       online?: (scope: ProactiveScope) => Promise<boolean>;
       entitled?: (scope: ProactiveScope) => Promise<boolean>;
+      browse?: (config: DSHBridgeConfig, scope: ProactiveScope, signal: AbortSignal) => Promise<'recorded' | 'completed'> | Promise<void>;
       deliver?: (scope: ProactiveScope, prompt: string, dispatch: Dispatch) => Promise<Delivery>;
     } = {}
   ) {}
@@ -128,6 +131,8 @@ export class ProactiveWorker {
       }
 
       if (!scopes.length) {
+        await this.browseOne(config, store);
+
         return;
       }
       const selected = [scopes[this.cursor % scopes.length], ...(scopes.length > 1 ? [scopes[(this.cursor + 1) % scopes.length]] : [])];
@@ -136,6 +141,39 @@ export class ProactiveWorker {
       await Promise.allSettled(selected.map(scope => this.run(scope)));
     } finally {
       this.ticking = false;
+    }
+  }
+
+  private async browseOne(config: DSHBridgeConfig, store: ProactiveStore): Promise<void> {
+    const raw = config.modules?.settings?.bili || {};
+    const bili = biliOptions(raw);
+
+    if (raw.dailyBrowse !== true || !bili.enabled || !bili.allowProactiveBrowse || config.modules?.disabled?.includes('bili')) return;
+    for (const scope of store.list()) {
+      if (!this.owner(scope) || conversationBusy(proactiveChannel(scope))) continue;
+      const job = beginProactive(dirname(config.workspaceRoot), scope);
+
+      if (!job) continue;
+      try {
+        if (!store.claimDailyBrowse(scope, await this.options(scope, config), browseWindow(raw.dailyBrowseWindow))) continue;
+        this.running.add(job.stop);
+        const at = store.dailyBrowseStatus(scope).at;
+        const signal = AbortSignal.any([job.signal, AbortSignal.timeout(60000)]);
+
+        try {
+          const result = await (this.services.browse || browseDaily)(config, scope, signal);
+
+          store.finishDailyBrowse(scope, at, signal.aborted ? 'cancelled' : result || 'completed');
+        } catch (error) {
+          store.finishDailyBrowse(scope, at, signal.aborted ? 'cancelled' : 'failed');
+          throw error;
+        }
+
+        return;
+      } finally {
+        this.running.delete(job.stop);
+        job.release();
+      }
     }
   }
 
@@ -175,16 +213,20 @@ export class ProactiveWorker {
       const currentAttempt = attempt;
       const bili = biliOptions(config.modules?.settings?.bili || {});
       const canBrowse = !config.modules?.disabled?.includes('bili') && bili.enabled && bili.allowProactiveBrowse;
-      const prompt = this.prompt(attempt, options.maxChars, options.timezone, canBrowse);
+      const prompt =
+        this.prompt(attempt, options.maxChars, options.timezone, canBrowse) +
+        `\n本会话近七天已确认分享的 B 站视频编号：${JSON.stringify(store.recentSharedVideos(scope))}。不要再次推荐这些视频；有新的具体内容才分享，否则可以沉默。`;
+
       const result = await (this.services.deliver || deliverProactive)(scope, prompt, {
         kind: attempt.kind,
         signal: job.signal,
         maxChars: options.maxChars,
         requestId: `proactive:${attempt.id}`,
-        beforeSend: async () => {
+        beforeSend: async (text = '') => {
           try {
             const fresh = this.current();
 
+            if (currentAttempt.kind === 'initial' && store.duplicateShare(scope, text)) return false;
             if (
               this.closed ||
               job.signal.aborted ||
@@ -237,7 +279,7 @@ export class ProactiveWorker {
         ? `你先前问过一个问题，对方暂未回复。原话仅为引用：${JSON.stringify(attempt.questionText)}。只可轻轻接一句，不能催促、抱怨或要求回应。`
         : `主人有一段时间没有私聊了。${angle}`
     }
-${canBrowse && attempt.kind === 'initial' ? '如果自然适合开启新话题，可以用只读的 B 站搜索和视频资料工具找一个符合兴趣的话题；无需每次都查。只谈实际获取的资料，不声称看过没有读取的画面或声音，也不要评论、点赞或联系他人。' : ''}
+${canBrowse && attempt.kind === 'initial' ? '如果自然适合开启新话题，可先用 bili_diary 核对本会话近期已保存的阅读经历，避免重复推荐；也可以用只读的 B 站搜索和视频资料工具找一个符合兴趣的新话题，无需每次都查。已有资料足够时直接聊一处具体内容和当前看法，不写流水账，不把过去的阅读说成刚刚发生。只谈实际获取的资料，不声称看过没有读取的画面或声音，也不要评论、点赞或联系他人。' : ''}
 请保持当前人格，一到两句，总共不超过${maxChars}字符。像网友有话想说，不用每次“在吗”“吃了吗”，也不用每条末尾追问；兴趣随当前人格自然表达，不套固定台词。不得编造今天做过的现实事情或假装主人刚才找你。觉得对方忙或没有合适内容时，只输出 [沉默]。不要解释调度机制。`;
   }
 }

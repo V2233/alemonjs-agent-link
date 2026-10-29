@@ -116,7 +116,7 @@ export default async (): Promise<void> => {
       ];
       const intro = [notice.trim(), `${target} · ${value.day}`].filter(Boolean).join('\n');
       const details = [
-        `本次可用：${money(value.available)} 元${gate?.blocked ? '（感知预算不足）' : value.blocked ? '（不足）' : ''}`,
+        `可用：${money(value.available)} 元${gate?.blocked ? '（感知预算不足）' : value.blocked ? '（不足）' : ''}`,
         groupKey?.enabled ? '群 Key 优先，不扣内部额度。' : personal?.enabled ? '个人 Key 优先，不扣额度。' : '',
         event.IsPrivate && event.IsMaster
           ? `全局今日已用 ${money(value.globalUsed)} 元${value.globalLimit > 0 ? ` / 上限 ${money(value.globalLimit)} 元` : '（未设上限）'}`

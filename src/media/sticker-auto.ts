@@ -22,7 +22,7 @@ type Event = {
 };
 type Settings = {
   enabled: boolean;
-  ownerPrivate: boolean;
+  privateChats: boolean;
   groups: string[];
   allGroups: boolean;
   label: boolean;
@@ -37,10 +37,10 @@ export const autoStickerSettings = (config: DSHBridgeConfig): Settings => {
   const raw = config.modules?.settings?.stickers || {};
   const {
     autoCollect = true,
-    autoOwnerPrivate = true,
+    autoPrivate = raw.autoOwnerPrivate ?? true,
     autoGroups = [],
     autoLabel = true,
-    autoMaxPerHour = 20,
+    autoMaxPerHour = 60,
     autoDetect = true,
     autoMinConfidence = 0.6,
     autoMaxBytes = 2 * 1024 * 1024,
@@ -51,7 +51,7 @@ export const autoStickerSettings = (config: DSHBridgeConfig): Settings => {
 
   if (
     typeof autoCollect !== 'boolean' ||
-    typeof autoOwnerPrivate !== 'boolean' ||
+    typeof autoPrivate !== 'boolean' ||
     typeof autoLabel !== 'boolean' ||
     typeof autoDetect !== 'boolean' ||
     typeof autoAllGroups !== 'boolean' ||
@@ -78,7 +78,7 @@ export const autoStickerSettings = (config: DSHBridgeConfig): Settings => {
 
   return {
     enabled: autoCollect && !config.modules?.disabled?.includes('stickers') && config.aiEnabled !== false,
-    ownerPrivate: autoOwnerPrivate,
+    privateChats: autoPrivate,
     groups: autoGroups,
     allGroups: autoAllGroups,
     label: autoLabel,
@@ -116,7 +116,7 @@ type Job = {
 export class AutoStickerCollector {
   private readonly queue: Job[] = [];
   private readonly seen = new Map<string, number>();
-  private attempts: number[] = [];
+  private attempts: { at: number; userKey: string }[] = [];
   private running = false;
   private generation = 0;
   private active?: AbortController;
@@ -135,7 +135,7 @@ export class AutoStickerCollector {
       !userId ||
       !channelId ||
       !event.MessageId ||
-      (event.IsPrivate ? !(settings.ownerPrivate && event.IsMaster) : !settings.allGroups && !settings.groups.includes(`${platform}:${channelId}`))
+      (event.IsPrivate ? !settings.privateChats : !settings.allGroups && !settings.groups.includes(`${platform}:${channelId}`))
     )
       return 0;
     let vision = false;
@@ -164,16 +164,19 @@ export class AutoStickerCollector {
       : undefined;
     const now = Date.now();
 
-    this.attempts = this.attempts.filter(at => now - at < 3600_000);
+    this.attempts = this.attempts.filter(({ at }) => now - at < 3600_000);
     for (const [key, at] of this.seen) if (now - at >= 3600_000) this.seen.delete(key);
+    const userKey = JSON.stringify([platform, userId]);
+    let userAttempts = this.attempts.filter(attempt => attempt.userKey === userKey).length;
     let accepted = 0;
 
     for (const { item, index } of items) {
       const key = JSON.stringify([platform, channelId, event.MessageId, index]);
 
-      if (this.seen.has(key) || this.queue.length >= 8 || this.attempts.length >= settings.maxPerHour) continue;
+      if (this.seen.has(key) || this.queue.length >= 8 || this.attempts.length >= settings.maxPerHour || userAttempts >= 20) continue;
       this.seen.set(key, now);
-      this.attempts.push(now);
+      this.attempts.push({ at: now, userKey });
+      userAttempts++;
       this.queue.push({
         platform,
         channelId,
@@ -214,7 +217,7 @@ export class AutoStickerCollector {
           if (
             !current.enabled ||
             job.generation !== this.generation ||
-            (job.channelId.startsWith('private:') ? !current.ownerPrivate : !current.allGroups && !current.groups.includes(`${job.platform}:${job.channelId}`))
+            (job.channelId.startsWith('private:') ? !current.privateChats : !current.allGroups && !current.groups.includes(`${job.platform}:${job.channelId}`))
           )
             continue;
           const media = this.deps.media();

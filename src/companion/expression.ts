@@ -235,3 +235,22 @@ export const moodGroupPolicy = (config: DSHBridgeConfig, scope: PersonaScope, po
   // Only extend the configured cooldown; quiet hours, burst brakes and hourly limits remain hard bounds.
   return value < 45 ? { ...policy, cooldownSeconds: Math.min(86400, Math.ceil(policy.cooldownSeconds * (value < 25 ? 2 : 1.5))) } : policy;
 };
+
+// Only successful deliveries enter this session-local recent history.
+const recentStickers = new Map<string, { id: string; at: number }[]>();
+
+export const recordExpressionSticker = (scope: string, id: string, now = Date.now()): void => {
+  const recent = (recentStickers.get(scope) || []).filter(item => now - item.at < 30 * 60_000 && item.id !== id);
+
+  recentStickers.delete(scope);
+  recentStickers.set(scope, [...recent, { id, at: now }].slice(-3));
+  while (recentStickers.size > 1000) recentStickers.delete(recentStickers.keys().next().value);
+};
+export const freshExpressionStickers = (items: Sticker[], scope: string, now = Date.now()): Sticker[] => {
+  const recent = (recentStickers.get(scope) || []).filter(item => now - item.at < 30 * 60_000);
+
+  if (!recent.length) recentStickers.delete(scope);
+  const excluded = new Set(recent.map(item => item.id));
+
+  return items.filter(item => !excluded.has(item.id));
+};

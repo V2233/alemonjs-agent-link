@@ -1,9 +1,11 @@
+import { normalizeBubbleText } from '../dsh/reply-format';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { proactiveScopeId, proactiveChannel, type ProactiveScope, interruptProactive } from './control';
+import { dailyBrowseSlot } from './browse-schedule';
 import { isQuiet, localDay, type ProactiveOptions } from './options';
 
 export type ProactiveSubscription = ProactiveScope & {
@@ -33,6 +35,14 @@ const question = (text: string): boolean => /[？?]|(?:吗|呢|嘛)[。！!\s]*$
 const interval = (now: number, options: ProactiveOptions, random: () => number): number =>
   now + Math.round((options.minIntervalMinutes + Math.max(0, Math.min(1, random())) * (options.maxIntervalMinutes - options.minIntervalMinutes)) * 60000);
 
+const shareKeys = (text: string): string[] => {
+  const normalized = normalizeBubbleText(text).replace(/\s+/gu, ' ');
+
+  if (!normalized) return [];
+
+  return [...new Set([`text:${hash(normalized)}`, ...[...text.matchAll(/\bBV[0-9A-Za-z]{10}\b/gu)].map(match => `video:${match[0]}`)])];
+};
+
 export class ProactiveStore {
   private readonly db: DatabaseSync;
   constructor(
@@ -52,6 +62,10 @@ export class ProactiveStore {
         nudgedFor TEXT NOT NULL,unanswered INTEGER NOT NULL,day TEXT NOT NULL,count INTEGER NOT NULL,nudges INTEGER NOT NULL,nextAt INTEGER NOT NULL,
         pendingId TEXT NOT NULL,leaseUntil INTEGER NOT NULL,updatedAt INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS proactive_attempts(id TEXT PRIMARY KEY,scope TEXT NOT NULL,kind TEXT NOT NULL,status TEXT NOT NULL,at INTEGER NOT NULL,updatedAt INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS proactive_browse_preferences(scope TEXT NOT NULL,topic TEXT NOT NULL,preference TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(scope,topic));
+      CREATE TABLE IF NOT EXISTS proactive_shares(scope TEXT NOT NULL,key TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(scope,key));
+      CREATE TABLE IF NOT EXISTS proactive_browse_outcomes(scope TEXT PRIMARY KEY,at INTEGER NOT NULL,status TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS proactive_browse_days(scope TEXT PRIMARY KEY,day TEXT NOT NULL,at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS proactive_attempt_scope ON proactive_attempts(scope,at);
       CREATE TABLE IF NOT EXISTS proactive_inputs(scope TEXT NOT NULL,message_hash TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(scope,message_hash));`);
   }
@@ -69,6 +83,76 @@ export class ProactiveStore {
       .all()
       .map(row => ({ ...row, enabled: Boolean(row.enabled) })) as unknown as ProactiveSubscription[];
   }
+  claimDailyBrowse(scope: ProactiveScope, options: ProactiveOptions, window?: [number, number]): boolean {
+    const row = this.get(scope);
+    const now = this.now();
+
+    if (!row?.enabled || !options.enabled || row.pausedUntil > now || isQuiet(now, options) || row.pendingId) return false;
+    const { day, due } = dailyBrowseSlot(scope, now, options.timezone, window);
+
+    if (!due) return false;
+    const result = this.db
+      .prepare(
+        `INSERT INTO proactive_browse_days(scope,day,at) VALUES(?,?,?)
+      ON CONFLICT(scope) DO UPDATE SET day=excluded.day,at=excluded.at WHERE day<>excluded.day`
+      )
+      .run(proactiveScopeId(scope), day, now);
+
+    if (result.changes === 1)
+      this.db
+        .prepare("INSERT INTO proactive_browse_outcomes VALUES(?,?,'running') ON CONFLICT(scope) DO UPDATE SET at=excluded.at,status=excluded.status")
+        .run(proactiveScopeId(scope), now);
+
+    return result.changes === 1;
+  }
+
+  browseFeedback(scope: ProactiveScope): { topic: string; preference: string }[] {
+    return this.db
+      .prepare('SELECT topic,preference FROM proactive_browse_preferences WHERE scope=? ORDER BY at DESC,topic LIMIT 20')
+      .all(proactiveScopeId(scope)) as { topic: string; preference: string }[];
+  }
+
+  setBrowseFeedback(scope: ProactiveScope, topic: string, preference: 'like' | 'avoid' | 'clear'): void {
+    topic = topic.normalize('NFKC').trim().toLowerCase();
+    if (!topic || topic.length > 40) throw new Error('阅读反馈主题无效。');
+    const id = proactiveScopeId(scope);
+
+    if (preference === 'clear') this.db.prepare('DELETE FROM proactive_browse_preferences WHERE scope=? AND topic=?').run(id, topic);
+    else
+      this.db
+        .prepare(
+          'INSERT INTO proactive_browse_preferences VALUES(?,?,?,?) ON CONFLICT(scope,topic) DO UPDATE SET preference=excluded.preference,at=excluded.at'
+        )
+        .run(id, topic, preference, this.now());
+    this.db
+      .prepare(
+        'DELETE FROM proactive_browse_preferences WHERE scope=? AND topic NOT IN (SELECT topic FROM proactive_browse_preferences WHERE scope=? ORDER BY at DESC,topic LIMIT 20)'
+      )
+      .run(id, id);
+  }
+
+  recentSharedVideos(scope: ProactiveScope): string[] {
+    return this.db
+      .prepare("SELECT key FROM proactive_shares WHERE scope=? AND key LIKE 'video:%' AND at>? ORDER BY at DESC,key LIMIT 200")
+      .all(proactiveScopeId(scope), this.now() - 7 * 86400000)
+      .map(row => String(row.key).slice(6));
+  }
+
+  duplicateShare(scope: ProactiveScope, text: string): boolean {
+    const query = this.db.prepare('SELECT 1 FROM proactive_shares WHERE scope=? AND key=? AND at>?');
+
+    return shareKeys(text).some(key => Boolean(query.get(proactiveScopeId(scope), key, this.now() - 7 * 86400000)));
+  }
+
+  dailyBrowseStatus(scope: ProactiveScope): { at: number; status: string } | undefined {
+    return this.db.prepare('SELECT at,status FROM proactive_browse_outcomes WHERE scope=?').get(proactiveScopeId(scope)) as
+      { at: number; status: string } | undefined;
+  }
+
+  finishDailyBrowse(scope: ProactiveScope, at: number, status: 'recorded' | 'completed' | 'failed' | 'cancelled'): void {
+    this.db.prepare("UPDATE proactive_browse_outcomes SET status=? WHERE scope=? AND at=? AND status='running'").run(status, proactiveScopeId(scope), at);
+  }
+
   due(scope: ProactiveScope, options: ProactiveOptions, manual = false): boolean {
     const row = this.get(scope);
     const now = this.now();
@@ -344,6 +428,11 @@ export class ProactiveStore {
           this.db.prepare('UPDATE proactive_subscriptions SET pausedUntil=? WHERE id=?').run(Number.MAX_SAFE_INTEGER, row.id);
         }
         if (result === 'confirmed') {
+          if (attempt.kind === 'initial') {
+            const insert = this.db.prepare('INSERT INTO proactive_shares VALUES(?,?,?) ON CONFLICT(scope,key) DO UPDATE SET at=excluded.at');
+
+            for (const key of shareKeys(text)) insert.run(row.id, key, this.now());
+          }
           this.db.prepare('UPDATE proactive_subscriptions SET lastOutputAt=? WHERE id=?').run(this.now(), row.id);
           if (attempt.kind === 'initial' && row.revision === attempt.revision && question(text)) {
             this.db
@@ -383,12 +472,17 @@ export class ProactiveStore {
       this.remove(row as unknown as ProactiveSubscription);
     }
     this.db.prepare('DELETE FROM proactive_attempts WHERE at<?').run(this.now() - days * 86400000);
+    this.db.prepare('DELETE FROM proactive_shares WHERE at<=?').run(this.now() - 7 * 86400000);
   }
   private remove(row: ProactiveSubscription): void {
     interruptProactive(this.root, row);
     this.db.prepare('DELETE FROM proactive_subscriptions WHERE id=?').run(row.id);
     this.db.prepare('DELETE FROM proactive_attempts WHERE scope=?').run(row.id);
     this.db.prepare('DELETE FROM proactive_inputs WHERE scope=?').run(row.id);
+    this.db.prepare('DELETE FROM proactive_shares WHERE scope=?').run(row.id);
+    this.db.prepare('DELETE FROM proactive_browse_preferences WHERE scope=?').run(row.id);
+    this.db.prepare('DELETE FROM proactive_browse_days WHERE scope=?').run(row.id);
+    this.db.prepare('DELETE FROM proactive_browse_outcomes WHERE scope=?').run(row.id);
   }
   private validate(scope: ProactiveScope): void {
     if (!['onebot', 'qq-bot'].includes(scope.platform) || !scope.botId || !scope.userId || scope.botId.length > 200 || scope.userId.length > 200) {

@@ -325,16 +325,20 @@
 
 ### 8.1 `modules.settings.bili`
 
-| 字段                     | 类型    | 默认    | 范围                 | 说明                                     |
-| ------------------------ | ------- | ------- | -------------------- | ---------------------------------------- |
-| `enabled`                | boolean | `true`  | —                    | 打开 B 站能力                            |
-| `cookie`                 | string  | 空      | ≤4096 字，不能含换行 | 账号 Cookie，等同凭证，不要外泄          |
-| `timeoutMs`              | number  | `20000` | 1000–60000           | 请求超时                                 |
-| `allowComments`          | boolean | `true`  | —                    | 允许评论工具；主人本轮明确要求时才可调用 |
-| `allowProactiveBrowse`   | boolean | `true`  | —                    | 允许主动搭话时自行浏览                   |
-| `dryRun`                 | boolean | `false` | —                    | 真实发布；设为 true 时只生成预览         |
-| `maxCommentsPerDay`      | number  | `5`     | 1–100                | 每日评论上限                             |
-| `commentCooldownSeconds` | number  | `60`    | 0–86400              | 评论冷却                                 |
+| 字段                     | 类型    | 默认    | 范围                     | 说明                                                            |
+| ------------------------ | ------- | ------- | ------------------------ | --------------------------------------------------------------- |
+| `enabled`                | boolean | `true`  | —                        | 打开 B 站能力                                                   |
+| `cookie`                 | string  | 空      | ≤4096 字，不能含换行     | 账号 Cookie，等同凭证，不要外泄                                 |
+| `timeoutMs`              | number  | `20000` | 1000–60000               | 请求超时                                                        |
+| `allowComments`          | boolean | `true`  | —                        | 允许评论工具；主人本轮明确要求时才可调用                        |
+| `allowProactiveBrowse`   | boolean | `true`  | —                        | 允许主动搭话时自行浏览                                          |
+| `dailyBrowse`            | boolean | `false` | —                        | 已订阅主人会话每日独立只读浏览一次，遵守安静时段与暂停          |
+| `dailyBrowseWindow`      | array   | 未配置  | 两个不同的 0–23 整点     | 每日阅读窗口，例如 `[18,22]`；`[22,2]` 跨午夜，沿用主动搭话时区 |
+| `dailyBrowseTopics`      | array   | `[]`    | 最多 10 个，每个 1–40 字 | 独立阅读优先参考的选题主题                                      |
+| `dailyBrowseExclude`     | array   | `[]`    | 最多 10 个，每个 1–40 字 | 主动搜索标题或简介中的避雷关键词，普通手动搜索不受影响          |
+| `dryRun`                 | boolean | `false` | —                        | 真实发布；设为 true 时只生成预览                                |
+| `maxCommentsPerDay`      | number  | `5`     | 1–100                    | 每日评论上限                                                    |
+| `commentCooldownSeconds` | number  | `60`    | 0–86400                  | 评论冷却                                                        |
 
 ### 8.2 `modules.settings.memory`
 
@@ -400,11 +404,11 @@
 | 字段                | 类型     | 默认      | 范围                 | 说明                                                      |
 | ------------------- | -------- | --------- | -------------------- | --------------------------------------------------------- |
 | `autoCollect`       | boolean  | `true`    | —                    | 自动收集表情                                              |
-| `autoOwnerPrivate`  | boolean  | `true`    | —                    | 主人私聊也收集                                            |
+| `autoPrivate`       | boolean  | `true`    | —                    | 所有用户私聊也收集；兼容旧键 `autoOwnerPrivate`，新键优先 |
 | `autoGroups`        | string[] | `[]`      | ≤100，`平台:ID` 形式 | 允许收集的群；为空且 `autoAllGroups` 为 true 时表示全部群 |
 | `autoAllGroups`     | boolean  | `true`    | —                    | 未配置 `autoGroups` 时收集所有群                          |
 | `autoLabel`         | boolean  | `true`    | —                    | 自动生成名称/标签（有模型费用）                           |
-| `autoMaxPerHour`    | number   | `20`      | 1–100                | 每小时收集上限                                            |
+| `autoMaxPerHour`    | number   | `60`      | 1–100                | 全局每小时收集上限                                        | 同一平台用户跨群聊和私聊固定最多 20 张/小时，按入队尝试计数。 |
 | `autoDetect`        | boolean  | `true`    | —                    | 自动判定是否表情                                          |
 | `autoMinConfidence` | number   | `0.6`     | 0–1                  | 判定置信度阈值                                            |
 | `autoMaxBytes`      | number   | `2097152` | 1024–25MB            | 单个素材大小上限                                          |

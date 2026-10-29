@@ -104,7 +104,7 @@ asr:
 ]
 ```
 
-默认最多 300 项（`media.stickerMaxItems`，1–500）；id 唯一，每项最多 10 个标签。支持 PNG/JPEG/WebP/GIF。文件须真实存在于该目录内，不能通过 `../` 或外部符号链接读取目录之外的文件。清单上限 256 KiB。插件不自带第三方表情素材；自动收集默认对主人私聊和所有群开启，`autoAllGroups: false` 后才只收 `autoGroups` 中列出的群。
+默认最多 300 项（`media.stickerMaxItems`，1–500）；id 唯一，每项最多 10 个标签。支持 PNG/JPEG/WebP/GIF。文件须真实存在于该目录内，不能通过 `../` 或外部符号链接读取目录之外的文件。清单上限 256 KiB。插件不自带第三方表情素材；自动收集默认对所有用户私聊和所有群开启，`autoAllGroups: false` 后才只收 `autoGroups` 中列出的群。
 
 插件收藏的条目会附带 `kind`（`sticker` 表情 / `avatar` 形象头像，旧条目没有时按表情处理）、`category`（头像类型或表情主分类，如 `头像`、`开心`、`无语`）、`context`（适用/不适用场景，便于模型选图）、`from`（`auto`/`manual`/`forge`/`import`/`site`/`file`/`legacy`）、`addedAt`、`uses`、`lastUsed`、`width`、`height`、`bytes`、`confidence`、`sourceUrl`、`license` 和 `emojiId`（已写入 QQ 收藏时的平台标识）等可选元数据；外部清单可以省略。超过数量上限时，只会淘汰 `from: auto` 中“使用次数最少、最久未使用”的条目；主人手动加入、表情工坊生成和旧清单条目不自动删除，因此库满且没有可淘汰项时会拒绝新收藏。`kind: avatar` 只出现在素材/头像视图，`list_stickers` 和发送表情默认只取 `kind: sticker`。
 
@@ -114,7 +114,7 @@ asr:
 
 主人可使用 `/表情` 查到编号，然后在私聊明确要求修改该编号的名称、标签或从清单移除。移除会尝试删除对应 QQ 收藏，但不会删除原始图片文件；收藏中断也可能留下未引用的文件。清单更新使用锁和原子替换，外部程序应避免同时编辑。异常退出后若残留 `.agentlink-sticker.lock`，确认没有其他进程正在修改素材库后再由管理员移除锁文件。首次使用会自动创建 `stickerRoot` 和空 `manifest.json`，但不会覆盖已有清单。
 
-默认自动收集附件：主人私聊开启，群聊默认全部开启（`autoAllGroups: false` 时只收集 `autoGroups` 列出的群）。平台明确标记的表情会直接进入候选；普通图片只有在 `autoDetect` 和视觉服务都可用时才会被静默判断，不是所有图片都收。OneBot 的图片段 `sub_type=1`、带 emoji 标识的图片和 `mface` 归类为表情；缺少或无法下载 URL 时，可按原消息的文件标识使用 `get_image`，本机路径仍受 `imageDirectory` 限制。如需限制群范围，把 `autoAllGroups` 设为 false 并填写 `autoGroups`：
+默认自动收集附件：所有用户私聊开启，群聊默认全部开启（`autoAllGroups: false` 时只收集 `autoGroups` 列出的群）。平台明确标记的表情会直接进入候选；普通图片只有在 `autoDetect` 和视觉服务都可用时才会被静默判断，不是所有图片都收。OneBot 的图片段 `sub_type=1`、带 emoji 标识的图片和 `mface` 归类为表情；缺少或无法下载 URL 时，可按原消息的文件标识使用 `get_image`，本机路径仍受 `imageDirectory` 限制。如需限制群范围，把 `autoAllGroups` 设为 false 并填写 `autoGroups`：
 
 ```yaml
 alemonjs-agent-link:
@@ -122,11 +122,11 @@ alemonjs-agent-link:
     settings:
       stickers:
         autoCollect: true
-        autoOwnerPrivate: true
+        autoPrivate: true
         autoGroups: [] # 为空且 autoAllGroups 为 true 时收集所有群
         autoAllGroups: true
         autoLabel: true
-        autoMaxPerHour: 20
+        autoMaxPerHour: 60
         autoDetect: true
         autoMinConfidence: 0.6
         autoMaxBytes: 2097152
@@ -238,3 +238,5 @@ media:
 每项可配置 `balanceUrl: 'https://供应商/余额接口?key={key}'`，沿用额度轮转的余额格式解析（`data.balance`、`total_available` 或 `vouchers[].available`），支持返回的三位币种代码，无币种时沿用 CNY。这不是通用 TTS 标准，需确认供应商实际提供对应接口。仅已用金额、未知值或查询失败不作为余额为零。缓存60秒，手动查询强制刷新；同服务同密钥同查询地址共享余额结果，不汇总音色间重复账号余额。最近60秒明确查到额度耗尽会触发合成降级，不查询也保留原402回退。
 
 `probeUrl` 为供应商明确提供的免费 HTTPS GET 健康地址，不允许凭证、查询参数或重定向，不附加 API Key。没有该地址显示“未配置”，不调用合成接口测活。连通成功不会清除额度不足状态。停用音色仍允许查额度、测活。诊断仅手动触发，未伪造供应商余额支持、自动发现音色或实际合成成功。
+
+自动收集按最近一小时滚动计数：默认全局最多 60 张，同一平台的同一用户跨所有群聊和私聊合计最多 20 张。入队即计入额度（识别不通过、重复素材或下载失败也计数），避免重复消耗识别资源；计数保存在进程内，配置重载不清空，进程重启后重新计数。

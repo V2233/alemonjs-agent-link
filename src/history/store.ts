@@ -1,5 +1,5 @@
 import { rankMemories } from '../memory/retrieval';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -51,6 +51,7 @@ export const historyEnabled = (config: DSHBridgeConfig): boolean => !config.modu
 export class ChatArchive {
   private db: DatabaseSync;
   private lastCleanup = 0;
+  private readonly insertMessage: StatementSync;
   constructor(
     path: string,
     private readonly days = 30
@@ -85,6 +86,10 @@ export class ChatArchive {
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS messages_reference ON messages(scope,reference_id); CREATE INDEX IF NOT EXISTS messages_reply ON messages(scope,reply_to_id);'
     );
+    this.insertMessage = this.db.prepare(
+      `INSERT OR IGNORE INTO messages(scope,group_hash,message_id,speaker_id,speaker,role,text,timestamp,truncated,reference_id,reply_to_id,source_message_id,metadata)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    );
     this.cleanup();
   }
   close(): void {
@@ -105,26 +110,21 @@ export class ChatArchive {
     }
     const text = message.text.slice(0, 8000);
 
-    this.db
-      .prepare(
-        `INSERT OR IGNORE INTO messages(scope,group_hash,message_id,speaker_id,speaker,role,text,timestamp,truncated,reference_id,reply_to_id,source_message_id,metadata)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`
-      )
-      .run(
-        key,
-        hash(scope.channelId),
-        message.id,
-        message.speakerId.slice(0, 200),
-        message.speaker.slice(0, 100),
-        message.role,
-        text,
-        message.timestamp ?? Date.now(),
-        Number(text.length < message.text.length),
-        message.referenceId ?? null,
-        message.replyToId ?? null,
-        message.sourceMessageId ?? null,
-        JSON.stringify({ context: message.context, platformIdKnown: message.platformIdKnown ?? false })
-      );
+    this.insertMessage.run(
+      key,
+      hash(scope.channelId),
+      message.id,
+      message.speakerId.slice(0, 200),
+      message.speaker.slice(0, 100),
+      message.role,
+      text,
+      message.timestamp ?? Date.now(),
+      Number(text.length < message.text.length),
+      message.referenceId ?? null,
+      message.replyToId ?? null,
+      message.sourceMessageId ?? null,
+      JSON.stringify({ context: message.context, platformIdKnown: message.platformIdKnown ?? false })
+    );
   }
   recallSources(scope: HistoryScope, subjectId: string, query: string, excludeText = '', after = 0) {
     const now = Date.now();

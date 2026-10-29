@@ -228,3 +228,14 @@ test('pooled reply gate records dedicated outcome statistics and releases reserv
     globalThis.fetch = previousFetch;
   }
 });
+
+test('public topic participation is confined to active human conversations', () => {
+  const verdict = { addressed: 'none', related: 'open_topic', source: 'human', loopRisk: false };
+  assert.equal(parseReplyVerdict(JSON.stringify(verdict), 'active').reply, true);
+  for (const activity of [undefined, 'quiet', 'balanced']) {
+    assert.deepEqual(parseReplyVerdict(JSON.stringify(verdict), activity), rejected);
+  }
+  for (const overrides of [{ source: 'automated' }, { source: 'unknown' }, { loopRisk: true }]) {
+    assert.deepEqual(parseReplyVerdict(JSON.stringify({ ...verdict, ...overrides }), 'active'), rejected);
+  }
+});

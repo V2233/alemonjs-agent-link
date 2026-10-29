@@ -23,7 +23,7 @@ const event = changes => ({
   MessageMedia: [{ Type: 'sticker', Url: 'https://cdn.test/a' }],
   ...changes
 });
-const options = { autoCollect: true, autoGroups: ['onebot:200'], autoOwnerPrivate: true, autoLabel: true, autoMaxPerHour: 20, autoDetect: false };
+const options = { autoCollect: true, autoGroups: ['onebot:200'], autoPrivate: true, autoLabel: true, autoMaxPerHour: 20, autoDetect: false };
 const waitFor = async fn => {
   for (let i = 0; i < 100 && !fn(); i++) await sleep(5);
   assert.ok(fn(), 'background collection did not finish');
@@ -51,7 +51,7 @@ test('OneBot distinguishes explicit sticker segments from ordinary images', () =
   );
 });
 
-test('automatic collection is opt-in, scoped, deduplicated and uses caption results', async () => {
+test('automatic collection is configurable, scoped, deduplicated and uses caption results', async () => {
   let config = getDSHConfig({ modules: { settings: { stickers: options } } });
   const media = { ...getMediaConfig({}), stickerRoot: '/configured', vision: { baseUrl: 'https://vision.test/v1', apiKey: 'test', model: 'test' } };
   const saved = [];
@@ -78,7 +78,6 @@ test('automatic collection is opt-in, scoped, deduplicated and uses caption resu
   assert.equal(collector.enqueue(event({ ChannelId: '201' })), 0);
   assert.equal(collector.enqueue(event({ IsBot: true })), 0);
   assert.equal(collector.enqueue(event({ MessageMedia: [{ Type: 'image', Url: 'https://cdn.test/p' }] })), 0);
-  assert.equal(collector.enqueue(event({ IsPrivate: true, IsMaster: false })), 0);
   assert.equal(collector.enqueue(event({})), 1);
   assert.equal(collector.enqueue(event({})), 0);
   await waitFor(() => saved.length === 1);
@@ -92,6 +91,11 @@ test('automatic collection is opt-in, scoped, deduplicated and uses caption resu
   await waitFor(() => saved.length === 2);
   assert.deepEqual(saved[1].tags, ['表情']);
   assert.equal(labels, 1);
+  config = getDSHConfig({ modules: { settings: { stickers: { ...options, autoLabel: false } } } });
+  assert.equal(collector.enqueue(event({ IsPrivate: true, IsMaster: false, MessageId: 'private' })), 1);
+  await waitFor(() => saved.length === 3);
+  config = getDSHConfig({ modules: { settings: { stickers: { ...options, autoPrivate: false } } } });
+  assert.equal(collector.enqueue(event({ IsPrivate: true, MessageId: 'disabled' })), 0);
   collector.reset();
 });
 
@@ -498,4 +502,29 @@ test('optional QQ sync writes a newly collected sticker back exactly once', asyn
   assert.equal(duplicate.enqueue(event({ MessageId: 'sync-2' })), 1);
   await sleep(30);
   duplicate.reset();
+});
+
+test('default global quota is 60 and each user shares 20 across groups and private chats', async () => {
+  const config = getDSHConfig({ modules: { settings: { stickers: { autoLabel: false, autoQQSync: false } } } });
+  let saved = 0;
+  const collector = new AutoStickerCollector({
+    config: () => config,
+    media: () => ({ ...getMediaConfig({}), stickerRoot: '/configured' }),
+    download: async () => png,
+    collect: async () => ({ id: String(++saved), existing: false }),
+    failed: () => assert.fail('unexpected failure')
+  });
+  for (let user = 0; user < 3; user++) {
+    for (let i = 0; i < 20; i++) {
+      const next = saved + 1;
+      assert.equal(collector.enqueue(event({ UserId: String(user), ChannelId: String(200 + i), IsPrivate: i % 2 === 0, MessageId: `${user}-${i}` })), 1);
+      await waitFor(() => saved === next);
+    }
+    collector.reset();
+    assert.equal(collector.enqueue(event({ UserId: String(user), MessageId: `${user}-excess` })), 0);
+    assert.equal(collector.enqueue(event({ UserId: String(user), IsPrivate: true, MessageId: `${user}-private-excess` })), 0);
+  }
+  assert.equal(saved, 60);
+  assert.equal(collector.enqueue(event({ UserId: 'new-user', MessageId: 'global-excess' })), 0);
+  collector.reset();
 });

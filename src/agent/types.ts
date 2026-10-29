@@ -8,6 +8,7 @@ export type TurnContext = {
   inputId?: string;
   addressed?: boolean;
   autonomous?: boolean;
+  allowedTools?: readonly string[];
   onSpeech?: (audio: SpeechAudio) => Promise<void>;
   onSticker?: (item: import('../media/stickers').Sticker, data: Buffer) => Promise<void>;
   onStickerCollect?: (signal: AbortSignal) => Promise<Buffer>;

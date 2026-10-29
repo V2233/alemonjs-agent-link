@@ -27,6 +27,8 @@ import {
   planExpression,
   automaticVoiceText,
   selectExpressionSticker,
+  freshExpressionStickers,
+  recordExpressionSticker,
   selectIntentSticker,
   hasStickerIntent,
   needsTextSupplement
@@ -81,7 +83,7 @@ export const runDSHChat = async (
     voice?: boolean;
     allowSilence?: boolean;
     requestId?: string;
-    autonomous?: { signal: AbortSignal; maxChars: number; beforeSend: () => Promise<boolean> };
+    autonomous?: { signal: AbortSignal; maxChars: number; beforeSend: (text?: string) => Promise<boolean> };
     userText?: string;
     replyReferences?: Record<string, { messageId: string; userId: string }>;
     onOutcome?: (result: { delivered: boolean; completed: boolean; replyText?: string }) => void;
@@ -100,7 +102,7 @@ export const runDSHChat = async (
   const checkSend = async (): Promise<void> => {
     options.autonomous?.signal.throwIfAborted();
     turnSignal?.throwIfAborted();
-    if (options.autonomous && !(await options.autonomous.beforeSend())) {
+    if (options.autonomous && !(await options.autonomous.beforeSend(answer))) {
       throw new DSHError('cancelled', '主动消息已取消');
     }
     options.autonomous?.signal.throwIfAborted();
@@ -366,10 +368,9 @@ export const runDSHChat = async (
       }
       stickerOnlyIntent =
         stickerMode === 'either' &&
-        settings.stickerIntentAlways &&
+        !config.modules?.disabled?.includes('stickers') &&
         expression.sticker &&
         !requestedVoice &&
-        !options.allowSilence &&
         !options.autonomous &&
         hasStickerIntent(intentText);
 
@@ -590,12 +591,13 @@ ${agentPrompt}`
             return;
           }
         }
-        if (!stickerDelivered && stickerOnlyIntent && !requestedVoice && !generatedSpeech) {
+        if (!stickerAttempted && !stickerDelivered && stickerOnlyIntent && !requestedVoice && !generatedSpeech) {
           try {
             const settings = getMediaConfig();
-            const item = selectIntentSticker(await listStickers(settings), intentText);
+            const item = selectIntentSticker(freshExpressionStickers(await listStickers(settings), voiceKey), intentText);
 
             if (item) {
+              stickerAttempted = true;
               await checkSend();
               const data = await loadSticker(item, settings);
               const onebotReceipt = await sendOnebotSticker(event, data, replyTarget.messageId);
@@ -609,6 +611,7 @@ ${agentPrompt}`
                   });
 
               assertMessageDelivered([receipt]);
+              recordExpressionSticker(voiceKey, item.id);
               await markStickerUsed(settings, item.id, signal).catch(() => undefined);
               archiveReply(config, event, `[表情：${item.id}]`, receipt.data, replyTarget.messageId);
               stickerDelivered = true;
@@ -691,7 +694,7 @@ ${agentPrompt}`
         if (!options.autonomous) {
           observeProactiveOutput(config, event, renderedAnswer || normalizeBubbleText(answer) || visibleAnswer);
         }
-        if (stickerMode === 'both' && expression.sticker && !stickerAttempted) {
+        if (stickerMode === 'both' && expression.sticker && !config.modules?.disabled?.includes('stickers') && !stickerAttempted && !stickerDelivered) {
           try {
             const settings = getMediaConfig();
             const value =
@@ -699,7 +702,7 @@ ${agentPrompt}`
                 ? 60
                 : getMoodStore(config).snapshot({ platform: event.Platform, channelId }, moodOptions(config), config.retentionDays).value;
             const item = selectExpressionSticker(
-              await listStickers(settings),
+              freshExpressionStickers(await listStickers(settings), voiceKey),
               answer || expressionText,
               value,
               event.MessageId || prompt,
@@ -724,6 +727,7 @@ ${agentPrompt}`
                   });
 
               assertMessageDelivered([sentSticker]);
+              recordExpressionSticker(voiceKey, item.id);
               await markStickerUsed(settings, item.id, signal).catch(() => undefined);
               archiveReply(config, event, `[表情：${item.id}]`, sentSticker.data, replyTarget.messageId);
             }
@@ -765,6 +769,7 @@ ${agentPrompt}`
                     });
 
                 assertMessageDelivered([receipt]);
+                recordExpressionSticker(voiceKey, item.id);
                 stickerDelivered = true;
                 archiveReply(config, event, `[表情：${item.id}]`, receipt.data, replyTarget.messageId);
               },

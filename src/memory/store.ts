@@ -266,6 +266,19 @@ export class MemoryStore {
   }
 
   recordExperience(scope: MemoryScope, input: { key: string; subjectId: string; text: string; tags: string[] }, guard?: MemoryGuard): boolean {
+    return this.recordPersonalEntry(scope, input, 'event', guard);
+  }
+
+  recordDiary(scope: MemoryScope, input: { key: string; subjectId: string; text: string; tags: string[] }, guard?: MemoryGuard): boolean {
+    return this.recordPersonalEntry(scope, input, 'diary', guard);
+  }
+
+  private recordPersonalEntry(
+    scope: MemoryScope,
+    input: { key: string; subjectId: string; text: string; tags: string[] },
+    origin: 'event' | 'diary',
+    guard?: MemoryGuard
+  ): boolean {
     if (
       !input.key ||
       input.key.length > 500 ||
@@ -285,7 +298,7 @@ export class MemoryStore {
       const state = this.state(scope);
 
       if (guard && (state?.epoch !== guard.epoch || state?.revision !== guard.revision)) return false;
-      const id = hash(JSON.stringify(['experience', input.key])).slice(0, 12);
+      const id = hash(JSON.stringify([origin === 'event' ? 'experience' : 'diary', input.key])).slice(0, 12);
 
       if (this.db.prepare('SELECT id FROM memories WHERE scope=? AND id=?').get(key, id)) return false;
       const capacity = scope.channelId.startsWith('private:') ? 1980 : 2000;
@@ -297,13 +310,13 @@ export class MemoryStore {
         id,
         subjectId: input.subjectId,
         subjectName: '机器人',
-        kind: 'event',
+        kind: origin,
         text: input.text.trim(),
         tags: input.tags,
         importance: 0.5,
-        confidence: 1,
+        confidence: origin === 'event' ? 1 : 0.8,
         status: 'active',
-        origin: 'event',
+        origin,
         sourceRefs: [],
         supersedes: [],
         createdAt: this.now(),
@@ -405,24 +418,26 @@ export class MemoryStore {
   private finishRanked(scope: MemoryScope, ranked: (MemoryItem & { score: number })[], limit: number, record: boolean): (MemoryItem & { score: number })[] {
     const key = scopeKey(scope);
     const unique = new Set<string>();
-    const hits = ranked
-      .filter(hit => {
-        const current = this.db.prepare("SELECT text FROM memories WHERE scope=? AND id=? AND status='active'").get(key, hit.id);
+    const hits: (MemoryItem & { score: number })[] = [];
+    // Match slice's integer limit semantics, including NaN producing no hits.
+    const maximum = Math.trunc(Math.max(1, Math.min(20, limit))) || 0;
 
-        return current?.text === hit.text;
-      })
-      .filter(item => {
-        const identity = `${item.subjectId}:${normalize(item.text)}`;
+    if (maximum && ranked.length) {
+      const current = this.db.prepare("SELECT * FROM memories WHERE scope=? AND id=? AND status='active'");
 
-        if (unique.has(identity)) {
-          return false;
-        }
+      for (const hit of ranked) {
+        const identity = `${hit.subjectId}:${normalize(hit.text)}`;
+
+        if (unique.has(identity)) continue;
+        // Semantic ranking can await a provider: recheck current text/status before returning it.
+        const row = current.get(key, hit.id);
+
+        if (row?.text !== hit.text) continue;
         unique.add(identity);
-
-        return true;
-      })
-      .slice(0, Math.max(1, Math.min(20, limit)))
-      .map(hit => ({ ...this.decode(this.db.prepare('SELECT * FROM memories WHERE scope=? AND id=?').get(key, hit.id)), score: hit.score }));
+        hits.push({ ...this.decode(row), score: hit.score });
+        if (hits.length >= maximum) break;
+      }
+    }
 
     if (record && hits.length) {
       const now = this.now();

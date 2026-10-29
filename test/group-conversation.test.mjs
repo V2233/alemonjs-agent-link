@@ -771,14 +771,10 @@ test('local sentence-leading address skips the classification model', async () =
     classify: () => assert.fail('high-confidence address must not classify')
   });
   let replied = 0;
-  const done = h.coordinator.receive(
-    message('local-address', { text: '肥鱼，帮我看看这个报错', direct: true, addressed: true }),
-    policy(),
-    async () => {
-      replied++;
-      return { delivered: true };
-    }
-  );
+  const done = h.coordinator.receive(message('local-address', { text: '肥鱼，帮我看看这个报错', direct: true, addressed: true }), policy(), async () => {
+    replied++;
+    return { delivered: true };
+  });
   await h.coordinator.flush('group');
   await done;
   assert.equal(replied, 1);
@@ -793,11 +789,9 @@ test('local address timing records a gate bypass without calling the classifier'
       timings = value;
     }
   });
-  const done = h.coordinator.receive(
-    message('fast-timing', { text: '肥鱼，在吗', direct: true, addressed: true }),
-    policy(),
-    async () => ({ delivered: true })
-  );
+  const done = h.coordinator.receive(message('fast-timing', { text: '肥鱼，在吗', direct: true, addressed: true }), policy(), async () => ({
+    delivered: true
+  }));
   await h.coordinator.flush('group');
   await done;
   assert.equal(timings?.fastPath, true);
@@ -845,4 +839,27 @@ test('speaking motive distinguishes direct, continuation and ambient participati
   assert.match(ambient, /本轮发言缘由：感知到群聊中有可参与的内容/);
   assert.match(ambient, /这不代表有人呼唤或请求你/);
   assert.match(ambient, /不产生任何新的操作授权/);
+});
+
+test('active public topic reaches the reply model with participation context', async () => {
+  let batch;
+  const h = harness({
+    classify: async () => ({ reply: true, addressed: 'none', related: 'open_topic', reason: 'context', source: 'human', loopRisk: false })
+  });
+  const done = h.coordinator.receive(
+    message('follow', { text: '大家最近玩的合作游戏有什么有趣的事', direct: false }),
+    policy({ activity: 'active', interjectChance: 0.01, interests: [], minRecentMessages: 100 }),
+    async value => {
+      batch = value;
+      return { delivered: true };
+    }
+  );
+  await h.coordinator.flush('group');
+  await done;
+  assert.equal(batch.replyReason, 'context');
+  assert.equal(batch.replyAddressed, 'none');
+  assert.equal(batch.replyRelated, 'open_topic');
+  assert.match(buildGroupBatchPrompt(batch), /related=open_topic/);
+  assert.match(buildGroupBatchPrompt(batch), /主动加入公开闲聊/);
+  h.coordinator.close();
 });

@@ -169,3 +169,65 @@ test('checkpoints reject concurrent extraction commits and unchanged explicit sy
     assert.equal(store.state(scope).checkpoint, beforeMissing.checkpoint);
     assert.equal(store.state(scope).revision, beforeMissing.revision);
   }));
+
+test('ranked recall skips stale and duplicate candidates and stops querying once full', () =>
+  fixture(store => {
+    add(store, 1, '喜欢喝茶');
+    add(store, 2, '喜欢喝咖啡');
+    add(store, 3, '喜欢吃苹果');
+    const rows = store.list(scope);
+    const tea = rows.find(row => row.text === '喜欢喝茶');
+    const coffee = rows.find(row => row.text === '喜欢喝咖啡');
+    const apple = rows.find(row => row.text === '喜欢吃苹果');
+    const ranked = [
+      { ...tea, text: '过期文本', score: 10 },
+      { ...tea, id: 'deleted', score: 9 },
+      { ...tea, score: 8 },
+      { ...tea, score: 7 },
+      { ...coffee, score: 6 },
+      ...Array.from({ length: 1000 }, () => ({ ...apple, score: 5 }))
+    ];
+    const original = store.db.prepare.bind(store.db);
+    let reads = 0;
+    store.db.prepare = sql => {
+      const statement = original(sql);
+      const get = statement.get.bind(statement);
+      statement.get = (...args) => {
+        reads++;
+        return get(...args);
+      };
+      return statement;
+    };
+    try {
+      const hits = store.finishRanked(scope, ranked, 2, false);
+      assert.deepEqual(
+        hits.map(hit => [hit.id, hit.score]),
+        [
+          [tea.id, 8],
+          [coffee.id, 6]
+        ]
+      );
+      assert.equal(reads, 4);
+      assert.equal(store.finishRanked(scope, ranked, 1.9, false).length, 1);
+      assert.deepEqual(store.finishRanked(scope, ranked, NaN, false), []);
+      assert.deepEqual(store.finishRanked({ ...scope, channelId: 'other' }, ranked, 2, false), []);
+    } finally {
+      store.db.prepare = original;
+    }
+  }));
+
+test('subjective diary entries retain a distinct origin and deletion blocks stale writes', () =>
+  fixture(store => {
+    const entry = { key: 'reading-thought', subjectId: 'bot', text: '我觉得鲸鱼歌声很有趣', tags: ['B站', '阅读感想'] };
+    assert.equal(store.recordDiary(scope, entry, store.state(scope)), true);
+    assert.equal(store.recordDiary(scope, entry), false);
+    const diary = store.list(scope, { subjectId: 'bot' })[0];
+    assert.equal(diary.origin, 'diary');
+    assert.equal(diary.kind, 'diary');
+    assert.ok(diary.confidence < 1);
+    assert.equal(store.profile(scope, 'one').text, '');
+    const guard = store.state(scope);
+    store.forget(scope, diary.id, 0);
+    assert.equal(store.recordDiary(scope, { ...entry, key: 'late-thought' }, guard), false);
+    assert.deepEqual(store.list(scope), []);
+  }));

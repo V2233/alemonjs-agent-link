@@ -185,7 +185,7 @@ test('private memory tools require current-user intent, enforce scope and write 
         .tools(turn({ private: false, channelId: 'group' }))
         .map(tool => tool.name)
         .sort(),
-      ['inspect_memory_source', 'inspect_memory_status', 'recall_memories']
+      ['inspect_memory_source', 'inspect_memory_status', 'recall_memories', 'trace_memory_links']
     );
     const save = lease.tools(turn()).find(t => t.name === 'remember_private_fact');
     const recall = lease.tools(turn()).find(t => t.name === 'recall_private_memory');

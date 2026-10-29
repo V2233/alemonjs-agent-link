@@ -1,3 +1,5 @@
+import { browsePreferences } from './preferences';
+import { browseWindow } from '../proactive/browse-schedule';
 import { createHash } from 'node:crypto';
 import { readBounded } from '../media/providers';
 import { downloadAttachment } from '../media/download';
@@ -54,6 +56,8 @@ export const biliOptions = (
   maxCommentsPerDay: number;
   commentCooldownSeconds: number;
 } => {
+  browseWindow(settings.dailyBrowseWindow);
+  browsePreferences(settings);
   const enabled = settings.enabled ?? true;
   const cookie = settings.cookie ?? '';
   const timeoutMs = settings.timeoutMs ?? 20000;
@@ -73,6 +77,7 @@ export const biliOptions = (
     Number(timeoutMs) > 60000 ||
     typeof allowComments !== 'boolean' ||
     typeof allowProactiveBrowse !== 'boolean' ||
+    (settings.dailyBrowse !== undefined && typeof settings.dailyBrowse !== 'boolean') ||
     typeof dryRun !== 'boolean' ||
     !Number.isSafeInteger(maxCommentsPerDay) ||
     Number(maxCommentsPerDay) < 1 ||

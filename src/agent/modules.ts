@@ -137,7 +137,12 @@ export class ModuleLease {
   tools(context: TurnContext): AgentTool[] {
     return this.modules
       .flatMap(module => module.tools)
-      .filter(tool => (!context.autonomous || tool.readOnly === true) && (!tool.available || tool.available(context)));
+      .filter(
+        tool =>
+          (!context.allowedTools || context.allowedTools.includes(tool.name)) &&
+          (!context.autonomous || tool.readOnly === true) &&
+          (!tool.available || tool.available(context))
+      );
   }
 
   get transformsSystem(): boolean {
@@ -511,6 +516,7 @@ export const executeTool = async (tool: AgentTool, args: unknown, context: TurnC
   if (tool.available && !tool.available(context)) {
     throw new Error('当前会话没有这个工具的权限。');
   }
+  if (context.allowedTools && !context.allowedTools.includes(tool.name)) throw new Error('本次活动未开放这个工具。');
   validateArguments(tool.parameters, args);
   const result = await tool.execute(args as Record<string, unknown>, context);
 

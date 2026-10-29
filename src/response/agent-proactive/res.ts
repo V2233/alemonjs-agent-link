@@ -117,6 +117,14 @@ export default async (): Promise<void> => {
       store.recover();
       const row = store.get(scope);
       const attempts = store.attempts(scope);
+      const browsing = store.dailyBrowseStatus(scope);
+      const browseLabels: Record<string, string> = {
+        running: '已启动，尚无结束记录',
+        recorded: '已保存阅读经历',
+        completed: '已结束，未确认新增阅读记录',
+        failed: '未完成',
+        cancelled: '已取消'
+      };
       const paused = row ? (row.pausedUntil >= Number.MAX_SAFE_INTEGER ? '等待核查发送结果' : row.pausedUntil > Date.now() ? time(row.pausedUntil) : '') : '';
       const today = row?.day === localDay(Date.now(), options.timezone) ? row.count : 0;
       const sections = row
@@ -132,6 +140,10 @@ export default async (): Promise<void> => {
             {
               title: '节奏',
               text: `今日 ${today}/${options.maxPerDay}；未回复连发 ${row.unanswered}/${options.maxUnanswered}；最早下次 ${time(row.nextAt)}。`
+            },
+            {
+              title: '独立阅读',
+              text: `${config.modules?.settings?.bili?.dailyBrowse === true ? '每日阅读已配置开启' : '每日阅读未开启'}。${browsing ? `最近尝试 ${time(browsing.at)}：${browseLabels[browsing.status] || '结果待核查'}。可询问“看看你的浏览日记”。` : '暂无尝试记录。'}`
             },
             ...(paused
               ? [

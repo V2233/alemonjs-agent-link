@@ -30,3 +30,18 @@ test('a matching mood or greeting cannot suppress substantive information or res
   assert.equal(needsTextSupplement('哈哈哈', '因为配置错误，需要重启'), true);
   assert.equal(needsTextSupplement('今天配置终于成功了，好耶', '下一步检查连接'), true);
 });
+
+test('automatic stickers avoid the last three successful images within a conversation for 30 minutes', async () => {
+  const { recordExpressionSticker, freshExpressionStickers } = await import('../lib/companion/expression.js');
+  const scope = 'test-recent-stickers';
+  const now = 1000;
+  recordExpressionSticker(scope, 'morning', now);
+  assert.equal(selectIntentSticker(freshExpressionStickers(stickers, scope, now), '早安'), undefined);
+  assert.equal(selectIntentSticker(freshExpressionStickers(stickers, 'another-conversation', now), '早安')?.id, 'morning');
+  assert.equal(selectIntentSticker(freshExpressionStickers(stickers, scope, now + 30 * 60_000), '早安')?.id, 'morning');
+  for (const id of ['morning', 'laugh', 'hug', 'here']) recordExpressionSticker(scope, id, now);
+  assert.deepEqual(
+    freshExpressionStickers(stickers, scope, now).map(item => item.id),
+    ['morning', 'generic']
+  );
+});
