@@ -27,7 +27,7 @@ alemonjs-agent-link:
 
 内置 `qa` 模块默认启用，保存“为什么 / 为何 / 为啥”类问答。出现问因词时先检索当前会话和全局内置条目，命中后把参考答案注入本轮上下文；回复送达后记录这次提问，未命中的问答自动写入当前会话。模型可用只读工具 `search_qa` 主动查询；主人明确要求时可用 `remember_qa` 保存到当前会话或全局。自动学习的内容可能过时，注入时会标注来源。配置、隔离与清理规则见[问答库](qa.md)。
 
-内置 `stickers` 模块提供 `list_stickers`、`send_sticker`、`make_sticker`、`collect_sticker`、`add_sticker`、`import_image_folder` 和 `manage_sticker`。查询及发送支持按编号或标签查找；收藏当前附件对主人在私聊和群聊开放，修改名称/标签和移除清单（并尝试删除 QQ 收藏）仅对主人私聊开放，均须有明确请求。`add_sticker` 只接受 HTTPS 地址或素材目录内的本地图片，可用 `kind: avatar|sticker` 和 `category` 分类；`collect_sticker`、`add_sticker`、`import_image_folder` 同样可指定 `kind/category`；`make_sticker` 把本轮/最近图片或素材库表情裁成方形 PNG，可上下配字并默认同轮发送；动图只取第一帧。发送每轮最多尝试一次，与命令及自动表情共用冷却。素材目录、收藏与二创限制见[媒体能力](media.md)。`modules.disabled: [stickers]` 停用模型工具，不影响手动命令或自动表达；后台自主搭话不开放这些工具。
+内置 `stickers` 模块提供 `list_stickers`、`send_sticker`、`make_sticker`、`collect_sticker`、`add_sticker`、`import_image_folder` 和 `manage_sticker`。查询及发送支持按编号或标签查找；收藏当前附件对主人在私聊和群聊开放，修改名称/标签和移除清单（并尝试删除 QQ 收藏）仅对主人私聊开放，均须有明确请求。`add_sticker` 只接受 HTTPS 地址或素材目录内的本地图片，可用 `kind: avatar|sticker` 和 `category` 分类；`collect_sticker`、`add_sticker`、`import_image_folder` 同样可指定 `kind/category`；`make_sticker` 把本轮/最近图片或素材库表情裁成方形 PNG，可上下配字并默认同轮发送；动图只取第一帧。发送每轮最多尝试一次，命令及自动表情均不设置插件层冷却，发送频率由框架控制。素材目录、收藏与二创限制见[媒体能力](media.md)。`modules.disabled: [stickers]` 停用模型工具，不影响手动命令或自动表达；后台自主搭话不开放这些工具。
 
 ### 私聊主动搭话
 

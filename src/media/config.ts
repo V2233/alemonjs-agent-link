@@ -20,7 +20,6 @@ export type MediaConfig = {
   maxAttachments: number;
   ttsMaxChars: number;
   stickerRoot?: string;
-  stickerCooldownSeconds: number;
   stickerMaxItems: number;
 };
 export class MediaError extends Error {}
@@ -98,7 +97,6 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
     maxAttachments: raw.maxAttachments ?? 3,
     ttsMaxChars: raw.ttsMaxChars ?? 800,
     stickerRoot: raw.stickerRoot ?? defaultStickerRoot(),
-    stickerCooldownSeconds: raw.stickerCooldownSeconds ?? 30,
     stickerMaxItems: raw.stickerMaxItems ?? 300,
     vision: provider(raw.vision),
     asr: provider(raw.asr, true),
@@ -118,7 +116,6 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
     [config.maxBytes, 1024, 25 * 1024 * 1024],
     [config.maxAttachments, 1, 5],
     [config.ttsMaxChars, 1, 4000],
-    [config.stickerCooldownSeconds, 0, 3600],
     [config.stickerMaxItems, 1, 500]
   ]) {
     if (!Number.isSafeInteger(number) || number < min || number > max) {

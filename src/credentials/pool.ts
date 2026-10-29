@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { logger } from 'alemonjs';
 import { fetchPoolBalances } from '../model-pool/balance';
-import type { DSHCredentials } from '../dsh/credentials';
+import type { DSHCredentials, DSHCredentialUsage } from '../dsh/credentials';
 import { parseModelPool, type ModelPoolConfig, type ModelPoolEndpoint, type ModelPoolPurpose } from '../model-pool/config';
 
 type LifecycleStatistics = {
@@ -24,6 +24,7 @@ type LifecycleStatistics = {
   }>;
 };
 type PurposeStatistics = Partial<Record<ModelPoolPurpose, { total: number; success: number; failed: number }>>;
+type CacheStatistics = Partial<Record<ModelPoolPurpose, { reports: number; known: number; input: number; hit: number }>>;
 type EndpointState = {
   endpoint: ModelPoolEndpoint;
   active: number;
@@ -47,6 +48,7 @@ type EndpointState = {
   successfulCalls: number;
   failedCalls: number;
   statisticsSince: number;
+  cacheStatistics: CacheStatistics;
   dailyRequests: number;
   dailyInput: number;
   dailyOutput: number;
@@ -164,6 +166,7 @@ export type ModelPoolStatus = {
   successfulCalls: number;
   failedCalls: number;
   statisticsSince: number;
+  cacheStatistics: CacheStatistics;
   dailyRequests: number;
   dailyTokens: number;
   recent: number;
@@ -219,6 +222,7 @@ export class CredentialPool {
       successfulCalls: 0,
       failedCalls: 0,
       statisticsSince: this.now(),
+      cacheStatistics: {},
       dailyRequests: 0,
       dailyInput: 0,
       dailyOutput: 0,
@@ -262,6 +266,7 @@ export class CredentialPool {
           successfulCalls?: number;
           failedCalls?: number;
           statisticsSince?: number;
+          cacheStatistics?: CacheStatistics;
           purposeStatistics?: PurposeStatistics;
           lifecycle?: LifecycleStatistics;
           lastRequest?: RequestResult;
@@ -272,6 +277,8 @@ export class CredentialPool {
 
       for (const state of this.states) {
         const item = stored[state.endpoint.id];
+
+        if (item?.cacheStatistics) state.cacheStatistics = item.cacheStatistics;
 
         if (item) {
           state.lifecycle = item.lifecycle || state.lifecycle;
@@ -325,6 +332,7 @@ export class CredentialPool {
         successfulCalls: number;
         failedCalls: number;
         statisticsSince: number;
+        cacheStatistics: CacheStatistics;
         purposeStatistics: PurposeStatistics;
         lifecycle: LifecycleStatistics;
         lastRequest?: RequestResult;
@@ -348,6 +356,7 @@ export class CredentialPool {
         successfulCalls: state.successfulCalls,
         failedCalls: state.failedCalls,
         statisticsSince: state.statisticsSince,
+        cacheStatistics: structuredClone(state.cacheStatistics),
         purposeStatistics: state.purposeStatistics,
         lifecycle: state.lifecycle,
         requests: state.dailyRequests,
@@ -402,6 +411,7 @@ export class CredentialPool {
       successfulCalls: state.successfulCalls,
       failedCalls: state.failedCalls,
       statisticsSince: state.statisticsSince,
+      cacheStatistics: structuredClone(state.cacheStatistics),
       purposeStatistics: state.purposeStatistics,
       lifecycle: state.lifecycle,
       dailyRequests: this.ensureDaily(state).dailyRequests,
@@ -467,7 +477,18 @@ export class CredentialPool {
     return true;
   }
 
-  private recordUsage(state: EndpointState, usage: { prompt_tokens?: number; completion_tokens?: number }): void {
+  private recordUsage(state: EndpointState, usage: DSHCredentialUsage, purpose: ModelPoolPurpose): void {
+    const bucket = (state.cacheStatistics[purpose] ||= { reports: 0, known: 0, input: 0, hit: 0 });
+
+    bucket.reports += 1;
+    const input = usage.prompt_tokens;
+    const hit = usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens;
+
+    if (Number.isSafeInteger(input) && input >= 0 && Number.isSafeInteger(hit) && hit >= 0 && hit <= input) {
+      bucket.known += 1;
+      bucket.input += input;
+      bucket.hit += hit;
+    }
     const now = this.now();
     const event = {
       at: now,
@@ -1128,7 +1149,7 @@ export class CredentialPool {
       startedAt: options.startedAt || Date.now(),
       retryBudgetMs: this.config.retryBudgetMs,
       retryJitterMs: this.config.retryJitterMs,
-      reportUsage: usage => this.recordUsage(state, usage),
+      reportUsage: usage => this.recordUsage(state, usage, purpose),
       invalidate: status => this.markInvalid(state, status),
       disable: () => this.disableEndpoint(state),
       maxAttempts: this.config.maxAttempts,

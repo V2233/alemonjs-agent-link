@@ -3,7 +3,7 @@ import { ResultCode, useEvent, useMessage, useMedia, useRoute } from 'alemonjs';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { getConversationId, canPrivateChatWithKey } from '@src/response/dsh/util';
 import { runCoordinatedChat } from '@src/dsh/orchestrator';
-import { ownerPrivatePolicy, publicPrivatePolicy, SessionRegistry } from '@src/state/registry';
+import { ownerPrivatePolicy, publicPrivatePolicy } from '@src/state/registry';
 import { assertMessageDelivered } from '@src/dsh/output';
 import { getMediaConfig, MediaError } from '@src/media/config';
 import { chooseSticker, listStickers, loadSticker, markStickerUsed, setStickerEmoji, updateSticker } from '@src/media/stickers';
@@ -233,12 +233,6 @@ export default async (): Promise<void> => {
           }
           const data = await loadSticker(selected, settings);
 
-          signal.throwIfAborted();
-          if (!(await new SessionRegistry(config).claimSticker(channelId, settings.stickerCooldownSeconds))) {
-            await reply('表情冷却中，请稍后再发。');
-
-            return;
-          }
           signal.throwIfAborted();
           const onebotReceipt = await sendOnebotSticker(event, data, event.MessageId);
 

@@ -339,13 +339,6 @@ export class SessionRegistry {
       )
     );
   }
-  async claimSticker(channelId: string, seconds: number): Promise<boolean> {
-    if (seconds === 0) {
-      return true;
-    }
-
-    return Boolean(await (await redis(this.config)).set(key(channelId, 'sticker-cooldown'), '1', 'EX', seconds, 'NX'));
-  }
   async privateMemories(channelId: string): Promise<PrivateMemory[]> {
     return (await this.changePrivateMemory(channelId, 'list')).notes;
   }

@@ -126,3 +126,31 @@ test('stop flushes before reload, removed IDs survive, and diagnostics cannot ov
     restored.stop();
   } finally { await rm(directory, {recursive:true, force:true}); }
 });
+
+test('cache observations separate unknown usage from zero hits and persist by purpose', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pool-cache-'));
+  const path = join(directory, 'metrics.json');
+  const config = parseModelPool({probeIntervalSeconds:0,endpoints:[{id:'cache',apiKey:'test-key',model:'test'}]}, {provider:'test',baseUrl:'https://example.com',model:'test'});
+  const pool = new CredentialPool(config, Date.now, path);
+  let restored;
+  try {
+    const credential = pool.select({purpose:'tools'});
+    credential.reportUsage({prompt_tokens:100,prompt_cache_hit_tokens:80});
+    credential.reportUsage({prompt_tokens:50,prompt_tokens_details:{cached_tokens:0}});
+    credential.reportUsage({prompt_tokens:60});
+    credential.reportUsage({prompt_tokens:10,prompt_cache_hit_tokens:11});
+    assert.deepEqual(pool.status[0].cacheStatistics.tools, {reports:4,known:2,input:150,hit:80});
+    credential.report({ok:true});
+    for(let i=0;i<100;i++) {
+      const stored = await readFile(path,'utf8').then(JSON.parse).catch(()=>null);
+      if(stored?.cache?.cacheStatistics?.tools?.reports===4) break;
+      await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    restored = new CredentialPool(config, Date.now, path);
+    assert.deepEqual(restored.status[0].cacheStatistics.tools, {reports:4,known:2,input:150,hit:80});
+  } finally {
+    pool.stop(); restored?.stop();
+    await new Promise(resolve=>setTimeout(resolve,30));
+    await rm(directory,{recursive:true,force:true});
+  }
+});

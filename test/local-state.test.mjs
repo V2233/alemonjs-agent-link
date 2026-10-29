@@ -142,20 +142,6 @@ test('explicit private memories are bounded, isolated, survive new topics, and a
   }
 });
 
-test('sticker cooldown is shared across requests and removed with conversation data', {}, async () => {
-  const registry = new SessionRegistry(getDSHConfig({}));
-  const channel = `private:sticker-${randomUUID()}`;
-  try {
-    const claims = await Promise.all(Array.from({ length: 5 }, () => registry.claimSticker(channel, 30)));
-    assert.equal(claims.filter(Boolean).length, 1);
-    assert.equal(await registry.claimSticker(channel, 0), true);
-    await registry.purgeHash(await registry.groupKey(channel));
-    assert.equal(await registry.claimSticker(channel, 30), true);
-  } finally {
-    await registry.purgeHash(await registry.groupKey(channel));
-  }
-});
-
 test('single-owner deduplication, compare-and-delete, rate limit and durable snapshot', async () => {
   const registry = new SessionRegistry(getDSHConfig());
   const channel = randomUUID();

@@ -489,8 +489,6 @@ alemonjs-agent-link:
     maxAttachments: 3
     # 一次语音合成最多多少字符（1-4000）。
     ttsMaxChars: 800
-    # 同一会话发表情的冷却时间（秒，0-3600）。
-    stickerCooldownSeconds: 30
     # 表情素材索引上限（1-500）。
     stickerMaxItems: 300
     # 允许下载媒体的域名白名单；空数组表示允许任意公网 HTTPS。

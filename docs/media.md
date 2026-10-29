@@ -70,7 +70,6 @@ alemonjs-agent-link:
       model: '<语音合成模型ID>'
       voice: '<该服务支持的音色ID>'
     stickerRoot: '/absolute/path/to/stickers'
-    stickerCooldownSeconds: 30
     stickerMaxItems: 300
 ```
 
@@ -140,7 +139,7 @@ alemonjs-agent-link:
 开启 `autoDetect`（默认开启）且配置 `media.vision` 时，启用范围内的普通图片会先按 `autoMaxBytes`（默认 2 MiB）、`autoMaxSide`（默认 1024）和宽高比（约 0.75–1.33）预筛，再由视觉模型静默判断 `kind`（头像/表情/其它）、是否适合普通群聊和主分类；头像与表情分别以 `kind` 入库，其它图片跳过，置信度需达到 `autoMinConfidence`。平台标记的表情也走边长/宽高比预筛，体积仍受 `media.maxBytes` 限制；视觉审核失败或未配置视觉时，平台标记表情按 `kind: sticker` 入库并退回“表情/未分类”，普通图片不自动收。`autoQQSync: true` 时，新入库的自动收藏会额外调用 `add_custom_face` 写入机器人号 QQ 收藏，并把返回的 `emojiId` 记入清单；默认开启，可在配置中设为 false 关闭（QQ 收藏有数量上限）。整个过程不回复聊天，不把“识别过”当成已收藏；未配置视觉服务时普通图片不自动收集。
 
 配置 `media.vision` 后，`autoDetect` 开启时平台标记的表情也会先经视觉审核并生成名称/分类/标签，即使 `autoLabel` 关闭；`autoLabel` 主要用于只审核平台标记表情、不检测普通图片的场景。GIF、未配置服务、识别失败或预算准入失败时退回“表情”标签；普通图片检测必须依赖视觉，未配置时跳过。图片会发送给该视觉服务，可能产生服务商费用；目前图片识别费用不计入文本预算，需在服务商侧控制额度。实际 OneBot 附件地址、识别服务与 QQ 收发尚需部署环境验证。
-发送优先使用 OneBot 专用 `agentLink.sendSticker`，发送 `sub_type=1` 的表情段；动作不可用或非 OneBot 平台回退 AlemonJS `useMedia.send`。两种情况都验证平台回执；平台不支持时报告失败，不把“调用过发送”算成已送达。失败发送也保留冷却，避免连续刷请求。
+发送优先使用 OneBot 专用 `agentLink.sendSticker`，发送 `sub_type=1` 的表情段；动作不可用或非 OneBot 平台回退 AlemonJS `useMedia.send`。两种情况都验证平台回执；平台不支持时报告失败，不把“调用过发送”算成已送达。插件不设置表情发送冷却，发送频率由框架控制。旧配置 stickerCooldownSeconds 已不再生效。
 
 ### 表情工坊（配字二创）
 

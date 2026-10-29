@@ -467,21 +467,20 @@
 
 ## 9. `media`（图片、语音、表情）
 
-| 字段                     | 类型     | 默认              | 范围                                    | 说明                                         |
-| ------------------------ | -------- | ----------------- | --------------------------------------- | -------------------------------------------- |
-| `vision`                 | object   | 无                | 见下                                    | 图片理解服务                                 |
-| `asr`                    | object   | 无                | 见下                                    | 语音转写服务，允许 `http://localhost`        |
-| `tts`                    | object   | 无                | 见下                                    | 语音合成服务，允许 `http://localhost`        |
-| `imageGen`               | object   | 无                | 见下                                    | 生图服务，允许 `http://localhost`            |
-| `speech`                 | object   | 见 9.2            | —                                       | 语音引擎参数                                 |
-| `allowedHosts`           | string[] | `[]`              | 精确域名，`[a-z0-9.-]`，不能以 `.` 开头 | 远程媒体下载白名单；空表示允许任意公网 HTTPS |
-| `timeoutMs`              | number   | `60000`           | 1000–120000                             | 媒体请求超时                                 |
-| `maxBytes`               | number   | `10485760`        | 1024–25MB                               | 单个附件上限                                 |
-| `maxAttachments`         | number   | `3`               | 1–20                                    | 单条消息附件数上限                           |
-| `ttsMaxChars`            | number   | `800`             | 1–4000                                  | 一次合成文本上限                             |
-| `stickerRoot`            | string   | 数据目录/stickers | 非空                                    | 表情素材目录；默认会在首次使用时创建空清单   |
-| `stickerCooldownSeconds` | number   | `30`              | 0–3600                                  | 表情发送冷却                                 |
-| `stickerMaxItems`        | number   | `300`             | 1–2000                                  | 素材索引上限                                 |
+| 字段              | 类型     | 默认              | 范围                                    | 说明                                         |
+| ----------------- | -------- | ----------------- | --------------------------------------- | -------------------------------------------- |
+| `vision`          | object   | 无                | 见下                                    | 图片理解服务                                 |
+| `asr`             | object   | 无                | 见下                                    | 语音转写服务，允许 `http://localhost`        |
+| `tts`             | object   | 无                | 见下                                    | 语音合成服务，允许 `http://localhost`        |
+| `imageGen`        | object   | 无                | 见下                                    | 生图服务，允许 `http://localhost`            |
+| `speech`          | object   | 见 9.2            | —                                       | 语音引擎参数                                 |
+| `allowedHosts`    | string[] | `[]`              | 精确域名，`[a-z0-9.-]`，不能以 `.` 开头 | 远程媒体下载白名单；空表示允许任意公网 HTTPS |
+| `timeoutMs`       | number   | `60000`           | 1000–120000                             | 媒体请求超时                                 |
+| `maxBytes`        | number   | `10485760`        | 1024–25MB                               | 单个附件上限                                 |
+| `maxAttachments`  | number   | `3`               | 1–20                                    | 单条消息附件数上限                           |
+| `ttsMaxChars`     | number   | `800`             | 1–4000                                  | 一次合成文本上限                             |
+| `stickerRoot`     | string   | 数据目录/stickers | 非空                                    | 表情素材目录；默认会在首次使用时创建空清单   |
+| `stickerMaxItems` | number   | `300`             | 1–2000                                  | 素材索引上限                                 |
 
 ### 9.1 媒体服务对象（`vision`/`asr`/`tts`/`imageGen`）
 

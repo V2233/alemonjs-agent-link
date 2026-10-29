@@ -597,35 +597,32 @@ ${agentPrompt}`
 
             if (item) {
               await checkSend();
-              if (await new SessionRegistry(config).claimSticker(channelId, settings.stickerCooldownSeconds)) {
-                await checkSend();
-                const data = await loadSticker(item, settings);
-                const onebotReceipt = await sendOnebotSticker(event, data, replyTarget.messageId);
-                const receipt = onebotReceipt
-                  ? { code: ResultCode.Ok, data: { messageId: onebotReceipt.messageId } }
-                  : await media.send({
-                      type: 'image',
-                      data: data.toString('base64'),
-                      name: item.file.split(/[\\/]/u).at(-1),
-                      replyId: replyTarget.messageId
-                    });
+              const data = await loadSticker(item, settings);
+              const onebotReceipt = await sendOnebotSticker(event, data, replyTarget.messageId);
+              const receipt = onebotReceipt
+                ? { code: ResultCode.Ok, data: { messageId: onebotReceipt.messageId } }
+                : await media.send({
+                    type: 'image',
+                    data: data.toString('base64'),
+                    name: item.file.split(/[\\/]/u).at(-1),
+                    replyId: replyTarget.messageId
+                  });
 
-                assertMessageDelivered([receipt]);
-                await markStickerUsed(settings, item.id, signal).catch(() => undefined);
-                archiveReply(config, event, `[表情：${item.id}]`, receipt.data, replyTarget.messageId);
-                stickerDelivered = true;
-                stickerOnlySent = true;
+              assertMessageDelivered([receipt]);
+              await markStickerUsed(settings, item.id, signal).catch(() => undefined);
+              archiveReply(config, event, `[表情：${item.id}]`, receipt.data, replyTarget.messageId);
+              stickerDelivered = true;
+              stickerOnlySent = true;
 
-                if (!answer.trim() || !needsTextSupplement(intentText, answer)) {
-                  recordVoiceTurn(voiceKey, false);
-                  silent = true;
-                  output.abort();
+              if (!answer.trim() || !needsTextSupplement(intentText, answer)) {
+                recordVoiceTurn(voiceKey, false);
+                silent = true;
+                output.abort();
 
-                  return;
-                }
-                // Once an appropriate sticker is sent, keep any substantive supplement in text.
-                useVoice = false;
+                return;
               }
+              // Once an appropriate sticker is sent, keep any substantive supplement in text.
+              useVoice = false;
             }
           } catch {
             signal.throwIfAborted();
@@ -714,22 +711,21 @@ ${agentPrompt}`
               const data = await loadSticker(item, settings);
 
               signal.throwIfAborted();
-              if (await new SessionRegistry(config).claimSticker(channelId, settings.stickerCooldownSeconds)) {
-                await checkSend();
-                const onebotReceipt = await sendOnebotSticker(event, data, replyTarget.messageId);
-                const sentSticker = onebotReceipt
-                  ? { code: ResultCode.Ok, data: { messageId: onebotReceipt.messageId } }
-                  : await media.send({
-                      type: 'image',
-                      data: data.toString('base64'),
-                      name: item.file.split(/[\\/]/u).at(-1),
-                      replyId: replyTarget.messageId
-                    });
 
-                assertMessageDelivered([sentSticker]);
-                await markStickerUsed(settings, item.id, signal).catch(() => undefined);
-                archiveReply(config, event, `[表情：${item.id}]`, sentSticker.data, replyTarget.messageId);
-              }
+              await checkSend();
+              const onebotReceipt = await sendOnebotSticker(event, data, replyTarget.messageId);
+              const sentSticker = onebotReceipt
+                ? { code: ResultCode.Ok, data: { messageId: onebotReceipt.messageId } }
+                : await media.send({
+                    type: 'image',
+                    data: data.toString('base64'),
+                    name: item.file.split(/[\\/]/u).at(-1),
+                    replyId: replyTarget.messageId
+                  });
+
+              assertMessageDelivered([sentSticker]);
+              await markStickerUsed(settings, item.id, signal).catch(() => undefined);
+              archiveReply(config, event, `[表情：${item.id}]`, sentSticker.data, replyTarget.messageId);
             }
           } catch {
             signal.throwIfAborted();
@@ -757,12 +753,6 @@ ${agentPrompt}`
             : async (item, data) => {
                 if (stickerAttempted) throw new MediaError('本轮已经尝试发送表情。');
                 stickerAttempted = true;
-                const settings = getMediaConfig();
-
-                await checkSend();
-                if (!(await new SessionRegistry(config).claimSticker(channelId, settings.stickerCooldownSeconds))) {
-                  throw new MediaError('表情冷却中，请稍后再发。');
-                }
                 await checkSend();
                 const onebotReceipt = await sendOnebotSticker(event, data, replyTarget.messageId);
                 const receipt = onebotReceipt

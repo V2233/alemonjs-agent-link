@@ -2,7 +2,13 @@ import { getAppConfigValue } from 'alemonjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { getCredentialPool, type PoolSelectionOptions } from '../credentials/pool';
 
-export type DSHCredentialUsage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; prompt_cache_hit_tokens?: number };
+export type DSHCredentialUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_tokens_details?: { cached_tokens?: number };
+};
 export type DSHCredentialReport = {
   ok: boolean;
   status?: number;
