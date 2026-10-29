@@ -1,3 +1,6 @@
+import { readAdsSettings, saveAdsSettings } from './panel/ads-settings';
+import { listEndpointModels } from './panel/model-list';
+import { readHobbies, saveHobbies } from './panel/hobbies';
 import { logger } from 'alemonjs';
 import { AdminInputError } from './panel/admin-error';
 import { voiceSnapshot, probeVoices, voiceBalances, readVoiceSettings, updateVoiceSettings } from './panel/voice-service';
@@ -254,6 +257,8 @@ apiRouter.post('/pool/settings', async ctx => {
 
   success(ctx, result.data, result.message);
 });
+apiRouter.get('/hobbies', async ctx => success(ctx, await readHobbies()));
+apiRouter.post('/hobbies', async ctx => success(ctx, await saveHobbies(ctx.request.body)));
 apiRouter.get('/work-model', async ctx => success(ctx, await readWorkModel()));
 apiRouter.post('/work-model', async ctx => success(ctx, await saveWorkModel(ctx.request.body)));
 apiRouter.post('/voices/probe', async ctx => success(ctx, await probeVoices((ctx.request.body as { id?: unknown })?.id)));
@@ -265,4 +270,7 @@ apiRouter.post('/voices/settings', async ctx => {
 
   success(ctx, result.data, result.message);
 });
+apiRouter.post('/models', async ctx => success(ctx, await listEndpointModels(ctx.request.body)));
+apiRouter.get('/ads', async ctx => success(ctx, await readAdsSettings()));
+apiRouter.post('/ads', async ctx => success(ctx, await saveAdsSettings(ctx.request.body)));
 export default apiRouter;

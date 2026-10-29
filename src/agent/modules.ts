@@ -1,3 +1,4 @@
+import { hobbiesModule } from '../modules/hobbies';
 import { opinionsModule } from '../modules/opinions';
 import { conversationModule } from '../modules/conversation';
 import { eventsModule } from '../modules/events';
@@ -253,6 +254,7 @@ export class ModuleRuntime {
     private readonly builtins: AgentModule[] = [
       filesModule(config),
       personaModule(config),
+      hobbiesModule(),
       conversationModule(config),
       moodModule(config),
       affinityModule(config),

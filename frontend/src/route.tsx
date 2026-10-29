@@ -1,3 +1,5 @@
+import AdsPage from './components/AdsPage';
+import HobbiesPage from './components/HobbiesPage';
 import VoicesPage from './components/VoicesPage';
 import OpinionsPage from './components/OpinionsPage';
 import EventsPage from './components/EventsPage';
@@ -12,6 +14,8 @@ export default createHashRouter([
   {
     element: <AdminLayout />,
     children: [
+      { path: '/ads', element: <AdsPage /> },
+      { path: '/hobbies', element: <HobbiesPage /> },
       { path: '/voices', element: <VoicesPage /> },
       { path: '/opinions', element: <OpinionsPage /> },
       { path: '/events', element: <EventsPage /> },

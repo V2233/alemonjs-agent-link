@@ -1,3 +1,4 @@
+import { getAds } from '../../ads/config';
 import { commandBubble, sectionBubble, type BubbleSection } from '../bubble';
 import { groupKeyStatus } from '../../credentials/group';
 import { personalKeyStatus } from '../../credentials/personal';
@@ -135,5 +136,6 @@ export default async (): Promise<void> => {
       text = toUserMessage(error);
     }
   }
+  if (event.IsPrivate && budgetEnabled(config) && getAds().enabled) actions.push({ label: '查阅广告获得额度', command: '/广告列表' });
   await message.send({ format: commandBubble(text, '今日额度', { platform: event.Platform, layout: 'auto', actions }) });
 };

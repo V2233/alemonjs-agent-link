@@ -1239,3 +1239,43 @@ return 1`,
 
   return { retained, legacyWithoutLedgers };
 };
+
+/** One lifetime reward per advertisement and platform user, atomically credited. */
+export const claimAdvertisementReward = async (config: DSHBridgeConfig, scope: BudgetScope, adId: string, amount: number): Promise<boolean> => {
+  if (
+    !budgetEnabled(config) ||
+    !scope.platform ||
+    !scope.userId ||
+    scope.channelId !== `private:${JSON.stringify([scope.platform, scope.userId])}` ||
+    !/^[a-zA-Z0-9_-]{1,64}$/u.test(adId) ||
+    !Number.isSafeInteger(amount) ||
+    amount < 10000 ||
+    amount > 10 * units
+  )
+    throw new DSHError('budget', '广告奖励暂不可用。');
+  const redis = await budgetRedis();
+  const day = await redisDay(redis);
+  const wallet = await ensureWallet(redis, day, scope);
+  const identity = createHash('sha256')
+    .update(JSON.stringify([scope.platform, scope.userId, adId]))
+    .digest('hex');
+
+  return (
+    Number(
+      await bounded(
+        redis.eval(
+          `
+if redis.call('EXISTS',KEYS[2]) == 1 then return 0 end
+redis.call('HINCRBY',KEYS[1],'paidLimit',ARGV[1])
+redis.call('SET',KEYS[2],ARGV[2])
+return 1`,
+          2,
+          wallet,
+          `${prefix}:advertisement:${identity}`,
+          amount,
+          JSON.stringify({ adId, amount, day })
+        )
+      )
+    ) === 1
+  );
+};

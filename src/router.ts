@@ -36,6 +36,8 @@ commandGroup.use(
   () => import('@src/response/agent-proactive/res')
 );
 
+for (const path of ['广告列表', '广告详情']) commandGroup.use({ path, description: '私聊广告查阅' }, () => import('@src/response/agent-ads/res'));
+
 commandGroup.use({ path: '额度', description: '查询今日额度；主人可手动增加、设置、查看调整记录' }, () => import('@src/response/agent-budget/res'));
 
 commandGroup.use({ path: '人格', description: '查看及切换当前会话人格' }, () => import('@src/response/agent-persona/res'));

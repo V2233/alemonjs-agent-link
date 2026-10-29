@@ -9,7 +9,8 @@ export const requestedMemorySave = (text: string): boolean => {
   if (/^(?:如果|假如|比如|例如|他说|她说|有人说|请解释|解释|怎么|如何|怎样|为什么)/u.test(value)) return false;
   if (/(?:别|不要|不准|无需|不用|不必|不需要|不想|没让|没有让).{0,8}(?:记住|记下来|记一下|帮我记)|do not remember|don.t remember/iu.test(value)) return false;
   if (/^(?:记住|记下来|记一下).*(?:了吗|了么|了没|没有)[？?。！!]*$/u.test(value)) return false;
-  if (/^(?:记住|remember)\s*(?:是什么意思|什么意思|有什么用|怎么用|这个词)/iu.test(value)) return false;
+  if (/^(?:记住|remember)\s*(?:是什么意思|什么意思|有什么用|怎么用|这个词(?:是什么意思|怎么翻译|怎么用))/iu.test(value)) return false;
+  if (/^(?:do|did|can|could|would)\s+you\s+(?:still\s+)?remember\s+(?:what|when|where|who|how|whether)\b/iu.test(value)) return false;
   const clauses = value.split(/[，,。；;！!\n]/u).map(item => item.trim());
 
   return clauses.some(

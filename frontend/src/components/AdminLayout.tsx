@@ -11,12 +11,14 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const titles: Record<string, string> = {
     '/personas': '人设',
+    '/hobbies': '爱好设置',
     '/knowledge': '问答库',
     '/dictionary': '热词词典',
     '/events': '事件库',
     '/opinions': '对象评价',
     '/rotation': '额度轮转',
     '/voices': '音色库',
+    '/ads': '私聊广告',
     '/work-model': '工作模型'
   };
   const menu = (
@@ -25,11 +27,13 @@ export default function AdminLayout() {
       selectedKeys={[location.pathname]}
       items={[
         { key: '/personas', label: '人设' },
+        { key: '/hobbies', label: '爱好设置' },
         { key: '/knowledge', label: '问答库' },
         { key: '/dictionary', label: '热词词典' },
         { key: '/events', label: '事件库' },
         { key: '/opinions', label: '对象评价' },
         { key: '/work-model', label: '工作模型' },
+        { key: '/ads', label: '私聊广告' },
         { key: '/voices', label: '音色库' },
         { key: '/rotation', label: '额度轮转' }
       ]}

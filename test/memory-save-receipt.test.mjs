@@ -13,6 +13,7 @@ import { getMemoryStore } from '../lib/memory/store.js';
 test('save intent distinguishes direct requests from quotes, questions, conditions and negation', () => {
   for (const text of [
     '记住我喜欢茶',
+    '记住这个词：回声港',
     '帮我记：我喜欢茶',
     '我喜欢茶这个偏好帮我记住',
     '肥鱼，帮我记一下我喜欢茶',
@@ -40,6 +41,8 @@ test('save intent distinguishes direct requests from quotes, questions, conditio
     '不需要你记住',
     'please do not remember this',
     'do you remember what I said',
+    'can you remember what I told you',
+    "'记住我喜欢茶'",
     '```\n记住我喜欢茶\n```',
     '就是换工作的事，这下想起来了吗'
   ])

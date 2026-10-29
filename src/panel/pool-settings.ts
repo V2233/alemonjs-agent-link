@@ -23,6 +23,7 @@ const fields = {
     'balanceUrl'
   ],
   rules: ['enabled', 'strategy', 'maxAttempts', 'failureThreshold', 'cooldownSeconds', 'queueMaxWaitMs', 'retryBudgetMs', 'balanceAlertYuan'],
+  reorder: ['ids'],
   budget: ['enabled', 'globalDailyYuan', 'personalDailyYuan', 'replyGateDailyYuan', 'replyGateGlobalDailyYuan', 'maxOutputTokens']
 };
 const editablePool = (app: Record<string, any>) => {
@@ -57,7 +58,7 @@ export const updatePoolSettings = async (input: unknown) => {
   const body = input as { revision?: string; action?: string; id?: string; values?: Record<string, unknown> };
 
   if (Object.keys(body).some(key => !['revision', 'action', 'id', 'values'].includes(key))) throw new Error('不支持的轮转字段');
-  if (typeof body.revision !== 'string' || !['endpoint', 'rules', 'budget', 'remove'].includes(body.action || '')) throw new Error('无效的轮转操作');
+  if (typeof body.revision !== 'string' || !['endpoint', 'rules', 'budget', 'remove', 'reorder'].includes(body.action || '')) throw new Error('无效的轮转操作');
   if (body.id !== undefined && typeof body.id !== 'string') throw new Error('无效的端点');
   if (body.action !== 'remove') {
     if (!body.values || typeof body.values !== 'object' || Array.isArray(body.values)) throw new Error('无效的轮转内容');
@@ -82,7 +83,19 @@ export const updatePoolSettings = async (input: unknown) => {
     return target;
   };
 
-  if (body.action === 'endpoint' || body.action === 'remove') {
+  if (body.action === 'reorder') {
+    const entries = app.modelPool.endpoints || [];
+    const ids = body.values?.ids;
+
+    if (
+      !Array.isArray(ids) ||
+      ids.length !== entries.length ||
+      new Set(ids).size !== ids.length ||
+      ids.some(id => typeof id !== 'string' || !entries.some((entry: { id: string }) => entry.id === id))
+    )
+      throw new Error('排序必须包含全部端点且不能重复');
+    app.modelPool.endpoints = ids.map(id => entries.find((entry: { id: string }) => entry.id === id));
+  } else if (body.action === 'endpoint' || body.action === 'remove') {
     const pool = (app.modelPool ||= {});
     const entries = (pool.endpoints ||= []);
 
@@ -107,6 +120,7 @@ export const updatePoolSettings = async (input: unknown) => {
 
     app[section] = patch(app[section] || {});
   }
+  if (body.action !== 'budget') for (const entry of app.modelPool.endpoints || []) delete entry.priority;
   // Pausing rotation must not bypass endpoint validation on product writes.
   if (body.action !== 'budget') editablePool(app);
   const saved = await store.save(JSON.stringify(source), body.revision);

@@ -225,7 +225,7 @@ export const parseModelPool = (raw: unknown, defaults: ModelPoolDefaults): Model
     const pricing = item.pricing === undefined ? undefined : parsePricing(item.pricing, index);
 
     if (item.fallback !== undefined && typeof item.fallback !== 'boolean') throw new Error(`modelPool.endpoints[${index}].fallback 需要为布尔值。`);
-    const priority = item.priority === undefined ? 0 : integer(item.priority, `endpoints[${index}].priority`, 0, 100);
+    const priority = index; // Array order is the sole source of priority.
     const endpointBalanceStyle = balanceStyle(item.balanceStyle, `endpoints[${index}].balanceStyle`);
     const account = item.account === undefined ? undefined : text(item.account, `endpoints[${index}].account`, 80);
 

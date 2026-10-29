@@ -1,5 +1,6 @@
+import ModelConnectionFields from './ModelConnectionFields';
 import { useEffect, useState } from 'react';
-import { Alert, App, Button, Card, Form, Input, Layout, Space, Typography } from 'antd';
+import { Alert, App, Button, Card, Form, Layout, Space, Typography } from 'antd';
 
 const request = async (path: string, body?: unknown) => {
   const response = await fetch('./api/admin/work-model' + path, {
@@ -58,18 +59,7 @@ export default function WorkModelPage() {
             })
           }
         >
-          <Form.Item name='provider' label='提供方' rules={[{ required: true }]}>
-            <Input placeholder='deepseek-official' />
-          </Form.Item>
-          <Form.Item name='baseUrl' label='接口地址（DeepSeek 官方可留空）'>
-            <Input placeholder='https://api.example.com/v1' />
-          </Form.Item>
-          <Form.Item name='apiKey' label='API Key（留空停用）'>
-            <Input.Password autoComplete='off' />
-          </Form.Item>
-          <Form.Item name='model' label='模型名称' rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
+          <ModelConnectionFields form={form} />
           <Space>
             <Button type='primary' htmlType='submit' loading={busy} disabled={!revision}>
               保存

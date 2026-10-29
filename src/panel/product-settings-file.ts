@@ -1,3 +1,4 @@
+import { parseAds } from '../ads/config';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { readFile, writeFile, rename, mkdir, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -29,6 +30,7 @@ export const validateConfiguration = (source: string, path: string) => {
 
   getGroupChatPolicy(raw.groupChat);
   getMediaConfig(raw);
+  parseAds(raw.ads);
   getModuleConfig(config);
   if (config.transport === 'onebot') resolveOneBotConfig(value);
   if (raw.budget?.enabled && !value.db?.redis) throw new Error('启用预算账本需要配置 db.redis');

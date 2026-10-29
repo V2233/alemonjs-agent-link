@@ -1,3 +1,5 @@
+import EndpointDragHandle from './EndpointDragHandle';
+import ModelConnectionFields from './ModelConnectionFields';
 import { useEffect, useRef, useState } from 'react';
 import {
   App,
@@ -235,8 +237,7 @@ export default function PoolPage() {
     setEditingId(id);
     setDirty(false);
     setDrawer(kind);
-    if (kind === 'endpoint')
-      form.setFieldsValue(entry || { provider: 'openai-compatible', enabled: true, capabilities: [], weight: 1, maxConcurrent: 2, priority: 0 });
+    if (kind === 'endpoint') form.setFieldsValue(entry || { provider: 'openai-compatible', enabled: true, capabilities: [], weight: 1, maxConcurrent: 2 });
     else form.setFieldsValue(kind === 'rules' ? value.modelPool || {} : value.budget || {});
   };
   const save = async () => {
@@ -257,6 +258,18 @@ export default function PoolPage() {
       setDirty(false);
       setDrawer(undefined);
       setBalances({});
+      await refresh();
+      message.success(result.message);
+    });
+  };
+  const reorder = async (id: string, target: string) => {
+    if (!config || id === target) return;
+    const ids = configured.map(item => item.id).filter(value => value !== id);
+    const index = configured.findIndex(item => item.id === target);
+    if (index < 0) return;
+    ids.splice(index, 0, id);
+    await run(async () => {
+      const result = await request('pool/settings', { revision: config.revision, action: 'reorder', values: { ids } });
       await refresh();
       message.success(result.message);
     });
@@ -355,6 +368,60 @@ export default function PoolPage() {
           </Col>
         ))}
       </Row>
+      <Row gutter={[16, 16]} style={{ marginBlock: 20 }}>
+        <Col xs={24} lg={12}>
+          <Card
+            title='本地额度保护'
+            extra={
+              <Button disabled={busy} onClick={() => run(() => open('budget'))}>
+                编辑保护规则
+              </Button>
+            }
+          >
+            <Descriptions
+              size='small'
+              column={1}
+              items={[
+                { key: 'enabled', label: '保护', children: <Tag color={budget.enabled ? 'green' : 'default'}>{budget.enabled ? '已启用' : '未启用'}</Tag> },
+                ...budgetFields.map(item => ({
+                  key: item.name,
+                  label: item.label,
+                  children:
+                    (budget[item.name] ?? (item.name === 'personalDailyYuan' ? budget.privateDailyYuan : undefined) ?? item.default) === 0 &&
+                    ['globalDailyYuan', 'replyGateGlobalDailyYuan'].includes(item.name)
+                      ? '不限'
+                      : (budget[item.name] ?? (item.name === 'personalDailyYuan' ? budget.privateDailyYuan : undefined) ?? item.default) + ' 元'
+                }))
+              ]}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} lg={12}>
+          <Card
+            title='轮转规则'
+            extra={
+              <Button disabled={busy} onClick={() => run(() => open('rules'))}>
+                编辑规则
+              </Button>
+            }
+          >
+            <Descriptions
+              column={1}
+              size='small'
+              items={[
+                { key: 'enabled', label: '轮转', children: <Tag color={data?.enabled ? 'green' : 'default'}>{data?.enabled ? '已启用' : '未启用'}</Tag> },
+                {
+                  key: 'strategy',
+                  label: '分配策略',
+                  children: strategies.find(item => item.value === (app.modelPool?.strategy || 'weighted-round-robin'))?.label
+                },
+                { key: 'retry', label: '失败重试', children: (app.modelPool?.maxAttempts ?? 3) + ' 次尝试' },
+                { key: 'cooldown', label: '失败冷却', children: (app.modelPool?.cooldownSeconds ?? 60) + ' 秒' }
+              ]}
+            />
+          </Card>
+        </Col>
+      </Row>
       <Card title='回复门控调用' style={{ marginBottom: 20 }}>
         <Space wrap size='large'>
           <Typography.Text>
@@ -372,6 +439,8 @@ export default function PoolPage() {
         <Table<Endpoint>
           loading={busy && !data}
           rowKey='id'
+          pagination={false}
+          onRow={row => ({ 'data-endpoint-id': row.id }) as React.HTMLAttributes<HTMLTableRowElement>}
           scroll={{ x: 1150 }}
           dataSource={endpoints.filter(row => [row.id, row.model, row.account, row.baseUrl].join(' ').toLowerCase().includes(filter.toLowerCase()))}
           locale={{ emptyText: <Empty description={endpoints.length ? '没有符合筛选条件的端点' : '添加端点，开始管理额度轮转'} /> }}
@@ -389,7 +458,11 @@ export default function PoolPage() {
                         ?.map(value => ({ chat: '聊天', replyGate: '回复门控', tools: '工具', vision: '视觉' })[value] || value)
                         .join(' / ')
                     },
-                    { key: '2', label: '主备 / 优先级', children: (row.fallback ? '备用' : '主用') + ' / ' + (row.priority ?? 0) },
+                    {
+                      key: '2',
+                      label: '主备 / 优先级',
+                      children: (row.fallback ? '备用' : '主用') + ' / ' + (configured.findIndex(item => item.id === row.id) + 1)
+                    },
                     { key: '3', label: '权重', children: row.weight ?? 1 },
                     { key: '4', label: '并发', children: row.active === undefined ? '无运行数据' : row.active + ' / ' + row.maxConcurrent },
                     { key: '5', label: '分钟请求', children: row.requests === undefined ? '无运行数据' : row.requests + ' / ' + (row.rpm ?? '不限') },
@@ -443,6 +516,23 @@ export default function PoolPage() {
             )
           }}
           columns={[
+            {
+              title: '顺序',
+              width: 120,
+              render: (_, row) => (
+                <Space>
+                  <EndpointDragHandle id={row.id} disabled={busy || Boolean(filter) || Boolean(drawer)} onMove={target => void reorder(row.id, target)} />
+                  <span>{configured.findIndex(item => item.id === row.id) + 1}</span>
+                  <Button
+                    size='small'
+                    disabled={busy || Boolean(drawer) || configured[0]?.id === row.id}
+                    onClick={() => void reorder(row.id, configured[0]?.id)}
+                  >
+                    置顶
+                  </Button>
+                </Space>
+              )
+            },
             {
               title: '端点 / 请求地址',
               width: 300,
@@ -670,60 +760,6 @@ export default function PoolPage() {
           ]}
         />
       </Card>
-      <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
-        <Col xs={24} lg={12}>
-          <Card
-            title='轮转规则'
-            extra={
-              <Button disabled={busy} onClick={() => run(() => open('rules'))}>
-                编辑规则
-              </Button>
-            }
-          >
-            <Descriptions
-              column={1}
-              size='small'
-              items={[
-                { key: 'enabled', label: '轮转', children: <Tag color={data?.enabled ? 'green' : 'default'}>{data?.enabled ? '已启用' : '未启用'}</Tag> },
-                {
-                  key: 'strategy',
-                  label: '分配策略',
-                  children: strategies.find(item => item.value === (app.modelPool?.strategy || 'weighted-round-robin'))?.label
-                },
-                { key: 'retry', label: '失败重试', children: (app.modelPool?.maxAttempts ?? 3) + ' 次尝试' },
-                { key: 'cooldown', label: '失败冷却', children: (app.modelPool?.cooldownSeconds ?? 60) + ' 秒' }
-              ]}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card
-            title='本地额度保护'
-            extra={
-              <Button disabled={busy} onClick={() => run(() => open('budget'))}>
-                编辑保护规则
-              </Button>
-            }
-          >
-            <Descriptions
-              size='small'
-              column={1}
-              items={[
-                { key: 'enabled', label: '保护', children: <Tag color={budget.enabled ? 'green' : 'default'}>{budget.enabled ? '已启用' : '未启用'}</Tag> },
-                ...budgetFields.map(item => ({
-                  key: item.name,
-                  label: item.label,
-                  children:
-                    (budget[item.name] ?? (item.name === 'personalDailyYuan' ? budget.privateDailyYuan : undefined) ?? item.default) === 0 &&
-                    ['globalDailyYuan', 'replyGateGlobalDailyYuan'].includes(item.name)
-                      ? '不限'
-                      : (budget[item.name] ?? (item.name === 'personalDailyYuan' ? budget.privateDailyYuan : undefined) ?? item.default) + ' 元'
-                }))
-              ]}
-            />
-          </Card>
-        </Col>
-      </Row>
       <Modal
         title='智能识别端点'
         open={recognizing}
@@ -785,21 +821,8 @@ export default function PoolPage() {
                     <Input disabled={Boolean(editingId)} placeholder='例如 primary-chat' />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
-                  <Form.Item name='provider' label='供应商' rules={[{ required: true }]}>
-                    <Input placeholder='例如 deepseek-official' />
-                  </Form.Item>
-                </Col>
               </Row>
-              <Form.Item name='baseUrl' label='请求地址' rules={[{ required: true }, { validator: secureUrl }]}>
-                <Input placeholder='https://api.example.com/v1' />
-              </Form.Item>
-              <Form.Item name='apiKey' label='API Key' rules={[{ required: true }, { min: 8, max: 500 }]}>
-                <Input.Password autoComplete='off' placeholder='填写密钥' />
-              </Form.Item>
-              <Form.Item name='model' label='模型' rules={[{ required: true }]}>
-                <Input />
-              </Form.Item>
+              <ModelConnectionFields form={form} providers={configured.map(item => item.provider)} addresses={configured.map(item => item.baseUrl)} />
               <Form.Item name='account' label='账号分组'>
                 <Input placeholder='同账号端点使用相同分组' />
               </Form.Item>
@@ -831,7 +854,6 @@ export default function PoolPage() {
                       <>
                         <Row gutter={16}>
                           {[
-                            { name: 'priority', label: '优先级', min: 0, max: 100 },
                             { name: 'weight', label: '权重', min: 1, max: 100 },
                             { name: 'maxConcurrent', label: '并发上限', min: 1, max: 100 },
                             { name: 'rpm', label: '每分钟请求上限', min: 1, max: 1000000 },
