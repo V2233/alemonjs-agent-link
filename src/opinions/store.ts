@@ -55,6 +55,10 @@ export const opinionSummary = (object: OpinionObject) => {
 };
 export class OpinionStore {
   private db: DatabaseSync;
+  private epochs = new Map<string, number>();
+  epoch(channelId: string) {
+    return this.epochs.get(hash(channelId)) || 0;
+  }
   constructor(
     path: string,
     private now = Date.now
@@ -119,6 +123,8 @@ export class OpinionStore {
         events: []
       };
 
+      let recorded = false;
+
       // Same quoted evidence cannot be amplified through message replays or copy/paste.
       if (
         !object.frozen &&
@@ -126,17 +132,18 @@ export class OpinionStore {
           e =>
             e.perspective === input.perspective &&
             e.dimension === input.dimension &&
-            e.author === input.author &&
+            (input.perspective === 'inferred' || e.author === input.author) &&
             (e.inputId === inputId || e.quote === input.quote)
         )
       ) {
+        recorded = true;
         object.events.push({ ...input, id: randomUUID(), objectId: id, inputId, at: this.now(), revoked: false });
         object.revision = Math.max(this.now(), object.revision + 1);
         this.write(object);
       }
       this.db.exec('COMMIT');
 
-      return opinionSummary(object);
+      return { ...opinionSummary(object), recorded };
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
@@ -158,6 +165,18 @@ export class OpinionStore {
 
         if (!event) throw new Error('评价事件不存在');
         event.revoked = true;
+        if (event.perspective === 'reported') {
+          for (const related of object.events) {
+            if (
+              related.perspective === 'inferred' &&
+              related.inputId === event.inputId &&
+              related.author === event.author &&
+              related.quote === event.quote &&
+              related.dimension === event.dimension
+            )
+              related.revoked = true;
+          }
+        }
       } else throw new Error('操作无效');
       object.revision = Math.max(this.now(), object.revision + 1);
       this.write(object);
@@ -170,6 +189,7 @@ export class OpinionStore {
     }
   }
   purgeHash(channelHash: string) {
+    this.epochs.set(channelHash, (this.epochs.get(channelHash) || 0) + 1);
     this.db.prepare('DELETE FROM opinions WHERE channel_hash=?').run(channelHash);
   }
   cleanup(days: number) {

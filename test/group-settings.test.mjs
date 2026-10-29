@@ -199,7 +199,7 @@ test('自动语音尊重群设置：关闭后 planExpression 不再选语音', a
     workspaceRoot: join(f.root, 'work'),
     dshHomeRoot: join(f.root, 'home'),
     stateBackend: 'local',
-    modules: { settings: { expression: { automatic: true, voiceChance: 1 } } }
+    modules: { settings: { mood: { baseline: 80 }, expression: { automatic: true, voiceChance: 1 } } }
   });
   const { getGroupSettingsStore } = await import('../lib/social/group-settings.js');
   const { planExpression } = await import('../lib/companion/expression.js');
@@ -207,10 +207,31 @@ test('自动语音尊重群设置：关闭后 planExpression 不再选语音', a
   const media = { tts: { voice: 'test-voice' } };
 
   try {
-    assert.equal(planExpression(config, { platform: 'qq', channelId: 'g1' }, 'msg-1', media).voice, true);
+    assert.equal(
+      planExpression(config, { platform: 'qq', channelId: 'g1' }, 'audio-one', media, {
+        userText: '终于考上了，太开心了',
+        private: true,
+        now: Date.UTC(2026, 9, 29, 4)
+      }).voice,
+      true
+    );
     store.update('qq', 'g1', 'admin', { voiceAuto: false });
-    assert.equal(planExpression(config, { platform: 'qq', channelId: 'g1' }, 'msg-1', media).voice, false);
-    assert.equal(planExpression(config, { platform: 'qq', channelId: 'g2' }, 'msg-1', media).voice, true);
+    assert.equal(
+      planExpression(config, { platform: 'qq', channelId: 'g1' }, 'audio-one', media, {
+        userText: '终于考上了，太开心了',
+        private: true,
+        now: Date.UTC(2026, 9, 29, 4)
+      }).voice,
+      false
+    );
+    assert.equal(
+      planExpression(config, { platform: 'qq', channelId: 'g2' }, 'audio-one', media, {
+        userText: '终于考上了，太开心了',
+        private: true,
+        now: Date.UTC(2026, 9, 29, 4)
+      }).voice,
+      true
+    );
   } finally {
     await rm(f.root, { recursive: true, force: true });
   }

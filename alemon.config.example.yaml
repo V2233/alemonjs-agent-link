@@ -277,6 +277,10 @@ alemonjs-agent-link:
   # ---------------------------------------------------------------- 近期群聊参考
 
   # 采集最近多少条群消息作为上下文（0-10000）。
+  # 感知独立窗口：最多40条、30分钟、总文本6000字；优先保留肥鱼最近回复。
+  perceptionMaxMessages: 40
+  perceptionWindowSeconds: 1800
+  perceptionMaxChars: 6000
   recentChatMaxMessages: 20
   # 采集的时间窗（秒，0-86400，这里 15 分钟）。
   recentChatWindowSeconds: 900
@@ -402,7 +406,7 @@ alemonjs-agent-link:
         # 是否自动决定要不要用语音或发表情。
         automatic: true
         # 用语音回复的概率（0-1）。
-        voiceChance: 0.15
+        voiceChance: 0.15 # 符合情绪场景后再抽样；受心情、关系、时段与频次约束
         # 附带表情的概率（0-1）。
         stickerChance: 0.35
         # 没有话题相关的表情时，是否随手发一个；false 表示宁可不发。
@@ -524,7 +528,7 @@ alemonjs-agent-link:
     #   ownerOnly: false
     # 本地语音引擎参数（不依赖上面的 tts 服务）。
     # speech:
-    #   # 引擎：auto 自动挑 / system 系统语音 / edge / openai / cosyvoice / gptsovits / http。
+    #   # 引擎：auto 自动挑 / system 系统语音 / edge / openai / breeze / cosyvoice / gptsovits / http。
     #   engine: 'auto'
     #   # 合成失败时是否回退成文字。
     #   fallback: true
@@ -536,3 +540,8 @@ alemonjs-agent-link:
     #   sampleRate: 22050
     #   # 语言代码。
     #   language: 'zh'
+    #   # breeze 引擎（BreezeBlue）：voiceId + url + apiKey 必填。
+    #   # url: 'https://api.breeze.blue'
+    #   # apiKey: '<BREEZE_KEY>'
+    #   # voiceId: 'voc_xxxxxxxxxxxx'
+    #   # instruction: '清亮柔软、略带奶气的普通话少女音，语速适中'

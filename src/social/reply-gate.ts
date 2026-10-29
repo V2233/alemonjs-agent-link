@@ -25,7 +25,7 @@ export type ReplyVerdict = {
 export type ReplyGateInput = {
   scope?: BudgetScope;
   activity?: 'quiet' | 'balanced' | 'active';
-  recent: { speaker: string; text: string }[];
+  recent: { speaker: string; text: string; at?: number }[];
   messages: {
     speaker: string;
     text: string;
@@ -143,7 +143,7 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
     const compact = {
       bot: wakeNamesFor(config, input.scope?.channelId || '', input.scope?.platform || ''),
       activity: input.activity || 'balanced',
-      recent: input.recent.slice(-3).map(item => ({ speaker: item.speaker, text: item.text.slice(0, 400) })),
+      recent: input.recent.slice(-config.perceptionMaxMessages).map(item => ({ speaker: item.speaker, text: item.text.slice(0, 400), at: item.at })),
       messages: input.messages.map(item => ({
         ...item,
         text: item.text.slice(0, 600),
@@ -198,7 +198,7 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
         ]
       });
 
-      if (Buffer.byteLength(body) > 20000) return reject();
+      if (Buffer.byteLength(body) > 100000) return reject();
       const request: RequestInit & { onDispatch?: () => void; scopedKey?: boolean; pricing?: NonNullable<DSHCredentials['pricing']> } = {
         onDispatch: current.markSent,
         scopedKey: Boolean(bound),

@@ -1,3 +1,5 @@
+import VoicesPage from './components/VoicesPage';
+import OpinionsPage from './components/OpinionsPage';
 import EventsPage from './components/EventsPage';
 import WorkModelPage from './components/WorkModelPage';
 import DictionaryPage from './components/DictionaryPage';
@@ -10,6 +12,8 @@ export default createHashRouter([
   {
     element: <AdminLayout />,
     children: [
+      { path: '/voices', element: <VoicesPage /> },
+      { path: '/opinions', element: <OpinionsPage /> },
       { path: '/events', element: <EventsPage /> },
       { path: '/dictionary', element: <DictionaryPage /> },
       { path: '/personas', element: <ContentPage key='personas' kind='personas' /> },

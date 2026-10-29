@@ -1,3 +1,7 @@
+import { getAffinityStore } from './affinity';
+import { getPersonaStore } from './personas';
+import { isQuietHour } from '../social/group-policy';
+import { voiceMotivation, type VoiceSituation } from './voice-policy';
 import { createHash } from 'node:crypto';
 import type { DSHBridgeConfig } from '../dsh/client';
 import type { MediaConfig } from '../media/config';
@@ -5,7 +9,7 @@ import type { Sticker } from '../media/stickers';
 import type { GroupChatPolicy } from '../social/group-policy';
 import type { PersonaScope } from './personas';
 import { getMoodStore, moodOptions } from './mood';
-import { groupVoicePolicy } from '../social/group-settings';
+import { groupPolicy, groupVoicePolicy } from '../social/group-settings';
 
 export const expressionOptions = (config: DSHBridgeConfig) => {
   const raw = config.modules?.settings?.expression || {};
@@ -72,12 +76,16 @@ const INTENTS: { pattern: RegExp; intent: StickerIntent }[] = [
     intent: { names: ['在呢'], categories: ['日常'], tags: ['招呼', '回应', '日常'], context: ['招呼', '回应', '在呢'] }
   },
   {
+    pattern: /早安|早上好/u,
+    intent: { names: ['早安', '早上好'], categories: ['问候'], tags: ['早安', '早上好', '问候'], context: ['早晨', '问候'] }
+  },
+  {
     pattern: /晚安|睡了|困了|睡觉|好梦/u,
     intent: { names: ['晚安', '睡了'], categories: ['晚安'], tags: ['晚安', '困'], context: ['睡前', '困倦', '晚安'] }
   },
   {
     pattern: /哈哈|笑死|好笑|开心|好耶|太好/u,
-    intent: { names: ['好耶', '开心'], categories: ['开心'], tags: ['开心', '笑'], context: ['庆祝', '好消息', '开心'] }
+    intent: { names: ['好耶', '开心', '笑死', '哈哈'], categories: ['开心'], tags: ['开心', '笑'], context: ['庆祝', '好消息', '开心'] }
   },
   {
     pattern: /生气|好烦|讨厌|不满|气死/u,
@@ -85,7 +93,7 @@ const INTENTS: { pattern: RegExp; intent: StickerIntent }[] = [
   },
   {
     pattern: /委屈|难过|想哭|伤心|哭死/u,
-    intent: { names: ['委屈', '难过'], categories: ['委屈'], tags: ['委屈', '难过'], context: ['委屈', '难过'] }
+    intent: { names: ['抱抱', '安慰'], categories: ['安慰'], tags: ['抱抱', '安慰'], context: ['陪伴', '安慰'] }
   },
   {
     pattern: /害羞|不好意思|脸红/u,
@@ -101,39 +109,68 @@ const INTENTS: { pattern: RegExp; intent: StickerIntent }[] = [
   }
 ];
 
-export const stickerIntent = (text: string): StickerIntent | undefined => (text ? INTENTS.find(entry => entry.pattern.test(text))?.intent : undefined);
+export const stickerIntent = (text: string): StickerIntent | undefined => {
+  if (!text || /[“”「」"<>]|他说|她说|有人说|不要|别再|不许|并不|不是|不(?:开心|难过|生气|困|委屈)|怎么|如何|为什么|什么叫/u.test(text)) return undefined;
+
+  return INTENTS.find(entry => entry.pattern.test(text))?.intent;
+};
 export const hasStickerIntent = (text: string): boolean => Boolean(stickerIntent(text));
 export const selectIntentSticker = (items: Sticker[], userText: string): Sticker | undefined => {
   const intent = stickerIntent(userText);
 
   if (!intent) return undefined;
 
-  return items.find(item => Boolean(item.name && intent.names.includes(item.name)));
+  const exact = items.find(item => Boolean(item.name && intent.names.includes(item.name)));
+
+  if (exact) return exact;
+  // Require a specific expression tag: a broad category such as 日常 is not enough.
+  const specific = intent.tags.filter(tag => !['日常', '回应', '问候'].includes(tag));
+
+  return items.find(item => item.tags.some(tag => specific.includes(tag)));
 };
 const INTENT_WORDS =
-  /在不在|在吗|在么|在嘛|有人吗|晚安|睡了|困了|睡觉|好梦|哈哈|笑死|好笑|开心|好耶|太好|生气|好烦|讨厌|不满|气死|委屈|难过|想哭|伤心|哭死|害羞|不好意思|脸红|得意|厉害|牛啊|太强|崇拜|调皮|略略略|逗你|哼哼/gu;
+  /在不在|在吗|在么|在嘛|有人吗|早安|早上好|晚安|睡了|困了|睡觉|好梦|哈哈|笑死|好笑|开心|好耶|太好|生气|好烦|讨厌|不满|气死|委屈|难过|想哭|伤心|哭死|害羞|不好意思|脸红|得意|厉害|牛啊|太强|崇拜|调皮|略略略|逗你|哼哼/gu;
 
 /**
  * A sticker can replace a greeting/acknowledgement, but not extra information.
  * Keep the text when the user asked for more, or the answer contains facts/steps/links.
  */
 export const needsTextSupplement = (userText: string, answer: string): boolean => {
-  const residual = userText.replace(INTENT_WORDS, '').replace(/[\s，,。.!！?？~～呀啊嘛哦嗯]/gu, '');
-  const substantive = /https?:\/\/|```|\n[-*]|\d{2,}|[%¥$]|因为|所以|但是|需要|建议|步骤|报错|错误|地址|链接|价格|时间|版本/u.test(answer);
+  const residual = userText
+    .replace(/^(?:大肥鱼|小肥鱼|肥鱼|小鲸鱼)[，,：:\s]*/u, '')
+    .replace(INTENT_WORDS, '')
+    .replace(/[\s，,。.!！?？~～呀啊嘛哦嗯哈]/gu, '');
+  const simpleEmotion = hasStickerIntent(userText) && /^(?:我|今天|有点|真的|好|很|太|了|死|啦|呢)*$/u.test(residual);
+  const substantive = /https?:\/\/|```|\n[-*]|\d|[%¥$]|因为|所以|但是|需要|建议|步骤|报错|错误|地址|链接|价格|时间|版本/u.test(answer);
+  // Only suppress a reply that the sticker itself can convey; short facts still need text.
+  const extraReply = answer
+    .replace(/在(?:的|呢|听)?|早(?:安|上好)?|晚安|好梦|哈哈+|笑死|好耶|开心|抱(?:抱|一下)|摸摸|拍拍|哼哼?|恭喜|给你|给我|你|我/gu, '')
+    .replace(/[\s，,。.!！?？~～呀啊嘛哦嗯哈啦呢]/gu, '');
 
-  return residual.length > 0 || Array.from(answer).length > 24 || substantive;
+  return !simpleEmotion || Array.from(answer).length > 24 || substantive || extraReply.length > 0;
 };
 
 const mood = (config: DSHBridgeConfig, scope: PersonaScope): number =>
   config.modules?.disabled?.includes('mood') ? 60 : getMoodStore(config).snapshot(scope, moodOptions(config), config.retentionDays).value;
 
-export const planExpression = (config: DSHBridgeConfig, scope: PersonaScope, inputId: string, media?: MediaConfig) => {
+export const planExpression = (config: DSHBridgeConfig, scope: PersonaScope, inputId: string, media?: MediaConfig, situation?: VoiceSituation) => {
   const options = expressionOptions(config);
   const value = scope.platform && scope.channelId ? mood(config, scope) : 60;
   const automatic = options.automatic && !config.modules?.disabled?.includes('expression');
   const expressiveness = value >= 75 ? 1.25 : value < 45 ? 0.5 : 1;
   // 群设置可以关掉本群语音或自动语音；私聊与未设置的群沿用全局。
   const voice = scope.platform && scope.channelId ? groupVoicePolicy(config, scope.channelId, scope.platform) : { allowed: true, auto: true };
+
+  let affinity = 50;
+
+  if (situation?.userId && !config.modules?.disabled?.includes('affinity')) {
+    const personaId = String(getPersonaStore(config).selected(scope) || config.modules?.settings?.persona?.defaultId || config.persona);
+
+    if (personaId === 'dafeiyu') affinity = getAffinityStore(config).snapshot({ ...scope, userId: situation.userId, personaId }).score;
+  }
+  const policy = groupPolicy(config, scope.channelId, scope.platform);
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: '2-digit', hourCycle: 'h23', timeZone: policy.timezone }).format(situation?.now ?? Date.now()));
+  const motivation = voiceMotivation(situation && { ...situation, affinity, quiet: isQuietHour(hour, policy.quietHours) }, value);
 
   return {
     voice: Boolean(
@@ -142,7 +179,8 @@ export const planExpression = (config: DSHBridgeConfig, scope: PersonaScope, inp
       voice.auto &&
       !config.modules?.disabled?.includes('voice') &&
       (media?.tts?.voice || media?.speech) &&
-      sample(inputId, 'voice') < Math.min(1, options.voiceChance * expressiveness)
+      motivation > 0 &&
+      sample(inputId, 'voice') < Math.min(1, options.voiceChance * motivation)
     ),
     sticker: Boolean(automatic && media?.stickerRoot && sample(inputId, 'sticker') < Math.min(1, options.stickerChance * expressiveness)),
     delayMs: automatic
@@ -152,7 +190,7 @@ export const planExpression = (config: DSHBridgeConfig, scope: PersonaScope, inp
 };
 
 export const automaticVoiceText = (text: string, limit: number): boolean =>
-  Boolean(text.trim()) && Array.from(text).length <= Math.min(240, limit) && !/```|https?:\/\/|\|.*\||\[沉默\]/u.test(text);
+  Boolean(text.trim()) && Array.from(text).length <= Math.min(100, limit) && !/```|https?:\/\/|\|.*\||\[沉默\]|\n[-*]|配置|命令|步骤|首先|其次/u.test(text);
 
 export const selectExpressionSticker = (
   items: Sticker[],

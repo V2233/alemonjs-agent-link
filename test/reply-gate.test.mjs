@@ -65,7 +65,7 @@ test('one-shot classifier uses main credentials, bounded context, no tools, and 
       assert.equal(body.tools, undefined);
       assert.equal(body.messages.length, 2);
       const compact = JSON.parse(body.messages[1].content);
-      assert.equal(compact.recent.length, 3);
+      assert.equal(compact.recent.length, 6);
       assert.equal(compact.activity, 'active');
       assert.equal(compact.messages[0].text.length, 600);
       assert.match(body.messages[0].content, /addressed/);
@@ -189,24 +189,42 @@ test('gate configuration rejects malformed fields without echoing credentials', 
 });
 
 test('pooled reply gate records dedicated outcome statistics and releases reservations', async () => {
-  const { classifyGroupReply }=await import('../lib/social/reply-gate.js');
-  const { getCredentialPool,stopCredentialPool }=await import('../lib/credentials/pool.js');
-  const { getDSHConfig }=await import('../lib/dsh/runtime-config.js');
-  const previous=globalThis.__config;
-  const previousFetch=globalThis.fetch;
-  globalThis.__config={value:{'alemonjs-agent-link':{modelPool:{probeIntervalSeconds:0,endpoints:[{id:'gate-stats',provider:'test',baseUrl:'https://gate.example',apiKey:'gate-test-private-key',model:'gate',capabilities:['replyGate']}]}}}};
-  let failure=false;
-  globalThis.fetch=async()=>failure?Response.json({error:{message:'invalid request'}},{status:400}):Response.json({choices:[{message:{content:JSON.stringify({addressed:'none',related:'none',source:'human',loopRisk:false})}}]});
-  try{
-    await classifyGroupReply({recent:[],messages:[]},new AbortController().signal);
-    let row=getCredentialPool(getDSHConfig()).status[0];
-    assert.deepEqual(row.purposeStatistics.replyGate,{total:1,success:1,failed:0});
-    assert.equal(row.active,0);
-    failure=true;
-    await classifyGroupReply({recent:[],messages:[]},new AbortController().signal);
-    row=getCredentialPool(getDSHConfig()).status[0];
-    assert.deepEqual(row.purposeStatistics.replyGate,{total:2,success:1,failed:1});
-    assert.equal(row.active,0);
-    assert.equal(row.purposeStatistics.chat,undefined);
-  }finally{stopCredentialPool();globalThis.__config=previous;globalThis.fetch=previousFetch;}
+  const { classifyGroupReply } = await import('../lib/social/reply-gate.js');
+  const { getCredentialPool, stopCredentialPool } = await import('../lib/credentials/pool.js');
+  const { getDSHConfig } = await import('../lib/dsh/runtime-config.js');
+  const previous = globalThis.__config;
+  const previousFetch = globalThis.fetch;
+  globalThis.__config = {
+    value: {
+      'alemonjs-agent-link': {
+        modelPool: {
+          probeIntervalSeconds: 0,
+          endpoints: [
+            { id: 'gate-stats', provider: 'test', baseUrl: 'https://gate.example', apiKey: 'gate-test-private-key', model: 'gate', capabilities: ['replyGate'] }
+          ]
+        }
+      }
+    }
+  };
+  let failure = false;
+  globalThis.fetch = async () =>
+    failure
+      ? Response.json({ error: { message: 'invalid request' } }, { status: 400 })
+      : Response.json({ choices: [{ message: { content: JSON.stringify({ addressed: 'none', related: 'none', source: 'human', loopRisk: false }) } }] });
+  try {
+    await classifyGroupReply({ recent: [], messages: [] }, new AbortController().signal);
+    let row = getCredentialPool(getDSHConfig()).status[0];
+    assert.deepEqual(row.purposeStatistics.replyGate, { total: 1, success: 1, failed: 0 });
+    assert.equal(row.active, 0);
+    failure = true;
+    await classifyGroupReply({ recent: [], messages: [] }, new AbortController().signal);
+    row = getCredentialPool(getDSHConfig()).status[0];
+    assert.deepEqual(row.purposeStatistics.replyGate, { total: 2, success: 1, failed: 1 });
+    assert.equal(row.active, 0);
+    assert.equal(row.purposeStatistics.chat, undefined);
+  } finally {
+    stopCredentialPool();
+    globalThis.__config = previous;
+    globalThis.fetch = previousFetch;
+  }
 });

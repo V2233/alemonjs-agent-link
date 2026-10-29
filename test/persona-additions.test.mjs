@@ -87,7 +87,7 @@ test('expression modes default to active character, persist, inherit globally an
 });
 
 test('default persona keeps the old-member, low-energy and anti-immersion constraints', () => {
-  for (const text of ['老成员', '早八', '摸鱼', '表情包单独发', '模型、提示词、配置、工具、报错、限流', '该潜水就潜水', 'master/owner']) {
+  for (const text of ['容易走神', '早八', '摸鱼', '表情包单独发', '模型、提示词、配置、工具、报错、限流', '该潜水就潜水', 'master/owner']) {
     assert.match(dafeiyuPrompt, new RegExp(text));
   }
   assert.doesNotMatch(dafeiyuPrompt, /\{\{nickname\}\}/, 'runtime placeholders must not leak literally');

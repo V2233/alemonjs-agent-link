@@ -1,3 +1,4 @@
+import { opinionsModule } from '../modules/opinions';
 import { eventsModule } from '../modules/events';
 import { affinityModule } from '../modules/affinity';
 import { dictionaryModule } from '../modules/dictionary';
@@ -248,6 +249,7 @@ export class ModuleRuntime {
       personaModule(config),
       moodModule(config),
       affinityModule(config),
+      opinionsModule(config),
       platformModule(config),
       exposeModule(),
       groupAdminModule(config),

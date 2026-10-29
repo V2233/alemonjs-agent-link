@@ -30,10 +30,11 @@ export class AffinityStore {
 
     return { score, label: affinityLabel(score) };
   }
-  record(scope: AffinityScope, inputId: string, text: string) {
+  record(scope: AffinityScope, inputId: string, text: string, delta = 0) {
     const id = key(scope);
 
-    if (!inputId || text.trim().length < 4 || text.trimStart().startsWith('/')) return this.snapshot(scope);
+    if (!Number.isInteger(delta) || ![-3, 0, 1].includes(delta)) throw new Error('好感度变化无效');
+    if (!delta || !inputId || text.trim().length < 4 || text.trimStart().startsWith('/')) return this.snapshot(scope);
     const now = this.now();
     const day = new Date(now + 8 * 3600000).toISOString().slice(0, 10);
 
@@ -44,12 +45,12 @@ export class AffinityStore {
       if (seen.changes) {
         const row = this.db.prepare('SELECT * FROM affinity WHERE scope=?').get(id);
         const gained = row?.day === day ? Number(row.gained) : 0;
-        const eligible = gained < 3 && (!row || now - Number(row.last_gain) >= 600000);
-        const score = Math.min(100, Number(row?.score ?? 50) + (eligible ? 1 : 0));
+        const eligible = gained + Math.abs(delta) <= 3 && (!row || now - Number(row.last_gain) >= 600000);
+        const score = Math.max(0, Math.min(100, Number(row?.score ?? 50) + (eligible ? delta : 0)));
 
         this.db
           .prepare('INSERT OR REPLACE INTO affinity VALUES(?,?,?,?,?,?,?)')
-          .run(id, hash(scope.channelId), score, day, gained + (eligible ? 1 : 0), eligible ? now : Number(row?.last_gain || 0), now);
+          .run(id, hash(scope.channelId), score, day, gained + (eligible ? Math.abs(delta) : 0), eligible ? now : Number(row?.last_gain || 0), now);
       }
       this.db.exec('COMMIT');
 

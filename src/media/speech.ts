@@ -1,3 +1,4 @@
+import { voiceBalanceExhausted } from './voice-status';
 import { access, mkdtemp, mkdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { getDSHConfig } from '../dsh/runtime-config';
@@ -7,7 +8,11 @@ import { SpeechError, speechOptions, type SpeechEngine } from './speech-config';
 import { speechProcess } from './speech-process';
 import { audioFormat } from './download';
 import { requestSpeechAudio, readBounded } from './providers';
-import { assertBudgetAvailable } from '../billing/budget';
+import { selectVoice } from './voice-library';
+import { MediaHttpError } from './providers';
+import { BudgetExceededError, assertBudgetAvailable } from '../billing/budget';
+
+const quotaCooldowns = new Map<string, number>();
 
 export type SpeechAudio = { data: Buffer; extension: 'mp3' | 'wav' | 'ogg'; engine: Exclude<SpeechEngine, 'auto'>; text: string; fallbackFrom: string[] };
 const exists = (path: string): Promise<boolean> =>
@@ -88,14 +93,24 @@ const systemSpeech = async (text: string, file: string, config: MediaConfig, sig
   }
 };
 
-const remoteSpeech = async (engine: 'cosyvoice' | 'gptsovits' | 'http', text: string, config: MediaConfig, signal: AbortSignal): Promise<Buffer> => {
+const remoteSpeech = async (engine: 'breeze' | 'cosyvoice' | 'gptsovits' | 'http', text: string, config: MediaConfig, signal: AbortSignal): Promise<Buffer> => {
   const options = speechOptions(config.speech);
   let url: string,
     body: string | URLSearchParams | FormData | undefined,
     method = 'POST';
   let headers: Record<string, string> = options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {};
 
-  if (engine === 'cosyvoice') {
+  if (engine === 'breeze') {
+    // Breeze mirrors the ElevenLabs shape: one POST per voice, binary audio back.
+    url = `${options.url.replace(/\/+$/u, '')}/v1/text-to-speech/${encodeURIComponent(options.voiceId)}?output_format=mp3`;
+    headers = { ...headers, 'xi-api-key': options.apiKey, 'Content-Type': 'application/json' };
+    body = JSON.stringify({
+      text,
+      model_id: options.model,
+      language_code: options.language,
+      instructions: options.instruction
+    });
+  } else if (engine === 'cosyvoice') {
     url = `${options.url.replace(/\/+$/u, '')}/inference_sft`;
     const form = new FormData();
 
@@ -143,7 +158,17 @@ export const renderSpeech = async (
   if (!text.trim() || Array.from(text).length > config.ttsMaxChars) {
     throw new SpeechError('configuration', `语音文本需要1–${config.ttsMaxChars}字符。`);
   }
+  config = selectVoice(config);
   const options = speechOptions(config.speech);
+  const quotaKey = JSON.stringify([options.engine, options.url, options.apiKey, config.tts?.baseUrl, config.tts?.apiKey]);
+  let quotaBlocked = voiceBalanceExhausted(config) || (quotaCooldowns.get(quotaKey) || 0) > Date.now();
+
+  try {
+    await assertBudgetAvailable(runtime);
+  } catch (error) {
+    if (!(error instanceof BudgetExceededError)) throw error;
+    quotaBlocked = true;
+  }
   const engines: Exclude<SpeechEngine, 'auto'>[] =
     options.engine === 'auto' ? [...(config.tts ? ['openai' as const] : []), 'edge', 'system'] : [options.engine];
 
@@ -157,6 +182,10 @@ export const renderSpeech = async (
         engines.push(fallback);
       }
     }
+  }
+  if (quotaBlocked) {
+    if (!options.fallback) throw new SpeechError('engine', '语音额度不足，且未启用降级。');
+    engines.splice(0, engines.length, 'system');
   }
   const root = join(dirname(runtime.workspaceRoot), 'speech-cache');
 
@@ -177,8 +206,8 @@ export const renderSpeech = async (
 
         if (engine === 'openai') {
           data = await requestSpeechAudio(text, config, attempt);
-        } else if (['cosyvoice', 'gptsovits', 'http'].includes(engine)) {
-          data = await remoteSpeech(engine as 'cosyvoice' | 'gptsovits' | 'http', text, config, attempt);
+        } else if (['breeze', 'cosyvoice', 'gptsovits', 'http'].includes(engine)) {
+          data = await remoteSpeech(engine as 'breeze' | 'cosyvoice' | 'gptsovits' | 'http', text, config, attempt);
         } else {
           const file = join(temp, engine === 'edge' ? 'speech.mp3' : 'speech.wav');
 
@@ -209,6 +238,14 @@ export const renderSpeech = async (
         signal.throwIfAborted();
         lastStage = error instanceof SpeechError ? error.stage : attempt.aborted ? 'timeout' : 'engine';
         failures.push(engine);
+        if (error instanceof BudgetExceededError || (error instanceof MediaHttpError && error.status === 402)) {
+          if (error instanceof MediaHttpError) {
+            for (const [key, until] of quotaCooldowns) if (until <= Date.now()) quotaCooldowns.delete(key);
+            if (quotaCooldowns.size >= 1000) quotaCooldowns.clear();
+            quotaCooldowns.set(quotaKey, Date.now() + 5 * 60_000);
+          }
+          if (options.fallback && engine !== 'system') engines.splice(engines.indexOf(engine) + 1, engines.length, 'system');
+        }
       }
     }
     throw new SpeechError(deadline.aborted ? 'timeout' : lastStage, `语音合成未完成（${failures.join('、')}）。请用 /语音引擎 状态 检查。`);
@@ -238,7 +275,7 @@ export const speechStatus = async (runtime = getDSHConfig()): Promise<{ edge: bo
   return {
     edge,
     system: process.platform === 'darwin' ? 'macOS say' : process.platform === 'win32' ? 'Windows System.Speech' : 'espeak-ng / espeak（需安装）',
-    engines: ['auto', 'system', 'edge', 'openai', 'cosyvoice', 'gptsovits', 'http']
+    engines: ['auto', 'system', 'edge', 'openai', 'breeze', 'cosyvoice', 'gptsovits', 'http']
   };
 };
 

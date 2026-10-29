@@ -283,17 +283,31 @@ test('optional mood judge uses a bounded model request without tools and discard
 
 test('expression decisions require configuration, remain stable on retry and do not override hourly or quiet limits', () =>
   fixture(async ({ config }) => {
+    const expressionScope = { ...scope, channelId: 'expression' };
     const media = { tts: { model: 'test', voice: 'voice' }, stickerRoot: '/stickers' };
     const off = { ...config, modules: { settings: { expression: { automatic: false } } } };
-    assert.deepEqual(planExpression(off, scope, 'm', media), { voice: false, sticker: false, delayMs: 0 });
-    const configured = { ...config, modules: { settings: { expression: { automatic: true, voiceChance: 1, stickerChance: 1, delayMs: [100, 200] } } } };
-    const plan = planExpression(configured, scope, 'm', media);
+    assert.deepEqual(
+      planExpression(off, expressionScope, 'audio-one', media, { userText: '终于考上了，太开心了', private: true, now: Date.UTC(2026, 9, 29, 4) }),
+      { voice: false, sticker: false, delayMs: 0 }
+    );
+    const configured = {
+      ...config,
+      modules: { settings: { mood: { baseline: 80 }, expression: { automatic: true, voiceChance: 1, stickerChance: 1, delayMs: [100, 200] } } }
+    };
+    const plan = planExpression(configured, expressionScope, 'audio-one', media, {
+      userText: '终于考上了，太开心了',
+      private: true,
+      now: Date.UTC(2026, 9, 29, 4)
+    });
     assert.equal(plan.voice, true);
     assert.equal(plan.sticker, true);
     assert.ok(plan.delayMs >= 100 && plan.delayMs <= 200);
-    assert.deepEqual(planExpression(configured, scope, 'm', media), plan);
-    assert.equal(planExpression(configured, scope, 'm', {}).voice, false);
-    assert.equal(planExpression(configured, scope, 'm', {}).sticker, false);
+    assert.deepEqual(
+      planExpression(configured, expressionScope, 'audio-one', media, { userText: '终于考上了，太开心了', private: true, now: Date.UTC(2026, 9, 29, 4) }),
+      plan
+    );
+    assert.equal(planExpression(configured, expressionScope, 'm', {}).voice, false);
+    assert.equal(planExpression(configured, expressionScope, 'm', {}).sticker, false);
     assert.equal(automaticVoiceText('你好', 100), true);
     assert.equal(automaticVoiceText('```const a=1```', 100), false);
     assert.equal(automaticVoiceText('x'.repeat(241), 1000), false);
@@ -332,11 +346,18 @@ test('actual expression delivery sends automatic audio, falls back to text on TT
     const { runDSHChat } = await import('../lib/response/dsh/chat.js');
     const { ResultCode } = await import('alemonjs');
     Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
-      modules: { settings: { memory: { automatic: false }, mood: { modelJudge: false }, expression: { automatic: true, voiceChance: 1, stickerChance: 0 } } },
+      modules: {
+        settings: {
+          memory: { automatic: false },
+          mood: { modelJudge: false, baseline: 80 },
+          expression: { automatic: true, voiceChance: 1, stickerChance: 0, stickerIntentAlways: false, socialPolish: false }
+        }
+      },
+      groupChat: { quietHours: [0, 0] },
       media: { speech: { engine: 'openai', fallback: false }, tts: { baseUrl: 'https://speech.test', apiKey: 'test', model: 'tts', voice: 'voice' } }
     });
     let audioFailure = false,
-      modelText = '喝茶吧';
+      modelText = '好耶，喝茶吧！';
     let modelCalls = 0,
       ttsCalls = 0;
     globalThis.fetch = async (url, init) => {
@@ -366,24 +387,34 @@ test('actual expression delivery sends automatic audio, falls back to text on TT
       }
     };
     const event = { Platform: 'qq', UserId: 'one', IsPrivate: true, IsMaster: true, MessageId: 'audio-one' };
-    await runDSHChat(event, '一起喝茶', { transport, onOutcome: result => outcomes.push(result) });
+    await runDSHChat(event, '终于考上了，太开心了', { transport, onOutcome: result => outcomes.push(result) });
     assert.equal(media.length, 1);
     assert.equal(media[0].type, 'audio');
     assert.equal(texts.length, 0);
     assert.equal(outcomes[0].delivered, true);
-    await runDSHChat(event, '一起喝茶', { transport });
-    assert.equal(modelCalls, 1, 'duplicate source must not synthesize a second reply');
-    audioFailure = true;
-    await runDSHChat({ ...event, MessageId: 'audio-two' }, '再说一遍', { transport, onOutcome: result => outcomes.push(result) });
+    const callsAfterDelivery = modelCalls;
+    await runDSHChat(event, '终于考上了，太开心了', { transport });
+    assert.equal(modelCalls, callsAfterDelivery, 'duplicate source must not synthesize a second reply');
+    await runDSHChat({ ...event, MessageId: 'audio-cooldown' }, '终于考上了，太开心了', { transport });
+    assert.equal(ttsCalls, 1, 'a second emotional turn must respect voice cooldown');
     assert.equal(texts.length, 1);
-    assert.match(texts[0], /喝茶吧/u);
-    assert.doesNotMatch(texts[0], /语音暂不可用/u);
+    texts.length = 0;
+    await runDSHChat({ ...event, MessageId: 'natural-voice' }, '请用语音回答', { transport });
+    assert.equal(ttsCalls, 2);
+    assert.equal(texts.length, 0, 'a natural language speech request must not stream duplicate text first');
+    assert.equal(media.at(-1).type, 'audio');
+    audioFailure = true;
+    await runDSHChat({ ...event, MessageId: 'audio-two' }, '请用语音再说一遍', { voice: true, transport, onOutcome: result => outcomes.push(result) });
+    assert.ok(texts.length > 0);
+    assert.match(texts.join(''), /喝茶吧/u);
+    assert.doesNotMatch(texts.join(''), /语音暂不可用/u);
+    const fallbackBubbles = texts.length;
     assert.equal(outcomes.at(-1).delivered, true);
     modelText = '[沉默]';
     await runDSHChat({ ...event, MessageId: 'silence' }, '旁听', { transport, allowSilence: true, onOutcome: result => outcomes.push(result) });
     assert.equal(outcomes.at(-1).delivered, false);
-    assert.equal(ttsCalls, 2);
-    assert.equal(texts.length, 1);
+    assert.equal(ttsCalls, 3);
+    assert.equal(texts.length, fallbackBubbles);
   }));
 
 test('explicit intent replies with only a matching sticker in either mode', () =>
@@ -429,7 +460,7 @@ test('explicit intent replies with only a matching sticker in either mode', () =
         }
       }
     };
-    await runDSHChat({ Platform: 'qq', UserId: 'one', IsPrivate: true, IsMaster: true, MessageId: 'intent' }, '在不在', {
+    await runDSHChat({ Platform: 'qq', UserId: 'one', IsPrivate: true, IsMaster: true, MessageId: 'intent' }, '肥鱼在吗', {
       transport,
       onOutcome: result => {
         outcome = result;
@@ -495,7 +526,7 @@ test('optional sticker receipt failure does not invalidate delivered text or cau
         settings: {
           memory: { automatic: false },
           mood: { modelJudge: false },
-          expression: { automatic: true, voiceChance: 0, stickerChance: 1, stickerMode: 'both' }
+          expression: { automatic: true, voiceChance: 0, stickerChance: 1, stickerMode: 'both', socialPolish: false }
         }
       },
       media: { stickerRoot }
@@ -532,8 +563,9 @@ test('optional sticker receipt failure does not invalidate delivered text or cau
     assert.equal(texts, 1);
     assert.equal(stickers, 1);
     assert.equal(outcome.delivered, true);
+    const callsAfterDelivery = modelCalls;
     await runDSHChat(event, '喝茶', { transport });
-    assert.equal(modelCalls, 1);
+    assert.equal(modelCalls, callsAfterDelivery);
   }));
 
 test('changing persona aborts a running generation before delivery and leaves the new choice installed', () =>
@@ -632,3 +664,99 @@ test('mood recognizes natural direct names without treating reported speech as p
   }
   assert.equal(keywordMoodDelta('肥鱼，你这个废物'), -6);
 });
+
+test('late model correction decays both impacts from the original input time', () =>
+  fixture(async ({ root }) => {
+    let now = 100000;
+    const store = new MoodStore(join(root, 'late-mood'), () => now);
+    try {
+      const first = store.observe(scope, 'late', 4, options);
+      now += 6 * 3600000;
+      assert.equal(store.applyModel(scope, first.token, 0, options), true);
+      assert.equal(store.snapshot(scope, options).value, 60);
+    } finally {
+      store.close();
+    }
+  }));
+
+test('unaddressed conversation does not invalidate a pending direct mood judgment', () =>
+  fixture(async ({ config }) => {
+    const runtime = new ModuleRuntime(config, [moodModule(config)]);
+    const lease = await runtime.acquire();
+    const { getMoodStore } = await import('../lib/companion/mood.js');
+    try {
+      await lease.context(context());
+      const store = getMoodStore(config);
+      const first = store.snapshot(scope, options);
+      await lease.context(context({ inputId: 'bystander', requestId: 'bystander', addressed: false, userText: '随便聊聊' }));
+      assert.equal(store.snapshot(scope, options).token, first.token);
+      assert.equal(store.applyModel(scope, first.token, 6, options), true);
+    } finally {
+      await lease.release();
+      await runtime.close();
+    }
+  }));
+
+test('social sequence uses a sticker for greeting, text for facts, occasional angry speech, then text after apology', () =>
+  fixture(async ({ root }) => {
+    const { runDSHChat } = await import('../lib/response/dsh/chat.js');
+    const { ResultCode } = await import('alemonjs');
+    const stickerRoot = join(root, 'sequence-stickers');
+    await mkdir(stickerRoot);
+    await writeFile(join(stickerRoot, 'manifest.json'), JSON.stringify([{ id: 'here', name: '在呢', file: 'here.png', tags: ['招呼'] }]));
+    await writeFile(join(stickerRoot, 'here.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
+      groupChat: { quietHours: [0, 0] },
+      modules: {
+        disabled: ['opinions'],
+        settings: {
+          memory: { automatic: false },
+          mood: { modelJudge: false, baseline: 30 },
+          expression: { voiceChance: 1, stickerChance: 0, socialPolish: false }
+        }
+      },
+      media: {
+        stickerRoot,
+        speech: { engine: 'openai', fallback: false },
+        tts: { baseUrl: 'https://speech.test', apiKey: 'test', model: 'tts', voice: 'voice' }
+      }
+    });
+    let reply = '在呢';
+    const sent = [];
+    let ttsCalls = 0;
+    globalThis.fetch = async url => {
+      if (String(url).endsWith('/audio/speech')) {
+        ttsCalls++;
+        return new Response('ID3test-audio');
+      }
+      return Response.json({ choices: [{ message: { content: reply } }] });
+    };
+    const transport = {
+      message: {
+        send: async () => {
+          sent.push('text');
+          return [{ code: ResultCode.Ok, data: { id: 'text' } }];
+        }
+      },
+      media: {
+        send: async value => {
+          sent.push(value.type);
+          return { code: ResultCode.Ok, data: { id: 'media' } };
+        }
+      }
+    };
+    const event = { Platform: 'qq', UserId: 'one', IsPrivate: true, IsMaster: true };
+    const turn = async (MessageId, input, answer, expected) => {
+      reply = answer;
+      sent.length = 0;
+      await runDSHChat({ ...event, MessageId }, input, { transport });
+      assert.deepEqual(sent, [expected], input);
+    };
+    await turn('sequence-greeting', '肥鱼在吗', '在呢', 'image');
+    await turn('sequence-facts', '帮我看服务器报错', '需要先提供日志。', 'text');
+    await turn('sequence-calm', '你这个笨蛋', '先把问题说清楚。', 'text');
+    await turn('audio-one', '你这个笨蛋', '够了，别这样说我！', 'audio');
+    await turn('sequence-apology', '对不起，刚才说重了', '好，这事就过去了。', 'text');
+    await turn('sequence-task', '那继续看报错吧', '把日志发来。', 'text');
+    assert.equal(ttsCalls, 1);
+  }));

@@ -50,6 +50,9 @@ export type DSHBridgeConfig = {
   outputBlockedKeywords: string[];
   maxRequestBytes: number;
   retentionDays: number;
+  perceptionMaxMessages: number;
+  perceptionWindowSeconds: number;
+  perceptionMaxChars: number;
   recentChatMaxMessages: number;
   recentChatWindowSeconds: number;
   recentChatMaxChars: number;
@@ -127,6 +130,9 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     outputBlockedKeywords: [],
     maxRequestBytes: 1048576,
     retentionDays: 30,
+    perceptionMaxMessages: 40,
+    perceptionWindowSeconds: 1800,
+    perceptionMaxChars: 6000,
     recentChatMaxMessages: 20,
     recentChatWindowSeconds: 900,
     recentChatMaxChars: 6000,
@@ -179,6 +185,9 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     maxCallsPerUserPerMinute: [1, 60],
     maxRequestBytes: [1, 5 * 1024 * 1024],
     retentionDays: [30, 30],
+    perceptionMaxMessages: [1, 100],
+    perceptionWindowSeconds: [60, 3600],
+    perceptionMaxChars: [400, 12000],
     recentChatMaxMessages: [0, 10000],
     recentChatWindowSeconds: [0, 86400],
     recentChatMaxChars: [0, 1000000],

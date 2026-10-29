@@ -157,7 +157,7 @@ export default function ContentPage({ kind }: { kind: 'personas' | 'knowledge' }
     <Layout.Content className='workspace-content'>
       <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 24 }} wrap>
         <Typography.Title level={2} style={{ margin: 0 }}>
-          {persona ? '人设' : '知识库'}
+          {persona ? '人设' : '问答库'}
         </Typography.Title>
         <Space>
           <Button onClick={load} loading={busy}>

@@ -1,3 +1,4 @@
+import { explicitVoiceRequest } from '../companion/voice-policy';
 import type { AgentModule } from '../agent/types';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { getMediaConfig } from '../media/config';
@@ -18,8 +19,15 @@ export const voiceModule = (config: DSHBridgeConfig): AgentModule => ({
       description:
         '将本次需要念给当前聊天对象的文本合成为语音。用户要求语音回答、朗读、念出来时使用。不接受地址、命令或其他收件人；本轮最多一次。返回prepared只代表已合成，平台发送在完整回复后进行，不得提前声称已送达。',
       parameters: { type: 'object', properties: { text: { type: 'string', minLength: 1, maxLength: 4000 } }, required: ['text'], additionalProperties: false },
-      available: context => !context.autonomous && Boolean(context.onSpeech) && groupVoicePolicy(config, context.channelId, context.platform).allowed,
+      available: context =>
+        !context.autonomous &&
+        explicitVoiceRequest(context.userText) &&
+        Boolean(context.onSpeech) &&
+        groupVoicePolicy(config, context.channelId, context.platform).allowed,
       execute: async ({ text }, context) => {
+        if (!explicitVoiceRequest(context.userText) || !groupVoicePolicy(config, context.channelId, context.platform).allowed) {
+          return { ok: false, message: '当前未明确要求语音或会话已关闭语音，请用文字回应。' };
+        }
         if (attempted.has(context)) {
           return { ok: false, message: '本轮已经尝试合成语音，不重复请求。' };
         }

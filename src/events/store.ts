@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { DSHBridgeConfig } from '../dsh/client';
 
 export type Word = {
@@ -15,6 +15,16 @@ export type Word = {
   definition: string;
   enabled: boolean;
   updatedAt: number;
+};
+export type ExternalEvaluation = {
+  id: string;
+  scope: string;
+  author: string;
+  quote: string;
+  updatedAt: number;
+  inputId: string;
+  kind: string;
+  revoked: number;
 };
 export class EventStore {
   private db: DatabaseSync;
@@ -58,25 +68,70 @@ export class EventStore {
         }
         this.db.prepare('INSERT INTO migrations VALUES (?)').run('defaults-v1');
       }
+      this.db.exec(`CREATE TABLE IF NOT EXISTS evaluation_history (
+        id TEXT PRIMARY KEY, scope TEXT NOT NULL, author TEXT NOT NULL, quote TEXT NOT NULL,
+        updatedAt INTEGER NOT NULL, inputId TEXT NOT NULL, kind TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+        CREATE INDEX IF NOT EXISTS evaluation_scope ON evaluation_history(scope, updatedAt);
+        CREATE TABLE IF NOT EXISTS festival_deliveries (scope TEXT, occurrence TEXT, at INTEGER, PRIMARY KEY(scope,occurrence));
+        CREATE TABLE IF NOT EXISTS evaluations (scope TEXT, author TEXT, quote TEXT, updatedAt INTEGER, PRIMARY KEY(scope,author));`);
+      if (!this.db.prepare('SELECT id FROM migrations WHERE id=?').get('history-v2')) {
+        for (const row of this.db.prepare('SELECT * FROM evaluations').all()) {
+          this.db
+            .prepare('INSERT INTO evaluation_history VALUES (?,?,?,?,?,?,?,0)')
+            .run(randomUUID(), row.scope, row.author, row.quote, row.updatedAt, 'legacy', 'direct');
+        }
+        this.db.exec('DELETE FROM evaluations');
+        for (const event of this.list()) {
+          if (event.term === '外部评价' && JSON.stringify(event.aliases) === JSON.stringify(['你真', '你好', '你太', '你很'])) {
+            this.save({ ...event, aliases: ['你很靠谱', '你真贴心', '你太敷衍', '你说错了'] });
+          }
+        }
+        for (const [term, aliases, definition] of [
+          ['被认真纠错', ['你说错了', '不是这样的', '你弄错了'], '核对具体错误，确实出错就承认并修正，不把纠错视为攻击，不在未核实时假装已修好。'],
+          ['对方需要安静', ['别打扰我', '先别说话', '我在忙'], '尊重对方暂停交流的意愿，不追问或催促；不能声称已修改主动提醒设置，除非实际执行成功。'],
+          ['久别重逢', ['好久不见', '我回来了'], '自然欢迎，只有真实记录支持时才接续共同话题，不责怪缺席，不编造等待天数。'],
+          ['被具体夸奖', ['你很靠谱', '你真贴心', '你帮大忙了'], '针对被认可的具体事情开心回应，不机械客套；明确评价自己的原话可记录为外部评价。']
+        ]) {
+          if (!this.list().some(event => event.term === term))
+            this.save({ term: String(term), aliases: aliases as string[], definition: String(definition), enabled: true, trigger: 'message' });
+        }
+        this.db.prepare('INSERT INTO migrations VALUES (?)').run('history-v2');
+      }
       this.db.exec('COMMIT');
     } catch (error) {
       this.db.exec('ROLLBACK');
       throw error;
     }
   }
-  evaluations(scope: string): unknown[] {
-    this.db.exec('CREATE TABLE IF NOT EXISTS evaluations (scope TEXT, author TEXT, quote TEXT, updatedAt INTEGER, PRIMARY KEY(scope,author))');
-
-    return this.db.prepare('SELECT author,quote,updatedAt FROM evaluations WHERE scope=? ORDER BY updatedAt DESC LIMIT 10').all(scope);
+  evaluations(scope: string): ExternalEvaluation[] {
+    return this.db
+      .prepare('SELECT * FROM evaluation_history WHERE scope=? AND revoked=0 ORDER BY updatedAt DESC, rowid DESC LIMIT 10')
+      .all(scope) as ExternalEvaluation[];
   }
-  recordEvaluation(scope: string, author: string, quote: string): void {
-    this.evaluations(scope);
-    this.db.prepare('INSERT OR REPLACE INTO evaluations VALUES (?,?,?,?)').run(scope, author, quote.slice(0, 500), Date.now());
+  evaluationHistory(offset = 0): ExternalEvaluation[] {
+    return this.db.prepare('SELECT * FROM evaluation_history ORDER BY updatedAt DESC, rowid DESC LIMIT 50 OFFSET ?').all(offset) as ExternalEvaluation[];
+  }
+  revokeEvaluation(id: string, updatedAt: number): void {
+    if (
+      !this.db
+        .prepare('UPDATE evaluation_history SET revoked=1, updatedAt=? WHERE id=? AND updatedAt=? AND revoked=0')
+        .run(Math.max(Date.now(), updatedAt + 1), id, updatedAt).changes
+    )
+      throw new Error('配置已更新');
+  }
+  recordEvaluation(scope: string, author: string, quote: string, inputId: string = randomUUID(), kind = 'direct'): void {
+    if (!scope || !author || !quote.trim() || quote.length > 500 || !inputId || !['direct', 'reported', 'joke', 'correction'].includes(kind))
+      throw new Error('评价格式无效');
+    const id = createHash('sha256')
+      .update(JSON.stringify([scope, author, inputId, quote]))
+      .digest('hex');
+
+    this.db.prepare('INSERT OR IGNORE INTO evaluation_history VALUES (?,?,?,?,?,?,?,0)').run(id, scope, author, quote, Date.now(), inputId, kind);
   }
   triggered(trigger: 'budget' | 'festival'): Word[] {
     return this.list().filter(item => item.enabled && item.trigger === trigger);
   }
-  festivals(now = new Date()): { event: Word; days: number }[] {
+  festivals(now = new Date(), scope?: string): { event: Word; days: number; occurrence: string }[] {
     const local = new Date(now.getTime() + 8 * 3600000);
     const today = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
 
@@ -90,12 +145,27 @@ export class EventStore {
           if (target.getUTCMonth() !== month - 1) continue;
           const days = (target.getTime() - today) / 86400000;
 
-          if (days >= 1 && days <= (event.leadDays || 7)) return [{ event, days }];
+          const occurrence = JSON.stringify([event.id, year, event.date, days === 0 ? 'day' : 'prepare']);
+
+          if (
+            days >= 0 &&
+            days <= (event.leadDays || 7) &&
+            (!scope || !this.db.prepare('SELECT 1 FROM festival_deliveries WHERE scope=? AND occurrence=?').get(scope, occurrence))
+          )
+            return [{ event, days, occurrence }];
         }
 
         return [];
       })
       .slice(0, 5);
+  }
+  confirmFestivalDelivery(scope: string, text: string, now = new Date()): void {
+    for (const item of this.festivals(now, scope)) {
+      const name = item.event.term.replace(/准备$/, '');
+
+      if (name.length >= 2 && text.includes(name))
+        this.db.prepare('INSERT OR IGNORE INTO festival_deliveries VALUES (?,?,?)').run(scope, item.occurrence, now.getTime());
+    }
   }
   list(): Word[] {
     return this.db

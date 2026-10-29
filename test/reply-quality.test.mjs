@@ -4,7 +4,7 @@ import { acceptSocialPolish, buildSocialPolishPrompt, needsSocialPolish } from '
 
 test('only short suspect social replies are sent to the polish pass', () => {
   assert.equal(needsSocialPolish('作为AI，我这边看了一下，希望对你有帮助。'), true);
-  assert.equal(needsSocialPolish('好的主人，已经处理好了'), true);
+  assert.equal(needsSocialPolish('好的主人，已经处理好了'), false);
   assert.equal(needsSocialPolish('我帮你看看这个报错'), true);
   assert.equal(needsSocialPolish('这个报错是权限问题，改一下 token 就行。'), false);
   assert.equal(needsSocialPolish('```ts\nconst x = 1;\n```'), false);
@@ -76,4 +76,18 @@ test('polish pass rewrites suspect social text with the cheap endpoint and falls
     globalThis.__config = previousConfig;
     globalThis.fetch = previousFetch;
   }
+});
+
+test('style rewriting cannot change numbers, certainty, negation, completion or quoted evidence', () => {
+  for (const [original, candidate] of [
+    ['好的，金额是200元，今天不确定能否送达', '金额是20元，今天一定送达'],
+    ['我这边还没有发送', '发好了'],
+    ['我这边可能记错了', '我记得很清楚'],
+    ['好的，版本是三点二', '版本是三点三'],
+    ['好的，他说“明天再来”', '他说今天就来'],
+    ['我帮你看看', '已经处理好了']
+  ])
+    assert.equal(acceptSocialPolish(candidate, original), original, original);
+  assert.equal(needsSocialPolish('好的，金额是200元'), false);
+  assert.equal(needsSocialPolish('我帮你看看这个报错'), true);
 });

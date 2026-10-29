@@ -10,10 +10,14 @@ const MARKERS =
 
 const UNSAFE_RESULT = /(?:作为(?:一个)?AI|希望对你有帮助|有什么可以帮|还需要(?:什么|我)|请随时|原文|改写后|以下是)/u;
 
+// A style pass cannot prove semantic equivalence. Leave factual, quoted and modal claims untouched.
+const PROTECTED_CONTENT =
+  /\d|https?:\/\/|[“”「」`]|(?:不|没|未|无法|不能|可以|可能|也许|大概|应该|确定|保证|一定)|已(?:经)?(?:完成|处理|发送|保存|删除|收到|恢复)|(?:金额|价格|版本|地址|时间|额度|余额|百分之)/u;
+
 export const needsSocialPolish = (text: string): boolean => {
   const value = String(text ?? '').trim();
 
-  if (!value || /```|~~~|https?:\/\/|\|.*\|/u.test(value)) return false;
+  if (!value || PROTECTED_CONTENT.test(value) || /```|~~~|\|.*\|/u.test(value)) return false;
   if (Array.from(value).length > 500) return false;
 
   return MARKERS.test(value);
@@ -28,6 +32,7 @@ export const acceptSocialPolish = (candidate: string, original: string, maxChars
     .replace(/^["“”'‘’]+|["“”'‘’]+$/gu, '')
     .trim();
 
+  if (PROTECTED_CONTENT.test(original) || PROTECTED_CONTENT.test(value)) return original;
   if (!value || UNSAFE_RESULT.test(value) || Array.from(value).length > Math.min(500, maxChars + 40)) return original;
   if (/```|~~~/u.test(value) && !/```|~~~/u.test(original)) return original;
 

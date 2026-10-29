@@ -100,6 +100,8 @@ test('periodic consolidation respects its interval and automatic-off leaves new 
 
 test('learned facts enter a real group turn with person attribution and cannot leak a private scope', () =>
   fixture(async f => {
+    // This fixture counts memory tool calls; independent opinion extraction has its own tests.
+    globalThis.__config.value['alemonjs-agent-link'].modules.disabled = ['opinions'];
     const add = (target, seq, text) => {
       f.store.observe(target);
       f.store.applyExtraction(

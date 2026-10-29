@@ -41,13 +41,13 @@ export default async (): Promise<void> => {
             hour12: false
           });
 
-          return `| ${at} | ${row.delta >= 0 ? '+' : ''}${row.delta.toFixed(1)} | ${Math.round(row.value)} |`;
+          return `| ${at} | ${row.delta >= 0 ? '+' : ''}${row.delta.toFixed(1)} | ${row.value.toFixed(1)} |`;
         })
       ].join('\n')
     : '';
   const text = config.modules?.disabled?.includes('mood')
     ? '心情模块已停用。'
-    : [`心情：${snapshot.label} ${Math.round(snapshot.value)}/100`, table].filter(Boolean).join('\n\n');
+    : [`心情：${snapshot.label} ${snapshot.value.toFixed(1)}/100`, table].filter(Boolean).join('\n\n');
 
   assertMessageDelivered(
     await message.send({

@@ -596,7 +596,7 @@ test('incoming owner message cancels actual model generation and direct opt-out 
     }
   }));
 
-test('automatic voice remains available for proactive messages and uses the explicit recipient instead of a fabricated reply id', () =>
+test('ordinary proactive messages stay text and use the explicit recipient instead of a fabricated reply id', () =>
   pipeline(async f => {
     const settings = getConfig().value;
     settings['alemonjs-agent-link'].modules.settings.expression = { automatic: true, voiceChance: 1, stickerChance: 0 };
@@ -607,7 +607,7 @@ test('automatic voice remains available for proactive messages and uses the expl
     assert.equal(await f.worker.run(scope, true), 'confirmed');
     assert.equal(f.nativeCalls.length, 1);
     assert.equal(f.nativeCalls[0].action, 'send_private_msg');
-    assert.equal(f.nativeCalls[0].params.message.at(-1).type, 'record');
+    assert.equal(f.nativeCalls[0].params.message.at(-1).type, 'text');
     assert.equal(
       f.nativeCalls[0].params.message.some(segment => segment.type === 'reply'),
       false

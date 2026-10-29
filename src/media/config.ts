@@ -1,3 +1,4 @@
+import { voiceLibrary, selectVoice, type VoicePreset } from './voice-library';
 import { getAppConfigValue } from 'alemonjs';
 import { join, resolve } from 'node:path';
 import { speechOptions, type SpeechOptions } from './speech-config';
@@ -5,6 +6,8 @@ import { speechOptions, type SpeechOptions } from './speech-config';
 export type MediaProvider = { baseUrl: string; apiKey: string; model: string; voice?: string };
 export type ImageGenerationProvider = MediaProvider & { size: string; stylePrompt: string; ownerOnly: boolean };
 export type MediaConfig = {
+  voices?: VoicePreset[];
+  activeVoice?: string;
   vision?: MediaProvider;
   asr?: MediaProvider;
   tts?: MediaProvider;
@@ -87,6 +90,8 @@ const imageProvider = (value: unknown): ImageGenerationProvider | undefined => {
 export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppConfigValue()): MediaConfig => {
   const raw = value?.media ?? {};
   const config: MediaConfig = {
+    voices: voiceLibrary(raw.voices),
+    activeVoice: raw.activeVoice,
     allowedHosts: raw.allowedHosts ?? [],
     timeoutMs: raw.timeoutMs ?? 60000,
     maxBytes: raw.maxBytes ?? 10 * 1024 * 1024,
@@ -123,6 +128,9 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
   if (config.stickerRoot !== undefined && (typeof config.stickerRoot !== 'string' || !config.stickerRoot.trim())) {
     throw new MediaError('表情素材目录配置无效。');
   }
+
+  if (config.activeVoice !== undefined && typeof config.activeVoice !== 'string') throw new MediaError('音色ID无效。');
+  selectVoice(config);
 
   return config;
 };

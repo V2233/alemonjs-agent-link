@@ -1,3 +1,5 @@
+import { voiceSnapshot, probeVoices, voiceBalances, readVoiceSettings, updateVoiceSettings } from './panel/voice-service';
+import { getOpinionStore } from './opinions/store';
 import { getEventStore } from './events/store';
 import { readWorkModel, saveWorkModel } from './panel/work-model';
 import { recognizeEndpoint } from './panel/endpoint-recognition';
@@ -64,6 +66,19 @@ apiRouter.post('/dictionary/delete', ctx => {
   getDictionaryStore(getDSHConfig()).remove(body.id, body.updatedAt);
   success(ctx, null);
 });
+apiRouter.get('/events/evaluations', ctx => {
+  const offset = Number(ctx.query.offset || 0);
+
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1000000) ctx.throw(400);
+  success(ctx, getEventStore(getDSHConfig()).evaluationHistory(offset));
+});
+apiRouter.post('/events/evaluations/revoke', ctx => {
+  const body = ctx.request.body as { id?: string; updatedAt?: number };
+
+  if (typeof body.id !== 'string' || !Number.isSafeInteger(body.updatedAt)) ctx.throw(400);
+  getEventStore(getDSHConfig()).revokeEvaluation(body.id, body.updatedAt);
+  success(ctx, null);
+});
 apiRouter.get('/events', ctx => success(ctx, getEventStore(getDSHConfig()).list()));
 apiRouter.post('/events', ctx => success(ctx, getEventStore(getDSHConfig()).save(ctx.request.body as Partial<Word>)));
 apiRouter.post('/events/delete', ctx => {
@@ -74,6 +89,13 @@ apiRouter.post('/events/delete', ctx => {
   success(ctx, null);
 });
 
+apiRouter.get('/opinions', ctx => success(ctx, getOpinionStore(getDSHConfig()).list()));
+apiRouter.post('/opinions/edit', ctx => {
+  const body = ctx.request.body as { id: string; revision: number; action: string; value?: string };
+
+  if (!body || typeof body.id !== 'string' || !Number.isFinite(body.revision)) ctx.throw(400);
+  success(ctx, getOpinionStore(getDSHConfig()).edit(body.id, body.revision, body.action, body.value));
+});
 apiRouter.get('/sessions', ctx => success(ctx, knownSessions()));
 apiRouter.post('/persona-selection', async ctx => {
   const body = ctx.request.body as { platform?: string; channelId?: string; id?: string };
@@ -210,4 +232,13 @@ apiRouter.post('/pool/settings', async ctx => {
 });
 apiRouter.get('/work-model', async ctx => success(ctx, await readWorkModel()));
 apiRouter.post('/work-model', async ctx => success(ctx, await saveWorkModel(ctx.request.body)));
+apiRouter.post('/voices/probe', async ctx => success(ctx, await probeVoices((ctx.request.body as { id?: unknown })?.id)));
+apiRouter.get('/voices', ctx => success(ctx, voiceSnapshot()));
+apiRouter.post('/voices/balances', async ctx => success(ctx, await voiceBalances((ctx.request.body as { id?: unknown })?.id)));
+apiRouter.get('/voices/settings', async ctx => success(ctx, await readVoiceSettings()));
+apiRouter.post('/voices/settings', async ctx => {
+  const result = await updateVoiceSettings(ctx.request.body);
+
+  success(ctx, result.data, result.message);
+});
 export default apiRouter;

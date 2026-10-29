@@ -1,3 +1,4 @@
+import { getOpinionStore } from './opinions/store';
 import { getAffinityStore } from './companion/affinity';
 import { budgetEnabled, budgetRedis } from './billing/budget';
 import { writeFile } from 'node:fs/promises';
@@ -124,6 +125,7 @@ export default defineChildren({
         getQAStore(config).cleanup(config.retentionDays);
         getMoodStore(config).cleanup(config.retentionDays);
         getAffinityStore(config).cleanup(config.retentionDays);
+        getOpinionStore(config).cleanup(config.retentionDays);
         getPlatformLedger(config).cleanup(config.retentionDays);
         getProactiveStore(config).cleanup(config.retentionDays);
         const registry = new SessionRegistry(config);

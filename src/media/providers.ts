@@ -6,10 +6,16 @@ import { MediaError, MediaUnavailableError, type MediaConfig, type MediaProvider
 import { audioFormat, downloadAttachment, imageMime } from './download';
 import { animationFrames } from './animation';
 
+export class MediaHttpError extends MediaError {
+  constructor(readonly status: number) {
+    super(`媒体服务返回 HTTP ${status}。`);
+  }
+}
+
 export const readBounded = async (response: Response, maxBytes: number): Promise<Buffer> => {
   if (!response.ok) {
     await response.body?.cancel();
-    throw new MediaError(`媒体服务返回 HTTP ${response.status}。`);
+    throw new MediaHttpError(response.status);
   }
   if (!response.body) {
     throw new MediaError('媒体服务返回空内容。');

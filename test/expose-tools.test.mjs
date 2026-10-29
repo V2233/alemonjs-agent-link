@@ -22,9 +22,15 @@ const fixture = fn =>
   runtimeScope.run({ resources: new Map(), cleanups: new Set(), disposed: false, now: Date.now }, () =>
     withEventContext(event, () => {}, fn, { appName: 'alemonjs-agent-link' })
   );
-const tools = (settings = {}) => {
+const tools = (settings = {}, hooks = {}) => {
   const list = [];
-  exposeModule().setup({ settings, tool: tool => list.push(tool) });
+  exposeModule().setup({
+    settings,
+    tool: tool => list.push(tool),
+    on: (name, handler) => {
+      hooks[name] = handler;
+    }
+  });
   return Object.fromEntries(list.map(tool => [tool.name, tool]));
 };
 const args = (action = 'stats', input = '{}') => ({ protocol: 'game.v1', provider: 'game', action, argumentsJson: input });
@@ -334,4 +340,29 @@ test('capability search finds actions outside the first page without unrelated e
     assert.equal(result.items[0].action, 'get_profile');
     assert.equal(result.nextOffset, null);
     assert.equal((await executeTool(t.expose_discover, { query: 'GET_PROFILE' }, c)).items[0].action, 'get_profile');
+  }));
+
+test('turn context reflects live permitted providers and discovery searches provider descriptions', () =>
+  fixture(async () => {
+    const hooks = {};
+    const t = tools({}, hooks);
+    assert.match(hooks.context(ctx()), /共 0 项/);
+    registerExpose('cultivation', [
+      {
+        name: 'game.v1',
+        description: '修仙游戏',
+        actions: {
+          stats: { description: '玩家状态', effect: 'read', inputSchema: empty, outputSchema: empty, handler: async () => ({}) }
+        }
+      }
+    ]);
+    assert.match(hooks.context(ctx()), /修仙游戏/);
+    assert.equal((await executeTool(t.expose_discover, { query: '修仙' }, ctx())).items.length, 1);
+    assert.equal((await executeTool(t.expose_discover, { query: 'cultivation' }, ctx())).items.length, 1);
+    assert.equal(hooks.context({ ...ctx(), autonomous: true }), '');
+    const restricted = {};
+    tools({ providers: [] }, restricted);
+    assert.doesNotMatch(restricted.context(ctx()), /修仙游戏/);
+    disposeExpose('cultivation');
+    assert.doesNotMatch(hooks.context(ctx()), /修仙游戏/);
   }));

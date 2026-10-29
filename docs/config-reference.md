@@ -237,12 +237,15 @@
 
 ### 4.10 近期群聊参考
 
-| 字段                        | 类型   | 默认   | 范围      | 说明                   |
-| --------------------------- | ------ | ------ | --------- | ---------------------- |
-| `recentChatMaxMessages`     | number | `20`   | 0–10000   | 采集最近多少条         |
-| `recentChatWindowSeconds`   | number | `900`  | 0–86400   | 采集时间窗             |
-| `recentChatMaxChars`        | number | `6000` | 0–1000000 | 采集文本上限           |
-| `recentChatSummaryMaxChars` | number | `1600` | 0–1000000 | 注入提示词时的摘要上限 |
+| 字段                        | 类型   | 默认   | 范围      | 说明                                       |
+| --------------------------- | ------ | ------ | --------- | ------------------------------------------ |
+| `perceptionMaxMessages`     | number | `40`   | 1–100     | 感知消息上限，包含单独保留的最近机器人回复 |
+| `perceptionWindowSeconds`   | number | `1800` | 60–3600   | 感知保留窗口，独立于活跃度统计             |
+| `perceptionMaxChars`        | number | `6000` | 400–12000 | 感知历史文本总字符预算，每条最多400字      |
+| `recentChatMaxMessages`     | number | `20`   | 0–10000   | 采集最近多少条                             |
+| `recentChatWindowSeconds`   | number | `900`  | 0–86400   | 采集时间窗                                 |
+| `recentChatMaxChars`        | number | `6000` | 0–1000000 | 采集文本上限                               |
+| `recentChatSummaryMaxChars` | number | `1600` | 0–1000000 | 注入提示词时的摘要上限                     |
 
 ### 4.11 保留期
 
@@ -410,17 +413,17 @@
 
 ### 8.7 `modules.settings.expression`（表达方式）
 
-| 字段                  | 类型             | 默认     | 范围        | 说明                                                     |
-| --------------------- | ---------------- | -------- | ----------- | -------------------------------------------------------- |
-| `automatic`           | boolean          | `true`   | —           | 自动决定语音/表情；未配置媒体时回退文字                  |
-| `voiceChance`         | number           | `0.15`   | 0–1         | 用语音回复的概率                                         |
-| `stickerChance`       | number           | `0.35`   | 0–1         | `both` 模式下正文后补表情的概率                          |
-| `stickerFallback`     | boolean          | `false`  | —           | `both` 模式下没有相关表情时是否随手发                    |
-| `stickerIntentAlways` | boolean          | `true`   | —           | 明确意图（在不在/晚安等）优先尝试表情                    |
-| `stickerMode`         | string           | `either` | either/both | either=表情优先，必要时补文字；both=正文后补一张         |
-| `modelVoice`          | boolean          | `false`  | —           | 允许模型用 `<voice>...</voice>` 选择语音；会缓冲整段回复 |
-| `socialPolish`        | boolean          | `true`   | —           | 群聊短回复疑似客服腔时，用便宜模型改写一次；失败回退原文 |
-| `delayMs`             | [number, number] | `[0, 0]` | 0–3000      | 随机停顿区间，前值不得大于后值                           |
+| 字段                  | 类型             | 默认     | 范围        | 说明                                                           |
+| --------------------- | ---------------- | -------- | ----------- | -------------------------------------------------------------- |
+| `automatic`           | boolean          | `true`   | —           | 自动决定语音/表情；未配置媒体时回退文字                        |
+| `voiceChance`         | number           | `0.15`   | 0–1         | 符合情绪场景后的语音基础概率                                   |
+| `stickerChance`       | number           | `0.35`   | 0–1         | `both` 模式下正文后补表情的概率                                |
+| `stickerFallback`     | boolean          | `false`  | —           | `both` 模式下没有相关表情时是否随手发                          |
+| `stickerIntentAlways` | boolean          | `true`   | —           | 明确意图（在不在/晚安等）优先尝试表情                          |
+| `stickerMode`         | string           | `either` | either/both | either=表情优先，必要时补文字；both=正文后补一张               |
+| `modelVoice`          | boolean          | `false`  | —           | 允许模型提出语音表达；仍受场景、时段与频次约束，会缓冲整段回复 |
+| `socialPolish`        | boolean          | `true`   | —           | 群聊短回复疑似客服腔时，用便宜模型改写一次；失败回退原文       |
+| `delayMs`             | [number, number] | `[0, 0]` | 0–3000      | 随机停顿区间，前值不得大于后值                                 |
 
 ### 8.8 `modules.settings.persona`
 
@@ -494,20 +497,39 @@
 
 ### 9.2 `media.speech`（语音引擎）
 
-| 字段             | 类型    | 默认                 | 说明                                                                             |
-| ---------------- | ------- | -------------------- | -------------------------------------------------------------------------------- |
-| `engine`         | string  | `auto`               | `auto` \| `system` \| `edge` \| `openai` \| `cosyvoice` \| `gptsovits` \| `http` |
-| `fallback`       | boolean | `true`               | 合成失败时是否回退文字                                                           |
-| `systemVoice`    | string  | 无                   | `system` 引擎的系统音色                                                          |
-| `edgeVoice`      | string  | `zh-CN-XiaoyiNeural` | `edge` 引擎音色                                                                  |
-| `url`            | string  | 无                   | 自建服务地址（`cosyvoice`/`gptsovits`/`http`）                                   |
-| `apiKey`         | string  | 无                   | 自建服务令牌                                                                     |
-| `speaker`        | string  | `中文女`             | 说话人                                                                           |
-| `sampleRate`     | number  | `22050`              | 采样率                                                                           |
-| `referenceAudio` | string  | 无                   | 参考音频路径                                                                     |
-| `referenceText`  | string  | 无                   | 参考音频文本                                                                     |
-| `language`       | string  | `zh`                 | 语言                                                                             |
-| `urlTemplate`    | string  | 无                   | `http` 引擎拼接模板                                                              |
+| 字段             | 类型    | 默认                 | 说明                                                                                         |
+| ---------------- | ------- | -------------------- | -------------------------------------------------------------------------------------------- |
+| `engine`         | string  | `auto`               | `auto` \| `system` \| `edge` \| `openai` \| `breeze` \| `cosyvoice` \| `gptsovits` \| `http` |
+| `fallback`       | boolean | `true`               | 合成失败时是否回退文字                                                                       |
+| `systemVoice`    | string  | 无                   | `system` 引擎的系统音色                                                                      |
+| `edgeVoice`      | string  | `zh-CN-XiaoyiNeural` | `edge` 引擎音色                                                                              |
+| `url`            | string  | 无                   | 自建服务地址（`cosyvoice`/`gptsovits`/`http`）或 Breeze API 根地址                           |
+| `apiKey`         | string  | 无                   | 自建服务令牌；`breeze` 必填                                                                  |
+| `speaker`        | string  | `中文女`             | 说话人                                                                                       |
+| `sampleRate`     | number  | `22050`              | 采样率                                                                                       |
+| `referenceAudio` | string  | 无                   | 参考音频路径                                                                                 |
+| `referenceText`  | string  | 无                   | 参考音频文本                                                                                 |
+| `language`       | string  | `zh`                 | 语言；`breeze` 作为 `language_code` 发送                                                     |
+| `urlTemplate`    | string  | 无                   | `http` 引擎拼接模板                                                                          |
+| `voiceId`        | string  | 无                   | `breeze` 的 voice_id（如 `voc_8yud7hz7c9q2`）                                                |
+| `instruction`    | string  | 无                   | `breeze` 的表演指令，与文本同语言                                                            |
+| `model`          | string  | 无                   | `breeze` 的 model_id，省略时由服务端自选                                                     |
+
+**关于 `breeze` 引擎**：BreezeBlue（Breeze TTS）的接口是 ElevenLabs 形态，`POST /v1/text-to-speech/{voice_id}`，`xi-api-key` 或 Bearer 鉴权，返回二进制音频。配置示例：
+
+```yaml
+media:
+  speech:
+    engine: 'breeze'
+    url: 'https://api.breeze.blue'
+    apiKey: 'brz_...'
+    voiceId: 'voc_8yud7hz7c9q2'
+    language: 'zh'
+    instruction: '清亮柔软、略带奶气的普通话少女音，语速适中，语尾轻轻上扬'
+    fallback: true
+```
+
+计费按加权字符：CJK 每个字 2 单位、其他 1 单位，10 单位 = 1 credit；单次文本上限 1000 字符（默认），超过要缩短文本或分段。
 
 **关于 `edge` 引擎**：需要先安装组件，私聊发送 `/语音引擎 安装`（在数据目录下创建 `speech-venv`，依赖 `python3` 与网络），装好后用 `/语音引擎 试听 你好` 验证。未安装 `edge-tts` 且没有配置 `media.tts` 时，`auto` 会落到 `system` 引擎（macOS `say`、Windows `System.Speech`、Linux `espeak-ng`），音色明显更机械。实测可用的中文音色：`zh-CN-XiaoxiaoNeural`（温暖，推荐）、`zh-CN-XiaoyiNeural`（活泼）、`zh-CN-liaoning-XiaobeiNeural`（东北话）、`zh-CN-shaanxi-XiaoniNeural`（陕西话）、`zh-TW-HsiaoChenNeural`、`zh-HK-HiuGaaiNeural`；`zh-CN-XiaohanNeural` 等旧音色已从微软接口下架，调用会报 `NoAudioReceived`，此时可继续用上一次有效的音色。
 

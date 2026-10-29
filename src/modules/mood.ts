@@ -25,12 +25,12 @@ export const moodModule = (config: DSHBridgeConfig): AgentModule => ({
       if (!context.platform || !context.channelId || context.signal.aborted) {
         return '';
       }
-      const inputId = context.autonomous ? undefined : context.inputId || context.requestId;
+      const inputId = context.autonomous || context.addressed === false ? undefined : context.inputId || context.requestId;
       const snapshot = inputId
         ? store.observe(context, inputId, context.addressed === false ? 0 : keywordMoodDelta(context.userText), options, config.retentionDays)
         : store.snapshot(context, options, config.retentionDays);
 
-      if (snapshot.token && context.requestId) {
+      if (inputId && snapshot.token && context.requestId) {
         if (inputs.size >= 256) {
           inputs.delete(inputs.keys().next().value);
         }
@@ -67,6 +67,8 @@ export const moodModule = (config: DSHBridgeConfig): AgentModule => ({
         const credentials = await getDSHCredentials();
 
         if (!credentials) {
+          logger.warn('Mood model judgment skipped: credentials unavailable');
+
           return;
         }
         const personas = getPersonaStore(config);
@@ -99,9 +101,12 @@ export const moodModule = (config: DSHBridgeConfig): AgentModule => ({
           !Number.isInteger(parsed.delta) ||
           Math.abs(parsed.delta) > 6 ||
           typeof parsed.confidence !== 'number' ||
+          !Number.isFinite(parsed.confidence) ||
           parsed.confidence < 0.8 ||
           parsed.confidence > 1
         ) {
+          logger.warn('Mood model judgment ignored: invalid or low-confidence result');
+
           return;
         }
         signal.throwIfAborted();

@@ -688,6 +688,52 @@ export class MemoryStore {
       .run(this.now() + 1800000, scopeKey(scope), guard.epoch, guard.revision, guard.checkpoint ?? -1, guard.checkpoint ?? -1);
   }
 
+  trace(scope: MemoryScope, id: string, limit = 10) {
+    const target = this.get(scope, id);
+
+    if (!target) return { ok: false, message: '当前会话没有找到该记忆。' };
+    const all = this.list(scope, { subjectId: target.subjectId, limit: 10020 });
+    const sources = new Set(target.sourceRefs.map(source => source.seq));
+    const links = all
+      .filter(item => item.id !== id)
+      .map(item => {
+        const relation = target.supersedes.includes(item.id)
+          ? 'previous_version'
+          : item.supersedes.includes(id)
+            ? 'next_version'
+            : item.sourceRefs.some(source => sources.has(source.seq))
+              ? 'shared_evidence'
+              : item.tags.some(tag => target.tags.includes(tag))
+                ? 'possibly_related'
+                : undefined;
+
+        return { item, relation };
+      })
+      .filter(entry => entry.relation);
+    const priority = ['previous_version', 'next_version', 'shared_evidence', 'possibly_related'];
+
+    links.sort((a, b) => priority.indexOf(a.relation) - priority.indexOf(b.relation) || b.item.updatedAt - a.item.updatedAt);
+    const selected = links.slice(0, Math.max(1, Math.min(20, limit)));
+
+    return {
+      ok: true,
+      id,
+      total: links.length,
+      truncated: links.length > selected.length,
+      links: selected.map(({ item, relation }) => ({
+        id: item.id,
+        relation,
+        text: item.text.slice(0, 400),
+        status: item.status,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        sourceSeqs: item.sourceRefs.map(source => source.seq),
+        sharedTags: relation === 'possibly_related' ? item.tags.filter(tag => target.tags.includes(tag)) : []
+      })),
+      notice: '仅限当前会话同一人物。标签相同只表示可能相关，不证明同一事件或因果；可继续用节点 ID 查询关联，用来源工具核实原文。'
+    };
+  }
+
   forget(scope: MemoryScope, id: string, skipThrough: number): boolean {
     return this.transaction(() => {
       const key = scopeKey(scope);

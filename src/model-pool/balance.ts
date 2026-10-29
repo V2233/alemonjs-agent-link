@@ -90,7 +90,7 @@ const newApiBalance = async (endpoint: ModelPoolEndpoint, signal: AbortSignal): 
   return { text: `已用 ¥${used.toFixed(2)}`, used, currency: 'CNY', checkedAt: Date.now() };
 };
 
-const templateBalance = async (endpoint: ModelPoolEndpoint, template: string, signal: AbortSignal): Promise<EndpointBalance | null> => {
+export const templateBalance = async (endpoint: Pick<ModelPoolEndpoint, 'apiKey'>, template: string, signal: AbortSignal): Promise<EndpointBalance | null> => {
   const url = template.replaceAll('{key}', encodeURIComponent(endpoint.apiKey));
   const response = await fetch(url, { headers: { Accept: 'application/json' }, redirect: 'error', signal });
 
@@ -110,7 +110,9 @@ const templateBalance = async (endpoint: ModelPoolEndpoint, template: string, si
 
   if (amount === undefined) return { text: '无余额字段', checkedAt: Date.now() };
 
-  return { status: amount <= 0 ? 'exhausted' : 'normal', text: money(amount), amount, currency: 'CNY', checkedAt: Date.now() };
+  const currency = typeof data.currency === 'string' && /^[A-Z]{3}$/u.test(data.currency) ? data.currency : 'CNY';
+
+  return { status: amount <= 0 ? 'exhausted' : 'normal', text: money(amount, currency), amount, currency, checkedAt: Date.now() };
 };
 
 const fetchOne = async (config: ModelPoolConfig, endpoint: ModelPoolEndpoint, force = false): Promise<EndpointBalance | null> => {

@@ -1,4 +1,4 @@
-export type SpeechEngine = 'auto' | 'system' | 'edge' | 'openai' | 'cosyvoice' | 'gptsovits' | 'http';
+export type SpeechEngine = 'auto' | 'system' | 'edge' | 'openai' | 'breeze' | 'cosyvoice' | 'gptsovits' | 'http';
 export type SpeechOptions = {
   engine: SpeechEngine;
   fallback: boolean;
@@ -12,6 +12,9 @@ export type SpeechOptions = {
   referenceText?: string;
   language: string;
   urlTemplate?: string;
+  voiceId?: string;
+  instruction?: string;
+  model?: string;
 };
 export class SpeechError extends Error {
   constructor(
@@ -38,21 +41,33 @@ export const speechOptions = (value: unknown = {}): SpeechOptions => {
     referenceAudio: raw.referenceAudio,
     referenceText: raw.referenceText,
     language: raw.language ?? 'zh',
-    urlTemplate: raw.urlTemplate
+    urlTemplate: raw.urlTemplate,
+    voiceId: raw.voiceId,
+    instruction: raw.instruction,
+    model: raw.model
   };
 
   if (
     !raw ||
     typeof raw !== 'object' ||
     Array.isArray(raw) ||
-    !['auto', 'system', 'edge', 'openai', 'cosyvoice', 'gptsovits', 'http'].includes(options.engine) ||
+    !['auto', 'system', 'edge', 'openai', 'breeze', 'cosyvoice', 'gptsovits', 'http'].includes(options.engine) ||
     typeof options.fallback !== 'boolean' ||
     !Number.isSafeInteger(options.sampleRate) ||
     options.sampleRate < 8000 ||
     options.sampleRate > 48000 ||
-    [options.systemVoice, options.edgeVoice, options.apiKey, options.speaker, options.referenceAudio, options.referenceText, options.language].some(
-      item => item !== undefined && (typeof item !== 'string' || item.length > 2000 || /[\r\n\0]/u.test(item))
-    ) ||
+    [
+      options.systemVoice,
+      options.edgeVoice,
+      options.apiKey,
+      options.speaker,
+      options.referenceAudio,
+      options.referenceText,
+      options.language,
+      options.voiceId,
+      options.instruction,
+      options.model
+    ].some(item => item !== undefined && (typeof item !== 'string' || item.length > 2000 || /[\r\n\0]/u.test(item))) ||
     !options.edgeVoice ||
     !options.language
   ) {
@@ -75,6 +90,9 @@ export const speechOptions = (value: unknown = {}): SpeechOptions => {
   }
   if (options.engine === 'http' && !options.urlTemplate) {
     throw new SpeechError('configuration', 'HTTP 语音引擎需要 urlTemplate。');
+  }
+  if (options.engine === 'breeze' && (!options.url || !options.apiKey || !options.voiceId)) {
+    throw new SpeechError('configuration', 'Breeze 语音引擎需要 url、apiKey 和 voiceId。');
   }
 
   return options;

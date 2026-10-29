@@ -13,8 +13,13 @@ type Word = {
   enabled: boolean;
   updatedAt: number;
 };
+type Evaluation = { id: string; scope: string; author: string; quote: string; updatedAt: number; kind: string; revoked: number };
 export default function EventsPage() {
   const { message, modal } = App.useApp();
+  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [historyBusy, setHistoryBusy] = useState(false);
   const [rows, setRows] = useState<Word[]>([]);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
@@ -34,6 +39,18 @@ export default function EventsPage() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || '操作失败');
     return data.data;
+  };
+  const loadHistory = async (next = 0) => {
+    setHistoryBusy(true);
+    try {
+      setEvaluations(await call('/evaluations?offset=' + next));
+      setOffset(next);
+      setHistoryOpen(true);
+    } catch (e) {
+      message.error(String(e));
+    } finally {
+      setHistoryBusy(false);
+    }
   };
   const load = async () => {
     setBusy(true);
@@ -102,6 +119,9 @@ export default function EventsPage() {
         <Button type='primary' onClick={() => edit()} disabled={busy}>
           新增事件
         </Button>
+        <Button loading={historyBusy} onClick={() => void loadHistory()}>
+          外部评价历史
+        </Button>
       </Space>
       <Table
         rowKey='id'
@@ -149,6 +169,53 @@ export default function EventsPage() {
           }
         ]}
       />
+      <Drawer title='别人眼中的我' open={historyOpen} onClose={() => setHistoryOpen(false)} size='large'>
+        <Typography.Paragraph type='secondary'>保留观点变化；撤回后不再提供给肥鱼。转述与玩笑不代表事实。</Typography.Paragraph>
+        <Table
+          rowKey='id'
+          loading={historyBusy}
+          dataSource={evaluations}
+          pagination={false}
+          scroll={{ x: 800 }}
+          columns={[
+            { title: '会话与人物', dataIndex: 'scope' },
+            { title: '发言人', dataIndex: 'author' },
+            { title: '原话', dataIndex: 'quote' },
+            { title: '类型', render: (_, row) => ({ direct: '直接评价', reported: '转述', joke: '玩笑', correction: '纠错' })[row.kind] || row.kind },
+            { title: '记录时间', render: (_, row) => new Date(row.updatedAt).toLocaleString() },
+            {
+              title: '操作',
+              render: (_, row) =>
+                row.revoked ? (
+                  '已撤回'
+                ) : (
+                  <Button
+                    disabled={historyBusy}
+                    onClick={() =>
+                      modal.confirm({
+                        title: '撤回这条评价？',
+                        onOk: async () => {
+                          await call('/evaluations/revoke', { id: row.id, updatedAt: row.updatedAt });
+                          await loadHistory(offset);
+                        }
+                      })
+                    }
+                  >
+                    撤回
+                  </Button>
+                )
+            }
+          ]}
+        />
+        <Space>
+          <Button disabled={historyBusy || offset === 0} onClick={() => void loadHistory(Math.max(0, offset - 50))}>
+            上一页
+          </Button>
+          <Button disabled={historyBusy || evaluations.length < 50} onClick={() => void loadHistory(offset + 50)}>
+            下一页
+          </Button>
+        </Space>
+      </Drawer>
       <Drawer
         title={selected ? '编辑事件' : '新增事件'}
         open={open}

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { getMediaConfig, MediaError } from '../lib/media/config.js';
+import { renderSpeech } from '../lib/media/speech.js';
 import { attachmentUrl, isPublicAddress, imageMime, audioFormat, downloadAttachment } from '../lib/media/download.js';
 import { prepareNativeMedia, understandMedia, synthesizeSpeech, readBounded, hasUnconfiguredMedia } from '../lib/media/providers.js';
 import { listStickers, chooseSticker, loadSticker } from '../lib/media/stickers.js';
@@ -186,6 +187,42 @@ test('speech uses configured voice, rejects invalid and oversized responses and 
     await assert.rejects(synthesizeSpeech('你好', config, controller.signal));
   } finally {
     globalThis.fetch = oldFetch;
+  }
+});
+
+test('breeze engine posts the per-voice request and returns mp3 audio', async () => {
+  const oldFetch = globalThis.fetch;
+  const root = await mkdtemp(join(tmpdir(), 'agentlink-breeze-'));
+  let captured;
+  globalThis.fetch = async (url, options) => {
+    captured = { url: String(url), headers: options.headers, body: JSON.parse(options.body) };
+    return new Response(mp3, { headers: { 'content-type': 'audio/mpeg' } });
+  };
+  try {
+    const settings = getMediaConfig({
+      media: {
+        speech: {
+          engine: 'breeze',
+          url: 'https://api.breeze.blue',
+          apiKey: 'brz_test_key',
+          voiceId: 'voc_8yud7hz7c9q2',
+          instruction: '温柔一点，语速偏慢'
+        }
+      }
+    });
+    const audio = await renderSpeech('你好', settings, signal(), { workspaceRoot: join(root, 'work') });
+    assert.equal(audio.engine, 'breeze');
+    assert.equal(audio.extension, 'mp3');
+    assert.deepEqual(audio.data, mp3);
+    assert.match(captured.url, /\/v1\/text-to-speech\/voc_8yud7hz7c9q2\?output_format=mp3$/);
+    assert.equal(captured.headers['xi-api-key'], 'brz_test_key');
+    assert.equal(captured.body.text, '你好');
+    assert.equal(captured.body.instructions, '温柔一点，语速偏慢');
+    assert.equal(captured.body.language_code, 'zh');
+    assert.throws(() => getMediaConfig({ media: { speech: { engine: 'breeze', url: 'https://api.breeze.blue', apiKey: 'brz_test_key' } } }), /voiceId/);
+  } finally {
+    globalThis.fetch = oldFetch;
+    await rm(root, { recursive: true, force: true });
   }
 });
 

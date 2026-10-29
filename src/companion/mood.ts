@@ -158,7 +158,8 @@ export class MoodStore {
       }
       const before = this.value(row, options);
       // The model estimates the total impact of this input, rather than adding it twice.
-      const value = bound(before + delta - Number(row.keyword_delta));
+      const decay = 2 ** (-Math.max(0, this.now() - Number(row.at)) / (options.halfLifeHours * 3600000));
+      const value = bound(before + (delta - Number(row.keyword_delta)) * decay);
 
       this.db.prepare('UPDATE moods SET value=?,at=?,model_done=1 WHERE scope=? AND token=?').run(value, this.now(), scopeId, token);
       if (value !== before) {
