@@ -367,3 +367,23 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
 
   return config;
 };
+
+/**
+ * A one-line answer to "what is this process actually using". A deployment that
+ * silently fell back to the local state backend, or that routes to pool endpoints
+ * whose model names the provider rejects, looks exactly like a broken one in the
+ * logs; this makes the difference visible at startup and on every config reload.
+ */
+export const runtimeSummary = (config: DSHBridgeConfig): Record<string, unknown> => {
+  const endpoints = config.modelPool?.endpoints ?? [];
+  const enabled = endpoints.filter(endpoint => endpoint.enabled);
+
+  return {
+    stateBackend: config.stateBackend,
+    model: config.model,
+    budgetEnabled: config.budget?.enabled === true,
+    poolEnabled: config.modelPool?.enabled === true,
+    poolEndpoints: `${enabled.length}/${endpoints.length}`,
+    poolModels: [...new Set(enabled.map(endpoint => endpoint.model))].slice(0, 8)
+  };
+};

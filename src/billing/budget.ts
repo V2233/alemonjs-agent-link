@@ -42,6 +42,30 @@ const scopeHash = (scope: BudgetScope): string =>
 export const reserveScript = `
 local gate = ARGV[6] == 'reply-gate'
 local autonomous = ARGV[6] == 'autonomous'
+local observe = ARGV[6] == 'observe'
+local maximum=9007199254740991
+local function integer(value)
+ local n=tonumber(value)
+ return n and n>=0 and n<=maximum and n==math.floor(n)
+end
+local function invalid() return redis.error_reply('Invalid budget reservation ledger') end
+-- Validate reads, types and expiry before even changing blocked notices.
+for _,i in ipairs({1,2,3,4,5,7}) do
+ if not integer(ARGV[i] or (i==7 and '0' or '')) then return invalid() end
+end
+if tonumber(ARGV[4])<1 then return invalid() end
+for i,key in ipairs(KEYS) do
+ if i~=3 then
+  if key==KEYS[3] then return invalid() end
+  local kind=redis.call('TYPE',key).ok
+  if kind~='none' and kind~='hash' then return invalid() end
+  for _,field in ipairs({'used','reserved','requests','pendingRequests','paidUsed','paidReserved','paidLimit','limitOverride'}) do
+   local value=redis.call('HGET',key,field)
+   if value and (not string.match(value,'^%d+$') or not integer(value) or string.format('%.0f',tonumber(value))~=value) then return invalid() end
+  end
+ end
+end
+if redis.call('EXISTS',KEYS[3])==1 then return 0 end
 local amount = tonumber(ARGV[1])
 local used = tonumber(redis.call('HGET', KEYS[1], 'used') or '0')
 local wallet = KEYS[6] or KEYS[1]
@@ -57,12 +81,39 @@ local limit = tonumber(redis.call('HGET', KEYS[4], 'limitOverride') or (gate and
 local freeUsed = gate and person - tonumber(redis.call('HGET', KEYS[4], 'paidUsed') or '0') or person
 local groupBlocked = gate and free > 0 and freeUsed + free > limit
 local personBlocked = not gate and free > 0 and (autonomous or person + free > limit)
-if groupBlocked or personBlocked or gateGlobalBlocked or (tonumber(ARGV[3]) > 0 and total + amount > tonumber(ARGV[3])) then
+-- Aggregate aliases too: one hash can serve multiple ledger roles.
+local changes={}
+local function add(key,field,delta)
+ changes[key]=changes[key] or {}
+ changes[key][field]=(changes[key][field] or 0)+delta
+end
+for _,i in ipairs({1,2,4}) do
+ local debit=gate and (i==1 and paid or amount) or (i==4 and free or amount)
+ add(KEYS[i],'used',debit)
+ add(KEYS[i],'reserved',debit)
+ add(KEYS[i],'requests',1)
+ add(KEYS[i],'pendingRequests',1)
+end
+if gate and KEYS[5] then
+ add(KEYS[5],'used',amount)
+ add(KEYS[5],'reserved',amount)
+ add(KEYS[5],'pendingRequests',1)
+end
+add(wallet,'paidUsed',paid)
+add(wallet,'paidReserved',paid)
+if gate then add(KEYS[4],'paidUsed',paid) end
+for key,fields in pairs(changes) do
+ for field,delta in pairs(fields) do
+  local before=tonumber(redis.call('HGET',key,field) or '0')
+  if not integer(delta) or delta>maximum-before then return invalid() end
+ end
+end
+if not observe and (groupBlocked or personBlocked or gateGlobalBlocked or (tonumber(ARGV[3]) > 0 and total + amount > tonumber(ARGV[3]))) then
  if groupBlocked then redis.call('HSET', KEYS[4], 'blockedRequired', free) end
  if personBlocked then redis.call('HSET', KEYS[4], 'blockedRequired', free) end
  if tonumber(ARGV[3]) > 0 and total + amount > tonumber(ARGV[3]) then redis.call('HSET', KEYS[2], 'blockedRequired', amount) end
- if gateGlobalBlocked then redis.call('HSET', KEYS[5], 'blockedRequired', amount) redis.call('EXPIRE', KEYS[5], ARGV[4]) end
- for _,i in ipairs({1,2,4}) do redis.call('EXPIRE', KEYS[i], ARGV[4]) end
+ if gateGlobalBlocked then redis.call('HSET', KEYS[5], 'blockedRequired', amount) if (tonumber(redis.call('HGET',KEYS[5],'reserved') or '0')>0 or tonumber(redis.call('HGET',KEYS[5],'pendingRequests') or '0')>0) then redis.call('PERSIST',KEYS[5]) else redis.call('EXPIRE', KEYS[5], ARGV[4]) end end
+ for _,i in ipairs({1,2,4}) do if (tonumber(redis.call('HGET',KEYS[i],'reserved') or '0')>0 or tonumber(redis.call('HGET',KEYS[i],'pendingRequests') or '0')>0) then redis.call('PERSIST',KEYS[i]) else redis.call('EXPIRE', KEYS[i], ARGV[4]) end end
  return 0
 end
 if redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
@@ -70,50 +121,79 @@ if free > 0 then redis.call('HDEL', KEYS[4], 'blockedRequired') end
 redis.call('HDEL', KEYS[2], 'blockedRequired')
 if gate and KEYS[5] then
  redis.call('HDEL', KEYS[5], 'blockedRequired')
- redis.call('HINCRBY', KEYS[5], 'used', amount)
- redis.call('HINCRBY', KEYS[5], 'reserved', amount)
- redis.call('EXPIRE', KEYS[5], ARGV[4])
+ redis.call('HINCRBY', KEYS[5], 'used', string.format('%.0f',amount))
+ redis.call('HINCRBY', KEYS[5], 'reserved', string.format('%.0f',amount))
+ redis.call('HINCRBY', KEYS[5], 'pendingRequests', 1)
+ if (tonumber(redis.call('HGET',KEYS[5],'reserved') or '0')>0 or tonumber(redis.call('HGET',KEYS[5],'pendingRequests') or '0')>0) then redis.call('PERSIST',KEYS[5]) else redis.call('EXPIRE', KEYS[5], ARGV[4]) end
 end
-redis.call('SET', KEYS[3], cjson.encode({amount=amount,paid=paid,gate=gate}), 'EX', ARGV[4])
+redis.call('SET', KEYS[3], cjson.encode({amount=amount,paid=paid,gate=gate,keys=KEYS,retentionVersion=1,at=tonumber(redis.call('TIME')[1])}))
 for _,i in ipairs({1,2,4}) do
  local debit = gate and (i == 1 and paid or amount) or (i == 4 and free or amount)
- redis.call('HINCRBY', KEYS[i], 'used', debit)
- redis.call('HINCRBY', KEYS[i], 'reserved', debit)
+ redis.call('HINCRBY', KEYS[i], 'used', string.format('%.0f',debit))
+ redis.call('HINCRBY', KEYS[i], 'reserved', string.format('%.0f',debit))
  redis.call('HINCRBY', KEYS[i], 'requests', 1)
- redis.call('EXPIRE', KEYS[i], ARGV[4])
+ redis.call('HINCRBY', KEYS[i], 'pendingRequests', 1)
+ if (tonumber(redis.call('HGET',KEYS[i],'reserved') or '0')>0 or tonumber(redis.call('HGET',KEYS[i],'pendingRequests') or '0')>0) then redis.call('PERSIST',KEYS[i]) else redis.call('EXPIRE', KEYS[i], ARGV[4]) end
 end
-redis.call('HINCRBY', KEYS[6] or KEYS[1], 'paidUsed', paid)
-redis.call('HINCRBY', KEYS[6] or KEYS[1], 'paidReserved', paid)
-if gate then redis.call('HINCRBY', KEYS[4], 'paidUsed', paid) end
+redis.call('HINCRBY', KEYS[6] or KEYS[1], 'paidUsed', string.format('%.0f',paid))
+redis.call('HINCRBY', KEYS[6] or KEYS[1], 'paidReserved', string.format('%.0f',paid))
+if gate then redis.call('HINCRBY', KEYS[4], 'paidUsed', string.format('%.0f',paid)) end
 return 1
 `;
 export const settleScript = `
-local raw = redis.call('GET', KEYS[3])
+local raw=redis.call('GET',KEYS[3])
 if not raw then return 0 end
-local reservation = cjson.decode(raw)
-local reserved = reservation.amount
--- Settlement uses exactly the funding sources reserved for this request.
--- Refund unused recharge first only after actual spend consumes its allocation.
-local actual = tonumber(ARGV[1])
-local paid = math.min(actual, reservation.paid)
+local receipt=cjson.decode(raw)
+local maximum=9007199254740991
+local function integer(value)
+ local n=tonumber(value)
+ return n and n>=0 and n<=maximum and n==math.floor(n)
+end
+if not integer(receipt.amount) or not integer(receipt.paid) or receipt.paid>receipt.amount then return -1 end
+for i=1,4 do if not integer(ARGV[i]) then return -1 end end
+local actual=tonumber(ARGV[1])
+local paid=math.min(actual,receipt.paid)
+local changes={}
+local function add(key,field,delta)
+ changes[key]=changes[key] or {}
+ changes[key][field]=(changes[key][field] or 0)+delta
+end
 for _,i in ipairs({1,2,4}) do
- local before = reservation.gate and (i == 1 and reservation.paid or reserved) or (i == 4 and reserved - reservation.paid or reserved)
- local after = reservation.gate and (i == 1 and paid or actual) or (i == 4 and actual - paid or actual)
- redis.call('HINCRBY', KEYS[i], 'used', after - before)
- redis.call('HINCRBY', KEYS[i], 'reserved', -before)
- redis.call('HINCRBY', KEYS[i], 'promptTokens', ARGV[2])
- redis.call('HINCRBY', KEYS[i], 'completionTokens', ARGV[3])
- redis.call('HINCRBY', KEYS[i], 'cacheHitTokens', ARGV[4])
- redis.call('HINCRBY', KEYS[i], 'settled', 1)
+ local before=receipt.gate and (i==1 and receipt.paid or receipt.amount) or (i==4 and receipt.amount-receipt.paid or receipt.amount)
+ local after=receipt.gate and (i==1 and paid or actual) or (i==4 and actual-paid or actual)
+ add(KEYS[i],'used',after-before)
+ add(KEYS[i],'reserved',-before)
+ add(KEYS[i],'promptTokens',tonumber(ARGV[2]))
+ add(KEYS[i],'completionTokens',tonumber(ARGV[3]))
+ add(KEYS[i],'cacheHitTokens',tonumber(ARGV[4]))
+ add(KEYS[i],'settled',1)
+ if receipt.retentionVersion==1 then add(KEYS[i],'pendingRequests',-1) end
 end
-redis.call('HINCRBY', KEYS[6] or KEYS[1], 'paidUsed', paid - reservation.paid)
-redis.call('HINCRBY', KEYS[6] or KEYS[1], 'paidReserved', -reservation.paid)
-if reservation.gate then redis.call('HINCRBY', KEYS[4], 'paidUsed', paid - reservation.paid) end
-if reservation.gate and KEYS[5] then
- redis.call('HINCRBY', KEYS[5], 'used', actual - reserved)
- redis.call('HINCRBY', KEYS[5], 'reserved', -reserved)
+add(KEYS[6] or KEYS[1],'paidUsed',paid-receipt.paid)
+add(KEYS[6] or KEYS[1],'paidReserved',-receipt.paid)
+if receipt.gate then add(KEYS[4],'paidUsed',paid-receipt.paid) end
+if receipt.gate and KEYS[5] then
+ add(KEYS[5],'used',actual-receipt.amount)
+ add(KEYS[5],'reserved',-receipt.amount)
+ if receipt.retentionVersion==1 then add(KEYS[5],'pendingRequests',-1) end
 end
-redis.call('DEL', KEYS[3])
+-- Validate every affected field and final value BEFORE the first mutation.
+for key,fields in pairs(changes) do
+ if redis.call('TYPE',key).ok~='hash' then return -1 end
+ for field,delta in pairs(fields) do
+  local text=redis.call('HGET',key,field) or '0'
+  if not string.match(text,'^%d+$') or not integer(text) or string.format('%.0f',tonumber(text))~=text or not integer(tonumber(text)+delta) then return -1 end
+ end
+end
+for key,fields in pairs(changes) do
+ for field,delta in pairs(fields) do redis.call('HINCRBY',key,field,string.format('%.0f',delta)) end
+ if key~=KEYS[6] then
+  if tonumber(redis.call('HGET',key,'pendingRequests') or '0')>0 or tonumber(redis.call('HGET',key,'reserved') or '0')>0 or tonumber(redis.call('HGET',key,'paidReserved') or '0')>0 then redis.call('PERSIST',key)
+  else redis.call('EXPIRE',key,2764800) end
+ end
+end
+redis.call('SET',KEYS[3]..':audit',cjson.encode({operator=ARGV[5] or 'automatic',actual=actual,reserved=receipt.amount,at=tonumber(redis.call('TIME')[1])}),'EX',7776000)
+redis.call('DEL',KEYS[3])
 return 1
 `;
 
@@ -174,26 +254,25 @@ const keysFor = (day: string, scope: BudgetScope): [string, string] => [`${prefi
 const redisDay = async (redis: Redis): Promise<string> => budgetDay(Number((await bounded(redis.time()))[0]) * 1000);
 
 const walletKey = (scope: BudgetScope): string => `${prefix}:wallet:${scopeHash(scope)}`;
+
 // Transfer only the current day's remaining legacy credit once. Prior days have
 // already expired under the old product rules; do not manufacture refunds.
-const ensureWallet = async (redis: Redis, day: string, scope: BudgetScope): Promise<string> => {
-  const key = walletKey(scope);
-
-  const migrated = await bounded(
-    redis.eval(
-      `
+export const walletMigrationScript = `
 if redis.call('HEXISTS', KEYS[1], 'initialized') == 0 and tonumber(redis.call('HGET', KEYS[2], 'paidReserved') or '0') > 0 then return 0 end
 if redis.call('HSETNX', KEYS[1], 'initialized', '1') == 1 then
  local limit = tonumber(redis.call('HGET', KEYS[2], 'paidLimit') or '0')
  local used = tonumber(redis.call('HGET', KEYS[2], 'paidUsed') or '0')
  redis.call('HSET', KEYS[1], 'paidLimit', math.max(0, limit-used), 'paidUsed', '0')
 end
-return 1`,
-      2,
-      key,
-      keysFor(day, scope)[0]
-    )
-  );
+return 1`;
+
+const ensureWallet = async (redis: Redis, day: string, scope: BudgetScope): Promise<string> => {
+  const key = walletKey(scope);
+
+  await redis.set(`${prefix}:wallet-migration-day`, day, 'NX');
+  const migrationDay = await redis.get(`${prefix}:wallet-migration-day`);
+
+  const migrated = await bounded(redis.eval(walletMigrationScript, 2, key, keysFor(migrationDay, scope)[0]));
 
   if (Number(migrated) !== 1) throw new DSHError('budget', '旧充值账本仍有待结算请求，请完成结算后重试。');
 
@@ -431,28 +510,62 @@ const keyLimitScope = (scope: BudgetScope): BudgetScope => ({
   channelId: `private:${JSON.stringify([`key-budget:${scope.platform}`, scope.channelId])}`
 });
 
-export const groupKeyDailyLimit = async (scope: BudgetScope): Promise<number | null> => {
+export const groupKeyLimitDetails = async (scope: BudgetScope, expectedRevision?: string) => {
   const raw = await (await budgetRedis()).get(`${prefix}:key-limit:${scopeHash(scope)}`);
 
-  return raw === null ? null : Number(raw);
+  const { groupStorageKey } = await import('../credentials/group');
+  const record = await (await budgetRedis()).get(groupStorageKey(scope));
+  const stored = record ? JSON.parse(record) : null;
+
+  if (expectedRevision && (stored?.revision !== expectedRevision || stored.enabled !== true)) throw new DSHError('budget', '群钥匙已变更，请重新发送请求。');
+  const donor = stored?.donorDailyLimit;
+
+  if (
+    (raw !== null && (!/^\d+(?:\.\d{1,6})?$/u.test(raw) || Number(raw) > 10000)) ||
+    (donor !== undefined && (typeof donor !== 'number' || !Number.isFinite(donor) || donor < 0 || donor > 10000))
+  )
+    throw new DSHError('budget', '群钥匙预算配置无效，已暂停调用，请联系主人检查。');
+  const limits = [raw === null ? undefined : Number(raw), donor].filter(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
+  );
+
+  return { donor: donor ?? null, group: raw === null ? null : Number(raw), effective: limits.length ? Math.min(...limits) : null };
 };
+export const groupKeyDailyLimit = async (scope: BudgetScope, expectedRevision?: string): Promise<number | null> =>
+  (await groupKeyLimitDetails(scope, expectedRevision)).effective;
 export const setGroupKeyDailyLimit = async (scope: BudgetScope, value: string): Promise<void> => {
   if (!scope.platform || !scope.channelId || scope.channelId.startsWith('private:')) throw new DSHError('budget', '请在目标群设置。');
+  if (value === '取消') {
+    await (await budgetRedis()).del(`${prefix}:key-limit:${scopeHash(scope)}`);
+
+    return;
+  }
   if (!/^\d+(?:\.\d{1,6})?$/u.test(value) || Number(value) > 10000) throw new DSHError('budget', '每日上限为 0–10000 元，最多六位小数；0 表示暂停钥匙调用。');
   await (await budgetRedis()).set(`${prefix}:key-limit:${scopeHash(scope)}`, String(Number(value)));
 };
 export const groupKeyBudgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) => {
   const limit = await groupKeyDailyLimit(scope);
 
-  return limit === null ? null : budgetStatus({ ...config, budget: { enabled: true, personalDailyYuan: limit } }, keyLimitScope(scope));
+  const status = await budgetStatus({ ...config, budget: { enabled: true, personalDailyYuan: limit ?? 1000000000 } }, keyLimitScope(scope));
+
+  return { ...status, unlimited: limit === null };
+};
+
+const markPendingBudget = async (redis: Redis, key: string, reason: string): Promise<void> => {
+  await redis.eval(
+    `local raw=redis.call('GET',KEYS[1]); if not raw then return 0 end; local value=cjson.decode(raw); value.reason=ARGV[1]; redis.call('SET',KEYS[1],cjson.encode(value),'KEEPTTL'); return 1`,
+    1,
+    key,
+    reason
+  );
 };
 
 export const budgetedFetch = async (
   config: DSHBridgeConfig,
   url: URL,
-  init: RequestInit & { personalKey?: boolean; scopedKey?: boolean; pricing?: CredentialPricing },
+  init: RequestInit & { onDispatch?: () => void; personalKey?: boolean; scopedKey?: boolean; pricing?: CredentialPricing },
   kind: BudgetKind = 'chat',
-  keyBudget = false
+  keyBudget: boolean | 'observe' = false
 ): Promise<Response> => {
   assertAIEnabled(config);
   if (kind === 'chat' && getBudgetScope()?.autonomous) kind = 'autonomous';
@@ -472,28 +585,30 @@ export const budgetedFetch = async (
         personal.auth === 'account' ? 'x-dsh-auth-token' : 'Authorization',
         personal.auth === 'account' ? personal.apiKey : `Bearer ${personal.apiKey}`
       );
-      const groupLimit = personal.scope.channelId.startsWith('private:') ? null : await groupKeyDailyLimit(personal.scope);
+      const groupLimit = personal.scope.channelId.startsWith('private:') ? null : await groupKeyDailyLimit(personal.scope, personal.revision);
 
       if (groupLimit !== null && textBudgetInput(JSON.parse(String(init.body))).hasImages)
         throw new DSHError('budget', '本群已设置钥匙金额上限，暂不支持无法准确预估费用的图片调用。');
-      const result =
-        groupLimit === null
-          ? await fetch(new URL('https://api.deepseek.com/chat/completions'), { ...init, headers, redirect: 'error' })
-          : await withBudgetScope(keyLimitScope(personal.scope), () =>
-              budgetedFetch(
-                { ...config, budget: { enabled: true, personalDailyYuan: groupLimit, maxOutputTokens: config.budget?.maxOutputTokens ?? 2048 } },
-                new URL('https://api.deepseek.com/chat/completions'),
-                { ...init, headers, redirect: 'error', personalKey: false, scopedKey: false, pricing: undefined },
-                'chat',
-                true
-              )
-            );
+      const trackGroup = !personal.scope.channelId.startsWith('private:') && !textBudgetInput(JSON.parse(String(init.body))).hasImages;
+      const result = !trackGroup
+        ? await (() => {
+            init.onDispatch?.();
+
+            return fetch(new URL('https://api.deepseek.com/chat/completions'), { ...init, headers, redirect: 'error' });
+          })()
+        : await withBudgetScope(keyLimitScope(personal.scope), () =>
+            budgetedFetch(
+              { ...config, budget: { enabled: true, personalDailyYuan: groupLimit ?? 1000000000, maxOutputTokens: config.budget?.maxOutputTokens ?? 2048 } },
+              new URL('https://api.deepseek.com/chat/completions'),
+              { ...init, headers, redirect: 'error', personalKey: false, scopedKey: false, pricing: undefined },
+              'chat',
+              groupLimit === null ? 'observe' : true
+            )
+          );
 
       if (personal.auth === 'account' && [401, 403].includes(result.status)) {
-        const status = result.status;
-
         await result.body?.cancel();
-        throw new DSHError('budget', status === 402 ? '账户余额不足，请在 DeepSeek 平台充值。' : '账户授权不可用，请退出后重新登录。');
+        throw new DSHError('budget', '账户授权不可用，请退出后重新登录。');
       }
       if (result.status !== 402) return result;
       await result.body?.cancel();
@@ -513,7 +628,11 @@ export const budgetedFetch = async (
     init = { ...init, headers };
     url = new URL(`${(shared.baseUrl || 'https://api.deepseek.com').replace(/\/+$/u, '')}/chat/completions`);
   }
-  if (!budgetEnabled(config)) return fetch(url, init);
+  if (!budgetEnabled(config)) {
+    init.onDispatch?.();
+
+    return fetch(url, init);
+  }
   init.signal?.throwIfAborted();
   const scope = context.getStore();
 
@@ -523,13 +642,16 @@ export const budgetedFetch = async (
   const rates = init.pricing || officialRates(url, body.model);
 
   const textInput = textBudgetInput(body);
-  const maxOutput = Math.min(
-    config.budget?.maxOutputTokens ?? 2048,
-    Number.isSafeInteger(body.max_tokens) && body.max_tokens > 0 ? body.max_tokens : (config.budget?.maxOutputTokens ?? 2048)
-  );
+  const maxOutput =
+    keyBudget === 'observe' && Number.isSafeInteger(body.max_tokens) && body.max_tokens > 0
+      ? body.max_tokens
+      : Math.min(
+          config.budget?.maxOutputTokens ?? 2048,
+          Number.isSafeInteger(body.max_tokens) && body.max_tokens > 0 ? body.max_tokens : (config.budget?.maxOutputTokens ?? 2048)
+        );
 
-  body.max_tokens = maxOutput;
-  if (body.stream) body.stream_options = { include_usage: true };
+  if (keyBudget !== 'observe') body.max_tokens = maxOutput;
+  if (body.stream) body.stream_options = { ...body.stream_options, include_usage: true };
   // UTF-8 bytes conservatively bound text tokenization, plus framing/tool overhead.
   const promptBound = textInput.bytes + 8192;
   const amount = Math.ceil(promptBound * rates.input + maxOutput * rates.output);
@@ -548,7 +670,7 @@ export const budgetedFetch = async (
       Math.floor((config.budget?.globalDailyYuan ?? 0) * units),
       ttl,
       personalLimit(config),
-      kind,
+      keyBudget === 'observe' ? 'observe' : kind,
       Math.floor((config.budget?.replyGateGlobalDailyYuan ?? 0) * units)
     )
   );
@@ -556,9 +678,17 @@ export const budgetedFetch = async (
   if (Number(admitted) !== 1) throw new BudgetExceededError(await budgetFailureDetails(config, scope, kind, amount / units));
   init.signal?.throwIfAborted();
   assertAIEnabled(config);
-  const response = await fetch(url, { ...init, body: JSON.stringify(body) });
+  let response: Response;
+
+  try {
+    init.onDispatch?.();
+    response = await fetch(url, { ...init, body: JSON.stringify(body) });
+  } catch (error) {
+    await markPendingBudget(redis, keys[2], 'network-or-abort');
+    throw error;
+  }
   const applySettlement = async (counted: TokenUsage): Promise<void> => {
-    await bounded(
+    const result = await bounded(
       redis.eval(
         settleScript,
         keys.length,
@@ -569,9 +699,12 @@ export const budgetedFetch = async (
         counted.prompt_cache_hit_tokens || 0
       )
     );
+
+    if (Number(result) < 0) throw new DSHError('budget', '结算账本缺失，预占已保留，请联系主人核查。');
   };
 
   if (!response.ok) {
+    if (response.status >= 500) await markPendingBudget(redis, keys[2], 'upstream-error');
     // A 4xx is the provider refusing the request: nothing was generated, so the
     // pre-charge has to go back. Holding it spent quota on calls that never ran,
     // and every retry stacked another hold on top.
@@ -612,7 +745,11 @@ export const budgetedFetch = async (
     if (payload.usage) usage = parseUsage(payload.usage);
   };
   const settle = async () => {
-    if (!usage || (streaming && !done)) return;
+    if (!usage || (streaming && !done)) {
+      await markPendingBudget(redis, keys[2], 'missing-usage-or-incomplete-stream');
+
+      return;
+    }
     // Multimodal prompt usage combines image and text tokens. The owner wants
     // text-only anti-abuse counting: estimate text, never bill the combined input.
     const counted = textInput.hasImages
@@ -655,10 +792,12 @@ export const budgetedFetch = async (
           } else controller.enqueue(part.value);
         } catch (error) {
           await reader.cancel().catch(() => undefined);
+          await markPendingBudget(redis, keys[2], 'response-interrupted');
           controller.error(error);
         }
       },
       async cancel() {
+        await markPendingBudget(redis, keys[2], 'cancelled');
         await reader.cancel().catch(() => undefined);
       }
     }),
@@ -919,6 +1058,184 @@ export const reserveWorkspaceText = async (config: DSHBridgeConfig, input: strin
   return async output => {
     const usage = { prompt_tokens: promptTokens, completion_tokens: Math.ceil(Buffer.byteLength(output) / 3) };
 
-    await bounded(redis.eval(settleScript, keys.length, ...keys, usageCost(usage, rates), usage.prompt_tokens, usage.completion_tokens, 0));
+    const result = await bounded(redis.eval(settleScript, keys.length, ...keys, usageCost(usage, rates), usage.prompt_tokens, usage.completion_tokens, 0));
+
+    if (Number(result) < 0) throw new DSHError('budget', '结算账本缺失，请联系主人核查。');
   };
+};
+
+/** Explicit deployment operation: fixed-date, idempotent, no inference from past days. */
+export const migrateLegacyWallets = async (date: string) => {
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/u.test(date) ||
+    !Number.isFinite(Date.parse(`${date}T00:00:00Z`)) ||
+    new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) !== date
+  )
+    throw new DSHError('budget', '请提供迁移基准日期 YYYY-MM-DD。');
+  const redis = await budgetRedis();
+
+  if (date > (await redisDay(redis))) throw new DSHError('budget', '迁移日期不能晚于当前北京时间日期。');
+
+  await redis.set(`${prefix}:wallet-migration-day`, date, 'NX');
+  const pinned = await redis.get(`${prefix}:wallet-migration-day`);
+
+  if (pinned !== date) throw new DSHError('budget', `迁移日期已固定为 ${pinned}，不能自动改写。`);
+  const keyPrefix = redis.options?.keyPrefix || '';
+  let cursor = '0';
+  const report: { wallet: string; result: 'migrated' | 'pending'; remaining: number }[] = [];
+
+  do {
+    const page = await redis.scan(cursor, 'MATCH', `${keyPrefix}${prefix}:${date}:*`, 'COUNT', 100);
+
+    cursor = page[0];
+    for (const full of page[1]) {
+      const key = full.slice(keyPrefix.length);
+      const hash = key.slice(`${prefix}:${date}:`.length);
+
+      if (!/^[a-f0-9]{64}$/u.test(hash)) continue;
+      const target = `${prefix}:wallet:${hash}`;
+      const result = Number(await redis.eval(walletMigrationScript, 2, target, key));
+      const value = await redis.hgetall(result === 1 ? target : key);
+
+      report.push({
+        wallet: hash,
+        result: result === 1 ? 'migrated' : 'pending',
+        remaining: Math.max(0, Number(value.paidLimit || 0) - Number(value.paidUsed || 0)) / units
+      });
+    }
+  } while (cursor !== '0');
+  await redis.set(`${prefix}:wallet-migration-report`, JSON.stringify({ date, at: Date.now(), report }));
+
+  return { date, report };
+};
+
+/** Server-side maintenance only. Never expose receipts or Redis keys in group messages. */
+export const pendingBudgetRequests = async () => {
+  const redis = await budgetRedis();
+  const keyPrefix = redis.options?.keyPrefix || '';
+  let cursor = '0';
+  const rows: { id: string; amount: number; ageSeconds: number; recoverable: boolean; reason: string }[] = [];
+  const now = Number((await redis.time())[0]);
+
+  do {
+    const page = await redis.scan(cursor, 'MATCH', `${keyPrefix}${prefix}:*:request:*`, 'COUNT', 100);
+
+    cursor = page[0];
+    for (const full of page[1]) {
+      const key = full.slice(keyPrefix.length);
+
+      if (!/request:[a-f0-9-]{36}$/u.test(key)) continue;
+      const raw = await redis.get(key);
+
+      if (!raw) continue;
+      const value = JSON.parse(raw);
+
+      rows.push({
+        id: key.slice(prefix.length + 1),
+        amount: Number(value.amount) / units,
+        ageSeconds: value.at ? now - value.at : -1,
+        reason: value.reason || 'unsettled',
+        recoverable: Array.isArray(value.keys)
+      });
+    }
+  } while (cursor !== '0');
+
+  return rows;
+};
+export const reconcileBudgetRequest = async (id: string, actual: string, operator: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}:request:[a-f0-9-]{36}$/u.test(id) || !/^\d+(?:\.\d{1,6})?$/u.test(actual) || !operator.trim())
+    throw new DSHError('budget', '核对参数无效。');
+  const redis = await budgetRedis();
+  const key = `${prefix}:${id}`;
+  const raw = await redis.get(key);
+
+  if (!raw) return false;
+  const receipt = JSON.parse(raw);
+  const keyPrefix = redis.options?.keyPrefix || '';
+  const receiptKeys = Array.isArray(receipt.keys)
+    ? receipt.keys.map((value: unknown) => (typeof value === 'string' && value.startsWith(keyPrefix + prefix + ':') ? value.slice(keyPrefix.length) : null))
+    : [];
+  const amount = Math.round(Number(actual) * units);
+
+  if (
+    !Number.isSafeInteger(amount) ||
+    amount > receipt.amount ||
+    !Array.isArray(receipt.keys) ||
+    receiptKeys.length < 4 ||
+    receiptKeys.length > 6 ||
+    receiptKeys.some(value => value === null) ||
+    receiptKeys[2] !== key ||
+    !receipt.at ||
+    Number((await redis.time())[0]) - receipt.at < 3600
+  )
+    throw new DSHError('budget', '只能核对一小时前、有完整账本信息且实际费用不超过预占的请求。旧版记录需单独人工核查。');
+
+  const result = Number(await redis.eval(settleScript, receiptKeys.length, ...receiptKeys, amount, 0, 0, 0, operator));
+
+  if (result < 0) throw new DSHError('budget', '结算账本缺失，未修改预占，请先核查数据。');
+
+  return result === 1;
+};
+
+/** Preserve existing unresolved evidence during upgrade, without changing balances. */
+export const retainPendingBudgetRequests = async () => {
+  const redis = await budgetRedis();
+  const keyPrefix = redis.options?.keyPrefix || '';
+  const rows = await pendingBudgetRequests();
+  let retained = 0;
+  let legacyWithoutLedgers = 0;
+
+  for (const row of rows) {
+    const key = `${prefix}:${row.id}`;
+    const raw = await redis.get(key);
+
+    if (!raw) continue;
+    const value = JSON.parse(raw);
+    const ledgers: string[] = Array.isArray(value.keys)
+      ? value.keys
+          .filter((item: unknown): item is string => typeof item === 'string' && item.startsWith(keyPrefix + prefix + ':'))
+          .map((item: string) => item.slice(keyPrefix.length))
+      : [];
+    const valid = ledgers.length === value.keys?.length && ledgers[2] === key && ledgers.length >= 4 && ledgers.length <= 6;
+    const keys = valid ? ledgers : [key];
+    const result = Number(
+      await redis.eval(
+        valid
+          ? `
+if redis.call('GET',KEYS[3]) ~= ARGV[1] then return 0 end
+local receipt=cjson.decode(ARGV[1])
+if receipt.retentionVersion~=1 then
+ local counts={}
+ for _,i in ipairs({1,2,4}) do counts[KEYS[i]]=(counts[KEYS[i]] or 0)+1 end
+ if receipt.gate and KEYS[5] then counts[KEYS[5]]=(counts[KEYS[5]] or 0)+1 end
+ -- A missing ledger cannot be reconstructed safely from a receipt.
+ for i,key in ipairs(KEYS) do
+  if i~=3 and (key==KEYS[3] or ((counts[key] or i==6) and redis.call('TYPE',key).ok~='hash')) then return redis.error_reply('Missing retention ledger') end
+ end
+ for key,delta in pairs(counts) do
+  local value=redis.call('HGET',key,'pendingRequests') or '0'
+  local n=tonumber(value)
+  if not string.match(value,'^%d+$') or not n or n>9007199254740991-delta or string.format('%.0f',n)~=value then return redis.error_reply('Invalid retention counter') end
+ end
+ for key,delta in pairs(counts) do redis.call('HINCRBY',key,'pendingRequests',delta) end
+ receipt.retentionVersion=1
+ redis.call('SET',KEYS[3],cjson.encode(receipt))
+end
+for _,key in ipairs(KEYS) do redis.call('PERSIST',key) end
+return 1`
+          : `
+if redis.call('GET',KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('PERSIST',KEYS[1])
+return 1`,
+        keys.length,
+        ...keys,
+        raw
+      )
+    );
+
+    retained += result;
+    if (result && !valid) legacyWithoutLedgers++;
+  }
+
+  return { retained, legacyWithoutLedgers };
 };

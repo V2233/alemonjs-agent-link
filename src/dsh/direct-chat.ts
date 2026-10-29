@@ -65,6 +65,7 @@ export const directChat = async (
     }
     try {
       response = await budgetedFetch(config, url, {
+        onDispatch: current.markSent,
         personalKey: current.personal,
         scopedKey: current.scoped,
         pricing: current.pricing,
@@ -75,7 +76,17 @@ export const directChat = async (
         body
       });
     } catch (error) {
-      current.report?.({ ok: false });
+      current.report?.({
+        ok: false,
+        errorKind:
+          error instanceof BudgetExceededError
+            ? 'local-budget'
+            : signal.aborted
+              ? 'cancelled'
+              : error instanceof Error && /timeout/i.test(error.name + error.message)
+                ? 'timeout'
+                : undefined
+      });
       if (error instanceof BudgetExceededError) throw error;
       signal.throwIfAborted();
       const next = current.next?.();
@@ -90,14 +101,14 @@ export const directChat = async (
       let detail = '';
 
       try {
-        const payload = (await response.json()) as { error?: { message?: unknown }; message?: unknown };
+        const payload = (await response.json()) as { error?: { message?: unknown; code?: unknown }; message?: unknown };
 
-        detail = String(payload.error?.message || payload.message || '').slice(0, 500);
+        detail = (String(payload.error?.code || '') + ' ' + String(payload.error?.message || payload.message || '')).trim().slice(0, 500);
       } catch {
         // Best-effort provider diagnostic.
       }
       logger.warn({ status, detail }, 'Direct model provider rejected request');
-      current.report?.({ ok: false, status, headers: response.headers });
+      current.report?.({ ok: false, status, detail, headers: response.headers });
       const next = status === 400 ? current.next?.({ fallback: true }) : current.retryable?.(status) ? current.next?.() : null;
 
       if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
@@ -107,67 +118,73 @@ export const directChat = async (
       current = next;
       continue;
     }
-    current.report?.({ ok: true, status: response.status, headers: response.headers });
     if (!response.body) {
+      current.report?.({ ok: false, status: response.status, errorKind: 'invalid-response' });
       throw new Error('模型响应为空。');
     }
     break;
   }
-  let answer: string;
-  const streamed = !config.outputBlockedKeywords.length && response.headers.get('content-type')?.includes('text/event-stream');
+  try {
+    let answer: string;
+    const streamed = !config.outputBlockedKeywords.length && response.headers.get('content-type')?.includes('text/event-stream');
 
-  if (streamed) {
-    const result = await readCompletionStream(response, config.maxRequestBytes, signal, async content => {
-      await onEvent({ type: 'content', content });
-    });
+    if (streamed) {
+      const result = await readCompletionStream(response, config.maxRequestBytes, signal, async content => {
+        await onEvent({ type: 'content', content });
+      });
 
-    current.reportUsage?.(result.usage || {});
-    answer = result.content || '';
-  } else {
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let bytes = 0;
+      current.reportUsage?.(result.usage || {});
+      answer = result.content || '';
+    } else {
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let bytes = 0;
 
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
 
-        if (done) {
-          break;
+          if (done) {
+            break;
+          }
+          bytes += value.byteLength;
+          if (bytes > config.maxRequestBytes) {
+            throw new Error('模型响应超过大小限制。');
+          }
+          chunks.push(value);
         }
-        bytes += value.byteLength;
-        if (bytes > config.maxRequestBytes) {
-          throw new Error('模型响应超过大小限制。');
-        }
-        chunks.push(value);
+      } finally {
+        await reader.cancel();
       }
-    } finally {
-      await reader.cancel();
-    }
-    let payload;
+      let payload;
 
-    try {
-      payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-    } catch {
-      throw new Error('模型响应不是有效 JSON。');
+      try {
+        payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      } catch {
+        throw new Error('模型响应不是有效 JSON。');
+      }
+      current.reportUsage?.(payload?.usage || {});
+      answer = payload?.choices?.[0]?.message?.content;
     }
-    current.reportUsage?.(payload?.usage || {});
-    answer = payload?.choices?.[0]?.message?.content;
-  }
-  if (typeof answer !== 'string' || !answer.trim()) {
-    throw new Error('模型未返回文本回复。');
-  }
-  signal.throwIfAborted();
-  const content = config.outputBlockedKeywords.some(word => word && answer.includes(word)) ? '回复因内容安全策略未发送。' : answer;
+    if (typeof answer !== 'string' || !answer.trim()) {
+      throw new Error('模型未返回文本回复。');
+    }
+    signal.throwIfAborted();
+    current.report?.({ ok: true, status: response.status, headers: response.headers });
+    const content = config.outputBlockedKeywords.some(word => word && answer.includes(word)) ? '回复因内容安全策略未发送。' : answer;
 
-  if (!streamed) {
-    await onEvent({ type: 'content', content });
-  }
-  await onEvent({ type: 'done' });
-  signal.throwIfAborted();
-  await onCompleted?.(signal);
-  signal.throwIfAborted();
-  if (privateHistory) {
-    await registry.appendPrivateTurn(privateHistory, inputText(message) + (typeof message === 'string' ? '' : '\n[本轮包含图片]'), content);
+    if (!streamed) {
+      await onEvent({ type: 'content', content });
+    }
+    await onEvent({ type: 'done' });
+    signal.throwIfAborted();
+    await onCompleted?.(signal);
+    signal.throwIfAborted();
+    if (privateHistory) {
+      await registry.appendPrivateTurn(privateHistory, inputText(message) + (typeof message === 'string' ? '' : '\n[本轮包含图片]'), content);
+    }
+  } catch (error) {
+    current.report?.({ ok: false, status: response.status, errorKind: signal.aborted ? 'cancelled' : 'invalid-response' });
+    throw error;
   }
 };

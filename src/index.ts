@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import { defineChildren, logger, setCron } from 'alemonjs';
 import response from '@src/router';
 import { getDSHConfig, watchDSHConfig } from '@src/dsh/runtime-config';
+import { runtimeSummary } from '@src/dsh/config';
 import { ensureDSHSupervisor } from '@src/dsh/supervisor';
 import { SessionRegistry } from '@src/state/registry';
 import { purgeGroupHashData } from '@src/dsh/client';
@@ -57,6 +58,7 @@ export default defineChildren({
     try {
       const startupConfig = getDSHConfig();
 
+      logger.info(runtimeSummary(startupConfig), 'AgentLink runtime resolved');
       warmCredentialPool(startupConfig);
       if (budgetEnabled(startupConfig)) {
         void budgetRedis()
@@ -81,6 +83,7 @@ export default defineChildren({
         try {
           const next = getDSHConfig();
 
+          logger.info(runtimeSummary(next), 'AgentLink runtime reloaded');
           warmCredentialPool(next);
           void syncStickerPanel(next);
           void getModuleRuntime(next)

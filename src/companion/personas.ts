@@ -295,6 +295,13 @@ export class PersonaStore {
       .run(scopeKey(scope), scope.platform, scope.channelId, id, Date.now());
   }
 
+  scopes(): PersonaScope[] {
+    return this.db
+      .prepare('SELECT platform,channel_id AS channelId FROM persona_choices ORDER BY updated_at DESC')
+      .all()
+      .map(row => ({ platform: String(row.platform), channelId: String(row.channelId) }));
+  }
+
   scopesUsing(id: string): PersonaScope[] {
     this.path(id);
 

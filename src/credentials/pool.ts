@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { requestReason, type RequestResult } from '../model-pool/request-result';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -7,6 +8,23 @@ import { fetchPoolBalances } from '../model-pool/balance';
 import type { DSHCredentials } from '../dsh/credentials';
 import { parseModelPool, type ModelPoolConfig, type ModelPoolEndpoint, type ModelPoolPurpose } from '../model-pool/config';
 
+type LifecycleStatistics = {
+  sent: number;
+  blocked: number;
+  cancelled: number;
+  records: Array<{
+    id: string;
+    requestId: string;
+    attempt: number;
+    purpose: ModelPoolPurpose;
+    at: number;
+    sent: boolean;
+    ok: boolean;
+    reason: string;
+    status?: number;
+  }>;
+};
+type PurposeStatistics = Partial<Record<ModelPoolPurpose, { total: number; success: number; failed: number }>>;
 type EndpointState = {
   endpoint: ModelPoolEndpoint;
   active: number;
@@ -22,12 +40,22 @@ type EndpointState = {
   recent: number[];
   pendingTokens: number;
   dailyDate: string;
+  lastRequest?: RequestResult;
+  lastNetworkRequest?: RequestResult;
+  lifecycle: LifecycleStatistics;
+  purposeStatistics: PurposeStatistics;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  statisticsSince: number;
   dailyRequests: number;
   dailyInput: number;
   dailyOutput: number;
   requestWindow: number[];
   usageWindow: Array<{ at: number; input: number; output: number }>;
   lastProbeAt: number;
+  probeReachable?: boolean;
+  probeStatus?: number;
   lastStatus?: number;
   latencyMs: number;
 };
@@ -42,6 +70,7 @@ type PoolInput = {
 };
 
 export type PoolSelectionOptions = {
+  requestId?: string;
   purpose?: ModelPoolPurpose;
   stickyKey?: string;
   reserve?: boolean;
@@ -128,6 +157,14 @@ export type ModelPoolStatus = {
   tpm?: number;
   requests: number;
   tokens: number;
+  lastRequest?: RequestResult;
+  lastNetworkRequest?: RequestResult;
+  lifecycle: LifecycleStatistics;
+  purposeStatistics: PurposeStatistics;
+  totalCalls: number;
+  successfulCalls: number;
+  failedCalls: number;
+  statisticsSince: number;
   dailyRequests: number;
   dailyTokens: number;
   recent: number;
@@ -176,6 +213,12 @@ export class CredentialPool {
       recent: [],
       pendingTokens: 0,
       dailyDate: '',
+      lifecycle: { sent: 0, blocked: 0, cancelled: 0, records: [] },
+      purposeStatistics: {},
+      totalCalls: 0,
+      successfulCalls: 0,
+      failedCalls: 0,
+      statisticsSince: this.now(),
       dailyRequests: 0,
       dailyInput: 0,
       dailyOutput: 0,
@@ -210,13 +253,44 @@ export class CredentialPool {
     try {
       const stored = JSON.parse(readFileSync(this.metricsPath, 'utf8')) as Record<
         string,
-        { date?: unknown; requests?: unknown; input?: unknown; output?: unknown }
+        {
+          date?: unknown;
+          requests?: unknown;
+          input?: unknown;
+          output?: unknown;
+          totalCalls?: number;
+          successfulCalls?: number;
+          failedCalls?: number;
+          statisticsSince?: number;
+          purposeStatistics?: PurposeStatistics;
+          lifecycle?: LifecycleStatistics;
+          lastRequest?: RequestResult;
+          lastNetworkRequest?: RequestResult;
+        }
       >;
       const today = this.day();
 
       for (const state of this.states) {
         const item = stored[state.endpoint.id];
 
+        if (item) {
+          state.lifecycle = item.lifecycle || state.lifecycle;
+          state.purposeStatistics = item.purposeStatistics || {};
+          state.totalCalls = Math.max(0, Number(item.totalCalls) || 0);
+          state.successfulCalls = Math.max(0, Number(item.successfulCalls) || 0);
+          state.failedCalls = Math.max(0, Number(item.failedCalls) || 0);
+          state.lastNetworkRequest = item.lastNetworkRequest;
+          if (item.lastRequest && typeof item.lastRequest.reason === 'string' && Number.isFinite(item.lastRequest.at))
+            state.lastRequest = {
+              at: item.lastRequest.at,
+              ok: item.lastRequest.ok,
+              source: item.lastRequest.source,
+              status: item.lastRequest.status,
+              reason: item.lastRequest.reason,
+              latencyMs: item.lastRequest.latencyMs
+            };
+          state.statisticsSince = Number(item.statisticsSince) || this.now();
+        }
         if (item?.date !== today) continue;
         state.dailyDate = today;
         state.dailyRequests = Math.max(0, Number(item.requests) || 0);
@@ -240,12 +314,36 @@ export class CredentialPool {
   private async persistMetrics(): Promise<void> {
     if (!this.metricsPath || this.persisting) return;
     this.persisting = true;
-    const payload: Record<string, { date: string; requests: number; input: number; output: number }> = {};
+    const payload: Record<
+      string,
+      {
+        date: string;
+        requests: number;
+        input: number;
+        output: number;
+        totalCalls: number;
+        successfulCalls: number;
+        failedCalls: number;
+        statisticsSince: number;
+        purposeStatistics: PurposeStatistics;
+        lifecycle: LifecycleStatistics;
+        lastRequest?: RequestResult;
+        lastNetworkRequest?: RequestResult;
+      }
+    > = {};
 
     for (const state of this.states) {
       this.ensureDaily(state);
       payload[state.endpoint.id] = {
         date: state.dailyDate,
+        lastRequest: state.lastRequest,
+        lastNetworkRequest: state.lastNetworkRequest,
+        totalCalls: state.totalCalls,
+        successfulCalls: state.successfulCalls,
+        failedCalls: state.failedCalls,
+        statisticsSince: state.statisticsSince,
+        purposeStatistics: state.purposeStatistics,
+        lifecycle: state.lifecycle,
         requests: state.dailyRequests,
         input: state.dailyInput,
         output: state.dailyOutput
@@ -291,6 +389,14 @@ export class CredentialPool {
       tpm: state.endpoint.tpm,
       requests: this.windowStats(state).requests,
       tokens: this.windowStats(state).input + this.windowStats(state).output,
+      lastRequest: state.lastRequest,
+      lastNetworkRequest: state.lastNetworkRequest,
+      totalCalls: state.totalCalls,
+      successfulCalls: state.successfulCalls,
+      failedCalls: state.failedCalls,
+      statisticsSince: state.statisticsSince,
+      purposeStatistics: state.purposeStatistics,
+      lifecycle: state.lifecycle,
       dailyRequests: this.ensureDaily(state).dailyRequests,
       dailyTokens: this.ensureDaily(state).dailyInput + this.ensureDaily(state).dailyOutput,
       recent: this.recentCount(state),
@@ -304,6 +410,8 @@ export class CredentialPool {
       latencyMs: Math.round(state.latencyMs),
       healthy: state.healthy,
       lastProbeAt: state.lastProbeAt,
+      probeReachable: state.probeReachable,
+      probeStatus: state.probeStatus,
       lastStatus: state.lastStatus
     }));
   }
@@ -414,7 +522,10 @@ export class CredentialPool {
 
   private effectiveCapabilities(state: EndpointState): ModelPoolPurpose[] {
     const configured = state.capabilityProbed ? state.endpoint.capabilities.filter(capability => state.verified.has(capability)) : state.endpoint.capabilities;
-    const discovered = [...state.verified].filter(capability => !configured.includes(capability));
+    // Probing is evidence of capability, not permission to promote a gate-only key into chat.
+    const discovered = [...state.verified].filter(
+      capability => state.endpoint.capabilities.includes('chat') && capability !== 'chat' && capability !== 'replyGate' && !configured.includes(capability)
+    );
 
     return [...new Set([...configured, ...discovered])];
   }
@@ -454,6 +565,21 @@ export class CredentialPool {
     );
   }
 
+  private endpointScore(state: EndpointState): number {
+    // 0 -> 1，10 -> 0.67，20 -> 0.5，100 -> 0.17；高优先级有偏好但不会独占。
+    const priority = 1 / (1 + Math.max(0, state.endpoint.priority) / 20);
+    const load = 1 / (1 + state.active * 2 + this.recentCount(state) + Math.min(10000, state.latencyMs) / 50);
+
+    return Math.max(0.000001, state.endpoint.weight * priority * load);
+  }
+
+  private rank(state: EndpointState, key: string): number {
+    const digest = createHash('sha256').update(`${key}:${state.endpoint.id}`).digest();
+    const unit = (digest.readUInt32BE(0) + 1) / 0x100000000;
+
+    return -Math.log(unit) / this.endpointScore(state);
+  }
+
   private choose(
     purpose: ModelPoolPurpose,
     stickyKey: string | undefined,
@@ -484,54 +610,37 @@ export class CredentialPool {
     const eligible = fallbackOnly ? fallback : primary.length ? primary : fallback;
 
     if (!eligible.length) return undefined;
-    const priorities = [...new Set(eligible.map(state => state.endpoint.priority))].sort((left, right) => left - right);
-    const tiers = priorities.map(priority => eligible.filter(state => state.endpoint.priority === priority));
-    const tier = tiers.find(group => group.some(state => state.healthy !== false)) || tiers[0];
-    const preferred = tier.filter(state => state.healthy !== false);
-    const candidates = preferred.length ? preferred : tier;
+    const candidates = eligible.some(state => state.healthy !== false) ? eligible.filter(state => state.healthy !== false) : eligible;
 
     if (stable) {
-      // 稳定模式只要求「不轮询」，不要求「钉在最慢的那个」：
-      // 从未测过延迟的端点按 1200ms 估计，让已知更快的端点优先。
+      // 工作区等稳定调用只要求“不轮询”；仍保留软优先级，不在慢端点之间乱跳。
       const latency = (state: EndpointState): number => (state.latencyMs > 0 ? state.latencyMs : 1200);
 
       return [...candidates].sort(
-        (left, right) => latency(left) - latency(right) || right.endpoint.weight - left.endpoint.weight || left.lastUsed - right.lastUsed
-      )[0];
-    }
-    if (this.config.strategy === 'sticky' && stickyKey) {
-      const digest = createHash('sha256').update(stickyKey).digest();
-      const index = digest.readUInt32BE(0) % candidates.length;
-
-      return candidates[index];
-    }
-    if (this.config.strategy === 'least-busy') {
-      return [...candidates].sort(
         (left, right) =>
-          left.active - right.active ||
-          this.recentCount(left) - this.recentCount(right) ||
-          left.latencyMs - right.latencyMs ||
+          latency(left) - latency(right) ||
+          this.endpointScore(right) - this.endpointScore(left) ||
           right.endpoint.weight - left.endpoint.weight ||
           left.lastUsed - right.lastUsed
       )[0];
     }
-    if (this.config.strategy === 'balanced') {
-      return [...candidates].sort((left, right) => {
-        const penalty = state => Math.min(10000, state.latencyMs) / 500;
-        // 只按“正在跑的请求 + 近期流量”算负载；会话粘性绑定不算并发，
-        // 否则某个端点被更多会话记住反而会被判成更忙，流量又倒回慢端点。
-        const leftLoad = (left.active * 2 + this.recentCount(left)) / Math.max(1, left.endpoint.weight) + penalty(left);
-        const rightLoad = (right.active * 2 + this.recentCount(right)) / Math.max(1, right.endpoint.weight) + penalty(right);
-
-        return leftLoad - rightLoad || left.latencyMs - right.latencyMs || right.endpoint.weight - left.endpoint.weight || left.lastUsed - right.lastUsed;
-      })[0];
+    if (this.config.strategy === 'least-busy') {
+      return [...candidates].sort(
+        (left, right) =>
+          right.active - left.active ||
+          right.endpoint.weight - left.endpoint.weight ||
+          this.endpointScore(right) - this.endpointScore(left) ||
+          left.latencyMs - right.latencyMs ||
+          left.lastUsed - right.lastUsed
+      )[0];
     }
-    const expanded = candidates.flatMap(state => Array.from({ length: state.endpoint.weight }, () => state));
-    const selected = expanded[this.cursor % expanded.length];
 
-    this.cursor = (this.cursor + 1) % Math.max(1, expanded.length);
+    // 软优先级 + 权重 + 负载 + 延迟的离散加权选择：
+    // 优先级只改变被选中的概率，不会把高优先级端点完全饿死。
+    // 同一个 stickyKey 会得到稳定结果，实际绑定由 select() 持久化。
+    const key = stickyKey ? `${this.config.strategy}:${stickyKey}` : `${this.config.strategy}:${this.cursor++}`;
 
-    return selected;
+    return [...candidates].sort((left, right) => this.rank(left, key) - this.rank(right, key))[0];
   }
 
   /** Probe endpoints without spending completion tokens. Called once at
@@ -571,6 +680,7 @@ export class CredentialPool {
     const url = `${endpoint.baseUrl.replace(/\/+$/u, '')}/models`;
 
     state.lastProbeAt = this.now();
+    state.probeStatus = undefined;
     const startedAt = this.now();
 
     try {
@@ -581,6 +691,8 @@ export class CredentialPool {
         headers: { Authorization: `Bearer ${endpoint.apiKey}`, Accept: 'application/json' }
       });
 
+      state.probeReachable = true;
+      state.probeStatus = response.status;
       state.lastStatus = response.status;
       if (response.ok) {
         state.healthy = true;
@@ -636,6 +748,8 @@ export class CredentialPool {
       }
       await response.body?.cancel();
     } catch {
+      state.probeReachable = false;
+      state.probeStatus = undefined;
       state.healthy = false;
       state.failures += 1;
       if (state.failures >= this.config.failureThreshold) state.cooldownUntil = this.now() + this.config.cooldownSeconds * 1000;
@@ -848,6 +962,64 @@ export class CredentialPool {
     return true;
   }
 
+  private readonly healthChecks = new Map<string, Promise<boolean>>();
+
+  /** Explicit diagnostic completion, independent of enablement, quota and probe flags. */
+  healthCheckEndpoint(id: string): Promise<boolean> {
+    const current = this.healthChecks.get(id);
+
+    if (current !== undefined) return current;
+    const state = this.states.find(item => item.endpoint.id === id);
+
+    if (!state) return Promise.resolve(false);
+    const work = (async () => {
+      const started = this.now();
+      let status: number | undefined;
+      let detail = '';
+      let ok = false;
+      let errorKind: string | undefined;
+
+      try {
+        const response = await fetch(state.endpoint.baseUrl.replace(/\/+$/u, '') + '/chat/completions', {
+          method: 'POST',
+          redirect: 'error',
+          headers: { Authorization: 'Bearer ' + state.endpoint.apiKey, 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(Math.min(15000, this.config.capabilityProbeTimeoutMs)),
+          body: JSON.stringify({ model: state.endpoint.model, messages: [{ role: 'user', content: 'Reply OK.' }], max_tokens: 16, stream: false })
+        });
+
+        status = response.status;
+        const payload = (await response.json().catch(() => null)) as {
+          choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown } }>;
+          error?: { code?: unknown; message?: unknown };
+          message?: unknown;
+        } | null;
+
+        ok = response.ok && !payload?.error && Array.isArray(payload?.choices) && payload.choices.length > 0 && Boolean(payload.choices[0]?.message);
+        detail = String(payload?.error?.code || '') + ' ' + String(payload?.error?.message || payload?.message || '');
+      } catch (error) {
+        errorKind = error instanceof Error && /timeout/i.test(error.name) ? 'timeout' : undefined;
+      }
+      state.lastRequest = {
+        at: this.now(),
+        source: 'health-check',
+        ok,
+        status,
+        reason: requestReason({ ok, status, detail, errorKind }),
+        latencyMs: Math.max(0, this.now() - started)
+      };
+      if (status !== undefined || ['network', 'timeout'].includes(state.lastRequest.reason)) state.lastNetworkRequest = state.lastRequest;
+      this.schedulePersist();
+
+      return true;
+    })();
+
+    this.healthChecks.set(id, work);
+    void work.finally(() => this.healthChecks.delete(id));
+
+    return work;
+  }
+
   /** Probe one endpoint; includeChat also runs the paid chat probe. */
   async probeEndpoint(id: string, includeChat = false): Promise<boolean> {
     const state = this.states.find(item => item.endpoint.id === id);
@@ -879,7 +1051,12 @@ export class CredentialPool {
     if (bound && bound.expiresAt > now && !tried.has(bound.endpointId)) {
       const candidate = this.states.find(item => item.endpoint.id === bound.endpointId);
 
-      if (!options.fallbackOnly && candidate && candidate.healthy !== false && this.canUse(candidate, purpose, tried, options.provider)) state = candidate;
+      if (!options.fallbackOnly && candidate && candidate.healthy !== false && this.canUse(candidate, purpose, tried, options.provider)) {
+        state = candidate;
+        // 活跃会话滑动续期：持续接待一直保持同一端点，空闲超过 TTL 才释放。
+        if (bindingKey && this.config.stickySeconds > 0)
+          this.bindings.set(bindingKey, { endpointId: candidate.endpoint.id, expiresAt: now + this.config.stickySeconds * 1000 });
+      }
     }
     if (!state)
       state = this.choose(
@@ -913,6 +1090,10 @@ export class CredentialPool {
     if (reserved) {
       this.windowStats(state, now);
       this.ensureDaily(state, now).dailyRequests += 1;
+      state.totalCalls += 1;
+      const statistics = (state.purposeStatistics[purpose] ||= { total: 0, success: 0, failed: 0 });
+
+      statistics.total += 1;
       state.requestWindow.push(now);
       this.schedulePersist();
       state.pendingTokens += reservedTokens;
@@ -929,6 +1110,8 @@ export class CredentialPool {
       }
     }
     let settled = false;
+    let sent = false;
+    const id = randomUUID();
     const credential: DSHCredentials = {
       apiKey: state.endpoint.apiKey,
       baseUrl: state.endpoint.baseUrl,
@@ -944,10 +1127,34 @@ export class CredentialPool {
       maxAttempts: this.config.maxAttempts,
       attempt: 1,
       retryable: status => this.config.retryStatuses.includes(status),
+      markSent: () => {
+        if (sent || settled || !reserved) return;
+        sent = true;
+        state.lifecycle.sent += 1;
+        this.schedulePersist();
+      },
       report: outcome => {
         if (settled) return;
         settled = true;
-        this.report(state, outcome, reserved, reservedTokens);
+        if (reserved) {
+          const reason = requestReason(outcome);
+
+          if (reason === 'local-budget') state.lifecycle.blocked += 1;
+          if (reason === 'cancelled') state.lifecycle.cancelled += 1;
+          state.lifecycle.records.push({
+            id,
+            requestId: options.requestId || id,
+            attempt: credential.attempt || 1,
+            purpose,
+            at: this.now(),
+            sent,
+            ok: outcome.ok,
+            reason,
+            status: outcome.status
+          });
+          state.lifecycle.records = state.lifecycle.records.slice(-20);
+        }
+        this.report(state, outcome, reserved, reservedTokens, purpose);
       },
       next: (nextOptions?: { fallback?: boolean }) => {
         const next = this.select({
@@ -959,6 +1166,7 @@ export class CredentialPool {
           fallbackOnly: nextOptions?.fallback === true,
           estimatedTokens: options.estimatedTokens,
           startedAt: credential.startedAt,
+          requestId: options.requestId || id,
           waitForCapacity: false,
           exclude: tried
         });
@@ -997,10 +1205,29 @@ export class CredentialPool {
 
   private report(
     state: EndpointState,
-    outcome: { ok: boolean; status?: number; headers?: Headers; latencyMs?: number },
+    outcome: { ok: boolean; status?: number; headers?: Headers; latencyMs?: number; detail?: string; errorKind?: string },
     reserved: boolean,
-    reservedTokens = 0
+    reservedTokens = 0,
+    purpose: ModelPoolPurpose = 'chat'
   ): void {
+    if (reserved) {
+      const statistics = (state.purposeStatistics[purpose] ||= { total: 0, success: 0, failed: 0 });
+
+      if (outcome.ok) statistics.success += 1;
+      else statistics.failed += 1;
+      state.lastRequest = {
+        at: this.now(),
+        source: 'call',
+        ok: outcome.ok,
+        status: outcome.status,
+        reason: requestReason(outcome),
+        latencyMs: outcome.latencyMs
+      };
+      if (outcome.status !== undefined || ['network', 'timeout'].includes(state.lastRequest.reason)) state.lastNetworkRequest = state.lastRequest;
+      if (outcome.ok) state.successfulCalls += 1;
+      else state.failedCalls += 1;
+      this.schedulePersist();
+    }
     if (reserved && state.active > 0) state.active -= 1;
     if (reservedTokens > 0) {
       state.pendingTokens = Math.max(0, state.pendingTokens - reservedTokens);
@@ -1011,6 +1238,9 @@ export class CredentialPool {
       }
     }
     state.lastStatus = outcome.status;
+    const responseReset = rateResetAfter(outcome.headers);
+
+    if (responseReset > 0) state.cooldownUntil = Math.max(state.cooldownUntil, this.now() + responseReset);
     if (outcome.ok) {
       state.failures = 0;
       state.cooldownUntil = this.now() + (rateResetAfter(outcome.headers) || 0);
@@ -1022,12 +1252,6 @@ export class CredentialPool {
         const sample = Number(outcome.latencyMs);
 
         state.latencyMs = state.latencyMs ? state.latencyMs * 0.6 + sample * 0.4 : sample;
-        // 这一次明显慢（>3 秒）：别再用粘性把这个会话钉在它身上。
-        if (sample > 3000) {
-          for (const [key, binding] of this.bindings) {
-            if (binding.endpointId === state.endpoint.id) this.bindings.delete(key);
-          }
-        }
       }
 
       return;

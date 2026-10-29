@@ -1,3 +1,4 @@
+import { beginReplyGateAttempt } from './reply-gate-statistics';
 import { getBoundCredential } from '../credentials/scoped';
 import { assertAIEnabled } from '../dsh/ai-switch';
 import { budgetEnabled, budgetedFetch, replyGateBudgetStatus, withBudgetScope, BudgetExceededError, type BudgetScope } from '../billing/budget';
@@ -130,19 +131,15 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
     return reject();
   }
   active++;
+  let pendingAttempt: ((success: boolean) => void) | undefined;
+  let pendingCredential: DSHCredentials | undefined;
+
   try {
     signal.throwIfAborted();
     const config = getDSHConfig();
 
     assertAIEnabled(config);
     const bound = input.scope && !input.scope.channelId.startsWith('private:') ? await withBudgetScope(input.scope, getBoundCredential) : null;
-    const credentials = bound
-      ? { apiKey: bound.apiKey, baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' }
-      : resolveReplyGateConnection(config, await getDSHCredentials(undefined, { purpose: 'replyGate' }));
-
-    if (!credentials) {
-      return reject();
-    }
     const compact = {
       bot: wakeNamesFor(config, input.scope?.channelId || '', input.scope?.platform || ''),
       activity: input.activity || 'balanced',
@@ -165,7 +162,23 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
     }
     signal.throwIfAborted();
     assertAIEnabled(config);
+    const credentials = bound
+      ? { apiKey: bound.apiKey, baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' }
+      : resolveReplyGateConnection(
+          config,
+          await getDSHCredentials(undefined, {
+            purpose: 'replyGate',
+            reserve: !config.replyGate?.apiKey && !config.replyGate?.baseUrl,
+            stickyKey: `${input.scope?.platform || ''}:${input.scope?.channelId || ''}`
+          })
+        );
+
+    if (!credentials) {
+      return reject();
+    }
     let current = credentials;
+
+    pendingCredential = current;
 
     for (;;) {
       const base = current.baseUrl || 'https://api.deepseek.com';
@@ -186,7 +199,8 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
       });
 
       if (Buffer.byteLength(body) > 20000) return reject();
-      const request: RequestInit & { scopedKey?: boolean; pricing?: NonNullable<DSHCredentials['pricing']> } = {
+      const request: RequestInit & { onDispatch?: () => void; scopedKey?: boolean; pricing?: NonNullable<DSHCredentials['pricing']> } = {
+        onDispatch: current.markSent,
         scopedKey: Boolean(bound),
         pricing: current.pricing,
         method: 'POST',
@@ -197,12 +211,18 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
       };
       let response: Response;
 
+      pendingAttempt = beginReplyGateAttempt(config);
       try {
         response =
           budgetEnabled(config) || bound
             ? await withBudgetScope(input.scope, () => budgetedFetch(config, url, request, 'reply-gate'))
-            : await fetch(url, request);
+            : await (() => {
+                current.markSent?.();
+
+                return fetch(url, request);
+              })();
       } catch (error) {
+        pendingAttempt(false);
         current.report?.({ ok: false });
         if (error instanceof BudgetExceededError) throw error;
         signal.throwIfAborted();
@@ -210,23 +230,37 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
 
         if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) return reject();
         current = next;
+        pendingCredential = current;
         continue;
       }
       if (!response.ok) {
+        pendingAttempt(false);
         const status = response.status;
 
-        current.report?.({ ok: false, status, headers: response.headers });
+        let detail = '';
+
+        try {
+          const payload = (await response.json()) as { error?: { message?: unknown; code?: unknown }; message?: unknown };
+
+          detail = String(payload.error?.code || '') + ' ' + String(payload.error?.message || payload.message || '');
+        } catch {
+          /* Status is still available. */
+        }
+        current.report?.({ ok: false, status, detail, headers: response.headers });
         const next = status === 400 ? current.next?.({ fallback: true }) : current.retryable?.(status) ? current.next?.() : null;
 
         if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) return reject();
         current = next;
+        pendingCredential = current;
         continue;
       }
-      current.report?.({ ok: true, status: response.status, headers: response.headers });
       const result = JSON.parse((await readBounded(response, 16384)).toString('utf8'));
 
+      current.report?.({ ok: true, status: response.status, headers: response.headers });
       current.reportUsage?.(result?.usage || {});
       const content = result?.choices?.[0]?.message?.content;
+
+      pendingAttempt(typeof content === 'string');
 
       return typeof content === 'string' ? parseReplyVerdict(content) : reject();
     }
@@ -235,6 +269,8 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
 
     return reject();
   } finally {
+    pendingAttempt?.(false);
+    pendingCredential?.report?.({ ok: false, errorKind: 'cancelled' });
     active--;
   }
 };

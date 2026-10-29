@@ -21,7 +21,14 @@ const turn = (overrides = {}) => ({
 });
 const fixture = async () => {
   const root = await mkdtemp(join(tmpdir(), 'agent-modules-'));
-  const config = getDSHConfig({ workspaceRoot: join(root, 'workspaces'), stateBackend: 'local' });
+  // dshHomeRoot is where the local state backend keeps state.json. Without it the
+  // test writes into the real deployment directory and its conversation metadata
+  // shows up as live groups that keep resetting.
+  const config = getDSHConfig({
+    workspaceRoot: join(root, 'workspaces'),
+    dshHomeRoot: join(root, 'home'),
+    stateBackend: 'local'
+  });
 
   return { root, config, modules: join(root, 'modules') };
 };
@@ -178,7 +185,7 @@ test('private memory tools require current-user intent, enforce scope and write 
         .tools(turn({ private: false, channelId: 'group' }))
         .map(tool => tool.name)
         .sort(),
-      ['inspect_memory_source', 'recall_memories']
+      ['inspect_memory_source', 'inspect_memory_status', 'recall_memories']
     );
     const save = lease.tools(turn()).find(t => t.name === 'remember_private_fact');
     const recall = lease.tools(turn()).find(t => t.name === 'recall_private_memory');

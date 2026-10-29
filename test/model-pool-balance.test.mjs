@@ -171,3 +171,25 @@ test('New API usage endpoint is shown as used amount', async () => {
     clearBalanceCache();
   }
 });
+
+test('balance failure classification uses explicit freeze evidence and force refresh bypasses cache', async () => {
+  const { balanceFailure } = await import('../lib/model-pool/balance.js');
+  assert.equal((await balanceFailure(Response.json({error:{message:'account frozen'}},{status:403}))).status,'frozen');
+  assert.equal((await balanceFailure(Response.json({},{status:403}))).status,'forbidden');
+  assert.equal((await balanceFailure(Response.json({},{status:429}))).status,'rate-limited');
+  assert.equal((await balanceFailure(Response.json({},{status:401}))).status,'invalid');
+  assert.equal((await balanceFailure(Response.json({},{status:402}))).status,'exhausted');
+  const pool = parseModelPool({endpoints:[{id:'test',apiKey:'test-secret-key',provider:'deepseek-official',model:'test'}]},defaults);
+  const previous = globalThis.fetch;
+  let count=0;
+  globalThis.fetch=async()=>{count++;return Response.json({is_available:true,balance_infos:[{currency:'CNY',total_balance:count}]});};
+  clearBalanceCache();
+  try {
+    await fetchPoolBalances(pool);
+    await fetchPoolBalances(pool);
+    assert.equal(count,1);
+    const fresh=await fetchPoolBalances(pool,true);
+    assert.equal(count,2);
+    assert.equal(fresh.get('test').amount,2);
+  } finally {globalThis.fetch=previous;clearBalanceCache();}
+});

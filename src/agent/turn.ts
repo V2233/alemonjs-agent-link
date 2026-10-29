@@ -155,7 +155,7 @@ const runModuleTurnInner = async (options: {
             let result = '';
 
             const framework = await startFrameworkMcp(tools, turn);
-            const workspaceCredentials = await getWorkspaceCredentials();
+            const workspaceCredentials = await getWorkspaceCredentials({ stickyKey: context.channelId });
 
             try {
               await streamChat(

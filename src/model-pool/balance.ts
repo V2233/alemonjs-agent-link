@@ -6,6 +6,8 @@ export type EndpointBalance = {
   used?: number;
   currency?: string;
   checkedAt: number;
+  status?: 'normal' | 'exhausted' | 'rate-limited' | 'frozen' | 'invalid' | 'forbidden' | 'unavailable' | 'unsupported' | 'failed' | 'unknown';
+  httpStatus?: number;
 };
 
 type CacheEntry = EndpointBalance & { expiresAt: number };
@@ -21,6 +23,31 @@ const numberValue = (value: unknown): number | undefined => {
 
 const money = (amount: number, currency = 'CNY'): string => `${currency === 'CNY' ? '¥' : `${currency} `}${amount.toFixed(2)}`;
 
+export const balanceFailure = async (response: Response): Promise<EndpointBalance> => {
+  let evidence = '';
+
+  try {
+    const body = (await response.json()) as { error?: { code?: unknown; message?: unknown }; code?: unknown; message?: unknown };
+
+    evidence = String(body.error?.code || body.code || '') + ' ' + String(body.error?.message || body.message || '');
+  } catch {
+    /* status still available */
+  }
+  const status: EndpointBalance['status'] = /frozen|account_frozen|账户冻结|账号冻结/i.test(evidence)
+    ? 'frozen'
+    : response.status === 429
+      ? 'rate-limited'
+      : response.status === 401
+        ? 'invalid'
+        : response.status === 402
+          ? 'exhausted'
+          : response.status === 403
+            ? 'forbidden'
+            : 'failed';
+  const labels = { frozen: '账户冻结', 'rate-limited': '供应商限流', invalid: '凭证无效', exhausted: '额度不足', forbidden: '访问受限', failed: '查询失败' };
+
+  return { status, text: labels[status], httpStatus: response.status, checkedAt: Date.now() };
+};
 const deepSeekBalance = async (endpoint: ModelPoolEndpoint, signal: AbortSignal): Promise<EndpointBalance | null> => {
   const base = endpoint.baseUrl.replace(/\/+$/u, '').replace(/\/v1$/u, '');
   const response = await fetch(`${base}/user/balance`, {
@@ -29,7 +56,7 @@ const deepSeekBalance = async (endpoint: ModelPoolEndpoint, signal: AbortSignal)
     signal
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) return balanceFailure(response);
   const payload = (await response.json()) as { is_available?: unknown; balance_infos?: Array<{ currency?: unknown; total_balance?: unknown }> };
   const info = payload.balance_infos?.find(item => item.currency === 'CNY') || payload.balance_infos?.[0];
   const amount = numberValue(info?.total_balance);
@@ -37,6 +64,7 @@ const deepSeekBalance = async (endpoint: ModelPoolEndpoint, signal: AbortSignal)
   if (amount === undefined) return null;
 
   return {
+    status: amount <= 0 ? 'exhausted' : payload.is_available === false ? 'unavailable' : 'normal',
     text:
       payload.is_available === false
         ? `不可用（${money(amount, typeof info?.currency === 'string' ? info.currency : 'CNY')}）`
@@ -52,7 +80,7 @@ const newApiBalance = async (endpoint: ModelPoolEndpoint, signal: AbortSignal): 
   const headers = { Authorization: `Bearer ${endpoint.apiKey}`, Accept: 'application/json' };
   const usage = await fetch(`${base}/dashboard/billing/usage`, { headers, redirect: 'error', signal });
 
-  if (!usage.ok) return null;
+  if (!usage.ok) return balanceFailure(usage);
   const payload = (await usage.json()) as { total_usage?: unknown };
   const cents = numberValue(payload.total_usage);
 
@@ -67,7 +95,7 @@ const templateBalance = async (endpoint: ModelPoolEndpoint, template: string, si
   const response = await fetch(url, { headers: { Accept: 'application/json' }, redirect: 'error', signal });
 
   if (response.status === 404) return { text: '未收录', checkedAt: Date.now() };
-  if (!response.ok) return { text: `查询失败 HTTP ${response.status}`, checkedAt: Date.now() };
+  if (!response.ok) return balanceFailure(response);
   const payload = (await response.json()) as Record<string, unknown>;
 
   if (payload.ok === false) return { text: '未收录', checkedAt: Date.now() };
@@ -82,16 +110,16 @@ const templateBalance = async (endpoint: ModelPoolEndpoint, template: string, si
 
   if (amount === undefined) return { text: '无余额字段', checkedAt: Date.now() };
 
-  return { text: money(amount), amount, currency: 'CNY', checkedAt: Date.now() };
+  return { status: amount <= 0 ? 'exhausted' : 'normal', text: money(amount), amount, currency: 'CNY', checkedAt: Date.now() };
 };
 
-const fetchOne = async (config: ModelPoolConfig, endpoint: ModelPoolEndpoint): Promise<EndpointBalance | null> => {
+const fetchOne = async (config: ModelPoolConfig, endpoint: ModelPoolEndpoint, force = false): Promise<EndpointBalance | null> => {
   const template = endpoint.balanceUrl || config.balanceUrls?.[endpoint.provider] || (endpoint.provider === 'sensenova' ? undefined : config.balanceUrl);
   const style = endpoint.balanceStyle || config.balanceStyle;
   const cacheKey = `${endpoint.id}:${endpoint.apiKey.slice(-6)}:${style || ''}:${template || ''}`;
   const cached = cache.get(cacheKey);
 
-  if (cached && cached.expiresAt > Date.now()) return cached;
+  if (!force && cached && cached.expiresAt > Date.now()) return cached;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6000);
 
@@ -106,20 +134,24 @@ const fetchOne = async (config: ModelPoolConfig, endpoint: ModelPoolEndpoint): P
     if (!result && style === 'newapi') result = await newApiBalance(endpoint, controller.signal);
     if (!result && template) result = await templateBalance(endpoint, template, controller.signal);
     if (!result && endpoint.provider === 'sensenova') result = { text: '免费/限流', checkedAt: Date.now() };
-    if (!result) result = { text: '无余额接口', checkedAt: Date.now() };
+    if (!result) result = { status: 'unsupported', text: '无余额接口', checkedAt: Date.now() };
 
     cache.set(cacheKey, { ...result, expiresAt: Date.now() + CACHE_TTL_MS });
 
     return result;
   } catch {
-    return { text: '查询失败', checkedAt: Date.now() };
+    return { status: 'failed', text: '查询失败', checkedAt: Date.now() };
   } finally {
     clearTimeout(timer);
   }
 };
 
-export const fetchPoolBalances = async (config: ModelPoolConfig): Promise<Map<string, EndpointBalance>> => {
-  const rows = await Promise.all(config.endpoints.map(async endpoint => [endpoint.id, await fetchOne(config, endpoint)] as const));
+export const fetchPoolBalances = async (config: ModelPoolConfig, force = false, endpointId?: string): Promise<Map<string, EndpointBalance>> => {
+  const rows = await Promise.all(
+    config.endpoints
+      .filter(endpoint => !endpointId || endpoint.id === endpointId)
+      .map(async endpoint => [endpoint.id, await fetchOne(config, endpoint, force)] as const)
+  );
 
   return new Map(rows);
 };

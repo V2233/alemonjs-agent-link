@@ -1,0 +1,34 @@
+.workspace-shell {
+  min-height: 100vh;
+}
+.workspace-sider {
+  border-right: 1px solid #eee;
+  position: sticky !important;
+  top: 0;
+  height: 100vh;
+}
+.workspace-brand {
+  padding: 28px 24px;
+}
+.workspace-header {
+  height: auto;
+  min-height: 64px;
+  padding: 16px 32px;
+  background: white;
+  border-bottom: 1px solid #eee;
+  line-height: normal;
+}
+.workspace-content {
+  width: 100%;
+  max-width: 1280px;
+  margin: auto;
+  padding: 32px;
+}
+@media (max-width: 700px) {
+  .workspace-content {
+    padding: 20px 16px;
+  }
+  .workspace-header {
+    padding: 16px;
+  }
+}

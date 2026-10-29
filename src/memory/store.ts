@@ -120,6 +120,9 @@ export class MemoryStore {
         scope TEXT PRIMARY KEY, platform TEXT NOT NULL, channel_id TEXT NOT NULL, group_hash TEXT NOT NULL,
         epoch TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, checkpoint INTEGER NOT NULL DEFAULT 0,
         last_run INTEGER NOT NULL DEFAULT 0, retry_after INTEGER NOT NULL DEFAULT 0, active_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS memory_fallback_barriers (
+        scope TEXT NOT NULL REFERENCES memory_scopes(scope) ON DELETE CASCADE,
+        subject_id TEXT NOT NULL, skip_through INTEGER NOT NULL, PRIMARY KEY(scope,subject_id));
       CREATE TABLE IF NOT EXISTS memories (
         scope TEXT NOT NULL REFERENCES memory_scopes(scope) ON DELETE CASCADE, id TEXT NOT NULL,
         subject_id TEXT NOT NULL, subject_name TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, normalized TEXT NOT NULL,
@@ -197,6 +200,23 @@ export class MemoryStore {
       ORDER BY last_run,active_at DESC LIMIT ?`
       )
       .all(this.now() - intervalMs, this.now(), limit) as unknown as MemoryScope[];
+  }
+
+  fallbackAfter(scope: MemoryScope, subjectId: string): number {
+    return Number(
+      this.db
+        .prepare("SELECT coalesce(max(skip_through),0) AS n FROM memory_fallback_barriers WHERE scope=? AND subject_id IN ('',?)")
+        .get(scopeKey(scope), subjectId).n
+    );
+  }
+
+  private suppressFallback(scope: MemoryScope, subjectId: string, through: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO memory_fallback_barriers(scope,subject_id,skip_through) VALUES(?,?,?)
+      ON CONFLICT(scope,subject_id) DO UPDATE SET skip_through=max(skip_through,excluded.skip_through)`
+      )
+      .run(scopeKey(scope), subjectId, through);
   }
 
   private decode(row: Record<string, unknown>): MemoryItem {
@@ -386,6 +406,11 @@ export class MemoryStore {
     const key = scopeKey(scope);
     const unique = new Set<string>();
     const hits = ranked
+      .filter(hit => {
+        const current = this.db.prepare("SELECT text FROM memories WHERE scope=? AND id=? AND status='active'").get(key, hit.id);
+
+        return current?.text === hit.text;
+      })
       .filter(item => {
         const identity = `${item.subjectId}:${normalize(item.text)}`;
 
@@ -441,6 +466,7 @@ export class MemoryStore {
     record = true
   ): Promise<(MemoryItem & { score: number })[]> {
     const documents = this.activeDocuments(scope);
+    const guard = this.state(scope);
 
     if (!documents.length || !query.trim()) {
       return this.finishRanked(scope, rankMemories(documents, query, subjectId, this.now()), limit, record);
@@ -476,9 +502,12 @@ export class MemoryStore {
 
     try {
       options.signal.throwIfAborted();
-      const embedded = await options.client.embed([query, ...missing.map(item => item.text)], options.signal);
+      const embedded = await options.client.embed([query, ...missing.map(item => item.text)], AbortSignal.any([options.signal, AbortSignal.timeout(8000)]));
 
       options.signal.throwIfAborted();
+      const current = this.state(scope);
+
+      if (guard?.epoch !== current?.epoch || guard?.revision !== current?.revision) return this.recall(scope, query, subjectId, limit, record);
       const queryVector = embedded[0];
 
       missing.forEach((item, index) => {
@@ -670,6 +699,8 @@ export class MemoryStore {
       }
       const removed = connectedMemoryIds(all, target, true);
 
+      this.suppressFallback(scope, target.subjectId, skipThrough);
+
       for (const entryId of removed) {
         this.db.prepare('DELETE FROM memories WHERE scope=? AND id=?').run(key, entryId);
       }
@@ -685,6 +716,7 @@ export class MemoryStore {
     this.transaction(() => {
       const key = scopeKey(scope);
 
+      this.suppressFallback(scope, '', skipThrough);
       this.db.prepare('DELETE FROM memories WHERE scope=?').run(key);
       this.db.prepare('DELETE FROM memory_recalls WHERE scope=?').run(key);
       this.db.prepare('UPDATE memory_scopes SET revision=revision+1,checkpoint=max(checkpoint,?) WHERE scope=?').run(skipThrough, key);

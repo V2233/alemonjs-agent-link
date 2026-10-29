@@ -7,11 +7,25 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Redis from 'ioredis';
 import { storedKeyBalance } from '../lib/credentials/key-balance.js';
-import { keyringStorageKey, changeKeyring, readKeyring } from '../lib/credentials/keyring.js';
+import { keyringStorageKey, setGrantDailyLimit, changeKeyring, readKeyring } from '../lib/credentials/keyring.js';
 import { bindPersonalKey, getPersonalCredential, isPersonalKeyCommand } from '../lib/credentials/personal.js';
 import { getGroupCredential, groupStorageKey, updateGroupKey } from '../lib/credentials/group.js';
 import { resolveDSHConfig } from '../lib/dsh/config.js';
-import { withBudgetScope, budgetedFetch, setGroupKeyDailyLimit, groupKeyBudgetStatus, budgetStatus, manageBudget } from '../lib/billing/budget.js';
+import {
+  withBudgetScope,
+  budgetedFetch,
+  setGroupKeyDailyLimit,
+  groupKeyDailyLimit,
+  migrateLegacyWallets,
+  pendingBudgetRequests,
+  retainPendingBudgetRequests,
+  reconcileBudgetRequest,
+  reserveScript,
+  settleScript,
+  groupKeyBudgetStatus,
+  budgetStatus,
+  manageBudget
+} from '../lib/billing/budget.js';
 import { handleKeyringCommand } from '../lib/response/keyring/res.js';
 
 // Use a dedicated disposable server, never a configured production database.
@@ -109,7 +123,9 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
     await t.test('group copy is encrypted and isolated by group, platform and private account', async () => {
       assert.equal((await credential(group)).apiKey, secret);
       for (const scope of [own, other, { ...group, channelId: 'other-group' }, { ...group, platform: 'other' }]) assert.equal(await credential(scope), null);
-      for (const key of await redis.keys('*')) assert.ok(!(await redis.get(key)).includes(secret));
+      for (const key of await redis.keys('*')) {
+        if ((await redis.type(key)) === 'string') assert.ok(!(await redis.get(key)).includes(secret));
+      }
       const copy = JSON.parse(await redis.get(groupStorageKey(group)));
       assert.equal(copy.userId, undefined);
       assert.equal(copy.keyId, undefined);
@@ -204,6 +220,9 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
         );
       try {
         assert.match(await command('/我的钥匙 上限 1', { ...opts, IsAdmin: false }), /仅本群管理员/);
+        await request();
+        assert.ok((await groupKeyBudgetStatus(config, target)).personalUsed > 0, 'unlimited calls still count');
+        calls = 0;
         await setGroupKeyDailyLimit(target, '0');
         await assert.rejects(request());
         assert.equal(calls, 0);
@@ -267,7 +286,7 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
         const hash = createHash('sha256')
           .update(JSON.stringify([legacy.platform, legacy.channelId]))
           .digest('hex');
-        const day = new Date((timestamp + 8 * 3600) * 1000).toISOString().slice(0, 10);
+        const day = await redis.get('data:{agent-link-budget}:v1:wallet-migration-day');
         const legacyKey = `data:{agent-link-budget}:v1:${day}:${hash}`;
         await redis.hset(legacyKey, 'paidLimit', '3000000', 'paidUsed', '1000000', 'paidReserved', '1');
         await assert.rejects(budgetStatus(config, legacy), /待结算/);
@@ -278,6 +297,260 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
       } finally {
         redis.time = originalTime;
       }
+    });
+    await t.test('provider ceiling survives administrator increase and cancellation; stale record cannot change replacement', async () => {
+      const target = { ...group, channelId: 'donor-limit' };
+      await changeKeyring(target, 'grant', '1');
+      const grant = (await readKeyring(own)).ring.grants.find(row => row.channelId === target.channelId);
+      await assert.rejects(setGrantDailyLimit(other, String(grant.id), '1'));
+      await setGrantDailyLimit(own, String(grant.id), '1');
+      const config = resolveDSHConfig({});
+      await setGroupKeyDailyLimit(target, '5');
+      const recordView = await command('/授权记录', { IsPrivate: true });
+      assert.match(recordView, /提供者上限：1 元/);
+      assert.match(recordView, /群上限：5 元/);
+      assert.match(recordView, /生效上限：1 元/);
+      assert.equal((await groupKeyBudgetStatus(config, target)).personalLimit, 1);
+      await setGroupKeyDailyLimit(target, '0.5');
+      assert.equal((await groupKeyBudgetStatus(config, target)).personalLimit, 0.5);
+      await setGroupKeyDailyLimit(target, '取消');
+      assert.equal((await groupKeyBudgetStatus(config, target)).personalLimit, 1);
+      await command('/我的钥匙 移除', { ChannelId: target.channelId });
+      await changeKeyring(target, 'grant', '1');
+      await assert.rejects(setGrantDailyLimit(own, String(grant.id), '0'));
+      await changeKeyring(own, 'revoke', String(grant.id));
+      const latest = (await readKeyring(own)).ring.grants.find(row => row.channelId === target.channelId);
+      await changeKeyring(own, 'revoke', String(latest.id));
+    });
+    await t.test('batch migration pins day and exposes pending receipts; manual settlement is once only', async () => {
+      const day = await redis.get('data:{agent-link-budget}:v1:wallet-migration-day');
+      const untouched = 'a'.repeat(64);
+      await redis.hset(`data:{agent-link-budget}:v1:${day}:${untouched}`, 'paidLimit', '4000000', 'paidUsed', '1000000');
+      const result = await migrateLegacyWallets(day);
+      assert.equal(await redis.hget(`data:{agent-link-budget}:v1:wallet:${untouched}`, 'paidLimit'), '3000000');
+      assert.ok(result.report.some(row => row.wallet === untouched && row.remaining === 3));
+      assert.equal(result.date, day);
+      await assert.rejects(migrateLegacyWallets('2000-01-01'));
+      const id = `${day}:request:00000000-0000-0000-0000-000000000001`;
+      const prefix = 'data:{agent-link-budget}:v1';
+      const receiptKey = `${prefix}:${id}`;
+      const keys = [
+        `${prefix}:fixture:day`,
+        `${prefix}:fixture:all`,
+        receiptKey,
+        `${prefix}:fixture:person`,
+        `${prefix}:fixture:gate`,
+        `${prefix}:fixture:wallet`
+      ];
+      await redis.eval(reserveScript, keys.length, ...keys, 1000000, 2000000, 0, 86400, 2000000, 'chat', 0);
+      assert.ok((await pendingBudgetRequests()).some(row => row.id === id));
+      await assert.rejects(reconcileBudgetRequest(id, '0.2', 'operator'));
+      const receipt = JSON.parse(await redis.get(receiptKey));
+      receipt.at -= 3601;
+      await redis.set(receiptKey, JSON.stringify(receipt));
+      assert.equal(await reconcileBudgetRequest(id, '0.2', 'operator'), true);
+      assert.equal(await reconcileBudgetRequest(id, '0.2', 'operator'), false);
+      assert.equal(await redis.hget(keys[3], 'used'), '200000');
+      assert.equal(JSON.parse(await redis.get(`${receiptKey}:audit`)).operator, 'operator');
+    });
+    await t.test('prefixed receipts settle once; missing ledger cannot be recreated by refund', async () => {
+      const namespaced = new Redis({ path: socket, keyPrefix: 'recovery-test:', retryStrategy: () => null });
+      namespaced.on('error', () => {});
+      await namespaced.ping();
+      globalThis.ioRedis = namespaced;
+      try {
+        const prefix = 'data:{agent-link-budget}:v1';
+        const day = '2026-10-29';
+        const id = `${day}:request:00000000-0000-0000-0000-000000000002`;
+        const key = `${prefix}:${id}`;
+        const keys = [`${prefix}:r:day`, `${prefix}:r:all`, key, `${prefix}:r:person`, `${prefix}:r:gate`, `${prefix}:r:wallet`];
+        await namespaced.eval(reserveScript, keys.length, ...keys, 1000000, 2000000, 0, 86400, 2000000, 'chat', 0);
+        const receipt = JSON.parse(await namespaced.get(key));
+        await namespaced.expire(key, 60);
+        await namespaced.expire(keys[0], 60);
+        assert.equal((await retainPendingBudgetRequests()).retained, 1);
+        assert.equal(await namespaced.ttl(key), -1);
+        assert.equal(await namespaced.ttl(keys[0]), -1);
+        receipt.at -= 3601;
+        await namespaced.set(key, JSON.stringify(receipt));
+        const ledger = await namespaced.hgetall(keys[3]);
+        await namespaced.del(keys[3]);
+        await assert.rejects(reconcileBudgetRequest(id, '0.2', 'operator'), /账本缺失/);
+        assert.equal(await namespaced.exists(keys[3]), 0);
+        assert.equal(await namespaced.exists(key), 1);
+        await namespaced.set(keys[3], 'wrong-type');
+        const before = await namespaced.hgetall(keys[0]);
+        await assert.rejects(reconcileBudgetRequest(id, '0.2', 'operator'), /账本缺失/);
+        assert.deepEqual(await namespaced.hgetall(keys[0]), before, 'invalid ledger must not partially refund earlier ledgers');
+        await namespaced.del(keys[3]);
+        await namespaced.hset(keys[3], ledger);
+        await namespaced.hset(keys[3], 'reserved', '0');
+        await assert.rejects(reconcileBudgetRequest(id, '0.2', 'operator'), /账本缺失/);
+        await namespaced.hset(keys[3], ledger);
+        for (const [field, value] of [
+          ['used', 'broken'],
+          ['promptTokens', '9007199254740992'],
+          ['settled', '01'],
+          ['completionTokens', '1.5']
+        ]) {
+          const previousValue = await namespaced.hget(keys[3], field);
+          await namespaced.hset(keys[3], field, value);
+          await assert.rejects(reconcileBudgetRequest(id, '0.2', 'operator'), /账本缺失/);
+          assert.deepEqual(await namespaced.hgetall(keys[0]), before, 'all counters validated before any refund');
+          assert.equal(await namespaced.exists(key), 1);
+          if (previousValue === null) await namespaced.hdel(keys[3], field);
+          else await namespaced.hset(keys[3], field, previousValue);
+        }
+        assert.equal(await namespaced.ttl(key), -1);
+        assert.equal(await namespaced.ttl(keys[0]), -1);
+        assert.equal(await reconcileBudgetRequest(id, '0.2', 'operator'), true);
+        assert.ok((await namespaced.ttl(keys[0])) > 0);
+        assert.ok((await namespaced.ttl(`${key}:audit`)) > 0);
+        assert.equal(await namespaced.hget(keys[3], 'used'), '200000');
+        assert.equal(await reconcileBudgetRequest(id, '0.2', 'operator'), false);
+        assert.equal(await namespaced.exists(`${key}:audit`), 1);
+        await assert.rejects(migrateLegacyWallets('2026-02-30'));
+        await assert.rejects(migrateLegacyWallets('2999-01-01'));
+        assert.equal(await namespaced.get(`${prefix}:wallet-migration-day`), null);
+      } finally {
+        globalThis.ioRedis = redis;
+        namespaced.disconnect();
+      }
+    });
+    await t.test('reservation validates every ledger before mutation, including aliases and overflow', async () => {
+      const keys = ['preflight:day', 'preflight:all', 'preflight:receipt', 'preflight:person', 'preflight:gate', 'preflight:wallet'];
+      for (const mode of ['chat', 'reply-gate', 'observe']) {
+        for (const [field, value] of [
+          ['requests', 'broken'],
+          ['pendingRequests', '01'],
+          ['reserved', '1.5'],
+          ['paidReserved', '9007199254740991']
+        ]) {
+          await redis.del(...keys);
+          await redis.hset(keys[5], 'paidLimit', '1000', field, value);
+          const before = await Promise.all(keys.map(key => redis.dump(key)));
+          await assert.rejects(redis.eval(reserveScript, 6, ...keys, 100, 200, 0, 86400, 200, mode, 0), /Invalid budget/);
+          assert.deepEqual(await Promise.all(keys.map(key => redis.dump(key))), before);
+        }
+        await redis.del(...keys);
+        await redis.set(keys[3], 'wrong-type');
+        await assert.rejects(redis.eval(reserveScript, 6, ...keys, 100, 200, 0, 86400, 200, mode, 0), /Invalid budget/);
+        assert.equal(await redis.exists(keys[0], keys[1], keys[2], keys[4], keys[5]), 0);
+      }
+      await redis.del(...keys);
+      const aliased = [keys[0], keys[0], keys[2], keys[3]];
+      await redis.hset(keys[0], 'used', '9007199254740891');
+      await assert.rejects(redis.eval(reserveScript, 4, ...aliased, 60, 200, 0, 86400, 200, 'observe', 0), /Invalid budget/);
+      assert.equal(await redis.hget(keys[0], 'used'), '9007199254740891');
+      assert.equal(await redis.exists(keys[2]), 0);
+      await redis.del(...keys);
+      // Large safe integer values must reach HINCRBY as decimal strings, not scientific notation.
+      assert.equal(await redis.eval(reserveScript, 6, ...keys, '100000000000000', '200000000000000', 0, 86400, '200000000000000', 'chat', 0), 1);
+      assert.equal(await redis.hget(keys[0], 'used'), '100000000000000');
+      await redis.del(...keys);
+    });
+    await t.test('legacy retention upgrades once and survives interleaved settlement with zero debit', async () => {
+      const client = new Redis({ path: socket, keyPrefix: 'legacy-upgrade:', retryStrategy: () => null });
+      client.on('error', () => {});
+      await client.ping();
+      globalThis.ioRedis = client;
+      try {
+        const prefix = 'data:{agent-link-budget}:v1';
+        for (const mode of ['chat', 'reply-gate']) {
+          const base = `${prefix}:${mode}`;
+          const oldKey = `${base}:request:00000000-0000-0000-0000-000000000011`;
+          const keys = [`${base}:day`, `${base}:all`, oldKey, `${base}:person`, `${base}:gate`, `${base}:wallet`];
+          if (mode === 'chat') await client.hset(keys[5], 'paidLimit', '1000');
+          assert.equal(await client.eval(reserveScript, 6, ...keys, 100, 1000, 0, 60, 1000, mode, 0), 1);
+          const receipt = JSON.parse(await client.get(oldKey));
+          delete receipt.retentionVersion;
+          await client.set(oldKey, JSON.stringify(receipt), 'EX', 60);
+          const affected = [keys[0], keys[1], keys[3], ...(mode === 'reply-gate' ? [keys[4]] : [])];
+          for (const key of affected) {
+            await client.hdel(key, 'pendingRequests');
+            await client.expire(key, 60);
+          }
+          // A bad counter rejects the entire migration, without upgrading the receipt or earlier counters.
+          await client.hset(keys[3], 'pendingRequests', 'broken');
+          await assert.rejects(retainPendingBudgetRequests(), /Invalid retention/);
+          assert.equal(JSON.parse(await client.get(oldKey)).retentionVersion, undefined);
+          assert.equal(await client.hget(keys[0], 'pendingRequests'), null);
+          await client.hdel(keys[3], 'pendingRequests');
+          await retainPendingBudgetRequests();
+          await retainPendingBudgetRequests();
+          assert.equal(JSON.parse(await client.get(oldKey)).retentionVersion, 1);
+          for (const key of affected) assert.equal(await client.hget(key, 'pendingRequests'), '1');
+          const newer = [...keys];
+          newer[2] = `${base}:request:00000000-0000-0000-0000-000000000012`;
+          assert.equal(await client.eval(reserveScript, 6, ...newer, 100, 1000, 0, 60, 1000, mode, 0), 1);
+          assert.equal(await client.eval(settleScript, 6, ...newer, 40, 1, 1, 0), 1);
+          const zeroLedger = mode === 'chat' ? keys[3] : keys[0];
+          assert.equal(await client.hget(zeroLedger, 'reserved'), '0');
+          assert.equal(await client.hget(zeroLedger, 'pendingRequests'), '1');
+          for (const key of affected) assert.equal(await client.ttl(key), -1);
+          assert.equal(await client.eval(settleScript, 6, ...keys, 40, 1, 1, 0), 1);
+          for (const key of affected) {
+            assert.equal(await client.hget(key, 'pendingRequests'), '0');
+            assert.ok((await client.ttl(key)) > 0);
+          }
+          assert.equal(await client.eval(settleScript, 6, ...keys, 40, 1, 1, 0), 0);
+        }
+      } finally {
+        globalThis.ioRedis = redis;
+        client.disconnect();
+      }
+    });
+    await t.test('stale credentials and corrupt limit values fail closed', async () => {
+      const target = { ...group, channelId: 'revision-test' };
+      await changeKeyring(target, 'grant', '1');
+      const snapshot = await credential(target);
+      await command('/我的钥匙 停用', { ChannelId: target.channelId });
+      await assert.rejects(groupKeyDailyLimit(target, snapshot.revision), /已变更/);
+      await command('/我的钥匙 启用', { ChannelId: target.channelId });
+      const hash = createHash('sha256')
+        .update(JSON.stringify([target.platform, target.channelId]))
+        .digest('hex');
+      await redis.set(`data:{agent-link-budget}:v1:key-limit:${hash}`, 'NaN');
+      await assert.rejects(groupKeyDailyLimit(target), /配置无效/);
+      await setGroupKeyDailyLimit(target, '取消');
+      assert.equal(await groupKeyDailyLimit(target), null);
+      const grant = (await readKeyring(own)).ring.grants.find(row => row.channelId === target.channelId);
+      await changeKeyring(own, 'revoke', String(grant.id));
+    });
+    await t.test('observation preserves output limits; explicit budget enforces configured cap', async () => {
+      const target = { ...group, channelId: 'observe-only' };
+      await changeKeyring(target, 'grant', '1');
+      const config = resolveDSHConfig({ budget: { enabled: true, maxOutputTokens: 2048 }, runtimeMode: 'chat-only' });
+      const oldFetch = globalThis.fetch;
+      const sent = [];
+      globalThis.fetch = async (url, init) => {
+        if (String(url).endsWith('/user/balance')) return Response.json({ is_available: true });
+        sent.push(JSON.parse(init.body));
+        return Response.json({ usage: { prompt_tokens: 10, completion_tokens: 10 } });
+      };
+      const request = async max =>
+        withBudgetScope(target, async () =>
+          (
+            await budgetedFetch(config, new URL('https://api.deepseek.com/chat/completions'), {
+              method: 'POST',
+              body: JSON.stringify({ model: 'deepseek-flash', messages: [{ role: 'user', content: 'hi' }], ...(max === undefined ? {} : { max_tokens: max }) })
+            })
+          ).text()
+        );
+      try {
+        await request(undefined);
+        assert.equal(Object.hasOwn(sent.at(-1), 'max_tokens'), false);
+        await request(8192);
+        assert.equal(sent.at(-1).max_tokens, 8192);
+        assert.ok((await groupKeyBudgetStatus(config, target)).personalUsed > 0);
+        await setGroupKeyDailyLimit(target, '1');
+        await request(8192);
+        assert.equal(sent.at(-1).max_tokens, 2048);
+      } finally {
+        globalThis.fetch = oldFetch;
+      }
+      const grant = (await readKeyring(own)).ring.grants.find(item => item.channelId === target.channelId);
+      await changeKeyring(own, 'revoke', String(grant.id));
     });
     await t.test('stale grant cannot delete a replacement copy', async () => {
       const target = { ...group, channelId: 'group2' };

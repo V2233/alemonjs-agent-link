@@ -98,6 +98,7 @@ export const requestModelMessage = async (
 
     try {
       response = await budgetedFetch(config, url, {
+        onDispatch: current.markSent,
         personalKey: current.personal,
         scopedKey: current.scoped,
         pricing: current.pricing,
@@ -109,7 +110,17 @@ export const requestModelMessage = async (
       });
     } catch (error) {
       clearTimeout(attemptTimer);
-      current.report?.({ ok: false });
+      current.report?.({
+        ok: false,
+        errorKind:
+          error instanceof BudgetExceededError
+            ? 'local-budget'
+            : signal.aborted
+              ? 'cancelled'
+              : error instanceof Error && /timeout/i.test(error.name + error.message)
+                ? 'timeout'
+                : undefined
+      });
       if (error instanceof BudgetExceededError) throw error;
       signal.throwIfAborted();
       const timedOut = attemptController.signal.aborted;
@@ -147,9 +158,9 @@ export const requestModelMessage = async (
       let detail = '';
 
       try {
-        const payload = (await response.json()) as { error?: { message?: unknown }; message?: unknown };
+        const payload = (await response.json()) as { error?: { message?: unknown; code?: unknown }; message?: unknown };
 
-        detail = String(payload.error?.message || payload.message || '').slice(0, 500);
+        detail = (String(payload.error?.code || '') + ' ' + String(payload.error?.message || payload.message || '')).trim().slice(0, 500);
       } catch {
         // Provider error bodies are best-effort diagnostics.
       }
@@ -173,7 +184,7 @@ export const requestModelMessage = async (
         },
         'Model provider rejected request'
       );
-      current.report?.({ ok: false, status, headers: response.headers });
+      current.report?.({ ok: false, status, detail, headers: response.headers });
       const billing = /计费账户|余额不足|余额已|欠费|冻结|billing|insufficient|quota|frozen|credit/iu.test(detail);
 
       if (billing) current.disable?.();
@@ -189,7 +200,6 @@ export const requestModelMessage = async (
       continue;
     }
     clearTimeout(attemptTimer);
-    current.report?.({ ok: true, status: response.status, headers: response.headers, latencyMs: Date.now() - attemptStartedAt });
     logger.info(
       {
         requestId: meta.requestId,
@@ -203,6 +213,7 @@ export const requestModelMessage = async (
       'Model response received'
     );
     const retryInvalid = async (status = 200): Promise<boolean> => {
+      current.report?.({ ok: false, status, headers: response.headers, errorKind: 'invalid-response' });
       current.invalidate?.(status);
       const next = current.next?.();
 
@@ -235,9 +246,12 @@ export const requestModelMessage = async (
           throw new Error('模型未返回有效消息。');
         }
 
+        current.report?.({ ok: true, status: response.status, headers: response.headers, latencyMs: Date.now() - attemptStartedAt });
+
         return message;
       } catch (error) {
         if (emitted) {
+          current.report?.({ ok: false, status: response.status, errorKind: signal.aborted ? 'cancelled' : 'stream-error' });
           current.invalidate?.(200);
           throw error;
         }
@@ -262,6 +276,9 @@ export const requestModelMessage = async (
         }
         chunks.push(part.value);
       }
+    } catch (error) {
+      current.report?.({ ok: false, status: response.status, errorKind: signal.aborted ? 'cancelled' : 'stream-error' });
+      throw error;
     } finally {
       await reader.cancel();
     }
@@ -278,6 +295,8 @@ export const requestModelMessage = async (
       if (onContent && typeof message.content === 'string') {
         await onContent(message.content);
       }
+
+      current.report?.({ ok: true, status: response.status, headers: response.headers, latencyMs: Date.now() - attemptStartedAt });
 
       return message;
     } catch {

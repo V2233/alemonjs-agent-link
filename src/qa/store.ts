@@ -47,6 +47,34 @@ const scopeKey = (scope: QaScope): string => {
 };
 const cleanText = (value: unknown): string => String(value ?? '').trim();
 
+const validateEntry = (input: QaEntryInput) => {
+  const question = cleanText(input.question);
+  const answer = cleanText(input.answer);
+  const normalized = normalizeQaText(question);
+  const keywords = (input.keywords || []).map(cleanText).filter(Boolean);
+  const tags = (input.tags || []).map(cleanText).filter(Boolean);
+
+  if (question.length < 2 || question.length > 300 || !normalized) {
+    throw new Error('问答的问题需为 2-300 字。');
+  }
+  if (answer.length < 1 || answer.length > 1200) {
+    throw new Error('问答的答案需为 1-1200 字。');
+  }
+  if (keywords.length > 10 || keywords.some(keyword => keyword.length > 30)) {
+    throw new Error('问答关键词最多 10 个，每个不超过 30 字。');
+  }
+  if (tags.length > 5 || tags.some(tag => tag.length > 20)) {
+    throw new Error('问答标签最多 5 个，每个不超过 20 字。');
+  }
+  const kind = input.kind ?? 'general';
+
+  if (!['why', 'command', 'general'].includes(kind)) {
+    throw new Error('问答类型无效。');
+  }
+
+  return { question, answer, normalized, keywords, tags, kind };
+};
+
 export class QAStore {
   private readonly db: DatabaseSync;
 
@@ -58,6 +86,7 @@ export class QAStore {
     this.db = new DatabaseSync(path);
     chmodSync(path, 0o600);
     this.db.exec(`PRAGMA busy_timeout=3000; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
+      CREATE TABLE IF NOT EXISTS qa_removed_builtins (id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS qa_scopes (
         scope TEXT PRIMARY KEY, platform TEXT NOT NULL, channel_id TEXT NOT NULL,
         group_hash TEXT NOT NULL, active_at INTEGER NOT NULL);
@@ -118,6 +147,7 @@ export class QAStore {
 
     this.transaction(() => {
       for (const entry of builtinQaEntries) {
+        if (this.db.prepare('SELECT id FROM qa_removed_builtins WHERE id=?').get(entry.id)) continue;
         const normalized = normalizeQaText(entry.question);
 
         insert.run(
@@ -203,36 +233,67 @@ export class QAStore {
     return rows.map(row => this.decode(row));
   }
 
+  searchGlobal(query: string, limit = 10): QaMatch[] {
+    const entries = this.db
+      .prepare("SELECT * FROM qa_entries WHERE scope='global'")
+      .all()
+      .map(row => this.decode(row));
+
+    return rankQa(entries, query, { now: this.now() }).slice(0, Math.max(1, Math.min(20, limit)));
+  }
+
+  listGlobal(limit = 100): QaEntry[] {
+    return this.db
+      .prepare("SELECT * FROM qa_entries WHERE scope='global' ORDER BY updated_at DESC LIMIT ?")
+      .all(Math.max(1, Math.min(200, limit)))
+      .map(row => this.decode(row));
+  }
+
   get(scope: QaScope, id: string): QaEntry | undefined {
     const row = this.db.prepare('SELECT * FROM qa_entries WHERE scope=? AND id=?').get(scopeKey(scope), id);
 
     return row ? this.decode(row) : undefined;
   }
 
+  scopes(): QaScope[] {
+    return this.db
+      .prepare('SELECT platform,channel_id AS channelId FROM qa_scopes ORDER BY active_at DESC')
+      .all()
+      .map(row => ({ platform: String(row.platform), channelId: String(row.channelId) }));
+  }
+
+  edit(target: QaScope | 'global', id: string, updatedAt: number, input?: QaEntryInput): QaEntry | undefined {
+    const key = target === 'global' ? 'global' : scopeKey(target);
+
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT * FROM qa_entries WHERE scope=? AND id=?').get(key, id);
+
+      if (!row) throw new Error('问答不存在');
+      if (Number(row.updated_at) !== updatedAt) throw new Error('配置已变化，请刷新后重试');
+      if (!input) {
+        // Built-in deletions survive seeding on restart.
+        if (builtinQaEntries.some(entry => entry.id === id)) this.db.prepare('INSERT OR IGNORE INTO qa_removed_builtins(id) VALUES(?)').run(id);
+        this.db.prepare('DELETE FROM qa_entries WHERE scope=? AND id=?').run(key, id);
+
+        return undefined;
+      }
+      const { question, answer, normalized, keywords, tags, kind } = validateEntry(input);
+
+      if (this.db.prepare('SELECT id FROM qa_entries WHERE scope=? AND normalized_question=? AND id<>?').get(key, normalized, id)) {
+        throw new Error('同一范围已存在相同问题');
+      }
+      this.db
+        .prepare(
+          "UPDATE qa_entries SET question=?,normalized_question=?,answer=?,keywords=?,tags=?,kind=?,origin='explicit',confidence=1,updated_at=? WHERE scope=? AND id=?"
+        )
+        .run(question, normalized, answer, JSON.stringify(keywords), JSON.stringify(tags), kind, Math.max(this.now(), updatedAt + 1), key, id);
+
+      return this.decode(this.db.prepare('SELECT * FROM qa_entries WHERE scope=? AND id=?').get(key, id));
+    });
+  }
+
   addExplicit(target: QaScope | 'global', input: QaEntryInput): QaEntry {
-    const question = cleanText(input.question);
-    const answer = cleanText(input.answer);
-    const normalized = normalizeQaText(question);
-    const keywords = (input.keywords || []).map(cleanText).filter(Boolean);
-    const tags = (input.tags || []).map(cleanText).filter(Boolean);
-
-    if (question.length < 2 || question.length > 300 || !normalized) {
-      throw new Error('问答的问题需为 2-300 字。');
-    }
-    if (answer.length < 1 || answer.length > 1200) {
-      throw new Error('问答的答案需为 1-1200 字。');
-    }
-    if (keywords.length > 10 || keywords.some(keyword => keyword.length > 30)) {
-      throw new Error('问答关键词最多 10 个，每个不超过 30 字。');
-    }
-    if (tags.length > 5 || tags.some(tag => tag.length > 20)) {
-      throw new Error('问答标签最多 5 个，每个不超过 20 字。');
-    }
-    const kind = input.kind ?? 'general';
-
-    if (!['why', 'command', 'general'].includes(kind)) {
-      throw new Error('问答类型无效。');
-    }
+    const { question, answer, normalized, keywords, tags, kind } = validateEntry(input);
     const key = target === globalScope ? globalScope : scopeKey(target);
 
     if (target !== globalScope) {

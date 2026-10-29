@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import {
   App,
   Alert,
@@ -7,7 +6,10 @@ import {
   Button,
   Card,
   Col,
+  Collapse,
+  Descriptions,
   Drawer,
+  Dropdown,
   Empty,
   Flex,
   Form,
@@ -17,50 +19,14 @@ import {
   Row,
   Select,
   Space,
-  Statistic,
   Switch,
   Table,
   Tag,
   Typography
 } from 'antd';
-import { parseDocument } from 'yaml';
-import AddConfig from './AddConfig';
+import { PlusOutlined, ReloadOutlined, MoreOutlined } from '@ant-design/icons';
+import { useUnsavedNavigation } from './useUnsavedNavigation';
 
-type Endpoint = {
-  id: string;
-  provider: string;
-  model: string;
-  account?: string;
-  active: number;
-  maxConcurrent: number;
-  requests: number;
-  tokens: number;
-  dailyRequests: number;
-  dailyTokens: number;
-  disabled: boolean;
-  disabledUntil: number;
-  cooldownUntil: number;
-  healthy?: boolean;
-  capabilities: string[];
-  weight: number;
-  priority: number;
-  fallback: boolean;
-  lastStatus?: number;
-  latencyMs: number;
-  rpm?: number;
-  tpm?: number;
-};
-type Snapshot = {
-  sampledAt: number;
-  enabled: boolean;
-  strategy?: string;
-  balanceAlertYuan?: number;
-  endpoints: Endpoint[];
-  bridge?: { date: string; endpoints: Record<string, { requests: number; input: number; output: number }> } | null;
-  budget: { enabled?: boolean; globalDailyYuan?: number; personalDailyYuan?: number; replyGateDailyYuan?: number };
-};
-type Balance = { text: string; amount?: number; currency?: string; checkedAt: number };
-const root = 'alemonjs-agent-link';
 const strategies = [
   { value: 'balanced', label: '均衡分配' },
   { value: 'weighted-round-robin', label: '按权重轮转' },
@@ -70,37 +36,140 @@ const strategies = [
 const ruleFields = [
   { name: 'maxAttempts', label: '最大尝试次数', min: 1, max: 20 },
   { name: 'failureThreshold', label: '连续失败阈值', min: 1, max: 100 },
-  { name: 'cooldownSeconds', label: '冷却秒数', min: 1, max: 86400 },
-  { name: 'queueMaxWaitMs', label: '主端点排队毫秒', min: 0, max: 30000 },
+  { name: 'cooldownSeconds', label: '冷却时间（秒）', min: 1, max: 86400 },
+  { name: 'queueMaxWaitMs', label: '主端点排队（毫秒）', min: 0, max: 30000 },
   { name: 'retryBudgetMs', label: '重试时间预算（毫秒）', min: 1000, max: 300000 },
-  { name: 'balanceAlertYuan', label: '余额提醒阈值（元）', min: 0 }
+  { name: 'balanceAlertYuan', label: '低余额提醒（元）', min: 0 }
 ];
+const budgetFields = [
+  { name: 'globalDailyYuan', label: '全局每日上限', default: 0 },
+  { name: 'personalDailyYuan', label: '个人每日默认额度', default: 1 },
+  { name: 'replyGateDailyYuan', label: '回复门控每日额度', default: 1 },
+  { name: 'replyGateGlobalDailyYuan', label: '门控全局每日上限', default: 0 }
+];
+type Balance = { text: string; amount?: number; currency?: string; status?: string; checkedAt: number; httpStatus?: number };
+type Endpoint = {
+  id: string;
+  model: string;
+  provider: string;
+  baseUrl: string;
+  account?: string;
+  enabled?: boolean;
+  disabled?: boolean;
+  cooldownUntil?: number;
+  reachability?: boolean;
+  observedAt?: number;
+  observationSource?: string;
+  observedStatus?: number;
+  probeReachable?: boolean;
+  probeStatus?: number;
+  lastProbeAt?: number;
+  active?: number;
+  maxConcurrent?: number;
+  requests?: number;
+  tokens?: number;
+  rpm?: number;
+  tpm?: number;
+  fallback?: boolean;
+  priority?: number;
+  weight?: number;
+  lastRequest?: { source?: 'call' | 'health-check'; at: number; ok: boolean; status?: number; reason: string; latencyMs?: number };
+  lifecycle?: {
+    sent: number;
+    blocked: number;
+    cancelled: number;
+    records: Array<{
+      id: string;
+      requestId?: string;
+      attempt: number;
+      purpose: string;
+      at: number;
+      sent: boolean;
+      ok: boolean;
+      reason: string;
+      status?: number;
+    }>;
+  };
+  purposeStatistics?: Record<string, { total: number; success: number; failed: number }>;
+  totalCalls?: number;
+  successfulCalls?: number;
+  failedCalls?: number;
+  statisticsSince?: number;
+  dailyRequests?: number;
+  dailyTokens?: number;
+  capabilities?: string[];
+};
+type Snapshot = {
+  balances?: Record<string, Balance>;
+  balancesRefreshing?: boolean;
+  replyGateStatistics?: { total: number; success: number; failed: number; since: number; updatedAt: number };
+  enabled: boolean;
+  sampledAt: number;
+  strategy?: string;
+  endpoints: Endpoint[];
+  probeRun?: { running: boolean; results: { id: string; state: string }[] };
+};
+type ConfigSnapshot = { revision: string; modelPool: Record<string, any>; budget: Record<string, any>; baseUrl?: string };
+const secureUrl = async (_: unknown, value: string) => {
+  if (!value) return;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.search) throw new Error();
+  } catch {
+    throw new Error('请输入不含凭证、查询参数的 HTTPS 地址');
+  }
+};
+const labels: Record<string, string> = {
+  normal: '正常',
+  exhausted: '额度耗尽',
+  'rate-limited': '供应商限流',
+  frozen: '账户冻结',
+  invalid: '凭证无效',
+  forbidden: '访问受限',
+  unavailable: '服务商标记不可用',
+  unsupported: '不支持查询',
+  failed: '查询失败',
+  unknown: '额度未知'
+};
 export default function PoolPage() {
   const { message, modal } = App.useApp();
-  const [token, setToken] = useState('');
   const [data, setData] = useState<Snapshot>();
+  const [config, setConfig] = useState<ConfigSnapshot>();
   const [balances, setBalances] = useState<Record<string, Balance>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [settings, setSettings] = useState(false);
-  const [source, setSource] = useState('');
-  const [baseline, setBaseline] = useState('');
-  const [revision, setRevision] = useState('');
   const [filter, setFilter] = useState('');
+  const [drawer, setDrawer] = useState<'endpoint' | 'rules' | 'budget'>();
+  const [editor, setEditor] = useState<ConfigSnapshot>();
+  const [editingId, setEditingId] = useState<string>();
+  const [dirty, setDirty] = useState(false);
   const [form] = Form.useForm();
-  const [endpointForm] = Form.useForm();
-  const [editing, setEditing] = useState<number>();
-  const [rulesDirty, setRulesDirty] = useState(false);
   const pending = useRef(false);
+  useUnsavedNavigation(dirty);
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (dirty) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
   const request = async (path: string, body?: unknown) => {
-    const response = await fetch('./api/admin/' + path, {
-      method: body ? 'POST' : 'GET',
-      headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(20000),
-      ...(body ? { body: JSON.stringify(body) } : {})
-    });
+    let response: Response;
+    try {
+      response = await fetch('./api/admin/' + path, {
+        method: body ? 'POST' : 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(20000)
+      });
+    } catch {
+      throw new Error('连接失败或请求超时，请刷新核对操作结果');
+    }
     const result = await response.json().catch(() => {
-      throw new Error('管理接口不可用，请检查服务地址');
+      throw new Error('管理服务未返回有效结果');
     });
     if (!response.ok) throw new Error(result.message || '操作失败');
     return result;
@@ -113,437 +182,695 @@ export default function PoolPage() {
     try {
       await work();
     } catch (e) {
-      setError(e instanceof Error ? e.message : '操作失败');
+      const text = e instanceof Error ? e.message : '操作失败';
+      setError(text);
+      message.error(text);
     } finally {
       pending.current = false;
       setBusy(false);
     }
   };
   const refresh = async () => {
-    setData((await request('pool')).data);
+    const [snapshot, current] = await Promise.all([request('pool'), request('pool/settings')]);
+    setData(snapshot.data);
+    setConfig(current.data);
   };
   useEffect(() => {
-    const warn = (e: BeforeUnloadEvent) => {
-      if (source !== baseline || rulesDirty) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [source, baseline, rulesDirty]);
-  const update = (path: (string | number)[], value: unknown) => {
-    const doc = parseDocument(source);
-    doc.setIn(path, value);
-    setSource(doc.toString());
-  };
-  const openSettings = async () => {
-    const result = await request('config');
-    setSource(result.data.source);
-    setBaseline(result.data.source);
-    setRevision(result.data.revision);
-    const pool = parseDocument(result.data.source).toJS()?.[root]?.modelPool || {};
+    void run(refresh);
+  }, []);
+  useEffect(() => {
+    if (!data?.probeRun?.running) return;
+    const timer = setTimeout(() => void run(async () => setData((await request('pool')).data)), 1500);
+    return () => clearTimeout(timer);
+  }, [data, busy]);
+  useEffect(() => {
+    if (data?.balances) setBalances(data.balances);
+  }, [data?.balances]);
+  const app: ConfigSnapshot = config || { revision: '', modelPool: {}, budget: {} };
+  const configured: Endpoint[] = app.modelPool?.endpoints || [];
+  const endpoints: Endpoint[] = configured.map(item => ({
+    ...item,
+    ...data?.endpoints.find(row => row.id === item.id),
+    capabilities: item.capabilities,
+    baseUrl: item.baseUrl || app.baseUrl || (item.provider === 'deepseek-official' ? 'https://api.deepseek.com' : '')
+  }));
+  // Also support normalized legacy pool entries returned by the runtime.
+  for (const item of data?.endpoints || []) if (!endpoints.some(row => row.id === item.id)) endpoints.push(item);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (!document.hidden && !pending.current) void run(async () => setData((await request('pool')).data));
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+  const open = async (kind: 'endpoint' | 'rules' | 'budget', id?: string) => {
+    const current = (await request('pool/settings')).data as ConfigSnapshot;
+    const value = current;
+    const entry = id ? value.modelPool?.endpoints?.find((item: Endpoint) => item.id === id) : undefined;
+    if (id && !entry) throw new Error('端点已变化，请刷新列表后重试');
     form.resetFields();
-    form.setFieldsValue(pool);
-    setRulesDirty(false);
-    setSettings(true);
+    setEditor(current);
+    setEditingId(id);
+    setDirty(false);
+    setDrawer(kind);
+    if (kind === 'endpoint')
+      form.setFieldsValue(entry || { provider: 'openai-compatible', enabled: true, capabilities: [], weight: 1, maxConcurrent: 2, priority: 0 });
+    else form.setFieldsValue(kind === 'rules' ? value.modelPool || {} : value.budget || {});
   };
-  const state = (row: Endpoint) =>
-    row.disabled
-      ? '已停用'
-      : row.cooldownUntil > (data?.sampledAt || 0)
-        ? '冷却中'
-        : row.active >= row.maxConcurrent
-          ? '并发已满'
-          : row.healthy === false
-            ? '检测异常'
-            : '待调度';
-  const action = async (row: Endpoint, action: string) => {
-    if (
-      !(await modal.confirm({
-        title: action === 'probe' ? '执行轻量测活？' : action === 'disable' ? '暂停此端点？' : '恢复此端点？',
-        content: action === 'probe' ? '仅检查模型列表接口，不验证聊天额度。' : '仅影响本次运行，持久配置在轮转设置中修改。'
-      }))
-    )
+  const save = async () => {
+    let values: Record<string, unknown>;
+    try {
+      values = await form.validateFields();
+    } catch {
       return;
+    }
     await run(async () => {
-      setData((await request('pool/action', { id: row.id, action })).data);
-      message.success('操作完成');
+      if (!editor) return;
+      const result = await request('pool/settings', {
+        revision: editor.revision,
+        action: drawer,
+        id: editingId,
+        values: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value === undefined ? null : value]))
+      });
+      setDirty(false);
+      setDrawer(undefined);
+      setBalances({});
+      await refresh();
+      message.success(result.message);
     });
   };
-  const endpoints =
-    data?.endpoints.filter(row => [row.id, row.model, row.provider, row.account || ''].join(' ').toLowerCase().includes(filter.toLowerCase())) || [];
+  const lookup = async (id?: string) => {
+    const result = await request('pool/balances', id ? { id } : {});
+    setBalances(old => ({ ...old, ...result.data }));
+  };
+  const remove = async (row: Endpoint) => {
+    if (!(await modal.confirm({ title: '删除端点 ' + row.id + '？' }))) return;
+    await run(async () => {
+      const current = (await request('pool/settings')).data;
+      await request('pool/settings', { revision: current.revision, action: 'remove', id: row.id });
+      await refresh();
+    });
+  };
+  const setEnabled = async (row: Endpoint, enabled: boolean) => {
+    if (!config) return;
+    const result = await request('pool/settings', {
+      revision: config.revision,
+      action: 'endpoint',
+      id: row.id,
+      values: { enabled }
+    });
+    await refresh();
+    message.success(result.message);
+  };
+  const budget = app.budget || {};
+  const balanceState = (balance: Balance) =>
+    balance.status === 'normal' && balance.currency === 'CNY' && balance.amount !== undefined && balance.amount < (app.modelPool?.balanceAlertYuan ?? 1)
+      ? '余额偏低'
+      : labels[balance.status || 'unknown'];
+  const testing = (row: Endpoint) => data?.probeRun?.running && data.probeRun.results.some(item => item.id === row.id && item.state === 'running');
+  const statistics = endpoints.reduce(
+    (sum, row) => ({
+      total: sum.total + (row.totalCalls || 0),
+      success: sum.success + (row.successfulCalls || 0),
+      failed: sum.failed + (row.failedCalls || 0)
+    }),
+    { total: 0, success: 0, failed: 0 }
+  );
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Layout.Content style={{ width: '100%', maxWidth: 1440, margin: 'auto', padding: 24 }}>
-        <Flex justify='space-between' align='center' wrap gap={16}>
-          <Space>
-            <Link to='/manage'>配置中心</Link>
-            <Typography.Title level={2} style={{ margin: 0 }}>
-              额度轮转
-            </Typography.Title>
-          </Space>
-          <Space wrap>
-            <Input.Password
-              aria-label='轮转管理令牌'
-              placeholder='管理令牌'
-              value={token}
-              disabled={busy}
-              onChange={e => {
-                setToken(e.target.value);
-                setData(undefined);
-                setBalances({});
-              }}
-            />
-            <Button type='primary' disabled={!token || busy} loading={busy} onClick={() => run(refresh)}>
-              读取状态
-            </Button>
-          </Space>
-        </Flex>
-        {error && <Alert type='error' showIcon title={error} style={{ marginTop: 16 }} />}
-        {data ? (
-          <>
-            <Flex wrap gap={12} align='center' style={{ margin: '20px 0' }}>
-              <Badge status={data.enabled ? 'success' : 'default'} text={data.enabled ? '轮转已启用' : '使用单 Key'} />
-              <Tag>{strategies.find(item => item.value === data.strategy)?.label || '未配置轮转策略'}</Tag>
-              <Typography.Text type='secondary'>{new Date(data.sampledAt).toLocaleTimeString()} 采样</Typography.Text>
-              <Button
-                disabled={busy}
-                onClick={() =>
-                  run(async () => {
-                    setBalances((await request('pool/balances', {})).data);
-                  })
-                }
-              >
-                查询余额
-              </Button>
-              <Button disabled={busy} onClick={() => run(openSettings)}>
-                轮转设置与端点
-              </Button>
-            </Flex>
-            <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-              {[
-                { title: '端点', value: data.endpoints.length },
-                { title: '冷却中', value: data.endpoints.filter(row => !row.disabled && row.cooldownUntil > data.sampledAt).length },
-                { title: '执行中', value: data.endpoints.reduce((sum, row) => sum + row.active, 0) },
-                { title: '今日请求 · 当前进程', value: data.endpoints.reduce((sum, row) => sum + row.dailyRequests, 0) }
-              ].map(item => (
-                <Col xs={12} md={6} key={item.title}>
-                  <Card>
-                    <Statistic {...item} />
-                  </Card>
-                </Col>
-              ))}
-            </Row>
-            <Card
-              title='端点调度'
-              extra={<Input.Search aria-label='搜索轮转端点' placeholder='搜索端点、模型或账号' allowClear onChange={e => setFilter(e.target.value)} />}
-            >
-              <Table
-                rowKey='id'
-                scroll={{ x: 1250 }}
-                dataSource={endpoints}
-                locale={{ emptyText: <Empty description='暂无轮转端点' /> }}
-                columns={[
-                  {
-                    title: '端点',
-                    dataIndex: 'id',
-                    fixed: 'left',
-                    width: 180,
-                    render: (_, row) => (
-                      <Space orientation='vertical' size={0}>
-                        <Typography.Text strong>{row.id}</Typography.Text>
-                        <Typography.Text type='secondary'>{row.model}</Typography.Text>
-                        {row.account && <Tag>{row.account}</Tag>}
-                        <Space>
-                          <Tag>{row.fallback ? '备用' : '主用'}</Tag>
-                          <Tag>优先级 {row.priority}</Tag>
-                        </Space>
-                      </Space>
-                    )
-                  },
-                  {
-                    title: '状态',
-                    width: 160,
-                    render: (_, row) => (
-                      <Space orientation='vertical' size={0}>
-                        <Tag color={row.disabled ? 'default' : row.cooldownUntil > data.sampledAt ? 'orange' : row.healthy === false ? 'red' : 'blue'}>
-                          {state(row)}
-                        </Tag>
-                        {row.cooldownUntil > data.sampledAt && (
-                          <Typography.Text type='secondary'>至 {new Date(row.cooldownUntil).toLocaleTimeString()}</Typography.Text>
-                        )}
-                        <Typography.Text type='secondary'>
-                          {row.lastStatus ? 'HTTP ' + row.lastStatus : '未检测'}
-                          {row.latencyMs > 0 ? ' · ' + row.latencyMs + 'ms' : ''}
-                        </Typography.Text>
-                      </Space>
-                    )
-                  },
-                  {
-                    title: '供应商余额',
-                    width: 160,
-                    render: (_, row) => {
-                      const balance = balances[row.id];
-                      return balance ? (
-                        <Space orientation='vertical' size={0}>
-                          <Typography.Text
-                            type={
-                              balance.amount !== undefined && balance.currency === 'CNY' && balance.amount < (data.balanceAlertYuan ?? 0) ? 'danger' : undefined
-                            }
-                          >
-                            {balance.text}
-                          </Typography.Text>
-                          <Typography.Text type='secondary'>{new Date(balance.checkedAt).toLocaleTimeString()}</Typography.Text>
-                        </Space>
-                      ) : (
-                        '未查询'
-                      );
-                    }
-                  },
-                  {
-                    title: '并发 / 分钟限流',
-                    width: 170,
-                    render: (_, row) => (
-                      <Space orientation='vertical' size={0}>
-                        <span>
-                          {row.active} / {row.maxConcurrent} 并发
-                        </span>
-                        <span>
-                          {row.requests} / {row.rpm ?? '∞'} RPM
-                        </span>
-                        <span>
-                          {row.tokens} / {row.tpm ?? '∞'} TPM
-                        </span>
-                      </Space>
-                    )
-                  },
-                  {
-                    title: '用量',
-                    width: 170,
-                    render: (_, row) => (
-                      <Space orientation='vertical' size={0}>
-                        <span>进程今日 {row.dailyRequests} 次</span>
-                        <span>{row.dailyTokens.toLocaleString()} Token</span>
-                        {data.bridge && (
-                          <Typography.Text type='secondary'>
-                            沙箱 {data.bridge.date}：{data.bridge.endpoints[row.id]?.requests ?? 0} 次
-                          </Typography.Text>
-                        )}
-                      </Space>
-                    )
-                  },
-                  {
-                    title: '用途 / 权重',
-                    width: 160,
-                    render: (_, row) => (
-                      <Space orientation='vertical' size={0}>
-                        <span>{row.capabilities.join(' / ')}</span>
-                        <span>权重 {row.weight}</span>
-                      </Space>
-                    )
-                  },
-                  {
-                    title: '操作',
-                    width: 140,
-                    render: (_, row) => (
-                      <Space orientation='vertical'>
-                        <Button size='small' disabled={busy} onClick={() => action(row, row.disabled ? 'enable' : 'disable')}>
-                          {row.disabled ? '恢复' : '暂停'}
-                        </Button>
-                        <Button size='small' disabled={busy} onClick={() => action(row, 'probe')}>
-                          轻量测活
-                        </Button>
-                      </Space>
-                    )
-                  }
-                ]}
-              />
+    <Layout.Content className='workspace-content' style={{ maxWidth: 1600 }}>
+      <Flex justify='space-between' align='center' wrap gap={16} style={{ marginBottom: 20 }}>
+        <Typography.Title level={2} style={{ margin: 0 }}>
+          额度轮转
+        </Typography.Title>
+        <Space wrap>
+          <Button
+            disabled={busy || data?.probeRun?.running || !endpoints.length}
+            loading={data?.probeRun?.running}
+            onClick={() =>
+              run(async () => {
+                await request('pool/probe-all', {});
+                await refresh();
+              })
+            }
+          >
+            一键测活
+          </Button>
+          <Button disabled={busy || !endpoints.length} onClick={() => run(() => lookup())}>
+            立即查额度
+          </Button>
+          <Button type='primary' icon={<PlusOutlined />} disabled={busy} onClick={() => run(() => open('endpoint'))}>
+            新增端点
+          </Button>
+          <Button icon={<ReloadOutlined />} aria-label='刷新轮转状态' disabled={busy} onClick={() => run(refresh)} />
+        </Space>
+      </Flex>
+      {error && <Alert type='error' title={error} showIcon style={{ marginBottom: 16 }} />}
+      {data?.probeRun && (
+        <Typography.Paragraph type='secondary'>
+          测活 {data.probeRun.results.filter(item => ['done', 'failed'].includes(item.state)).length} / {data.probeRun.results.length}
+        </Typography.Paragraph>
+      )}
+      <Typography.Paragraph type='secondary' style={{ fontSize: 12 }}>
+        当前轮转服务累计统计；重试单独计次，成功率按已完成调用计算，不含测活、额度查询及沙箱独立统计。
+      </Typography.Paragraph>
+      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+        {[
+          ['调用尝试', statistics.total],
+          ['成功', statistics.success],
+          ['失败', statistics.failed],
+          ['成功率', statistics.success + statistics.failed ? ((statistics.success / (statistics.success + statistics.failed)) * 100).toFixed(1) + '%' : '—']
+        ].map(([label, value]) => (
+          <Col xs={12} md={6} key={label}>
+            <Card size='small'>
+              <Typography.Text type='secondary'>{label}</Typography.Text>
+              <Typography.Title level={3} style={{ margin: '8px 0 0' }}>
+                {value}
+              </Typography.Title>
             </Card>
-            <Card title='本地预算保护' style={{ marginTop: 20 }}>
-              <Space wrap>
-                <Tag color={data.budget.enabled ? 'green' : 'default'}>{data.budget.enabled ? '已启用' : '未启用'}</Tag>
-                <Typography.Text>全局每日：{data.budget.globalDailyYuan || '不限'} 元</Typography.Text>
-                <Typography.Text>个人每日：{data.budget.personalDailyYuan ?? '默认'} 元</Typography.Text>
-                <Typography.Text>回复门控每日：{data.budget.replyGateDailyYuan ?? '默认'} 元</Typography.Text>
-              </Space>
-            </Card>
-          </>
-        ) : (
-          <Empty style={{ marginTop: 80 }} description='输入管理令牌，读取额度轮转状态' />
-        )}
-        <Drawer
-          title='轮转设置与端点'
-          open={settings}
-          size={720}
-          onClose={async () => {
-            if ((source !== baseline || rulesDirty) && !(await modal.confirm({ title: '放弃尚未保存的修改？' }))) return;
-            setSettings(false);
+          </Col>
+        ))}
+      </Row>
+      <Card title='回复门控调用' style={{ marginBottom: 20 }}>
+        <Space wrap size='large'>
+          <Typography.Text>
+            总调用：<strong>{data?.replyGateStatistics?.total ?? 0}</strong>
+          </Typography.Text>
+          <Typography.Text type='success'>成功：{data?.replyGateStatistics?.success ?? 0}</Typography.Text>
+          <Typography.Text type='danger'>失败：{data?.replyGateStatistics?.failed ?? 0}</Typography.Text>
+          <Typography.Text type='secondary'>池内、独立门控配置及自带 Key 的请求均计入</Typography.Text>
+        </Space>
+      </Card>
+      <Card
+        title='端点与额度'
+        extra={<Input.Search aria-label='搜索轮转端点' placeholder='搜索端点、模型、账号' allowClear onChange={event => setFilter(event.target.value)} />}
+      >
+        <Table<Endpoint>
+          loading={busy && !data}
+          rowKey='id'
+          scroll={{ x: 1150 }}
+          dataSource={endpoints.filter(row => [row.id, row.model, row.account, row.baseUrl].join(' ').toLowerCase().includes(filter.toLowerCase()))}
+          locale={{ emptyText: <Empty description={endpoints.length ? '没有符合筛选条件的端点' : '添加端点，开始管理额度轮转'} /> }}
+          expandable={{
+            expandedRowRender: row => (
+              <>
+                <Descriptions
+                  size='small'
+                  column={{ xs: 1, sm: 3 }}
+                  items={[
+                    {
+                      key: '1',
+                      label: '用途',
+                      children: row.capabilities
+                        ?.map(value => ({ chat: '聊天', replyGate: '回复门控', tools: '工具', vision: '视觉' })[value] || value)
+                        .join(' / ')
+                    },
+                    { key: '2', label: '主备 / 优先级', children: (row.fallback ? '备用' : '主用') + ' / ' + (row.priority ?? 0) },
+                    { key: '3', label: '权重', children: row.weight ?? 1 },
+                    { key: '4', label: '并发', children: row.active === undefined ? '无运行数据' : row.active + ' / ' + row.maxConcurrent },
+                    { key: '5', label: '分钟请求', children: row.requests === undefined ? '无运行数据' : row.requests + ' / ' + (row.rpm ?? '不限') },
+                    { key: '6', label: '分钟 Token', children: row.tokens === undefined ? '无运行数据' : row.tokens + ' / ' + (row.tpm ?? '不限') },
+                    { key: '7', label: '进程今日尝试', children: row.dailyRequests ?? '无运行数据' },
+                    { key: 'sent', label: '实际发送', children: row.lifecycle?.sent ?? 0 },
+                    { key: 'blocked', label: '本地拦截', children: row.lifecycle?.blocked ?? 0 },
+                    { key: 'cancelled', label: '取消', children: row.lifecycle?.cancelled ?? 0 }
+                  ]}
+                />
+                <Table
+                  size='small'
+                  rowKey='id'
+                  style={{ marginTop: 16 }}
+                  dataSource={[...(row.lifecycle?.records || [])].reverse()}
+                  pagination={{ pageSize: 5 }}
+                  columns={[
+                    { title: '时间', dataIndex: 'at', render: value => new Date(value).toLocaleString() },
+                    {
+                      title: '用途',
+                      dataIndex: 'purpose',
+                      render: value => ({ chat: '聊天', replyGate: '回复门控', tools: '工具', vision: '视觉' })[value as string] || value
+                    },
+                    { title: '尝试序号', dataIndex: 'attempt' },
+                    { title: '已发送', dataIndex: 'sent', render: value => (value ? '是' : '否') },
+                    {
+                      title: '结果',
+                      render: (_, record) =>
+                        record.ok
+                          ? '成功'
+                          : {
+                              'local-budget': '本地额度拦截',
+                              cancelled: '取消',
+                              timeout: '超时',
+                              network: '网络异常',
+                              'invalid-response': '响应无效',
+                              'stream-error': '响应中断',
+                              frozen: '冻结',
+                              exhausted: '额度耗尽',
+                              'rate-limited': '限流',
+                              invalid: '凭证无效',
+                              forbidden: '访问受限',
+                              'server-error': '接口异常',
+                              'request-error': '请求被拒绝'
+                            }[record.reason] || '失败'
+                    },
+                    { title: 'HTTP', dataIndex: 'status' }
+                  ]}
+                />
+              </>
+            )
           }}
-          extra={
-            <Button
-              type='primary'
-              disabled={busy}
-              onClick={() =>
-                run(async () => {
-                  const values = await form.validateFields();
-                  const doc = parseDocument(source);
-                  for (const [key, value] of Object.entries(values)) {
-                    if (value === undefined || value === null) doc.deleteIn([root, 'modelPool', key]);
-                    else doc.setIn([root, 'modelPool', key], value);
-                  }
-                  await request('validate', { source: doc.toString(), revision });
-                  if (!(await modal.confirm({ title: '保存轮转配置？', content: '保存前自动备份，将重载模型池。' }))) return;
-                  const result = await request('config', { source: doc.toString(), revision });
-                  setSource(result.data.source);
-                  setBaseline(result.data.source);
-                  setRevision(result.data.revision);
-                  setSettings(false);
-                  setRulesDirty(false);
-                  message.success(result.message);
-                  await refresh();
-                })
+          columns={[
+            {
+              title: '端点 / 请求地址',
+              width: 300,
+              render: (_, row) => (
+                <Space orientation='vertical' size={2}>
+                  <Typography.Text strong>{row.id}</Typography.Text>
+                  <Typography.Text type='secondary'>
+                    {row.provider} · {row.model}
+                  </Typography.Text>
+                  <Typography.Text copyable style={{ fontSize: 12, wordBreak: 'break-all' }}>
+                    {row.baseUrl || '未设置请求地址'}
+                  </Typography.Text>
+                  {row.account && <Tag>{row.account}</Tag>}
+                </Space>
+              )
+            },
+            {
+              title: '额度',
+              width: 190,
+              filters: [
+                { text: '未查询', value: 'unchecked' },
+                { text: '余额偏低', value: 'low' },
+                ...Object.entries(labels).map(([value, text]) => ({ value, text }))
+              ],
+              onFilter: (value, row) => {
+                const balance = balances[row.id];
+                if (!balance) return value === 'unchecked';
+                if (value === 'low') return balanceState(balance) === '余额偏低';
+                return (balance.status || 'unknown') === value;
+              },
+              render: (_, row) => {
+                const balance = balances[row.id];
+                return balance ? (
+                  <Space orientation='vertical' size={2}>
+                    <Typography.Text strong>{balance.text}</Typography.Text>
+                    <Tag
+                      color={balance.status === 'normal' && balanceState(balance) !== '余额偏低' ? 'green' : balance.status === 'failed' ? 'default' : 'orange'}
+                    >
+                      {balanceState(balance)}
+                    </Tag>
+                    <Typography.Text type='secondary' style={{ fontSize: 12 }}>
+                      {new Date(balance.checkedAt).toLocaleTimeString()}
+                      {balance.httpStatus ? ' · HTTP ' + balance.httpStatus : ''}
+                    </Typography.Text>
+                  </Space>
+                ) : (
+                  <Typography.Text type='secondary'>未查询</Typography.Text>
+                );
               }
-            >
-              校验并保存
-            </Button>
-          }
-        >
-          <Form form={form} layout='vertical' onValuesChange={() => setRulesDirty(true)}>
-            <Form.Item name='enabled' label='启用额度轮转' valuePropName='checked'>
-              <Switch />
-            </Form.Item>
-            <Form.Item name='strategy' label='分配策略'>
-              <Select allowClear placeholder='使用服务端默认策略' options={strategies} />
-            </Form.Item>
-            <Row gutter={16}>
-              {ruleFields.map(field => (
-                <Col xs={24} sm={12} key={field.name}>
-                  <Form.Item name={field.name} label={field.label}>
-                    <InputNumber min={field.min} max={field.max} style={{ width: '100%' }} />
+            },
+            {
+              title: '连通（自动更新）',
+              width: 150,
+              filters: [
+                { text: '可连通', value: 'reachable' },
+                { text: '连接失败', value: 'failed' },
+                { text: '未检测', value: 'unchecked' }
+              ],
+              onFilter: (value, row) => value === (row.reachability === true ? 'reachable' : row.reachability === false ? 'failed' : 'unchecked'),
+              render: (_, row) => (
+                <Space orientation='vertical' size={2}>
+                  <Badge
+                    status={testing(row) ? 'processing' : row.reachability === true ? 'success' : row.reachability === false ? 'error' : 'default'}
+                    text={testing(row) ? '检测中' : row.reachability === true ? '可连通' : row.reachability === false ? '连接失败' : '未检测'}
+                  />
+                  {row.observedStatus && <Typography.Text type='secondary'>HTTP {row.observedStatus}</Typography.Text>}
+                  {row.observedAt && <Typography.Text type='secondary'>{new Date(row.observedAt).toLocaleTimeString()}</Typography.Text>}
+                  {row.observationSource && (
+                    <Typography.Text type='secondary' style={{ fontSize: 12 }}>
+                      {row.observationSource === 'call' ? '来自实际调用' : row.observationSource === 'health-check' ? '来自健康检查' : '来自测活'}
+                    </Typography.Text>
+                  )}
+                </Space>
+              )
+            },
+            {
+              title: '参与轮转',
+              width: 140,
+              filters: [
+                { text: '已启用', value: 'enabled' },
+                { text: '已停用', value: 'disabled' }
+              ],
+              onFilter: (value, row) => (row.enabled !== false) === (value === 'enabled'),
+              render: (_, row) => (
+                <Space orientation='vertical' size={2}>
+                  <Switch
+                    aria-label={row.id + '参与轮转'}
+                    checked={row.enabled !== false}
+                    disabled={busy}
+                    onChange={value => run(() => setEnabled(row, value))}
+                  />
+                  <Typography.Text type='secondary'>
+                    {!data?.enabled
+                      ? '轮转未启用'
+                      : row.disabled
+                        ? row.enabled === false
+                          ? '已停用'
+                          : '运行时停用'
+                        : (row.cooldownUntil || 0) > (data?.sampledAt || 0)
+                          ? '冷却中'
+                          : row.active !== undefined && row.active >= (row.maxConcurrent || 1)
+                            ? '并发满'
+                            : '待调度'}
+                  </Typography.Text>
+                </Space>
+              )
+            },
+            {
+              title: '最近一次调用',
+              width: 180,
+              render: (_, row) => {
+                const result = row.lastRequest;
+                const names: Record<string, string> = {
+                  success: '成功',
+                  frozen: '账户冻结',
+                  exhausted: '额度耗尽',
+                  'rate-limited': '供应商限流',
+                  invalid: '凭证无效',
+                  forbidden: '访问受限',
+                  'server-error': '接口异常',
+                  'request-error': '请求被拒绝',
+                  network: '网络异常',
+                  'invalid-response': '响应无效',
+                  'stream-error': '响应中断',
+                  timeout: '请求超时',
+                  cancelled: '已取消',
+                  'local-budget': '本地额度保护拦截'
+                };
+                return result ? (
+                  <Space orientation='vertical' size={2}>
+                    {result.source === 'health-check' && <Typography.Text type='secondary'>手动健康检查</Typography.Text>}
+                    <Tag color={result.ok ? 'green' : 'red'}>{names[result.reason] || '调用异常'}</Tag>
+                    <Typography.Text type='secondary'>{new Date(result.at).toLocaleString()}</Typography.Text>
+                    {result.status && <Typography.Text type='secondary'>HTTP {result.status}</Typography.Text>}
+                    {result.latencyMs !== undefined && <Typography.Text type='secondary'>{Math.round(result.latencyMs)}ms</Typography.Text>}
+                  </Space>
+                ) : (
+                  <Typography.Text type='secondary'>暂无调用记录</Typography.Text>
+                );
+              }
+            },
+            {
+              title: '回复门控统计',
+              width: 150,
+              render: (_, row) => {
+                const stat = row.purposeStatistics?.replyGate;
+                return (
+                  <Space orientation='vertical' size={0}>
+                    <span>总调用 {stat?.total ?? 0}</span>
+                    <Typography.Text type='success'>成功 {stat?.success ?? 0}</Typography.Text>
+                    <Typography.Text type={stat?.failed ? 'danger' : 'secondary'}>失败 {stat?.failed ?? 0}</Typography.Text>
+                  </Space>
+                );
+              }
+            },
+            {
+              title: '调用统计',
+              width: 170,
+              render: (_, row) => (
+                <Space orientation='vertical' size={0}>
+                  <span>总调用 {row.totalCalls ?? 0}</span>
+                  <Typography.Text type='success'>成功 {row.successfulCalls ?? 0}</Typography.Text>
+                  <Typography.Text type={row.failedCalls ? 'danger' : 'secondary'}>失败 {row.failedCalls ?? 0}</Typography.Text>
+                  <Typography.Text type='secondary'>
+                    成功率{' '}
+                    {(row.successfulCalls || 0) + (row.failedCalls || 0)
+                      ? (((row.successfulCalls || 0) / ((row.successfulCalls || 0) + (row.failedCalls || 0))) * 100).toFixed(1) + '%'
+                      : '—'}
+                  </Typography.Text>
+                </Space>
+              )
+            },
+            {
+              title: '操作',
+              fixed: 'right',
+              width: 230,
+              render: (_, row) => (
+                <Space>
+                  <Button size='small' disabled={busy} onClick={() => run(() => open('endpoint', row.id))}>
+                    编辑
+                  </Button>
+                  <Button
+                    size='small'
+                    disabled={busy}
+                    onClick={async () => {
+                      if (
+                        !(await modal.confirm({
+                          title: '检查此 Key 的模型调用能力？',
+                          content: '将发送一次小型模型请求，可能消耗少量额度；不会更改启停状态。',
+                          okText: '开始检查',
+                          cancelText: '取消'
+                        }))
+                      )
+                        return;
+                      await run(async () => setData((await request('pool/action', { id: row.id, action: 'health-check' })).data));
+                    }}
+                  >
+                    健康检查
+                  </Button>
+                  <Dropdown
+                    menu={{
+                      items: [
+                        { key: 'probe', label: '测活' },
+                        { key: 'balance', label: '查额度' },
+                        { key: 'delete', label: '删除', danger: true }
+                      ],
+                      onClick: ({ key }) => {
+                        if (key === 'delete') void remove(row);
+                        else
+                          void run(async () => {
+                            if (key === 'balance') await lookup(row.id);
+                            else setData((await request('pool/action', { id: row.id, action: 'probe' })).data);
+                          });
+                      }
+                    }}
+                  >
+                    <Button size='small' icon={<MoreOutlined />} aria-label={row.id + '更多操作'} />
+                  </Dropdown>
+                </Space>
+              )
+            }
+          ]}
+        />
+      </Card>
+      <Row gutter={[16, 16]} style={{ marginTop: 20 }}>
+        <Col xs={24} lg={12}>
+          <Card
+            title='轮转规则'
+            extra={
+              <Button disabled={busy} onClick={() => run(() => open('rules'))}>
+                编辑规则
+              </Button>
+            }
+          >
+            <Descriptions
+              column={1}
+              size='small'
+              items={[
+                { key: 'enabled', label: '轮转', children: <Tag color={data?.enabled ? 'green' : 'default'}>{data?.enabled ? '已启用' : '未启用'}</Tag> },
+                {
+                  key: 'strategy',
+                  label: '分配策略',
+                  children: strategies.find(item => item.value === (app.modelPool?.strategy || 'weighted-round-robin'))?.label
+                },
+                { key: 'retry', label: '失败重试', children: (app.modelPool?.maxAttempts ?? 3) + ' 次尝试' },
+                { key: 'cooldown', label: '失败冷却', children: (app.modelPool?.cooldownSeconds ?? 60) + ' 秒' }
+              ]}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} lg={12}>
+          <Card
+            title='本地额度保护'
+            extra={
+              <Button disabled={busy} onClick={() => run(() => open('budget'))}>
+                编辑保护规则
+              </Button>
+            }
+          >
+            <Descriptions
+              size='small'
+              column={1}
+              items={[
+                { key: 'enabled', label: '保护', children: <Tag color={budget.enabled ? 'green' : 'default'}>{budget.enabled ? '已启用' : '未启用'}</Tag> },
+                ...budgetFields.map(item => ({
+                  key: item.name,
+                  label: item.label,
+                  children:
+                    (budget[item.name] ?? (item.name === 'personalDailyYuan' ? budget.privateDailyYuan : undefined) ?? item.default) === 0 &&
+                    ['globalDailyYuan', 'replyGateGlobalDailyYuan'].includes(item.name)
+                      ? '不限'
+                      : (budget[item.name] ?? (item.name === 'personalDailyYuan' ? budget.privateDailyYuan : undefined) ?? item.default) + ' 元'
+                }))
+              ]}
+            />
+          </Card>
+        </Col>
+      </Row>
+      <Drawer
+        title={drawer === 'endpoint' ? (editingId ? '编辑端点' : '新增端点') : drawer === 'rules' ? '轮转规则' : '本地额度保护'}
+        open={Boolean(drawer)}
+        size={680}
+        onClose={async () => {
+          if (dirty && !(await modal.confirm({ title: '放弃未保存的修改？' }))) return;
+          setDirty(false);
+          setDrawer(undefined);
+        }}
+        extra={
+          <Button type='primary' loading={busy} onClick={save}>
+            保存
+          </Button>
+        }
+      >
+        {error && <Alert type='error' title={error} style={{ marginBottom: 16 }} />}
+        <Form form={form} layout='vertical' onValuesChange={() => setDirty(true)}>
+          {drawer === 'endpoint' ? (
+            <>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item
+                    name='id'
+                    label='端点名称 / 编号'
+                    rules={[{ required: true }, { pattern: /^[a-z][a-z0-9-]{0,39}$/, message: '小写字母开头，最多 40 位字母、数字或连字符' }]}
+                  >
+                    <Input disabled={Boolean(editingId)} placeholder='例如 primary-chat' />
                   </Form.Item>
                 </Col>
-              ))}
-            </Row>
-          </Form>
-          {source && (
-            <>
-              <AddConfig
-                source={source}
-                has={path => parseDocument(source).hasIn(path)}
-                add={(path, value) => {
-                  if (path[path.length - 1] === 'endpoints') {
-                    const doc = parseDocument(source);
-                    const entries = doc.toJS()?.[root]?.modelPool?.endpoints || [];
-                    if (entries.some((item: { id: string }) => item.id === (value as { id: string }).id)) {
-                      message.error('端点 ID 已存在');
-                      return false;
-                    }
-                    update(path, [...entries, value]);
-                  } else update(path, value);
-                  return true;
-                }}
-              />
-              <Table
-                style={{ marginTop: 16 }}
-                rowKey='index'
-                dataSource={(parseDocument(source).toJS()?.[root]?.modelPool?.endpoints || []).map(
-                  (item: { id: string; model: string; enabled?: boolean }, index: number) => ({ ...item, index })
-                )}
-                columns={[
-                  { title: '端点', dataIndex: 'id' },
-                  { title: '模型', dataIndex: 'model' },
+                <Col span={12}>
+                  <Form.Item name='provider' label='供应商' rules={[{ required: true }]}>
+                    <Input placeholder='例如 deepseek-official' />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item name='baseUrl' label='请求地址' rules={[{ required: true }, { validator: secureUrl }]}>
+                <Input placeholder='https://api.example.com/v1' />
+              </Form.Item>
+              <Form.Item name='apiKey' label='API Key' rules={[{ required: true }, { min: 8, max: 500 }]}>
+                <Input.Password autoComplete='off' placeholder='填写密钥' />
+              </Form.Item>
+              <Form.Item name='model' label='模型' rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name='account' label='账号分组'>
+                <Input placeholder='同账号端点使用相同分组' />
+              </Form.Item>
+              <Form.Item name='capabilities' label='用途' rules={[{ required: true }]}>
+                <Select
+                  mode='multiple'
+                  options={[
+                    { value: 'chat', label: '聊天' },
+                    { value: 'tools', label: '工具' },
+                    { value: 'vision', label: '视觉' },
+                    { value: 'replyGate', label: '回复门控' }
+                  ]}
+                />
+              </Form.Item>
+              <Space size='large'>
+                <Form.Item name='enabled' label='参与轮转' valuePropName='checked'>
+                  <Switch />
+                </Form.Item>
+                <Form.Item name='fallback' label='备用端点' valuePropName='checked'>
+                  <Switch />
+                </Form.Item>
+              </Space>
+              <Collapse
+                items={[
                   {
-                    title: '持久启用',
-                    render: (_, row) => (
-                      <Switch checked={row.enabled !== false} onChange={value => update([root, 'modelPool', 'endpoints', row.index, 'enabled'], value)} />
-                    )
-                  },
-                  {
-                    title: '编辑',
-                    render: (_, row) => (
-                      <Button
-                        onClick={() => {
-                          setEditing(row.index);
-                          endpointForm.resetFields();
-                          endpointForm.setFieldsValue(parseDocument(source).toJS()[root].modelPool.endpoints[row.index]);
-                        }}
-                      >
-                        编辑
-                      </Button>
-                    )
-                  },
-                  {
-                    title: '操作',
-                    render: (_, row) => (
-                      <Button
-                        danger
-                        onClick={() =>
-                          modal.confirm({
-                            title: '删除端点 ' + row.id + '？',
-                            onOk: () => {
-                              const doc = parseDocument(source);
-                              doc.deleteIn([root, 'modelPool', 'endpoints', row.index]);
-                              setSource(doc.toString());
+                    key: 'advanced',
+                    label: '轮转权重、限流与额度查询',
+                    children: (
+                      <>
+                        <Row gutter={16}>
+                          {[
+                            { name: 'priority', label: '优先级', min: 0, max: 100 },
+                            { name: 'weight', label: '权重', min: 1, max: 100 },
+                            { name: 'maxConcurrent', label: '并发上限', min: 1, max: 100 },
+                            { name: 'rpm', label: '每分钟请求上限', min: 1, max: 1000000 },
+                            { name: 'tpm', label: '每分钟 Token 上限', min: 1, max: 1000000000 }
+                          ].map(item => (
+                            <Col span={12} key={item.name}>
+                              <Form.Item name={item.name} label={item.label}>
+                                <InputNumber min={item.min} max={item.max} precision={0} style={{ width: '100%' }} />
+                              </Form.Item>
+                            </Col>
+                          ))}
+                        </Row>
+                        <Form.Item name='balanceStyle' label='额度查询方式'>
+                          <Select allowClear placeholder='按供应商或全局设置' options={[{ value: 'newapi', label: 'New API 已用额度' }]} />
+                        </Form.Item>
+                        <Form.Item
+                          name='balanceUrl'
+                          label='自定义额度查询地址'
+                          rules={[
+                            {
+                              validator: async (_, value) => {
+                                if (!value) return;
+                                try {
+                                  const url = new URL(value.replaceAll('{key}', 'test-key'));
+                                  if (!value.includes('{key}') || url.protocol !== 'https:' || url.username || url.password || value.length > 1000)
+                                    throw new Error();
+                                } catch {
+                                  throw new Error('请输入包含 {key} 占位符且不含用户名密码的 HTTPS 地址');
+                                }
+                              }
                             }
-                          })
-                        }
-                      >
-                        删除
-                      </Button>
+                          ]}
+                        >
+                          <Input placeholder='HTTPS 查询地址，可使用 {key} 占位符' />
+                        </Form.Item>
+                      </>
                     )
                   }
                 ]}
-                pagination={false}
               />
             </>
+          ) : drawer === 'rules' ? (
+            <>
+              <Form.Item name='enabled' label='启用轮转' valuePropName='checked'>
+                <Switch />
+              </Form.Item>
+              <Form.Item name='strategy' label='分配策略'>
+                <Select allowClear placeholder='默认按权重轮转' options={strategies} />
+              </Form.Item>
+              <Row gutter={16}>
+                {ruleFields.map(item => (
+                  <Col span={12} key={item.name}>
+                    <Form.Item name={item.name} label={item.label}>
+                      <InputNumber min={item.min} max={item.max} style={{ width: '100%' }} />
+                    </Form.Item>
+                  </Col>
+                ))}
+              </Row>
+            </>
+          ) : (
+            <>
+              <Form.Item name='enabled' label='启用本地额度保护' valuePropName='checked'>
+                <Switch />
+              </Form.Item>
+              <Row gutter={16}>
+                {budgetFields.map(item => (
+                  <Col span={12} key={item.name}>
+                    <Form.Item name={item.name} label={item.label}>
+                      <InputNumber min={0} max={10000} precision={4} placeholder={'默认 ' + item.default} style={{ width: '100%' }} />
+                    </Form.Item>
+                  </Col>
+                ))}
+              </Row>
+              <Form.Item name='maxOutputTokens' label='单次最大输出 Token'>
+                <InputNumber min={1} max={8192} precision={0} />
+              </Form.Item>
+            </>
           )}
-        </Drawer>
-        <Drawer
-          title='编辑端点'
-          open={editing !== undefined}
-          onClose={() => setEditing(undefined)}
-          extra={
-            <Button
-              type='primary'
-              onClick={async () => {
-                try {
-                  const values = await endpointForm.validateFields();
-                  const doc = parseDocument(source);
-                  const path = [root, 'modelPool', 'endpoints', editing!];
-                  const previous = doc.getIn(path);
-                  const original = previous && typeof previous === 'object' && 'toJSON' in previous ? (previous as { toJSON: () => object }).toJSON() : {};
-                  update(path, { ...original, ...values });
-                  setEditing(undefined);
-                } catch {
-                  /* Form shows errors */
-                }
-              }}
-            >
-              更新草稿
-            </Button>
-          }
-        >
-          <Form form={endpointForm} layout='vertical'>
-            {['id', 'provider', 'model', 'baseUrl', 'apiKey', 'account'].map(name => (
-              <Form.Item key={name} name={name} label={name} rules={name === 'account' ? [] : [{ required: true }]}>
-                {name === 'apiKey' ? <Input.Password /> : <Input />}
-              </Form.Item>
-            ))}
-            <Form.Item name='capabilities' label='用途' rules={[{ required: true }]}>
-              <Select mode='multiple' options={['chat', 'tools', 'vision', 'replyGate'].map(value => ({ value, label: value }))} />
-            </Form.Item>
-            {['priority', 'weight', 'maxConcurrent', 'rpm', 'tpm'].map(name => (
-              <Form.Item key={name} name={name} label={name}>
-                <InputNumber min={name === 'priority' ? 0 : 1} precision={0} />
-              </Form.Item>
-            ))}
-            <Form.Item name='fallback' label='备用端点' valuePropName='checked'>
-              <Switch />
-            </Form.Item>
-          </Form>
-        </Drawer>
-      </Layout.Content>
-    </Layout>
+        </Form>
+      </Drawer>
+    </Layout.Content>
   );
 }

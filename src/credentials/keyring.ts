@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { budgetRedis, type BudgetScope } from '../billing/budget';
+import { groupKeyLimitDetails, budgetRedis, type BudgetScope } from '../billing/budget';
 import { encryptStoredKey, decryptStoredKey, encryptionKey, type RecordValue } from './personal';
 import { DSHError } from '../dsh/errors';
 import { groupStorageKey } from './group';
@@ -95,4 +95,48 @@ export const grantIsCurrent = async (scope: BudgetScope, grant: Grant): Promise<
   const raw = await (await budgetRedis()).get(groupStorageKey({ ...scope, channelId: grant.channelId }));
 
   return Boolean(raw && JSON.parse(raw).grantToken === grant.token);
+};
+
+/** 只有原提供者可调整该次授权的上限；旧记录不能修改替换后的钥匙。 */
+export const setGrantDailyLimit = async (scope: BudgetScope, id: string, input: string): Promise<void> => {
+  if (scope.channelId !== `private:${JSON.stringify([scope.platform, scope.userId])}`) throw new DSHError('budget', '请在本人私聊操作。');
+  if (!/^[1-9][0-9]*$/u.test(id) || !/^\d+(?:\.\d{1,6})?$/u.test(input) || Number(input) > 10000)
+    throw new DSHError('budget', '请使用记录编号和 0–10000 元的每日上限。');
+  const { ring } = await readKeyring(scope);
+  const grant = ring.grants.find(item => item.id === Number(id));
+
+  if (!grant) throw new DSHError('budget', '没有这个授权记录。');
+  const changed = await (
+    await budgetRedis()
+  ).eval(
+    `
+local raw=redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local value=cjson.decode(raw)
+if value.grantToken ~= ARGV[1] then return 0 end
+value.donorDailyLimit=tonumber(ARGV[2])
+redis.call('SET', KEYS[1], cjson.encode(value))
+return 1`,
+    1,
+    groupStorageKey({ ...scope, channelId: grant.channelId }),
+    grant.token,
+    input
+  );
+
+  if (Number(changed) !== 1) throw new DSHError('budget', '授权已失效，不能修改新钥匙。');
+};
+
+export const grantLimitDetails = async (scope: BudgetScope, grant: Grant) => {
+  const target = { ...scope, channelId: grant.channelId };
+  const raw = await (await budgetRedis()).get(groupStorageKey(target));
+  const record = raw ? JSON.parse(raw) : null;
+
+  if (record?.grantToken !== grant.token) return null;
+  // A stopped key is still an owned grant. Only the matching grant's limit is shown.
+  const details = await groupKeyLimitDetails(target);
+  const latest = await (await budgetRedis()).get(groupStorageKey(target));
+
+  if (!latest || JSON.parse(latest).grantToken !== grant.token) return null;
+
+  return details;
 };

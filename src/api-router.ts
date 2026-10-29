@@ -1,21 +1,36 @@
-import { poolSnapshot, poolBalances, poolAction } from './panel/pool-service';
+import { getPersonaStore } from './companion/personas';
+import { getQAStore } from './qa/store';
+import { poolSnapshot, poolBalances, poolAction, startPoolProbeRun } from './panel/pool-service';
 import KoaRouter from 'koa-router';
 import bodyParser from 'koa-bodyparser';
-import { getConfig } from 'alemonjs';
-import { authorizeAdmin, getAdminStore } from './panel/admin-panel';
+import { readPoolSettings, updatePoolSettings } from './panel/pool-settings';
 import { getDSHConfig } from './dsh/runtime-config';
-import { getCredentialPool } from './credentials/pool';
+import { resetGroupSession } from './dsh/orchestrator';
+
+const knownSessions = () => {
+  const config = getDSHConfig();
+  const personas = getPersonaStore(config);
+  const scopes = [...getQAStore(config).scopes(), ...personas.scopes()];
+
+  return [...new Map(scopes.map(scope => [JSON.stringify([scope.platform, scope.channelId]), scope])).values()].map(scope => ({
+    ...scope,
+    personaId: personas.selected(scope),
+    effectivePersonaId: personas.selected(scope) || config.modules?.settings?.persona?.defaultId || config.persona,
+    mode: personas.expressionMode(scope)
+  }));
+};
+const sessionTarget = (body: { platform?: unknown; channelId?: unknown }) => {
+  const scope = knownSessions().find(item => item.platform === body.platform && item.channelId === body.channelId);
+
+  if (!scope) throw new Error('会话不存在');
+
+  return { platform: scope.platform, channelId: scope.channelId };
+};
 
 const apiRouter = new KoaRouter({ prefix: '/api/admin' });
 
 apiRouter.use(async (ctx, next) => {
   ctx.set('Cache-Control', 'no-store');
-  if (!authorizeAdmin(ctx.get('authorization'))) {
-    ctx.status = 401;
-    ctx.body = { code: 401, message: '管理令牌无效', data: null };
-
-    return;
-  }
   try {
     await next();
   } catch (error) {
@@ -24,7 +39,7 @@ apiRouter.use(async (ctx, next) => {
     ctx.status = conflict ? 409 : (error as { status?: number }).status === 413 ? 413 : 400;
     ctx.body = {
       code: ctx.status,
-      message: conflict ? '配置版本冲突，请重新读取后再操作' : '操作失败，请检查配置类型、取值范围、字段依赖或文件权限',
+      message: conflict ? '内容已被更新，请刷新后重试' : '操作未完成，请检查填写内容后重试；若持续失败，请查看服务日志',
       data: null
     };
   }
@@ -35,42 +50,122 @@ const success = (ctx: KoaRouter.RouterContext, data: unknown, message = 'ok') =>
   ctx.body = { code: 200, message, data };
 };
 
+apiRouter.get('/sessions', ctx => success(ctx, knownSessions()));
+apiRouter.post('/persona-selection', async ctx => {
+  const body = ctx.request.body as { platform?: string; channelId?: string; id?: string };
+  const scope = sessionTarget(body);
+  const config = getDSHConfig();
+  const store = getPersonaStore(config);
+
+  if (config.modules?.disabled?.includes('persona')) throw new Error('人设模块未启用');
+  if (body.id !== undefined && typeof body.id !== 'string') ctx.throw(400);
+  if (body.id) await store.read(body.id);
+  await resetGroupSession(scope.channelId, config, () => store.select(scope, body.id || undefined));
+  success(ctx, knownSessions(), '人设已应用，已开始新话题');
+});
+
+apiRouter.post('/knowledge/edit', ctx => {
+  const body = ctx.request.body as {
+    scope?: string;
+    platform?: string;
+    channelId?: string;
+    id?: string;
+    updatedAt?: number;
+    action?: string;
+    question: string;
+    answer: string;
+    keywords?: string[];
+    tags?: string[];
+  };
+
+  if (typeof body.id !== 'string' || !Number.isFinite(body.updatedAt) || !['save', 'delete'].includes(body.action)) ctx.throw(400);
+  const target = body.scope === 'global' ? 'global' : sessionTarget(body);
+
+  success(
+    ctx,
+    getQAStore(getDSHConfig()).edit(target, body.id, body.updatedAt, body.action === 'delete' ? undefined : body),
+    body.action === 'delete' ? '问答已删除' : '问答已更新'
+  );
+});
+
+apiRouter.get('/persona-style', ctx => success(ctx, { mode: getPersonaStore(getDSHConfig()).expressionMode() }));
+apiRouter.post('/persona-style', ctx => {
+  const body = ctx.request.body as { mode?: import('./companion/persona-modes').PersonaMode };
+
+  getPersonaStore(getDSHConfig()).setExpressionMode(undefined, body.mode, true);
+  success(ctx, null, '表达程度已更新');
+});
+apiRouter.post('/persona-additions', async ctx => {
+  const body = ctx.request.body as { id: string; text?: string; clear?: boolean };
+  const store = getPersonaStore(getDSHConfig());
+
+  await store.read(body.id);
+  if (body.clear === true) store.clearAdditions(body.id);
+  else {
+    if (typeof body.text !== 'string') ctx.throw(400);
+    store.append(body.id, body.text);
+  }
+  success(ctx, null, '追加设定已更新');
+});
+apiRouter.post('/knowledge/search', ctx => {
+  const body = ctx.request.body as { query?: string; platform?: string; channelId?: string };
+
+  if (typeof body.query !== 'string' || !body.query.trim() || body.query.length > 1000 || Boolean(body.platform) !== Boolean(body.channelId)) ctx.throw(400);
+  const store = getQAStore(getDSHConfig());
+
+  success(
+    ctx,
+    body.platform && body.channelId
+      ? store.search({ platform: body.platform, channelId: body.channelId }, body.query, 10, { record: false })
+      : store.searchGlobal(body.query)
+  );
+});
+apiRouter.get('/personas', async ctx => {
+  const store = getPersonaStore(getDSHConfig());
+  const rows = await store.list();
+
+  success(ctx, await Promise.all(rows.map(async row => ({ ...row, ...(row.error ? {} : await store.read(row.id)), additions: store.additions(row.id) }))));
+});
+apiRouter.post('/personas', async ctx => {
+  const body = ctx.request.body as import('./companion/personas').PersonaDefinition;
+
+  await getPersonaStore(getDSHConfig()).save(body);
+  success(ctx, null, '人设已保存');
+});
+apiRouter.get('/knowledge', ctx => {
+  const store = getQAStore(getDSHConfig());
+  const platform = String(ctx.query.platform || '');
+  const channelId = String(ctx.query.channelId || '');
+
+  if (platform && channelId) success(ctx, store.list({ platform, channelId }, { includeGlobal: false, limit: 200 }));
+  else if (!platform && !channelId) success(ctx, store.listGlobal(200));
+  else ctx.throw(400);
+});
+apiRouter.post('/knowledge', ctx => {
+  const body = ctx.request.body as { scope?: string; platform?: string; channelId?: string; question: string; answer: string };
+
+  if (body.scope !== 'global' && (!body.platform || !body.channelId)) ctx.throw(400);
+  const target = body.scope === 'global' ? 'global' : { platform: body.platform, channelId: body.channelId };
+
+  success(ctx, getQAStore(getDSHConfig()).addExplicit(target, body), '问答已保存');
+});
 apiRouter.get('/pool', async ctx => success(ctx, await poolSnapshot()));
-apiRouter.post('/pool/balances', async ctx => success(ctx, await poolBalances()));
+apiRouter.post('/pool/probe-all', ctx => success(ctx, startPoolProbeRun()));
+apiRouter.post('/pool/balances', async ctx => {
+  const body = ctx.request.body as { id?: unknown };
+
+  if (body.id !== undefined && typeof body.id !== 'string') ctx.throw(400);
+  success(ctx, await poolBalances(body.id as string | undefined));
+});
 apiRouter.post('/pool/action', async ctx => {
   const body = ctx.request.body as { id?: unknown; action?: unknown };
 
   success(ctx, await poolAction(body?.id, body?.action));
 });
-apiRouter.get('/config', async ctx => success(ctx, await getAdminStore().read()));
-apiRouter.get('/history', async ctx => success(ctx, await getAdminStore().history()));
-apiRouter.get('/status', ctx =>
-  success(ctx, {
-    uptime: process.uptime(),
-    pool: getCredentialPool(getDSHConfig())?.status ?? [],
-    note: '当前进程快照；不代表平台或模型连接成功'
-  })
-);
-apiRouter.post('/validate', async ctx => {
-  const body = ctx.request.body as { source?: string; revision?: string };
+apiRouter.get('/pool/settings', async ctx => success(ctx, await readPoolSettings()));
+apiRouter.post('/pool/settings', async ctx => {
+  const result = await updatePoolSettings(ctx.request.body);
 
-  if (typeof body?.source !== 'string' || typeof body?.revision !== 'string') ctx.throw(400);
-  await getAdminStore().prepare(body.source, body.revision);
-  success(ctx, null, '配置结构与核心业务规则校验通过；模块运行环境仍需实际启动验证');
+  success(ctx, result.data, result.message);
 });
-for (const action of ['config', 'restore'])
-  apiRouter.post('/' + action, async ctx => {
-    const body = ctx.request.body as { source?: string; revision?: string; id?: string };
-
-    if (typeof body?.revision !== 'string' || typeof body[action === 'restore' ? 'id' : 'source'] !== 'string') ctx.throw(400);
-    const result = action === 'restore' ? await getAdminStore().restore(body.id, body.revision) : await getAdminStore().save(body.source, body.revision);
-    let message = '已保存并通知配置重载；平台连接及进程级参数建议重启后核实。';
-
-    try {
-      getConfig().reload();
-    } catch {
-      message = '文件已保存，但内存重载失败，请检查配置并重启。';
-    }
-    success(ctx, result, message);
-  });
 export default apiRouter;

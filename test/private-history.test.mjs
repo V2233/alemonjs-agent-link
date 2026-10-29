@@ -112,3 +112,21 @@ test('digest keeps the newest turns, stays under the limit and marks autonomous 
   assert.doesNotMatch(digest, /用户第0条/u);
   assert.match(buildHistoryDigest('', [{ user: '', assistant: '主动开口', autonomous: true }]), /你主动说过/u);
 });
+
+test('explicit memory correction compares old text atomically and never recreates deleted notes', () =>
+  fixture({}, async ({ config }) => {
+    const registry = new SessionRegistry(config);
+    const initial = await registry.changePrivateMemory(channelId, 'add', '我住杭州');
+    const id = initial.notes[0].id;
+    const target = { id, expectedText: '我住杭州' };
+    const results = await Promise.all([
+      registry.changePrivateMemory(channelId, 'replace', '我住苏州', target),
+      registry.changePrivateMemory(channelId, 'replace', '我住南京', target)
+    ]);
+    assert.deepEqual(results.map(result => result.status).sort(), ['ok', 'stale']);
+    assert.equal((await registry.privateMemories(channelId)).length, 1);
+    await registry.changePrivateMemory(channelId, 'remove', id);
+    assert.equal((await registry.changePrivateMemory(channelId, 'replace', '我住北京', target)).status, 'missing');
+    assert.deepEqual(await registry.privateMemories(channelId), []);
+    await assert.rejects(registry.changePrivateMemory('group', 'replace', '新内容', target), /私聊/);
+  }));

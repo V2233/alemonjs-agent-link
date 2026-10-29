@@ -148,7 +148,7 @@ export const streamChat = async (
     const bridge = await getDSHBridge();
     const personal = await checkedBoundCredential(signal);
 
-    if (personal && !personal.scope.channelId.startsWith('private:') && (await groupKeyDailyLimit(personal.scope)) !== null)
+    if (personal && !personal.scope.channelId.startsWith('private:') && (await groupKeyDailyLimit(personal.scope, personal.revision)) !== null)
       throw new DSHError('budget', '本群已设置钥匙金额上限，沙箱内部费用无法完整计量，暂不开放工作区。');
     if (personal?.auth === 'account') throw new DSHError('budget', '扫码账户暂不支持沙箱工作区；请使用普通聊天，或退出后使用个人 API Key。');
     const settleText = personal

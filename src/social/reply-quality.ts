@@ -48,7 +48,7 @@ export const polishSocialReply = async (
 
   try {
     assertAIEnabled(options.config);
-    const credentials = await getDSHCredentials(undefined, { purpose: 'replyGate', stable: true });
+    const credentials = await getDSHCredentials(undefined, { purpose: 'replyGate', stickyKey: `${options.scope.platform}:${options.scope.channelId}` });
 
     if (!credentials) return text;
     signal.throwIfAborted();

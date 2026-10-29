@@ -391,6 +391,14 @@ export class LocalStore {
               return JSON.stringify({ status: 'full', notes });
             }
             notes.push({ id: a[2], text: a[1], createdAt: Number(a[3]) });
+          } else if (a[0] === 'replace') {
+            const note = notes.find(item => item.id === a[6]);
+
+            if (!note) return JSON.stringify({ status: 'missing', notes });
+            if (note.text !== a[7]) return JSON.stringify({ status: 'stale', notes });
+            if (notes.some(item => item.id !== a[6] && item.text === a[1])) return JSON.stringify({ status: 'duplicate', notes });
+            note.text = a[1];
+            note.createdAt = Number(a[3]);
           } else if (a[0] === 'remove') {
             if (!notes.some(note => note.id === a[1])) {
               return JSON.stringify({ status: 'missing', notes });

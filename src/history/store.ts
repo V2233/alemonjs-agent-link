@@ -1,3 +1,4 @@
+import { rankMemories } from '../memory/retrieval';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -124,6 +125,41 @@ export class ChatArchive {
         message.sourceMessageId ?? null,
         JSON.stringify({ context: message.context, platformIdKnown: message.platformIdKnown ?? false })
       );
+  }
+  recallSources(scope: HistoryScope, subjectId: string, query: string, excludeText = '', after = 0) {
+    const now = Date.now();
+    const rows = this.db
+      .prepare(
+        `SELECT seq, speaker_id, text, timestamp FROM messages
+      WHERE scope=? AND speaker_id=? AND role='user' AND timestamp>=? AND timestamp<=?
+      AND text<>? AND seq>? AND substr(ltrim(text),1,1)<>'/' ORDER BY seq DESC LIMIT 1000`
+      )
+      .all(scopeKey(scope), subjectId, now - this.days * 86400000, now, excludeText, after);
+    const documents = rows.map(row => ({
+      id: String(row.seq),
+      seq: Number(row.seq),
+      subjectId,
+      speakerId: subjectId,
+      text: String(row.text),
+      timestamp: Number(row.timestamp),
+      tags: [],
+      importance: 0.5,
+      confidence: 1,
+      updatedAt: Number(row.timestamp),
+      lastRecalledAt: 0,
+      recallDays: 0
+    }));
+    const ranked = rankMemories(documents, query, subjectId, now);
+
+    // Recent fallback is explicitly labelled, never presented as a relevant hit.
+    return (ranked.length ? ranked : documents).slice(0, 6).map(item => ({
+      seq: item.seq,
+      speakerId: item.speakerId,
+      text: item.text.slice(0, 600),
+      timestamp: item.timestamp,
+      match: ranked.length ? 'keyword' : 'recent',
+      truncated: item.text.length > 600
+    }));
   }
   search(
     scope: HistoryScope,

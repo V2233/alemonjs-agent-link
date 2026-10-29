@@ -4,7 +4,7 @@ import { useEvent, useMessage } from 'alemonjs';
 import { commandBubble, sectionBubble } from '../bubble';
 import { getConversationId } from '../dsh/util';
 import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
-import { readKeyring, keyringStorageKey, changeKeyring, removeCurrentGroupKey, grantIsCurrent } from '../../credentials/keyring';
+import { readKeyring, setGrantDailyLimit, keyringStorageKey, changeKeyring, removeCurrentGroupKey, grantLimitDetails } from '../../credentials/keyring';
 import { bindPersonalKey, personalStorageKey, personalKeyStatus, updatePersonalKey } from '../../credentials/personal';
 import { storedKeyBalance } from '../../credentials/key-balance';
 import { setGroupKeyState, groupStorageKey, groupKeyStatus } from '../../credentials/group';
@@ -40,7 +40,7 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
     if (!event.IsPrivate && !(await verifyGroupKeyAdmin(event))) throw new DSHError('budget', '仅本群管理员可查看、授权和移除群聊钥匙。');
     if (command === '/我的钥匙' && !event.IsPrivate && args.length === 2 && args[0] === '上限') {
       await setGroupKeyDailyLimit(scope, args[1]);
-      text = '群钥匙每日上限已保存；0 表示暂停调用，当日已用不会清零。';
+      text = args[1] === '取消' ? '已取消群管理员设置的上限；提供者上限仍然有效，当日用量保留。' : '群钥匙每日上限已保存；实际取提供者上限与本群上限的较小值。';
     } else if (command === '/我的钥匙' && !event.IsPrivate && args.length === 1 && ['启用', '停用'].includes(args[0])) {
       const changed = await setGroupKeyState(scope, args[0] === '启用');
 
@@ -51,17 +51,20 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
       text = removed ? '本群钥匙已移除，后续恢复群额度模式；已发出的请求可能继续完成。' : '本群尚未授权钥匙。';
     } else if (command === '/授权记录') {
       if (!event.IsPrivate) throw new DSHError('budget', '请私聊查看授权记录。');
-      if (args.length === 2 && args[0] === '移除') {
+      if (args.length === 3 && args[0] === '上限') {
+        await setGrantDailyLimit(scope, args[1], args[2]);
+        text = '授权每日上限已保存，群管理员不能提高此上限。';
+      } else if (args.length === 2 && args[0] === '移除') {
         await changeKeyring(scope, 'revoke', args[1]);
         text = '授权已移除，对应群副本已撤销；已发出的请求可能继续完成。';
       } else if (!args.length) {
         const { ring } = await readKeyring(scope);
 
-        const current = await Promise.all(ring.grants.map(item => grantIsCurrent(scope, item)));
+        const current = await Promise.all(ring.grants.map(item => grantLimitDetails(scope, item)));
         const sections = ring.grants.length
           ? ring.grants.map((item, index) => ({
               title: `记录 ${item.id}`,
-              text: `群 ${item.channelId} · 钥匙 ${item.keyId} · ${current[index] ? '授权有效' : '授权已失效'}`,
+              text: `群 ${item.channelId} · 钥匙 ${item.keyId} · ${current[index] ? '授权有效' : '授权已失效'}${current[index] ? `\n提供者上限：${current[index].donor === null ? '未设置' : `${current[index].donor} 元/日`}；群上限：${current[index].group === null ? '未设置' : `${current[index].group} 元/日`}；生效上限：${current[index].effective === null ? '未设置' : `${current[index].effective} 元/日`}` : ''}`,
               actions: [{ label: current[index] ? '移除授权' : '清理记录', command: `/授权记录 移除 ${item.id}` }]
             }))
           : [
@@ -72,10 +75,12 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
               }
             ];
 
-        await message.send({ format: sectionBubble('授权记录', '仅本人可查。', sections, { platform: event.Platform }) });
+        await message.send({
+          format: sectionBubble('授权记录', '仅本人可查。设置每日上限：/授权记录 上限 记录编号 金额。', sections, { platform: event.Platform })
+        });
 
         return;
-      } else throw new DSHError('budget', '用法：/授权记录 或 /授权记录 移除 编号');
+      } else throw new DSHError('budget', '用法：/授权记录、/授权记录 移除 编号、/授权记录 上限 编号 金额');
     } else if (command === '/授权钥匙') {
       if (event.IsPrivate || args.length !== 1) throw new DSHError('budget', '请管理员在目标群发送 /授权钥匙 编号。');
       await changeKeyring(scope, 'grant', args[0]);
@@ -136,10 +141,11 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
 
         sections.push({
           title: '群钥匙每日预算',
-          text: usage
-            ? `今日已用及预占 ${usage.personalUsed} / ${usage.personalLimit} 元；剩余 ${usage.personalRemaining} 元`
-            : '未设置；可发送 /我的钥匙 上限 金额。服务商余额由同账户共享。',
-          actions: []
+          text:
+            usage && !usage.unlimited
+              ? `今日已用及预占 ${usage.personalUsed} / ${usage.personalLimit} 元；剩余 ${usage.personalRemaining} 元`
+              : `未设置上限；今日已计量及预占 ${usage.personalUsed} 元。仅统计本功能上线后的可计量文字调用。图片和沙箱费用不在此数内。`,
+          actions: [{ label: '取消群上限', command: '/我的钥匙 上限 取消' }]
         });
 
         sections.unshift({

@@ -55,7 +55,10 @@ test('scan prepares two purposes once; private switches and group grants are ind
     };
     await assert.rejects(
       withBudgetScope(group, () =>
-        budgetedFetch(resolveDSHConfig({ budget: { enabled: false } }), new URL('https://example.com'), { method: 'POST', body: '{}' })
+        budgetedFetch(resolveDSHConfig({ budget: { enabled: false } }), new URL('https://example.com'), {
+          method: 'POST',
+          body: JSON.stringify({ model: 'deepseek-flash', messages: [{ role: 'user', content: 'hi' }] })
+        })
       ),
       /余额不足/
     );

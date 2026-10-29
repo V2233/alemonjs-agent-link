@@ -194,3 +194,54 @@ test('explicit memory deletion clears canonical duplicates in both stores and ca
     assert.ok(store.state(privateScope).revision > before.revision);
     assert.equal(store.state(privateScope).checkpoint, getChatArchive(f.config).latestSeq(privateScope));
   }));
+
+test('correction candidates reserve room for later speakers and exclude unrelated people', async () => {
+  const { correctionCandidates } = await import('../lib/memory/consolidation.js');
+  const fact = (id, subjectId, text) => ({
+    id,
+    subjectId,
+    subjectName: subjectId,
+    text,
+    tags: [],
+    importance: 0.5,
+    confidence: 1,
+    updatedAt: Date.now(),
+    lastRecalledAt: 0,
+    recallDays: 0,
+    kind: 'fact',
+    origin: 'extracted',
+    status: 'active',
+    sourceRefs: []
+  });
+  const previous = [
+    ...Array.from({ length: 40 }, (_, i) => fact(`a${i}`, 'alice', `我喜欢茶叶${i}`)),
+    fact('bob-city', 'bob', '我住杭州'),
+    fact('outsider', 'other', '我住苏州')
+  ];
+  const sources = [
+    ...Array.from({ length: 39 }, (_, i) => ({ seq: i + 1, speakerId: 'alice', speaker: 'alice', text: '我喜欢茶叶', timestamp: Date.now() })),
+    { seq: 40, speakerId: 'bob', speaker: 'bob', text: '我现在住苏州', timestamp: Date.now() }
+  ];
+  const result = correctionCandidates(previous, sources);
+  assert.equal(result.length, 30);
+  assert.equal(result[0].id, 'bob-city');
+  assert.ok(!result.some(item => item.id === 'outsider'));
+});
+
+test('background billing identity is explicit and passed by scheduler', () =>
+  fixture(async f => {
+    const config = { ...f.config, budget: { enabled: true }, modules: { settings: { memory: { automatic: true, backgroundUserId: 'designated-payer' } } } };
+    f.store.observe(scope);
+    const worker = new MemoryConsolidator(config, { store: f.store, archive: f.archive });
+    let payer;
+    worker.consolidate = async (_scope, _force, _signal, userId) => {
+      payer = userId;
+      return { status: 'completed', added: 0 };
+    };
+    try {
+      await worker.tick();
+      assert.equal(payer, 'designated-payer');
+    } finally {
+      worker.stop();
+    }
+  }));

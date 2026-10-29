@@ -3,7 +3,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { getCredentialPool, type PoolSelectionOptions } from '../credentials/pool';
 
 export type DSHCredentialUsage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; prompt_cache_hit_tokens?: number };
-export type DSHCredentialReport = { ok: boolean; status?: number; headers?: Headers; /** 本次请求的真实耗时，用于把慢端点降权。 */ latencyMs?: number };
+export type DSHCredentialReport = {
+  ok: boolean;
+  status?: number;
+  detail?: string;
+  errorKind?: string;
+  headers?: Headers;
+  /** 本次请求的真实耗时，用于把慢端点降权。 */ latencyMs?: number;
+};
 export type DSHCredentials = {
   apiKey: string;
   personal?: boolean;
@@ -22,6 +29,7 @@ export type DSHCredentials = {
   reportUsage?: (usage: DSHCredentialUsage) => void;
   invalidate?: (status?: number) => void;
   disable?: () => void;
+  markSent?: () => void;
   report?: (outcome: DSHCredentialReport) => void;
   next?: (options?: { fallback?: boolean }) => DSHCredentials | null;
 };
@@ -59,7 +67,7 @@ export const getDSHCredentials = (
     if (pool) {
       // A configured pool is authoritative: never bypass its health or
       // maxConcurrent limits by silently falling back to the legacy key.
-      return Promise.resolve(pool.select({ stable: true, ...options, reserve: options.reserve === true }));
+      return Promise.resolve(pool.select({ ...options, reserve: options.reserve === true }));
     }
   } catch {
     // A malformed pool must not prevent the documented single-key fallback.
@@ -70,12 +78,12 @@ export const getDSHCredentials = (
 
 /** Dedicated workspace endpoint for agent_workspace; falls back to the
  * sandbox credential when no endpoint is explicitly marked as workspace. */
-export const getWorkspaceCredentials = (): Promise<DSHCredentials | null> => {
+export const getWorkspaceCredentials = (options: { stickyKey?: string } = {}): Promise<DSHCredentials | null> => {
   const config = getAppConfigValue<CredentialConfig>();
 
   try {
     const pool = getCredentialPool(config);
-    const selected = pool?.select({ purpose: 'chat', stable: true, reserve: false, workspaceOnly: true });
+    const selected = pool?.select({ purpose: 'chat', stickyKey: options.stickyKey, stable: false, reserve: false, workspaceOnly: true });
 
     if (selected) return Promise.resolve(selected);
   } catch {

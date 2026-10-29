@@ -195,3 +195,113 @@ test('memory tool falls back to same-person same-session user sources without cl
       for (const dispose of disposals) dispose();
     }
   }));
+
+test('archive fallback ranks older relevant evidence ahead of recent chatter and preserves scope', () =>
+  fixture(async f => {
+    f.archive.append(scope, { id: 'old', speakerId: 'alice', speaker: 'alice', role: 'user', text: '我喜欢龙井茶' });
+    for (let i = 0; i < 40; i++) f.archive.append(scope, { id: `chat-${i}`, speakerId: 'alice', speaker: 'alice', role: 'user', text: `天气不错${i}` });
+    f.archive.append(scope, { id: 'bob', speakerId: 'bob', speaker: 'bob', role: 'user', text: '龙井茶' });
+    f.archive.append({ ...scope, channelId: 'other' }, { id: 'other', speakerId: 'alice', speaker: 'alice', role: 'user', text: '龙井茶' });
+    const hits = f.archive.recallSources(scope, 'alice', '你记得龙井茶吗');
+    assert.equal(hits[0].text, '我喜欢龙井茶');
+    assert.equal(hits[0].match, 'keyword');
+    assert.equal(hits.length, 1);
+    assert.equal(f.archive.recallSources(scope, 'alice', '外星飞船')[0].match, 'recent');
+  }));
+
+test('explicit correction tool requires current user consent and refreshes persisted recall', () =>
+  fixture(async f => {
+    const { memoryModule } = await import('../lib/modules/memory.js');
+    const { SessionRegistry } = await import('../lib/state/registry.js');
+    const registry = new SessionRegistry(f.config);
+    const channelId = 'private:alice';
+    const initial = await registry.changePrivateMemory(channelId, 'add', '我住杭州');
+    const args = { id: initial.notes[0].id, expectedText: '我住杭州', text: '我住苏州' };
+    const tools = [];
+    const disposals = [];
+    memoryModule(f.config).setup({
+      on() {},
+      tool(tool) {
+        tools.push(tool);
+      },
+      onDispose(fn) {
+        disposals.push(fn);
+      }
+    });
+    const tool = tools.find(tool => tool.name === 'correct_private_fact');
+    const context = { platform: 'qq', channelId, userId: 'alice', private: true, userText: '更正记忆：我住苏州', signal: new AbortController().signal };
+    try {
+      assert.equal((await tool.execute(args, { ...context, userText: '不要更正记忆：我住苏州' })).ok, false);
+      assert.equal((await tool.execute(args, { ...context, autonomous: true })).ok, false);
+      assert.equal((await tool.execute({ ...args, text: '我住北京' }, context)).ok, false);
+      assert.equal((await tool.execute(args, { ...context, private: false })).ok, false);
+      assert.equal((await tool.execute(args, context)).ok, true);
+      assert.equal((await registry.privateMemories(channelId))[0].text, '我住苏州');
+      assert.equal(f.store.get(context, args.id).text, '我住苏州');
+      assert.equal((await tool.execute(args, context)).status, 'stale');
+    } finally {
+      for (const dispose of disposals) dispose();
+    }
+  }));
+
+test('memory diagnostics report automatic-off without invoking a model or changing the checkpoint', () =>
+  fixture(async f => {
+    const { memoryModule } = await import('../lib/modules/memory.js');
+    const tools = [];
+    const disposals = [];
+    memoryModule(f.config).setup({
+      on() {},
+      tool(tool) {
+        tools.push(tool);
+      },
+      onDispose(fn) {
+        disposals.push(fn);
+      }
+    });
+    try {
+      f.archive.append(scope, { id: 'pending', text: '我喜欢茶叶', speakerId: 'one', speaker: 'one', role: 'user' });
+      const tool = tools.find(tool => tool.name === 'inspect_memory_status');
+      assert.equal(tool.readOnly, true);
+      const result = await tool.execute({}, { ...scope, userId: 'one' });
+      assert.equal(result.reason, 'automatic-disabled');
+      assert.equal(result.checkpoint, 0);
+      assert.ok(result.latestArchiveSeq > 0);
+      assert.equal(result.nextEligibleAt, null);
+    } finally {
+      for (const dispose of disposals) dispose();
+    }
+  }));
+
+test('forget suppresses historical fallback but permits new statements and other people', () =>
+  fixture(async f => {
+    const { memoryModule } = await import('../lib/modules/memory.js');
+    f.store.syncExplicit(scope, 'alice', [{ id: '12345678', text: '我喜欢龙井茶', createdAt: Date.now() }]);
+    for (const who of ['alice', 'bob']) f.archive.append(scope, { id: who, speakerId: who, speaker: who, text: '我喜欢龙井茶', role: 'user' });
+    f.store.forget(scope, '12345678', f.archive.latestSeq(scope));
+    const tools = [];
+    const disposals = [];
+    memoryModule(f.config).setup({
+      on() {},
+      tool(tool) {
+        tools.push(tool);
+      },
+      onDispose(fn) {
+        disposals.push(fn);
+      }
+    });
+    const recall = tools.find(tool => tool.name === 'recall_memories');
+    const context = { ...scope, userId: 'alice', userText: '你记得龙井茶吗', signal: new AbortController().signal };
+    try {
+      assert.deepEqual((await recall.execute({}, context)).recentSources, []);
+      assert.equal((await recall.execute({ subjectId: 'bob' }, context)).recentSources.length, 1);
+      f.archive.append(scope, { id: 'new', speakerId: 'alice', speaker: 'alice', text: '我现在喜欢红茶', role: 'user' });
+      assert.deepEqual(
+        (await recall.execute({}, context)).recentSources.map(item => item.text),
+        ['我现在喜欢红茶']
+      );
+      f.store.clear(scope, f.archive.latestSeq(scope));
+      assert.deepEqual((await recall.execute({ subjectId: 'bob' }, context)).recentSources, []);
+    } finally {
+      for (const dispose of disposals) dispose();
+    }
+  }));

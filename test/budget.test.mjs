@@ -109,6 +109,8 @@ test('Redis outage blocks payment, never falls back to a local counter', async (
     oldFetch = globalThis.fetch;
   globalThis.ioRedis = {
     status: 'ready',
+    set: async () => 'OK',
+    get: async () => '2026-10-29',
     ping: async () => {
       throw new Error('offline');
     }
@@ -628,6 +630,8 @@ test('a provider rejection releases the pre-charge; a 5xx keeps it', async () =>
   const ledger = { held: 0, used: 0, reserved: 0, requests: 0, settled: 0 };
   globalThis.ioRedis = {
     status: 'ready',
+    set: async () => 'OK',
+    get: async () => '2026-10-29',
     ping: async () => 'PONG',
     time: async () => [String(Math.floor(Date.now() / 1000)), '0'],
     async eval(script, numkeys, ...rest) {

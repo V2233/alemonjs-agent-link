@@ -280,6 +280,18 @@ if action == 'add' then
   end
   if #notes >= tonumber(ARGV[5]) then return cjson.encode({status='full', notes=notes}) end
   table.insert(notes, {id=ARGV[3], text=ARGV[2], createdAt=tonumber(ARGV[4])})
+elseif action == 'replace' then
+  local target = nil
+  for _, note in ipairs(notes) do
+    if note.id == ARGV[7] then target = note end
+  end
+  if not target then return cjson.encode({status='missing', notes=notes}) end
+  if target.text ~= ARGV[8] then return cjson.encode({status='stale', notes=notes}) end
+  for _, note in ipairs(notes) do
+    if note.id ~= ARGV[7] and note.text == ARGV[2] then return cjson.encode({status='duplicate', notes=notes}) end
+  end
+  target.text = ARGV[2]
+  target.createdAt = tonumber(ARGV[4])
 elseif action == 'remove' then
   local found = false
   for i=#notes,1,-1 do
@@ -335,13 +347,19 @@ export class SessionRegistry {
   async privateMemories(channelId: string): Promise<PrivateMemory[]> {
     return (await this.changePrivateMemory(channelId, 'list')).notes;
   }
-  async changePrivateMemory(channelId: string, action: 'list' | 'add' | 'remove' | 'clear', text = ''): Promise<{ status: string; notes: PrivateMemory[] }> {
+  async changePrivateMemory(
+    channelId: string,
+    action: 'list' | 'add' | 'remove' | 'clear' | 'replace',
+    text = '',
+    target?: { id: string; expectedText: string }
+  ): Promise<{ status: string; notes: PrivateMemory[] }> {
     if (!channelId.startsWith('private:')) {
       throw new Error('长期记忆仅限私聊。');
     }
-    if (action === 'add' && (!text.trim() || Array.from(text.trim()).length > privateMemoryTextLimit)) {
+    if ((action === 'add' || action === 'replace') && (!text.trim() || Array.from(text.trim()).length > privateMemoryTextLimit)) {
       throw new Error(`每条记忆需要 1–${privateMemoryTextLimit} 个字符。`);
     }
+    if (action === 'replace' && (!target?.id || !target.expectedText)) throw new Error('更正记忆需要原编号和原文。');
     const raw = await (
       await redis(this.config)
     ).eval(
@@ -353,7 +371,9 @@ export class SessionRegistry {
       randomUUID().slice(0, 8),
       String(Date.now()),
       String(privateMemoryLimit),
-      String(this.config.retentionDays * 86400)
+      String(this.config.retentionDays * 86400),
+      target?.id || '',
+      target?.expectedText || ''
     );
     const result = JSON.parse(String(raw));
 

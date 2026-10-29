@@ -103,3 +103,55 @@ test('semantic cache expands across turns and retains old vectors outside the ne
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('deletion while embedding is pending cannot return removed memory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'memory-delete-race-'));
+  const store = new MemoryStore(join(root, 'memory.sqlite'));
+  const scope = { platform: 'qq', channelId: 'group' };
+  try {
+    store.syncExplicit(scope, 'alice', [{ id: '12345678', text: '龙井茶', createdAt: Date.now() }]);
+    let release;
+    const pending = store.recallSemantic(scope, '茶饮', 'alice', 8, {
+      client: {
+        model: 'test',
+        embed: () =>
+          new Promise(resolve => {
+            release = () => resolve([vector(1, 0), vector(1, 0)]);
+          })
+      },
+      maxItems: 100,
+      weight: 0.8,
+      signal: new AbortController().signal
+    });
+    store.forget(scope, '12345678', 10);
+    release();
+    assert.deepEqual(await pending, []);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('fallback deletion barriers survive restart and retain person isolation', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'memory-barrier-restart-'));
+  const path = join(root, 'memory.sqlite');
+  const scope = { platform: 'qq', channelId: 'group' };
+  let store = new MemoryStore(path);
+  try {
+    store.syncExplicit(scope, 'alice', [{ id: '12345678', text: '龙井茶', createdAt: Date.now() }]);
+    store.forget(scope, '12345678', 12);
+    store.close();
+    store = new MemoryStore(path);
+    assert.equal(store.fallbackAfter(scope, 'alice'), 12);
+    assert.equal(store.fallbackAfter(scope, 'bob'), 0);
+    assert.equal(store.fallbackAfter({ ...scope, channelId: 'other' }, 'alice'), 0);
+    store.clear(scope, 20);
+    store.close();
+    store = new MemoryStore(path);
+    assert.equal(store.fallbackAfter(scope, 'alice'), 20);
+    assert.equal(store.fallbackAfter(scope, 'bob'), 20);
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

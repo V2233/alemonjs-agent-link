@@ -37,3 +37,11 @@ test('old important messages cannot exhaust the budget before latest corrections
   );
   assert.equal(duplicate[0].timestamp, 10);
 });
+
+test('short factual corrections start their own recall topic', () => {
+  const queries = new MemoryQueryContext();
+  const scope = { platform: 'qq', channelId: 'group', userId: 'alice', generation: 1 };
+  queries.resolve(scope, '我们聊一下游戏装备搭配', true, 0);
+  assert.equal(queries.resolve(scope, '我不喝茶', true, 1), '我不喝茶');
+  assert.equal(queries.resolve(scope, '然后呢', true, 2), '我不喝茶 然后呢');
+});
