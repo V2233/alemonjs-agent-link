@@ -9,7 +9,7 @@ import { withToolUsePolicy } from '../lib/agent/tool-use-policy.js';
 import { BudgetExceededError, withBudgetScope, replyGateExceededMessage } from '../lib/billing/budget.js';
 const { runtimeScope } = await import(new URL('./common/runtime-scope.js', import.meta.resolve('alemonjs')));
 
-const runCommand = async (module, { private: isPrivate = true, master = true, key = '帮助', args = [], formats = [] } = {}) => {
+const runCommand = async (module, { private: isPrivate = true, master = true, key = '帮助', args = [], formats = [], next = () => {} } = {}) => {
   const messages = [];
   const event = {
     name: isPrivate ? 'private.message.create' : 'message.create',
@@ -41,7 +41,7 @@ const runCommand = async (module, { private: isPrivate = true, master = true, ke
     },
     () => {
       getConfig().saveValue(globalThis.__config?.value || {});
-      return withEventContext(event, () => {}, module, { appName: 'alemonjs-agent-link' });
+      return withEventContext(event, next, module, { appName: 'alemonjs-agent-link' });
     }
   );
   return messages;
@@ -62,6 +62,22 @@ test('default help fits one bubble while detailed commands remain discoverable',
   assert.match(helpText(true, true, '管理'), /关闭 原因/);
   assert.match(helpText(true, true, '全部'), /主动搭话/);
   assert.doesNotMatch(helpText(false, false, '全部'), /服务端日志取验证码/);
+});
+
+test('help only consumes supported topics and passes unknown arguments through', async () => {
+  const handler = (await import('../lib/response/agent-help/res.js')).default;
+  for (const topic of ['', '聊天', '记忆', '人格', '群设置', '媒体', '数据', '管理', '额度', '密钥', '全部', '未知', '聊天 多余', 'toString']) {
+    let forwarded = 0;
+    const messages = await runCommand(handler, {
+      args: topic ? topic.split(' ') : [],
+      next: () => {
+        forwarded++;
+      }
+    });
+    const unknown = ['未知', '聊天 多余', 'toString'].includes(topic);
+    assert.equal(forwarded, !topic || unknown ? 1 : 0, topic);
+    assert.equal(messages.length > 0, !unknown, topic);
+  }
 });
 
 test('help and configuration guidance use structured Markdown with readable steps', async () => {

@@ -215,16 +215,24 @@ export default async (): Promise<void> => {
   const [context, next] = useEvent({ selects: ['message.create', 'private.message.create'] });
   const [route] = useRoute();
 
-  // Shared help commands must remain available to other installed plugins.
-
-  next();
   if (!context.match.selects) {
+    next();
+
     return;
   }
   const event = context.current;
   const [message] = useMessage();
 
   const topic = route.rawArgs.join(' ').trim();
+
+  // 无参数时共享帮助入口；有参数只消费本插件支持的完整主题。
+  if (!topic) {
+    next();
+  } else if (!Object.hasOwn(topics, topic) && !['额度', '密钥', '全部'].includes(topic)) {
+    next();
+
+    return;
+  }
   // The full manual is several topic cards, never one oversized Markdown body.
   const pages =
     topic === '全部'
