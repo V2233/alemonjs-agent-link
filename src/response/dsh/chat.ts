@@ -86,7 +86,7 @@ export const runDSHChat = async (
     autonomous?: { signal: AbortSignal; maxChars: number; beforeSend: (text?: string) => Promise<boolean> };
     userText?: string;
     replyReferences?: Record<string, { messageId: string; userId: string }>;
-    onOutcome?: (result: { delivered: boolean; completed: boolean; replyText?: string }) => void;
+    onOutcome?: (result: { delivered: boolean; completed: boolean; replyText?: string; replyToMessageId?: string }) => void;
     transport?: { message: ReturnType<typeof useMessage>[0]; media: ReturnType<typeof useMedia>[0] };
   } = {}
 ): Promise<void> => {
@@ -856,6 +856,7 @@ ${agentPrompt}`
     options.onOutcome?.({
       delivered: !silent || stickerOnlySent,
       completed: true,
+      ...(!event.IsPrivate && replyTarget.messageId ? { replyToMessageId: replyTarget.messageId } : {}),
       ...(!silent ? { replyText: renderedAnswer || normalizeBubbleText(answer) || visibleAnswer } : {})
     });
   } catch (error) {

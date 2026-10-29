@@ -924,3 +924,126 @@ test('stop and redirection never inherit a previous conversation invitation', as
     }
   }
 });
+
+test("interleaved conversations keep each person's own confirmed exchange", async () => {
+  const h = harness({
+    classify: async () => {
+      throw new Error('known follow-up must not need another classifier');
+    }
+  });
+  const p = policy({ enabled: false });
+  const batches = [];
+  const respond = async batch => {
+    batches.push(batch);
+    return { delivered: true, replyText: `${batch.anchor.userId}，你想看哪类游戏？` };
+  };
+  const receive = async (id, userId, text, direct) => {
+    const done = h.coordinator.receive(message(id, { userId, userKey: userId, platform: 'qq', text, direct, addressed: direct }), p, respond);
+    await h.coordinator.flush('group');
+    return await done;
+  };
+  try {
+    await receive('a1', 'alice', '肥鱼，推荐个游戏', true);
+    await receive('b1', 'bob', '肥鱼，我也想问你', true);
+    await receive('a2', 'alice', '能和朋友合作的', false);
+    await receive('b2', 'bob', '我更喜欢单机', false);
+    assert.equal(batches.length, 4);
+    assert.equal(batches[2].anchor.continuation.userText, '肥鱼，推荐个游戏');
+    assert.equal(batches[2].anchor.continuation.replyText, 'alice，你想看哪类游戏？');
+    assert.equal(batches[3].anchor.continuation.userText, '肥鱼，我也想问你');
+    assert.equal(batches[3].anchor.continuation.replyText, 'bob，你想看哪类游戏？');
+    assert.equal(batches[2].replyReason, 'follow_up');
+  } finally {
+    h.coordinator.close();
+  }
+});
+
+test('stopping or invalidating during response generation prevents a late reply from reopening continuation', async () => {
+  for (const action of ['stop', 'invalidate', 'cancel']) {
+    const h = harness();
+    const p = policy({ enabled: false });
+    let finish;
+    let began;
+    const started = new Promise(resolve => {
+      began = resolve;
+    });
+    const result = new Promise(resolve => {
+      finish = resolve;
+    });
+    const first = h.coordinator.receive(message('first', { userId: 'alice', userKey: 'alice' }), p, async () => {
+      began();
+      return result;
+    });
+    const running = h.coordinator.flush('group');
+    await started;
+    try {
+      if (action === 'stop')
+        await h.coordinator.receive(message('stop', { userId: 'alice', userKey: 'alice', text: '下次再聊', direct: false }), p, async () => ({
+          delivered: false
+        }));
+      else if (action === 'invalidate') h.coordinator.invalidateRecent('group');
+      else h.coordinator.cancelPending('group', 'alice');
+      finish({ delivered: true, replyText: '你想聊什么？' });
+      await running;
+      await first;
+      const next = await h.coordinator.receive(message('next', { userId: 'alice', userKey: 'alice', text: '合作游戏', direct: false }), p, async () => {
+        throw new Error('ended conversation must not inherit a late invitation');
+      });
+      assert.equal(next.reply, false, action);
+    } finally {
+      finish({ delivered: false });
+      h.coordinator.close();
+    }
+  }
+});
+
+test("addressing another person ends only that speaker's previous invitation", async () => {
+  const h = harness();
+  const p = policy({ enabled: false });
+  const respond = async () => ({ delivered: true, replyText: '你想聊什么？' });
+  try {
+    for (const userId of ['alice', 'bob']) {
+      const done = h.coordinator.receive(message(`${userId}1`, { userId, userKey: userId }), p, respond);
+      await h.coordinator.flush('group');
+      await done;
+    }
+    await h.coordinator.receive(
+      message('redirect', { userId: 'alice', userKey: 'alice', direct: false, messageContext: { mentions: [{ isSelf: false }], message: {} } }),
+      p,
+      respond
+    );
+    const alice = await h.coordinator.receive(message('alice2', { userId: 'alice', userKey: 'alice', direct: false }), p, respond);
+    assert.equal(alice.reply, false);
+    const bob = h.coordinator.receive(message('bob2', { userId: 'bob', userKey: 'bob', direct: false }), p, respond);
+    await h.coordinator.flush('group');
+    assert.equal((await bob).reply, true);
+  } finally {
+    h.coordinator.close();
+  }
+});
+
+test('a selected reply creates continuation for its actual recipient instead of the batch anchor', async () => {
+  const h = harness();
+  const p = policy({ enabled: false });
+  const batches = [];
+  const respond = async batch => {
+    batches.push(batch);
+    return { delivered: true, replyText: '甲，你想看什么？', replyToMessageId: 'a1' };
+  };
+  try {
+    const a = h.coordinator.receive(message('a1', { userId: 'alice', userKey: 'alice' }), p, respond);
+    const b = h.coordinator.receive(message('b1', { userId: 'bob', userKey: 'bob' }), p, respond);
+    await h.coordinator.flush('group');
+    await Promise.all([a, b]);
+    assert.equal(batches[0].anchor.userId, 'bob');
+    const bob = await h.coordinator.receive(message('b2', { userId: 'bob', userKey: 'bob', direct: false }), p, respond);
+    assert.equal(bob.reply, false);
+    const alice = h.coordinator.receive(message('a2', { userId: 'alice', userKey: 'alice', text: '合作游戏', direct: false }), p, respond);
+    await h.coordinator.flush('group');
+    assert.equal((await alice).reply, true);
+    assert.equal(batches[1].anchor.continuation.replyText, '甲，你想看什么？');
+    assert.equal(batches[1].anchor.continuation.userText, batches[0].messages[0].text);
+  } finally {
+    h.coordinator.close();
+  }
+});

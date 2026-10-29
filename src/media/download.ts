@@ -41,7 +41,7 @@ export const attachmentUrl = (source: string, allowedHosts: string[]): URL => {
 
   return url;
 };
-export const downloadAttachment = async (source: string, config: MediaConfig, signal: AbortSignal): Promise<Buffer> => {
+export const downloadAttachment = async (source: string, config: MediaConfig, signal: AbortSignal, headers: Record<string, string> = {}): Promise<Buffer> => {
   const url = attachmentUrl(source, config.allowedHosts);
   const addresses = await new Promise<{ address: string; family: number }[]>((resolve, reject) => {
     const abort = (): void => reject(signal.reason);
@@ -70,6 +70,7 @@ export const downloadAttachment = async (source: string, config: MediaConfig, si
       url,
       {
         signal,
+        headers,
         agent: false,
         lookup: (_hostname, options, callback) => {
           if (typeof options === 'object' && options.all) {

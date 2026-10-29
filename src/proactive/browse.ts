@@ -37,7 +37,7 @@ export const browseDaily = async (config: DSHBridgeConfig, scope: ProactiveScope
       continuityHint +
       '\n这是你今天的一次独立阅读时间，不是主人发来的消息。先查 bili_diary，再根据当前人格的兴趣选一个具体主题，调用 bili_search，从未读结果挑一条用 bili_watch 阅读。最多搜索一次，可读取至多' +
       maxReads +
-      '条不同候选，对比后再形成综合想法，不必凑满次数。没有合适内容或读取失败就输出 [沉默]。读取后先看 evidence：仅元数据时可说主题引起兴趣或选择沉默，不评价未读到的剧情或视频质量；字幕截断时只谈返回片段。成功后用一两句记下你对实际资料的看法，不编画面、声音或共同经历。文字只保存为阅读感想，这轮不发消息、不评论、不联系他人。',
+      '条不同候选，对比后再形成综合想法，不必凑满次数。没有合适内容或读取失败就输出 [沉默]。读取后先看 evidence：仅元数据时可说主题引起兴趣或选择沉默，不评价未读到的剧情或视频质量；字幕截断时只谈返回片段；visual.available 时可谈明确时间点的静帧描述，不推断未采样部分。成功后用一两句记下你对实际资料的看法，不编画面、声音或共同经历。文字只保存为阅读感想，这轮不发消息、不评论、不联系他人。',
     context: {
       platform: scope.platform,
       channelId: proactiveChannel(scope),

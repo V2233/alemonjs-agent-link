@@ -10,6 +10,7 @@ import { boundKeyGroupPolicy, decideGroupReply, groupTopicRelevance, type GroupC
 import { getDSHConfig } from '../dsh/client';
 import { selectPerceptionContext } from './perception-context';
 import { groupStyleHint } from './style-profile';
+import { ConversationThreads } from './conversation-threads';
 
 export type GroupMessage = {
   channelId: string;
@@ -45,11 +46,11 @@ export type GroupBatch = {
   styleHint?: string;
   perceptionContext?: ReplyGateInput['recent'];
 };
-export type GroupBatchResult = { delivered: boolean; completed?: boolean; replyText?: string };
+export type GroupBatchResult = { delivered: boolean; completed?: boolean; replyText?: string; replyToMessageId?: string };
 type Entry = { message: GroupMessage; respond: (batch: GroupBatch) => Promise<GroupBatchResult>; resolve: () => void };
 type Pending = { entries: Entry[]; anchor: Entry; mode: Exclude<GroupReplyMode, 'none'>; firstAt: number; dueAt: number; policy: GroupChatPolicy };
 type GroupState = {
-  dialogue?: { userId: string; platform?: string; userText: string; replyText: string; at: number };
+  dialogues: ConversationThreads;
   fragments: MessageFragments;
   gatePending?: Pending;
   loopGuard: LoopGuard;
@@ -120,6 +121,7 @@ export class GroupConversationCoordinator {
       }
       state = {
         fragments: new MessageFragments(),
+        dialogues: new ConversationThreads(),
         loopGuard: new LoopGuard(),
         gateTimes: [],
         recent: [],
@@ -167,20 +169,12 @@ export class GroupConversationCoordinator {
     const control = speechControl(message.controlText ?? message.text);
     const held = state.fragments.holding(message, now);
 
-    if (control === 'stop' && state.dialogue?.userId === message.userId) state.dialogue = undefined;
-    const dialogue = state.dialogue;
     const redirected = message.messageContext?.mentions?.some(item => item.isSelf === false) || Boolean(message.messageContext?.message.replyToId);
 
-    if (
-      !message.direct &&
-      !control &&
-      !held &&
-      dialogue?.userId === message.userId &&
-      dialogue.platform === message.platform &&
-      now - dialogue.at < 120000 &&
-      !redirected &&
-      !isLowSignalMessage(message.text)
-    ) {
+    if (control === 'stop' || redirected) state.dialogues.end(message);
+    const dialogue = state.dialogues.exchange(message, now);
+
+    if (!message.direct && !control && !held && dialogue && now - dialogue.at < 120000 && !redirected && !isLowSignalMessage(message.text)) {
       message = { ...message, direct: true, addressed: true, continuation: { userText: dialogue.userText, replyText: dialogue.replyText, at: dialogue.at } };
     }
 
@@ -643,6 +637,12 @@ export class GroupConversationCoordinator {
       }
       state.gatePending = undefined;
       const responseStarted = this.now();
+      const speakerKey = (message: GroupMessage): string => JSON.stringify([message.platform || '', message.userId]);
+      const dialogueTickets = new Map<string, ReturnType<ConversationThreads['begin']>>();
+
+      for (const { message } of pending.entries) {
+        if (!dialogueTickets.has(speakerKey(message))) dialogueTickets.set(speakerKey(message), state.dialogues.begin(message, responseStarted));
+      }
       let result: GroupBatchResult;
 
       try {
@@ -672,13 +672,11 @@ export class GroupConversationCoordinator {
           state.loopGuard.delivered(userId, entry.message.text, result.replyText || '', now);
         }
         if (result.replyText) {
-          state.dialogue = {
-            userId: pending.anchor.message.userId,
-            platform: pending.anchor.message.platform,
-            userText: pending.anchor.message.text.slice(0, 1000),
-            replyText: result.replyText.slice(0, 2000),
-            at: now
-          };
+          const recipient = result.replyToMessageId
+            ? pending.entries.find(entry => entry.message.id === result.replyToMessageId)?.message
+            : pending.anchor.message;
+
+          if (recipient) state.dialogues.delivered(recipient, result.replyText, now, dialogueTickets.get(speakerKey(recipient)));
           state.lastBotReply = { at: now, speaker: '__bot__', text: result.replyText.slice(0, 2000) };
           state.recent.push(state.lastBotReply);
         }
@@ -734,7 +732,8 @@ export class GroupConversationCoordinator {
     const state = this.groups.get(channelId);
     const pending = state?.pending;
 
-    const clearedFragments = state?.fragments.clear(privileged ? undefined : userKey) || false;
+    const clearedThreads = state?.dialogues.clear(privileged ? undefined : userKey) || false;
+    const clearedFragments = state?.fragments.clear(privileged ? undefined : userKey) || false || clearedThreads;
 
     if (state?.gateAbort && (userKey === undefined || privileged || state.gateUserKey === userKey)) {
       state.gateAbort.abort();

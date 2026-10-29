@@ -91,7 +91,8 @@ test('single-speaker direct group reply sends the first sentence before the mode
       upstream.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"后续回答。"}}]}\n\ndata: [DONE]\n\n'));
       upstream.close();
     }
-    await pending;
+    const outcome = await pending;
+    assert.equal(outcome.replyToMessageId, anchor.id);
     await messageReferences.clear(anchor.channelId);
     await (await getModuleRuntime(config)).close();
     globalThis.fetch = previous.fetch;

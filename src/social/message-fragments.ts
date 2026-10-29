@@ -7,7 +7,7 @@ export const speechControl = (text: string): 'hold' | 'release' | 'stop' | undef
     .replace(/^(?:大肥鱼|小肥鱼|肥鱼|deepseek|dsh)[，,：:\s]*/iu, '')
     .replace(/[。！!，,~～]+$/u, '');
 
-  if (/^(?:别回了|别回复了|不用回复|不用回答|不要回复|不要回答|停止回复|停止回答)$/u.test(value)) {
+  if (/^(?:别回了|别回复了|不用回复|不用回答|不要回复|不要回答|停止回复|停止回答|不聊了|先聊到这|先聊到这里|下次再聊)$/u.test(value)) {
     return 'stop';
   }
 

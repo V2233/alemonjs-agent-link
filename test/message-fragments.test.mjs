@@ -5,7 +5,9 @@ const msg = (id, text = '内容') => ({ id, text, userId: 'alice', userKey: 'ali
 test('speech controls require standalone phrases and do not interpret quoted phrases', () => {
   assert.equal(speechControl('肥鱼，等我说完！'), 'hold');
   assert.equal(speechControl('可以回了'), 'release');
-  for (const text of ['他说“等我说完”', '不要等我说完', '等我说完是什么意思', '你还没说完吗']) assert.equal(speechControl(text), undefined);
+  for (const text of ['不聊了', '肥鱼，先聊到这里', '下次再聊！']) assert.equal(speechControl(text), 'stop');
+  for (const text of ['他说“等我说完”', '不要等我说完', '等我说完是什么意思', '你还没说完吗', '他说下次再聊', '下次再聊是什么意思', '不聊了行吗'])
+    assert.equal(speechControl(text), undefined);
 });
 test('fragment storage expires, stays bounded, preserves attachments and separates speakers', () => {
   const store = new MessageFragments();
