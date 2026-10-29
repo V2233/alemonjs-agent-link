@@ -1,3 +1,4 @@
+import { browsePreferences, mergeBrowseFeedback } from '../../bili/preferences';
 import { readingDiary, formatReadingDiary, searchReadingDiary } from '../../bili/diary';
 import { getMemoryStore } from '../../memory/store';
 import { memoryEnabled } from '../../memory/consolidation';
@@ -120,11 +121,10 @@ export default async (): Promise<void> => {
         );
       } else if (readingArgs === '偏好') {
         const feedback = store.browseFeedback(scope);
+        const effective = mergeBrowseFeedback(browsePreferences(config.modules?.settings?.bili || {}), feedback);
 
         await reply(
-          feedback.length
-            ? feedback.map(item => `${item.preference === 'like' ? '多看' : '避开'}：${item.topic}`).join('\n')
-            : '尚无已保存的私聊阅读反馈。可以说“以后多看独立游戏”“以后别看恐怖”或“恢复推荐恐怖”。'
+          `当前有效阅读偏好\n多看：${effective.topics.join('、') || '未指定，按人格兴趣选题'}\n避开：${effective.exclude.join('、') || '未指定'}\n已合并全局配置与本私聊反馈，避雷优先。可说“以后多看独立游戏”“以后别看恐怖”或“恢复推荐恐怖”；恢复推荐不会移除全局避雷词。`
         );
       } else {
         await reply('用法：/主动搭话 阅读 开启|关闭|作息 18 22|恢复默认|偏好|日记 [1-7] [关键词]。');

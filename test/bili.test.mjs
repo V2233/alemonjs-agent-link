@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getDSHConfig } from '../lib/dsh/client.js';
 import { getModuleRuntime } from '../lib/agent/modules.js';
+import { executeTool } from '../lib/agent/modules.js';
 import { runModuleTurn } from '../lib/agent/turn.js';
 import { getMemoryStore } from '../lib/memory/store.js';
 
@@ -27,6 +28,8 @@ test('identifiers, short links and WBI signing are bounded', () => {
   assert.match(query, /^keyword=%E9%B2%B8%E9%B1%BC&page=1&wts=1000&w_rid=[a-f0-9]{32}$/u);
   assert.throws(() => wbiQuery({}, '', ''));
   assert.throws(() => biliOptions({ enabled: true, cookie: 'x\nheader: value' }));
+  for (const value of [0, 4, 1.5, '2']) assert.throws(() => biliOptions({ dailyBrowseMaxReads: value }));
+  assert.equal(biliOptions({}).dailyBrowseMaxReads, 2);
 });
 
 test('video reading combines signed metadata, subtitle and comments without leaking cookie to CDN', async () => {
@@ -322,6 +325,41 @@ test('opt-in proactive turn searches and reads Bilibili with per-turn bounds and
     assert.ok(reflection.tags.includes(`reading:${reading.id}`));
     assert.match(reflection.text, /未证明已发送/);
     assert.match(reflection.text, /标题挺有意思/);
+    // Continue through production memory tools and runtime context after an actual
+    // bili_watch execution (HTTP is a deterministic fixture, not a real account).
+    const scope = { platform: 'onebot', channelId: 'private:owner' };
+    const store = getMemoryStore(config);
+    const item = store.recordSharedThread(scope, '100', {
+      text: '一起了解鲸鱼生态资料',
+      state: 'agreed',
+      sources: [{ seq: 1, speakerId: '100', speaker: '主人', text: '约定一起了解鲸鱼', timestamp: Date.now() }]
+    });
+    const context = {
+      ...scope,
+      userId: '100',
+      botId: '900',
+      private: true,
+      owner: true,
+      autonomous: false,
+      userText: '刚才了解到什么',
+      capabilities: { chat: true, web: false, files: false, terminal: false },
+      signal: signal()
+    };
+    const runtime = await getModuleRuntime(config);
+    const lease = await runtime.acquire();
+    try {
+      const link = lease.tools(context).find(tool => tool.name === 'link_shared_execution');
+      assert.ok(link);
+      await executeTool(link, { id: item.id, expectedRevision: 1, memoryId: reading.id }, context);
+      await assert.rejects(executeTool(link, { id: item.id, expectedRevision: 2, memoryId: reflection.id }, context));
+      const loaded = await lease.context(context);
+      assert.match(loaded, /sharedThreads/);
+      assert.match(loaded, new RegExp(reading.id));
+      assert.match(loaded, /没有读取视频画面或声音/);
+      assert.equal(store.sharedThreads(scope, '100')[0].state, 'agreed');
+    } finally {
+      await lease.release();
+    }
   } finally {
     await (await getModuleRuntime(config)).close();
     globalThis.__config = previous;

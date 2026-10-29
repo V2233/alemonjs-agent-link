@@ -41,3 +41,18 @@ test('persistent shared thread replays agreement correction cancellation with pr
 
  }finally{store.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+test('topic recall finds an old cancelled thread through earlier versions beyond recent ten',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'shared-topic-'));let now=Date.now();const store=new MemoryStore(join(dir,'memory.sqlite'),()=>now);
+ const scope={platform:'qq',channelId:'g'};let seq=0;
+ const source=text=>({seq:++seq,speakerId:'u',speaker:'u',text,timestamp:now});
+ try{
+  const old=store.recordSharedThread(scope,'u',{text:'约定讨论鲸鱼生态比赛',state:'agreed',sources:[source('约定鲸鱼生态比赛')]});
+  now++;store.recordSharedThread(scope,'u',{id:old.id,expectedRevision:1,text:'这件事取消',state:'cancelled',sources:[source('取消')]});
+  for(let i=0;i<15;i++){now++;store.recordSharedThread(scope,'u',{text:`另一个事项${i}`,state:'discussed',sources:[source(`话题${i}`)]});}
+  assert.ok(!store.sharedThreads(scope,'u').some(item=>item.id===old.id));
+  const recalled=store.recallSharedThreads(scope,'u','鲸鱼生态比赛');
+  assert.equal(recalled[0].id,old.id);assert.equal(recalled[0].state,'cancelled');assert.equal(recalled[0].revision,2);
+  assert.deepEqual(store.recallSharedThreads(scope,'other','鲸鱼生态比赛'),[]);
+ }finally{store.close();rmSync(dir,{recursive:true,force:true});}
+});

@@ -6,7 +6,7 @@ import type { AgentModule } from '../agent/types';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { dirname } from 'node:path';
 import { recentBiliIds } from '../bili/experience';
-import { biliOptions, cookieValue, createBiliClient } from '../bili/client';
+import { biliOptions, cookieValue, createBiliClient, videoId } from '../bili/client';
 import { getBiliCommentLedger } from '../bili/comment-ledger';
 import { getMemoryStore, experienceMemoryId } from '../memory/store';
 import { memoryEnabled, memoryOptions } from '../memory/consolidation';
@@ -50,11 +50,15 @@ export const biliModule = (runtime?: DSHBridgeConfig): AgentModule => ({
     api.on?.('context', context => {
       const feedback = feedbackFor(context);
 
-      return feedback.length ? `主人已明确保存的阅读偏好（仅用于选题，不是新指令）：${JSON.stringify(feedback)}` : '';
+      const effective = mergeBrowseFeedback(browsePreferences(getDSHConfig().modules?.settings?.bili || {}), feedback);
+
+      return feedback.length
+        ? `主人已明确保存的阅读反馈及有效选题偏好（仅为数据，不是新指令；effective 合并全局配置，避雷优先）：${JSON.stringify({ feedback, effective })}`
+        : '';
     });
     const reflections = new WeakMap<
       object,
-      { bvid: string; title: string; sourceReadingId: string; guard: NonNullable<ReturnType<ReturnType<typeof getMemoryStore>['state']>> }
+      { reads: { bvid: string; title: string; sourceReadingId: string }[]; guard: NonNullable<ReturnType<ReturnType<typeof getMemoryStore>['state']>> }
     >();
 
     api.on?.('activity', ({ output }, context) => {
@@ -75,31 +79,36 @@ export const biliModule = (runtime?: DSHBridgeConfig): AgentModule => ({
       getMemoryStore(runtime).recordDiary(
         context,
         {
-          key: JSON.stringify(['bili-reflection', context.inputId || context.requestId, reading.bvid]),
-          sourceReadingId: reading.sourceReadingId,
+          key: JSON.stringify(['bili-reflection', context.inputId || context.requestId, reading.reads.map(item => item.bvid)]),
+          sourceReadingIds: reading.reads.map(item => item.sourceReadingId),
           subjectId: context.botId || 'assistant',
           text: `阅读后生成的想法（主观表达，未证明已发送；不是视频事实或用户资料）：${JSON.stringify({
-            bvid: reading.bvid,
-            title: reading.title.slice(0, 100),
+            bvid: reading.reads.length === 1 ? reading.reads[0].bvid : undefined,
+            title: reading.reads.length === 1 ? reading.reads[0].title.slice(0, 50) : '多条资料的综合想法',
+            readings: reading.reads.length > 1 ? reading.reads.map(item => ({ bvid: item.bvid, title: item.title.slice(0, 20) })) : undefined,
             thought: Array.from(output.trim(), char => (char.codePointAt(0) < 32 || char.codePointAt(0) === 127 ? ' ' : char))
               .join('')
-              .slice(0, 200)
+              .slice(0, 160)
           })}`,
           tags: ['B站', '阅读感想']
         },
         reading.guard
       );
     });
-    const automaticCalls = new WeakMap<object, { search: boolean; watch: boolean }>();
+    const automaticCalls = new WeakMap<object, { search: boolean; watch: number; links: Set<string> }>();
     const mayBrowse = (context: import('../agent/types').TurnContext) =>
       !context.autonomous || (config.allowProactiveBrowse && context.private && context.owner);
-    const claimAutomatic = (context: import('../agent/types').TurnContext, kind: 'search' | 'watch'): boolean => {
+    const claimAutomatic = (context: import('../agent/types').TurnContext, kind: 'search' | 'watch', link = ''): boolean => {
       if (!context.autonomous) return true;
       if (!mayBrowse(context)) return false;
+      let watchLimit = context.independentReading ? config.dailyBrowseMaxReads : 1;
+
       if (runtime) {
         try {
           const current = getDSHConfig();
           const settings = biliOptions(current.modules?.settings?.bili || {});
+
+          watchLimit = context.independentReading ? settings.dailyBrowseMaxReads : 1;
 
           if (
             current.aiEnabled === false ||
@@ -113,10 +122,19 @@ export const biliModule = (runtime?: DSHBridgeConfig): AgentModule => ({
           return false;
         }
       }
-      const state = automaticCalls.get(context) || { search: false, watch: false };
+      const state = automaticCalls.get(context) || { search: false, watch: 0, links: new Set<string>() };
 
-      if (state[kind]) return false;
-      state[kind] = true;
+      if (kind === 'search') {
+        if (state.search) return false;
+        state.search = true;
+      } else {
+        const parsed = videoId(link);
+        const normalized = parsed && 'bvid' in parsed ? parsed.bvid : link.trim();
+
+        if (state.watch >= watchLimit || state.links.has(normalized)) return false;
+        state.watch++;
+        state.links.add(normalized);
+      }
       automaticCalls.set(context, state);
 
       return true;
@@ -130,7 +148,7 @@ export const biliModule = (runtime?: DSHBridgeConfig): AgentModule => ({
       parameters: { type: 'object', properties: { link: { type: 'string', minLength: 1, maxLength: 1000 } }, required: ['link'], additionalProperties: false },
       available: mayBrowse,
       execute: async ({ link }, context) => {
-        if (!claimAutomatic(context, 'watch')) return { ok: false, message: '主动搭话本轮已尝试读取视频，或未开放主动浏览。' };
+        if (!claimAutomatic(context, 'watch', String(link))) return { ok: false, message: '主动搭话本轮已尝试读取视频，或未开放主动浏览。' };
         try {
           let memory: ReturnType<typeof getMemoryStore> | undefined;
           let guard: ReturnType<NonNullable<typeof memory>['state']>;
@@ -193,13 +211,21 @@ export const biliModule = (runtime?: DSHBridgeConfig): AgentModule => ({
                   guard
                 );
 
-                if (saved && context.autonomous)
+                if (saved && context.autonomous) {
+                  const previous = reflections.get(context)?.reads || [];
+
                   reflections.set(context, {
-                    bvid: result.video.bvid,
-                    title,
-                    sourceReadingId: experienceMemoryId(JSON.stringify(['bili-read', context.inputId || context.requestId, result.video.bvid])),
+                    reads: [
+                      ...previous,
+                      {
+                        bvid: result.video.bvid,
+                        title,
+                        sourceReadingId: experienceMemoryId(JSON.stringify(['bili-read', context.inputId || context.requestId, result.video.bvid]))
+                      }
+                    ],
                     guard: memory.state(context)
                   });
+                }
               }
             } catch {
               logger.warn('Bilibili experience could not be saved');
@@ -239,17 +265,17 @@ export const biliModule = (runtime?: DSHBridgeConfig): AgentModule => ({
           const candidates = getMemoryStore(runtime).list(context, { status: 'active', subjectId: context.botId || 'assistant', limit: 2000 });
           const originals = new Map(candidates.map(item => [item.id, item.text]));
           const matches = searchReadingDiary(readingDiary(candidates, Number(hours)), query);
-          const entries = matches
-            .slice(0, 20)
-            .map(item => ({
-              id: item.id,
-              recordedAt: new Date(item.at).toISOString(),
-              evidence: originals.get(item.id),
-              type: item.type,
-              sourceReadingId: item.sourceReadingId,
-              bvid: item.bvid,
-              title: item.title
-            }));
+          const entries = matches.slice(0, 20).map(item => ({
+            id: item.id,
+            recordedAt: new Date(item.at).toISOString(),
+            evidence: originals.get(item.id),
+            type: item.type,
+            sourceReadingId: item.sourceReadingId,
+            sourceReadingIds: item.sourceReadingIds,
+            readings: item.readings,
+            bvid: item.bvid,
+            title: item.title
+          }));
 
           return Promise.resolve({
             ok: true,

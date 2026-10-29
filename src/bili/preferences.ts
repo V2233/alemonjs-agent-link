@@ -64,16 +64,22 @@ export const mergeBrowseFeedback = (
   configured: { topics: string[]; exclude: string[] },
   feedback: { topic: string; preference: string }[]
 ): { topics: string[]; exclude: string[] } => {
-  const avoid = feedback.filter(item => item.preference === 'avoid').map(item => item.topic);
-  const normalized = (text: string): string => text.normalize('NFKC').toLowerCase();
-  const excluded = new Set([...configured.exclude, ...avoid].map(normalized));
+  const unique = (values: string[]): string[] => {
+    const seen = new Set<string>();
 
-  return {
-    topics: [...new Set([...configured.topics, ...feedback.filter(item => item.preference === 'like').map(item => item.topic)])].filter(
-      topic => !excluded.has(normalized(topic))
-    ),
-    exclude: [...new Set([...configured.exclude, ...avoid])]
+    return values.filter(value => {
+      const key = value.normalize('NFKC').trim().toLowerCase();
+
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+
+      return true;
+    });
   };
+  const exclude = unique([...configured.exclude, ...feedback.filter(item => item.preference === 'avoid').map(item => item.topic)]);
+  const topics = unique([...configured.topics, ...feedback.filter(item => item.preference === 'like').map(item => item.topic)]);
+
+  return { topics: topics.filter(topic => !excludedBrowseTopic({ title: topic, description: '' }, exclude)), exclude };
 };
 
 /** Rotate through explicit topics by local calendar day rather than choosing randomly each turn. */

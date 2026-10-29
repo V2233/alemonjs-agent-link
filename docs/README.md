@@ -50,6 +50,7 @@ AgentLink 把 QQ 群和私聊接成一条受限的 AI 通道：Node 负责编排
 | [肥鱼的群友人设](dafeiyu-persona.md)       | 稳定背景、变化边界与人工体验检查     |
 | [能力规划](dafeiyu-roadmap.md)             | 建设目标、边界和推进顺序             |
 | [真实群聊验收](dafeiyu-live-validation.md) | 回放方法、真实样本、线上场景与指标   |
+| [回复质量对照](companion-benchmark.md)     | 固定合成场景、实际回复采样与评审汇总 |
 | [能力建设与验收](capabilities.md)          | 每项能力的实现状态与待验收事项       |
 
 | [账户扫码登录（试验）](deepseek-account-login-experiment.md) | 登录流程、限制与验证记录 |

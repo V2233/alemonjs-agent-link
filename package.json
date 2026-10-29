@@ -19,7 +19,9 @@
     "python/sandbox_profile.py",
     "scripts/replay-reply-gate.mjs",
     "scripts/live-gate-metrics.mjs",
-    "README.md"
+    "README.md",
+    "scripts/compare-companion.mjs",
+    "benchmarks/companion-scenarios.json"
   ],
   "exports": {
     ".": {
@@ -48,7 +50,8 @@
     "doctor": "node bin/agent-link.cjs doctor",
     "validate:gate": "node scripts/replay-reply-gate.mjs",
     "validate:live": "node scripts/live-gate-metrics.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "validate:companion": "node scripts/compare-companion.mjs"
   },
   "devDependencies": {
     "@alemonjs/db": "^0.0.21",

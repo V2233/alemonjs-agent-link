@@ -91,3 +91,24 @@ test('journal retains a validated source identifier when available', () => {
   const rows = readingDiary([entry({ origin: 'diary', kind: 'diary', tags: ['B站', 'reading:abcdef123456'] })], 24, now);
   assert.equal(rows[0].sourceReadingId, 'abcdef123456');
 });
+
+test('a comparative thought retains every source and remains searchable by either video', async () => {
+  const { searchReadingDiary } = await import('../lib/bili/diary.js');
+  const rows = readingDiary(
+    [
+      entry({
+        origin: 'diary',
+        kind: 'diary',
+        tags: ['B站', 'reading:abcdef123456', 'reading:123456abcdef'],
+        text: '想法：{"title":"综合想法","readings":[{"title":"鲸鱼歌声","bvid":"BV1234567890"},{"title":"海洋生态","bvid":"BVabcdefghij"}],"thought":"两条资料关注点不同"}'
+      })
+    ],
+    24,
+    now
+  );
+  assert.equal(rows[0].sourceReadingId, undefined);
+  assert.equal(rows[0].sourceReadingIds.length, 2);
+  assert.equal(searchReadingDiary(rows, '海洋生态').length, 1);
+  assert.equal(searchReadingDiary(rows, 'BV1234567890').length, 1);
+  assert.match(formatReadingDiary(rows, 24, 'UTC'), /BVabcdefghij/);
+});

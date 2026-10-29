@@ -135,3 +135,5 @@ npm run validate:gate -- --limit 30 --hours 3
 ---
 
 [← 文档首页](README.md) · [项目主页](../README.md) · [肥鱼的群友人设](dafeiyu-persona.md)
+
+回复自然度、上下文连续性和证据一致性的产品对照，另见[回复质量对照](companion-benchmark.md)。本页的回复判断回放和单元测试不能直接作为超过竞品的聊天质量证据。

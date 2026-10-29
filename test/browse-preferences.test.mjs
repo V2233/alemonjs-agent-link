@@ -78,3 +78,15 @@ test('daily topic rotation covers every configured topic and is stable for a loc
   assert.equal(dailyReadingTopic(topics, '2026-10-29', 123), chosen[0]);
   assert.equal(dailyReadingTopic([], '2026-10-29', 0), '');
 });
+
+test('effective topics use the same literal exclusion rule as candidate filtering and deduplicate normalized equivalents', async () => {
+  const { mergeBrowseFeedback } = await import('../lib/bili/preferences.js');
+  const result = mergeBrowseFeedback({ topics: ['恐怖游戏', 'ＡＰＥＸ', '海洋生态'], exclude: ['恐怖'] }, [
+    { topic: 'apex', preference: 'like' },
+    { topic: '恐怖电影', preference: 'like' },
+    { topic: 'ＡＰＥＸ', preference: 'avoid' }
+  ]);
+  assert.deepEqual(result, { topics: ['海洋生态'], exclude: ['恐怖', 'ＡＰＥＸ'] });
+  for (const topic of result.topics) assert.equal(excludedBrowseTopic({ title: topic, description: '' }, result.exclude), false);
+  assert.deepEqual(mergeBrowseFeedback({ topics: ['ＡＰＥＸ', 'apex'], exclude: [] }, []), { topics: ['ＡＰＥＸ'], exclude: [] });
+});

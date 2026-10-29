@@ -333,6 +333,7 @@
 | `allowComments`          | boolean | `true`  | —                        | 允许评论工具；主人本轮明确要求时才可调用                        |
 | `allowProactiveBrowse`   | boolean | `true`  | —                        | 允许主动搭话时自行浏览                                          |
 | `dailyBrowse`            | boolean | `false` | —                        | 已订阅主人会话每日独立只读浏览一次，遵守安静时段与暂停          |
+| `dailyBrowseMaxReads`    | number  | `2`     | 1–3                      | 每次独立阅读最多尝试读取的候选数；普通主动搭话仍为 1            |
 | `dailyBrowseWindow`      | array   | 未配置  | 两个不同的 0–23 整点     | 每日阅读窗口，例如 `[18,22]`；`[22,2]` 跨午夜，沿用主动搭话时区 |
 | `dailyBrowseTopics`      | array   | `[]`    | 最多 10 个，每个 1–40 字 | 独立阅读优先参考的选题主题                                      |
 | `dailyBrowseExclude`     | array   | `[]`    | 最多 10 个，每个 1–40 字 | 主动搜索标题或简介中的避雷关键词，普通手动搜索不受影响          |

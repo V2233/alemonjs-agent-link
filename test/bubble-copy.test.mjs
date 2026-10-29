@@ -285,6 +285,13 @@ test('reading diary command returns persisted evidence without a model request a
     assert.ok(!miss.join('').includes('BV1234567890'));
     const forbidden = await runCommand(handler, { key: '主动搭话', args: ['阅读', '日记'], master: false });
     assert.ok(!forbidden.join('').includes('鲸鱼歌声'));
+    globalThis.__config.value['alemonjs-agent-link'].modules = {
+      settings: { bili: { dailyBrowseTopics: ['恐怖游戏', '海洋'], dailyBrowseExclude: ['恐怖'] } }
+    };
+    const prefs = await runCommand(handler, { key: '主动搭话', args: ['阅读', '偏好'] });
+    assert.match(prefs.join(''), /多看：海洋/);
+    assert.match(prefs.join(''), /避开：恐怖/);
+    assert.ok(!prefs.join('').includes('恐怖游戏'));
   } finally {
     globalThis.fetch = oldFetch;
     globalThis.__config = previous;

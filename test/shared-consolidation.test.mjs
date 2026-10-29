@@ -29,3 +29,36 @@ test('automatic consolidation replays agreement correction cancellation and reje
   assert.equal(store.sharedThreadHistory(scope,'u',original.id).length,3);
  }finally{archive.close();store.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+test('long backlog is drained in bounded batches and concurrent stale extraction cannot duplicate writes',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'shared-backlog-'));const scope={platform:'qq',channelId:'g'};
+ const archive=new ChatArchive(join(dir,'chat.sqlite'));const store=new MemoryStore(join(dir,'memory.sqlite'));
+ try{
+  for(let i=0;i<130;i++) archive.append(scope,{id:String(i),text:i===0?'约定第一件事':i===129?'约定最后一件事':'普通聊天',role:'user',speakerId:'u',speaker:'u'});
+  const seen=[];
+  const ask=async ({sources})=>{seen.push(...sources.map(s=>s.seq));return sources.filter(s=>s.text.startsWith('约定')).map(s=>({text:s.text,state:'agreed',sourceSeqs:[s.seq],evidence:s.text}));};
+  const first=await consolidateSharedDialogue(archive,store,scope,'u',ask);
+  assert.equal(first.hasMore,true);
+  await consolidateSharedDialogue(archive,store,scope,'u',ask);
+  assert.equal(store.sharedThreads(scope,'u').length,2);
+  assert.equal(seen.length,130);
+  archive.append(scope,{id:'new',text:'约定并发事项',role:'user',speakerId:'u',speaker:'u'});
+  let release;const pending=new Promise(resolve=>{release=resolve;});
+  const delayed=consolidateSharedDialogue(archive,store,scope,'u',async input=>{await pending;return ask(input);});
+  const immediate=await consolidateSharedDialogue(archive,store,scope,'u',ask);
+  release();const stale=await delayed;
+  assert.equal(immediate.status,'saved');assert.equal(stale.status,'stale');
+  assert.equal(store.sharedThreads(scope,'u').length,3);
+ }finally{archive.close();store.close();rmSync(dir,{recursive:true,force:true});}
+});
+
+test('batch rollback leaves neither partial items nor an advanced checkpoint',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'shared-rollback-'));const store=new MemoryStore(join(dir,'memory.sqlite'));
+ const scope={platform:'qq',channelId:'g'};store.observe(scope);
+ const source={seq:1,speakerId:'u',speaker:'u',text:'约定事项',timestamp:Date.now()};
+ try{
+  const change={text:'约定事项',state:'agreed',sources:[source]};
+  assert.throws(()=>store.commitSharedBatch(scope,'u',0,1,[change,{...change,id:'missing',expectedRevision:1}],store.state(scope)));
+  assert.equal(store.sharedThreads(scope,'u').length,0);assert.equal(store.sharedCheckpoint(scope,'u'),0);
+ }finally{store.close();rmSync(dir,{recursive:true,force:true});}
+});

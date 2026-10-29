@@ -54,6 +54,7 @@ export const biliOptions = (
   enabled: boolean;
   allowComments: boolean;
   allowProactiveBrowse: boolean;
+  dailyBrowseMaxReads: number;
   dryRun: boolean;
   maxCommentsPerDay: number;
   commentCooldownSeconds: number;
@@ -65,6 +66,7 @@ export const biliOptions = (
   const timeoutMs = settings.timeoutMs ?? 20000;
   const allowComments = settings.allowComments ?? true;
   const allowProactiveBrowse = settings.allowProactiveBrowse ?? true;
+  const dailyBrowseMaxReads = settings.dailyBrowseMaxReads ?? 2;
   const dryRun = settings.dryRun ?? false;
   const maxCommentsPerDay = settings.maxCommentsPerDay ?? 5;
   const commentCooldownSeconds = settings.commentCooldownSeconds ?? 60;
@@ -80,6 +82,9 @@ export const biliOptions = (
     typeof allowComments !== 'boolean' ||
     typeof allowProactiveBrowse !== 'boolean' ||
     (settings.dailyBrowse !== undefined && typeof settings.dailyBrowse !== 'boolean') ||
+    !Number.isInteger(dailyBrowseMaxReads) ||
+    Number(dailyBrowseMaxReads) < 1 ||
+    Number(dailyBrowseMaxReads) > 3 ||
     typeof dryRun !== 'boolean' ||
     !Number.isSafeInteger(maxCommentsPerDay) ||
     Number(maxCommentsPerDay) < 1 ||
@@ -97,6 +102,7 @@ export const biliOptions = (
     timeoutMs: Number(timeoutMs),
     allowComments,
     allowProactiveBrowse,
+    dailyBrowseMaxReads: Number(dailyBrowseMaxReads),
     dryRun,
     maxCommentsPerDay: Number(maxCommentsPerDay),
     commentCooldownSeconds: Number(commentCooldownSeconds)

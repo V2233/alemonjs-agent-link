@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type { DSHBridgeConfig } from '../dsh/client';
-import { rankMemories, rankMemoriesHybrid } from './retrieval';
+import { tokenizeMemory, rankMemories, rankMemoriesHybrid } from './retrieval';
 import type { EmbeddingClient } from './embedding';
 
 export type MemoryScope = { platform: string; channelId: string };
@@ -163,7 +163,17 @@ export class MemoryStore {
     this.db.close();
   }
 
+  private transactionDepth = 0;
   private transaction<T>(run: () => T): T {
+    if (this.transactionDepth > 0) return run();
+    this.transactionDepth++;
+    try {
+      return this.outerTransaction(run);
+    } finally {
+      this.transactionDepth--;
+    }
+  }
+  private outerTransaction<T>(run: () => T): T {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const result = run();
@@ -281,6 +291,25 @@ export class MemoryStore {
       .run(scopeKey(scope), userId, seq);
   }
 
+  commitSharedBatch(
+    scope: MemoryScope,
+    userId: string,
+    expectedCheckpoint: number,
+    through: number,
+    changes: Parameters<MemoryStore['recordSharedThread']>[2][],
+    guard: MemoryGuard
+  ) {
+    return this.transaction(() => {
+      const current = this.state(scope);
+
+      if (current?.epoch !== guard.epoch || current.revision !== guard.revision || this.sharedCheckpoint(scope, userId) !== expectedCheckpoint) return false;
+      for (const change of changes) this.recordSharedThread(scope, userId, change);
+      this.advanceSharedCheckpoint(scope, userId, through);
+
+      return true;
+    });
+  }
+
   sharedThreads(scope: MemoryScope, subjectId: string) {
     return this.db
       .prepare(
@@ -290,6 +319,29 @@ export class MemoryStore {
       )
       .all(scopeKey(scope), subjectId)
       .map(row => JSON.parse(String(row.payload)));
+  }
+
+  recallSharedThreads(scope: MemoryScope, subjectId: string, query: string, limit = 5) {
+    const rows = this.db
+      .prepare('SELECT payload FROM shared_threads WHERE scope=? AND subject_id=? ORDER BY revision DESC LIMIT 10000')
+      .all(scopeKey(scope), subjectId)
+      .map(row => JSON.parse(String(row.payload)));
+    const tokens = new Set(tokenizeMemory(query));
+    const groups = new Map<string, { item: (typeof rows)[number]; score: number }>();
+
+    for (const row of rows) {
+      const entry = groups.get(row.id);
+      const text = `${row.text} ${row.sources.map(source => source.text).join(' ')}`.toLowerCase();
+      const score = [...tokens].reduce((sum, token) => sum + Number(text.includes(token)), 0);
+
+      if (!entry) groups.set(row.id, { item: row, score });
+      else entry.score = Math.max(entry.score, score);
+    }
+
+    return [...groups.values()]
+      .sort((a, b) => b.score - a.score || b.item.updatedAt - a.item.updatedAt)
+      .slice(0, Math.max(1, Math.min(20, limit)))
+      .map(({ item, score }) => ({ ...item, match: score > 0 ? 'topic' : 'recent' }));
   }
 
   sharedThreadHistory(scope: MemoryScope, subjectId: string, id: string) {
@@ -388,7 +440,7 @@ export class MemoryStore {
 
   recordDiary(
     scope: MemoryScope,
-    input: { key: string; subjectId: string; text: string; tags: string[]; sourceReadingId?: string },
+    input: { key: string; subjectId: string; text: string; tags: string[]; sourceReadingId?: string; sourceReadingIds?: string[] },
     guard?: MemoryGuard
   ): boolean {
     return this.recordPersonalEntry(scope, input, 'diary', guard);
@@ -396,7 +448,7 @@ export class MemoryStore {
 
   private recordPersonalEntry(
     scope: MemoryScope,
-    input: { key: string; subjectId: string; text: string; tags: string[]; sourceReadingId?: string },
+    input: { key: string; subjectId: string; text: string; tags: string[]; sourceReadingId?: string; sourceReadingIds?: string[] },
     origin: 'event' | 'diary',
     guard?: MemoryGuard
   ): boolean {
@@ -422,8 +474,11 @@ export class MemoryStore {
       const id = origin === 'event' ? experienceMemoryId(input.key) : hash(JSON.stringify(['diary', input.key])).slice(0, 12);
       const tags = [...input.tags];
 
-      if (origin === 'diary' && input.sourceReadingId) {
-        const parent = this.get(scope, input.sourceReadingId);
+      const readingIds = [...new Set([...(input.sourceReadingIds || []), ...(input.sourceReadingId ? [input.sourceReadingId] : [])])];
+
+      if (readingIds.length > 3) return false;
+      for (const readingId of origin === 'diary' ? readingIds : []) {
+        const parent = this.get(scope, readingId);
 
         if (parent?.status !== 'active' || parent.origin !== 'event' || parent.subjectId !== input.subjectId) return false;
         if (tags.length >= 10 || !/^[a-f0-9]{12}$/u.test(parent.id)) return false;

@@ -7,6 +7,8 @@ export type ReadingDiaryEntry = {
   bvid?: string;
   title?: string;
   sourceReadingId?: string;
+  sourceReadingIds?: string[];
+  readings?: { bvid: string; title: string }[];
   text: string;
 };
 
@@ -32,6 +34,11 @@ export const readingDiary = (items: MemoryItem[], hours: number, now = Date.now(
       const bvid = typeof details?.bvid === 'string' && /^BV[0-9A-Za-z]{10}$/u.test(details.bvid) ? details.bvid : undefined;
       const title = typeof details?.title === 'string' ? details.title.slice(0, 120) : undefined;
       const text = type === 'reflection' && typeof details?.thought === 'string' ? details.thought : item.text;
+      const readings = (Array.isArray(details?.readings) ? details.readings : [])
+        .slice(0, 3)
+        .filter(row => typeof row?.bvid === 'string' && /^BV[0-9A-Za-z]{10}$/u.test(row.bvid))
+        .map(row => ({ bvid: row.bvid, title: typeof row.title === 'string' ? row.title.slice(0, 80) : '' }));
+      const sourceReadingIds = item.tags.filter(tag => /^reading:[a-f0-9]{12}$/u.test(tag)).map(tag => tag.slice(8));
 
       return {
         id: item.id,
@@ -39,7 +46,9 @@ export const readingDiary = (items: MemoryItem[], hours: number, now = Date.now(
         type,
         bvid,
         title,
-        sourceReadingId: item.tags.find(tag => /^reading:[a-f0-9]{12}$/u.test(tag))?.slice(8),
+        sourceReadingId: sourceReadingIds.length === 1 ? sourceReadingIds[0] : undefined,
+        sourceReadingIds,
+        readings,
         text
       };
     })
@@ -54,7 +63,7 @@ export const formatReadingDiary = (entries: ReadingDiaryEntry[], hours: number, 
     const label = item.type === 'reflection' ? '想法' : '阅读';
     const detail = item.type === 'reflection' ? clean(item.text).slice(0, 180) : item.title || clean(item.text).slice(0, 120);
 
-    return `${time} · ${label}\n${detail}${item.bvid ? `\n${item.bvid}` : ''}`;
+    return `${time} · ${label}\n${detail}${item.bvid ? `\n${item.bvid}` : ''}${item.readings?.length ? `\n${item.readings.map(row => `${row.title} ${row.bvid}`).join('；')}` : ''}`;
   });
 
   return `最近 ${hours} 小时 · 展示 ${Math.min(5, entries.length)}/${entries.length} 条\n想法是当时生成的主观表达，不代表已发送。阅读记录不证明看过画面或听过声音。\n\n${lines.join('\n\n')}`;
@@ -69,13 +78,14 @@ export const searchReadingDiary = (entries: ReadingDiaryEntry[], query: string):
 
   return entries
     .map((entry, index) => {
-      const score = normalize(entry.bvid || '').includes(keyword)
-        ? 3
-        : normalize(entry.title || '').includes(keyword)
-          ? 2
-          : normalize(entry.text).includes(keyword)
-            ? 1
-            : 0;
+      const score =
+        normalize(entry.bvid || '').includes(keyword) || entry.readings?.some(row => normalize(row.bvid).includes(keyword))
+          ? 3
+          : normalize(entry.title || '').includes(keyword) || entry.readings?.some(row => normalize(row.title).includes(keyword))
+            ? 2
+            : normalize(entry.text).includes(keyword)
+              ? 1
+              : 0;
 
       return { entry, index, score };
     })

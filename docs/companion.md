@@ -115,3 +115,13 @@ alemonjs-agent-link:
 ---
 
 [← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)
+
+### 共同经历与事项追溯
+
+记忆启用且自动整理打开时，回复前会从当前会话尚未处理的真实归档中整理约定、纠正、取消及有用经历。来源按序号分批处理；模型输出须通过原文、人物和版本检查，事项变更与处理进度一起提交。整理超时或失败不阻止当前回复，未提交部分留待后续重试。
+
+事项保存 discussed（讨论）、agreed（约定）、cancelled（取消）、claimed_done（声称完成）及历史版本。这些状态都不证明外部操作成功。已有业务工具生成的 event 经历可通过 link_shared_execution 关联；主观日记不能作执行证据，关联也不会自动恢复取消的事项。当前适配的执行来源包括 bili_watch 实际取得的视频资料，未读取的画面和声音不会记成看过。
+
+回复前提供当前发言人最近五项事项的简要内容、时间和来源序号；完整证据可用 inspect_shared_thread、read_chat_episode 逐步查阅。没有匹配的近期问答只是备用背景，不能强认与当前问题相关。
+
+可运行 `node scripts/replay-shared-memory.mjs`，使用当前配置的真实模型与临时数据库回放约定、多人隔离、纠正、取消、重建上下文和执行状态追问。它会消耗模型额度，不向 QQ 发送消息；报告写入 `.data/agent-link/validation/shared-memory-replay.json`。该回放不是线上账号发送验收。
