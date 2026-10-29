@@ -1,3 +1,7 @@
+import { readWorkModel, saveWorkModel } from './panel/work-model';
+import { recognizeEndpoint } from './panel/endpoint-recognition';
+import { personaDetailFields } from './companion/persona-details';
+import { getDictionaryStore, type Word } from './dictionary/store';
 import { getPersonaStore } from './companion/personas';
 import { getQAStore } from './qa/store';
 import { poolSnapshot, poolBalances, poolAction, startPoolProbeRun } from './panel/pool-service';
@@ -49,6 +53,16 @@ const success = (ctx: KoaRouter.RouterContext, data: unknown, message = 'ok') =>
   ctx.status = 200;
   ctx.body = { code: 200, message, data };
 };
+
+apiRouter.get('/dictionary', ctx => success(ctx, getDictionaryStore(getDSHConfig()).list()));
+apiRouter.post('/dictionary', ctx => success(ctx, getDictionaryStore(getDSHConfig()).save(ctx.request.body as Partial<Word>)));
+apiRouter.post('/dictionary/delete', ctx => {
+  const body = ctx.request.body as Partial<Word>;
+
+  if (typeof body.id !== 'string' || !Number.isFinite(body.updatedAt)) ctx.throw(400);
+  getDictionaryStore(getDSHConfig()).remove(body.id, body.updatedAt);
+  success(ctx, null);
+});
 
 apiRouter.get('/sessions', ctx => success(ctx, knownSessions()));
 apiRouter.post('/persona-selection', async ctx => {
@@ -120,6 +134,18 @@ apiRouter.post('/knowledge/search', ctx => {
       : store.searchGlobal(body.query)
   );
 });
+apiRouter.post('/persona-preview', async ctx => {
+  const body = ctx.request.body as { platform?: string; channelId?: string; private?: boolean; owner?: boolean };
+  const config = getDSHConfig();
+  const scope = body.platform || body.channelId ? sessionTarget(body) : { platform: 'preview', channelId: 'default' };
+  const store = getPersonaStore(config);
+
+  success(ctx, {
+    id: store.selected(scope) || config.modules?.settings?.persona?.defaultId || config.persona,
+    prompt: await store.systemPrompt(config, { ...scope, private: body.private === true, owner: body.owner === true })
+  });
+});
+apiRouter.get('/persona-detail-fields', ctx => success(ctx, personaDetailFields));
 apiRouter.get('/personas', async ctx => {
   const store = getPersonaStore(getDSHConfig());
   const rows = await store.list();
@@ -129,6 +155,7 @@ apiRouter.get('/personas', async ctx => {
 apiRouter.post('/personas', async ctx => {
   const body = ctx.request.body as import('./companion/personas').PersonaDefinition;
 
+  if (typeof body.revision !== 'string') ctx.throw(400);
   await getPersonaStore(getDSHConfig()).save(body);
   success(ctx, null, '人设已保存');
 });
@@ -162,10 +189,15 @@ apiRouter.post('/pool/action', async ctx => {
 
   success(ctx, await poolAction(body?.id, body?.action));
 });
+apiRouter.post('/pool/recognize', async ctx => {
+  success(ctx, await recognizeEndpoint((ctx.request.body as { text?: unknown })?.text));
+});
 apiRouter.get('/pool/settings', async ctx => success(ctx, await readPoolSettings()));
 apiRouter.post('/pool/settings', async ctx => {
   const result = await updatePoolSettings(ctx.request.body);
 
   success(ctx, result.data, result.message);
 });
+apiRouter.get('/work-model', async ctx => success(ctx, await readWorkModel()));
+apiRouter.post('/work-model', async ctx => success(ctx, await saveWorkModel(ctx.request.body)));
 export default apiRouter;

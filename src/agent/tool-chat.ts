@@ -12,7 +12,7 @@ import { abortFailure } from '../dsh/errors';
 
 type ToolCall = { id: string; type: 'function'; function: { name: string; arguments: string } };
 type ModelMessage = { role: string; content: unknown; reasoning_content?: string; tool_calls?: ToolCall[]; tool_call_id?: string };
-type RequestMeta = { requestId?: string; channelId?: string };
+type RequestMeta = { sensitiveInput?: boolean; requestId?: string; channelId?: string; onRetry?: () => Promise<void> };
 
 export const needsRealtimeLookup = (text: string): boolean => /天气|气温|降雨|下雨|空气质量|新闻|股价|汇率|比分|赛程|实时|最新/u.test(text);
 
@@ -30,7 +30,13 @@ export const requestModelMessage = async (
   let current = credentials;
   const requestStartedAt = Date.now();
   const lastUser = [...messages].reverse().find(message => message.role === 'user');
-  const promptPreview = typeof lastUser?.content === 'string' ? lastUser.content.slice(0, 120) : Array.isArray(lastUser?.content) ? '[structured content]' : '';
+  const promptPreview = meta.sensitiveInput
+    ? '[redacted]'
+    : typeof lastUser?.content === 'string'
+      ? lastUser.content.slice(0, 120)
+      : Array.isArray(lastUser?.content)
+        ? '[structured content]'
+        : '';
   const attempts: Array<{ endpoint: string; model: string; status?: number; error?: string }> = [];
 
   for (;;) {
@@ -147,6 +153,7 @@ export const requestModelMessage = async (
       if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
         throw new Error(`模型请求失败：${endpoint} ${reason}${next ? '' : '，且没有可切换的备用端点'}。`);
       }
+      await meta.onRetry?.();
       current = next;
       continue;
     }
@@ -196,6 +203,7 @@ export const requestModelMessage = async (
         throw new Error(`模型服务返回 HTTP ${status}${detail ? `：${detail}` : ''}。`);
       }
       if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
+      await meta.onRetry?.();
       current = next;
       continue;
     }
@@ -221,6 +229,7 @@ export const requestModelMessage = async (
       const failedEndpoint = current.endpointId;
 
       if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
+      await meta.onRetry?.();
       current = next;
       logger.warn({ endpoint: failedEndpoint, next: current.endpointId, status }, 'Model returned an invalid response; trying next endpoint');
 
@@ -318,6 +327,7 @@ export const runToolChat = async (options: {
   maxContinuations?: number;
   onContent?: (text: string) => Promise<void>;
   onTool?: (name: string) => Promise<void>;
+  onRetry?: () => Promise<void>;
 }): Promise<string> => {
   const { config, credentials, input, context, maxRounds } = options;
   const maxContinuations = options.maxContinuations ?? 2;
@@ -383,7 +393,7 @@ export const runToolChat = async (options: {
         [],
         context.signal,
         undefined,
-        { requestId: context.requestId, channelId: context.channelId }
+        { requestId: context.requestId, channelId: context.channelId, onRetry: options.onRetry }
       );
 
       context.signal.throwIfAborted();
@@ -414,7 +424,8 @@ export const runToolChat = async (options: {
       try {
         response = await requestModelMessage(config, credentials, messages, tools, context.signal, options.onContent, {
           requestId: context.requestId,
-          channelId: context.channelId
+          channelId: context.channelId,
+          onRetry: options.onRetry
         });
       } catch (error) {
         const failure = abortFailure(error, context.signal);

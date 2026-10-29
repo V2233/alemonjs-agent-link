@@ -1,3 +1,4 @@
+import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { endpointObservation } from './pool-observation';
 import { readReplyGateStatistics } from '../social/reply-gate-statistics';
@@ -33,7 +34,7 @@ const diagnosticPool = () => {
 
   if (diagnostics?.fingerprint !== fingerprint) {
     diagnostics?.pool.stop();
-    diagnostics = { fingerprint, pool: new CredentialPool(config) };
+    diagnostics = { fingerprint, pool: new CredentialPool(config, Date.now, join(dirname(getDSHConfig().dshHomeRoot), 'model-pool-metrics.json'), true) };
   }
 
   return diagnostics.pool;

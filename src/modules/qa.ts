@@ -95,7 +95,7 @@ export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
       if (question.length < 2 || answer.length < 6 || answer.length > 1200) {
         return;
       }
-      if (/(服务暂时不可用|模型服务暂时不可用|请稍后再试|回复因内容安全策略未发送|\[沉默\])/u.test(answer)) {
+      if (/(糟糕，网线断了|服务暂时不可用|模型服务暂时不可用|请稍后再试|回复因内容安全策略未发送|\[沉默\])/u.test(answer)) {
         return;
       }
       try {

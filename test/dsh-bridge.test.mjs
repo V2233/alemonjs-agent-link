@@ -117,8 +117,8 @@ test('maps DSH HTTP and protocol failures to safe user messages', async () => {
   );
   globalThis.fetch = originalFetch;
 
-  assert.equal(toUserMessage(new DSHError('auth', 'x')), '模型认证失败，请联系主人检查密钥。');
-  assert.equal(toUserMessage(new DSHError('network', 'x')), '暂时无法连接服务，请稍后重试。');
+  assert.equal(toUserMessage(new DSHError('auth', 'x')), '糟糕，网线断了。');
+  assert.equal(toUserMessage(new DSHError('network', 'x')), '糟糕，网线断了。');
 });
 
 test('clears an encoded group session through the DSH API', async () => {

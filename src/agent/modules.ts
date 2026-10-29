@@ -1,3 +1,4 @@
+import { dictionaryModule } from '../modules/dictionary';
 import { filesModule } from '../modules/files';
 import { exposeModule } from '../modules/expose';
 import { createHash, randomUUID } from 'node:crypto';
@@ -254,7 +255,8 @@ export class ModuleRuntime {
       qzoneModule(config),
       memoryModule(config),
       chatHistoryModule(config),
-      qaModule(config)
+      qaModule(config),
+      dictionaryModule(config)
     ]
   ) {}
 

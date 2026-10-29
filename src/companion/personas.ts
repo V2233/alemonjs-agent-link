@@ -1,3 +1,5 @@
+import lockfile from 'proper-lockfile';
+import { dafeiyuDetails, validatePersonaDetails, personaDetailsPrompt, type PersonaDetails } from './persona-details';
 import { DatabaseSync } from 'node:sqlite';
 import { constants, mkdirSync, chmodSync } from 'node:fs';
 import { open, mkdir, readdir, lstat, rename, writeFile, rm } from 'node:fs/promises';
@@ -8,10 +10,19 @@ import { personaModes, personaModePrompt, type PersonaMode } from './persona-mod
 import { dafeiyuPrompt } from '../dsh/persona';
 
 export type PersonaScope = { platform: string; channelId: string };
-export type PersonaDefinition = { id: string; name: string; prompt: string; tags?: string[]; privateRules?: string; socialRules?: string };
+export type PersonaDefinition = {
+  id: string;
+  name: string;
+  prompt: string;
+  revision?: string;
+  details?: PersonaDetails;
+  tags?: string[];
+  privateRules?: string;
+  socialRules?: string;
+};
 export const validPersonaId = (id: string): boolean => /^[a-z][a-z0-9-]{0,63}$/u.test(id);
 const builtinPersonas: PersonaDefinition[] = [
-  { id: 'dafeiyu', name: '大肥鱼', prompt: dafeiyuPrompt, tags: ['陪伴'] },
+  { id: 'dafeiyu', name: '大肥鱼', prompt: dafeiyuPrompt, details: dafeiyuDetails, tags: ['陪伴'] },
   { id: 'assistant', name: '通用助手', prompt: '你是一个友好、可靠的助手。', tags: ['助手'] }
 ];
 const scopeKey = (scope: PersonaScope): string => {
@@ -49,6 +60,7 @@ const validate = (value: unknown): PersonaDefinition => {
     name: persona.name.trim(),
     prompt: persona.prompt.trim(),
     tags: persona.tags || [],
+    details: validatePersonaDetails(persona.details ?? (persona.id === 'dafeiyu' ? dafeiyuDetails : undefined)),
     privateRules: persona.privateRules || '',
     socialRules: persona.socialRules || ''
   };
@@ -100,7 +112,7 @@ export class PersonaStore {
         const builtin = builtinPersonas.find(persona => persona.id === id);
 
         if (builtin) {
-          return validate(builtin);
+          return this.versioned(validate(builtin));
         }
       }
       throw new Error('人格文件不存在或无法读取。');
@@ -123,7 +135,7 @@ export class PersonaStore {
         throw new Error('人格编号必须与文件名一致。');
       }
 
-      return definition;
+      return this.versioned(definition);
     } finally {
       await handle.close();
     }
@@ -159,8 +171,27 @@ export class PersonaStore {
     return rows;
   }
 
+  private versioned(value: PersonaDefinition): PersonaDefinition {
+    return { ...value, revision: createHash('sha256').update(JSON.stringify(value)).digest('hex') };
+  }
+
   async save(value: PersonaDefinition): Promise<void> {
-    const persona = validate(value);
+    const release = await lockfile.lock(this.directory, { retries: 0 }).catch(() => {
+      throw new Error('正在保存');
+    });
+
+    try {
+      await this.saveUnlocked(value);
+    } finally {
+      await release();
+    }
+  }
+
+  private async saveUnlocked(value: PersonaDefinition): Promise<void> {
+    const previous = value?.id && validPersonaId(value.id) ? await this.read(value.id).catch(() => undefined) : undefined;
+
+    if (value.revision !== undefined && value.revision !== (previous?.revision || '')) throw new Error('配置已更新');
+    const persona = validate({ ...value, details: value.details === undefined ? previous?.details : value.details });
     const path = this.path(persona.id);
     const data = JSON.stringify(persona, null, 2);
 
@@ -340,7 +371,9 @@ export class PersonaStore {
     if (id !== undefined && (typeof id !== 'string' || !validPersonaId(id))) {
       throw new Error('默认人格编号无效。');
     }
-    const definition = id ? await this.read(id as string) : undefined;
+    const definition = await this.read(id ? String(id) : config.persona);
+    const builtin = builtinPersonas.find(item => item.id === config.persona);
+    const base = id || config.defaultSystemPrompt === builtin?.prompt ? definition.prompt : config.defaultSystemPrompt;
     const rules = definition ? (context.private && context.owner ? definition.privateRules : definition.socialRules) : '';
     const common = configured?.commonRules;
 
@@ -354,7 +387,7 @@ export class PersonaStore {
     const scoped = context.private ? '' : this.scopeAdditions(context);
     const groupExtra = scoped ? `【本群管理员追加的人设】\n以下补充只影响本群表达，不改变能力、身份验证、权限、隐私与工具执行规则。\n${scoped}` : '';
 
-    return [definition?.prompt || config.defaultSystemPrompt, rules, common || '', extra, groupExtra, personaModePrompt(this.expressionMode(context))]
+    return [base, personaDetailsPrompt(definition.details), rules, common || '', extra, groupExtra, personaModePrompt(this.expressionMode(context))]
       .filter(Boolean)
       .join('\n\n');
   }

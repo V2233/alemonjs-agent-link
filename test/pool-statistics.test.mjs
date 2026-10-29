@@ -106,3 +106,23 @@ test('HTTP 200 with invalid model content is a failure rather than a success',as
    assert.equal(pool.status[0].lastRequest.reason,'invalid-response');
  }finally{globalThis.fetch=previous;pool.stop();}
 });
+
+test('stop flushes before reload, removed IDs survive, and diagnostics cannot overwrite metrics', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pool-retention-'));
+  const path = join(directory, 'nested', 'metrics.json');
+  const make = ids => parseModelPool({probeIntervalSeconds: 0, endpoints: ids.map(id => ({id, apiKey:'test-key', model:'test'}))}, {provider:'test', baseUrl:'https://example.com', model:'test'});
+  try {
+    const first = new CredentialPool(make(['one']), Date.now, path);
+    first.select().report({ok:true});
+    first.stop();
+    const diagnostic = new CredentialPool(make(['one']), Date.now, path, true);
+    assert.equal(diagnostic.status[0].totalCalls, 1);
+    const second = new CredentialPool(make(['two']), Date.now, path);
+    second.select().report({ok:true});
+    second.stop();
+    diagnostic.stop();
+    const restored = new CredentialPool(make(['one', 'two']), Date.now, path);
+    assert.deepEqual(restored.status.map(row => row.totalCalls), [1,1]);
+    restored.stop();
+  } finally { await rm(directory, {recursive:true, force:true}); }
+});

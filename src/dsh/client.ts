@@ -21,6 +21,7 @@ const toCapabilities = (value: AgentCapabilities): AgentCapabilities => ({
 export type DSHStreamEvent =
   | { type: 'content'; content: string }
   | { type: 'done' }
+  | { type: 'retrying' }
   | { type: 'tool_call'; tool?: string; args?: unknown }
   | { type: 'error'; message?: string }
   | { type: 'personal_key_exhausted' }
@@ -307,10 +308,10 @@ export const toUserMessage = (error: unknown): string => {
     const message = error instanceof Error ? error.message : '';
 
     if (/模型服务|模型响应|模型未返回|模型请求重试超时/u.test(message)) {
-      return '模型服务暂时不可用；已尝试切换节点，请联系主人查看日志。';
+      return '糟糕，网线断了。';
     }
 
-    return '服务暂时不可用，请稍后再试。';
+    return '糟糕，网线断了。';
   }
 
   // 服务诊断保留在错误和日志中，气泡只给出可操作的提示。
@@ -343,13 +344,13 @@ export const toUserMessage = (error: unknown): string => {
     budget: '今日额度不足，可联系主人调整，或等北京时间零点重置。',
     media: '媒体处理失败，请改用文字。',
     delivery: '回复发送失败，请稍后重试。',
-    auth: '模型认证失败，请联系主人检查密钥。',
-    http: '服务暂不可用，请稍后重试。',
-    network: '暂时无法连接服务，请稍后重试。',
-    timeout: '回复超时，请稍后重试。',
+    auth: '糟糕，网线断了。',
+    http: '糟糕，网线断了。',
+    network: '糟糕，网线断了。',
+    timeout: '糟糕，网线断了。',
     cancelled: '本次回复已取消。',
-    protocol: '服务响应异常，请联系主人。',
-    agent: '本次处理失败；仍无法使用时，请联系主人检查。',
+    protocol: '糟糕，网线断了。',
+    agent: '糟糕，网线断了。',
     migration: '会话正在初始化，请稍后重试。'
   };
 

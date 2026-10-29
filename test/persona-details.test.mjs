@@ -1,0 +1,44 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PersonaStore } from '../lib/companion/personas.js';
+import { personaDetailFields } from '../lib/companion/persona-details.js';
+test('details supplement base and additions, survive legacy writes and default selection', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'persona-details-'));
+  const store = new PersonaStore(root);
+  try {
+    const builtin = await store.read('dafeiyu');
+    assert.equal(Object.keys(builtin.details).length, 22);
+    assert.equal(personaDetailFields.length, 22);
+    await store.save({ ...builtin, details: { 姓名: '肥鱼', 爱好: '收集奇怪键帽' } });
+    const { details, ...legacy } = await store.read('dafeiyu');
+    await store.save(legacy);
+    assert.deepEqual((await store.read('dafeiyu')).details, details);
+    store.append('dafeiyu', '喜欢冷笑话');
+    const config = { persona: 'dafeiyu', defaultSystemPrompt: '保留自定义基础' };
+    const context = { platform: 'qq', channelId: 'a', private: false, owner: false };
+    const prompt = await store.systemPrompt(config, context);
+    assert.ok(prompt.startsWith('保留自定义基础'));
+    assert.match(prompt, /收集奇怪键帽/);
+    assert.match(prompt, /喜欢冷笑话/);
+    await store.select(context, 'dafeiyu');
+    assert.ok((await store.systemPrompt(config, context)).startsWith(builtin.prompt));
+    await assert.rejects(store.save({ ...(await store.read('dafeiyu')), details: { 爱好: 123 } }), /细节/);
+    await assert.rejects(store.save({ ...(await store.read('dafeiyu')), details: { 未知字段: 'x' } }), /细节/);
+    await store.save({ ...(await store.read('dafeiyu')), details: {} });
+    assert.deepEqual((await store.read('dafeiyu')).details, {});
+    await assert.rejects(store.save(builtin), /配置已更新/);
+    await store.select(context);
+    const current = await store.read('dafeiyu');
+    await store.save({ ...current, prompt: '新基础', socialRules: '群聊专用', privateRules: '私聊专用' });
+    const defaultConfig = { persona: 'dafeiyu', defaultSystemPrompt: builtin.prompt };
+    assert.match(await store.systemPrompt(defaultConfig, context), /^新基础[\s\S]*群聊专用/);
+    assert.match(await store.systemPrompt(defaultConfig, { ...context, private: true, owner: true }), /^新基础[\s\S]*私聊专用/);
+    assert.match(await store.systemPrompt(config, context), /^保留自定义基础/);
+    const latest = await store.read('dafeiyu');
+    const results = await Promise.allSettled([store.save({ ...latest, name: '甲' }), store.save({ ...latest, name: '乙' })]);
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});

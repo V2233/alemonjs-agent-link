@@ -223,7 +223,7 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
               })();
       } catch (error) {
         pendingAttempt(false);
-        current.report?.({ ok: false });
+        current.report?.({ ok: false, errorKind: error instanceof BudgetExceededError ? 'local-budget' : signal.aborted ? 'cancelled' : 'network' });
         if (error instanceof BudgetExceededError) throw error;
         signal.throwIfAborted();
         const next = current.next?.();
@@ -256,11 +256,13 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
       }
       const result = JSON.parse((await readBounded(response, 16384)).toString('utf8'));
 
-      current.report?.({ ok: true, status: response.status, headers: response.headers });
       current.reportUsage?.(result?.usage || {});
       const content = result?.choices?.[0]?.message?.content;
 
-      pendingAttempt(typeof content === 'string');
+      const valid = typeof content === 'string';
+
+      current.report?.({ ok: valid, status: response.status, headers: response.headers, ...(valid ? {} : { errorKind: 'invalid-response' }) });
+      pendingAttempt(valid);
 
       return typeof content === 'string' ? parseReplyVerdict(content) : reject();
     }

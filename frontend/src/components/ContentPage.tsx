@@ -1,11 +1,13 @@
 import { useUnsavedNavigation } from './useUnsavedNavigation';
 import { useEffect, useState } from 'react';
-import { App, Alert, Button, Drawer, Form, Input, Layout, Space, Select, Table, Tag, Typography } from 'antd';
+import { App, Alert, Button, Collapse, Drawer, Form, Input, Layout, Space, Select, Table, Tag, Typography } from 'antd';
 
 type Entry = {
   id: string;
+  revision?: string;
   name?: string;
   prompt?: string;
+  details?: Record<string, string>;
   privateRules?: string;
   socialRules?: string;
   additions?: string;
@@ -22,8 +24,18 @@ type Entry = {
   scope?: string;
   kind?: string;
 };
+const detailHints: Record<string, string> = {
+  情绪机制: '触发点 → 外在表现 → 持续多久 → 如何恢复；分别描述开心、生气和低落',
+  语言指纹: '句式、语气词、常用与禁用表达；对新人、熟人和认真求助分别怎样说',
+  关系网络: '重要对象、关系定位、亲疏边界；区分虚构背景与真实互动',
+  作息表: '注明时区，按时间段写精神状态和表达习惯；不作为自动执行计划',
+  欲望与恐惧: '最想得到什么、害怕失去什么、两者冲突时怎样选择',
+  缺陷与成长弧: '当前缺点、容易犯的错、改变的契机与仍然保留的小毛病'
+};
 type Session = { platform: string; channelId: string; personaId?: string; effectivePersonaId: string; mode: string };
 export default function ContentPage({ kind }: { kind: 'personas' | 'knowledge' }) {
+  const [preview, setPreview] = useState('');
+  const [detailFields, setDetailFields] = useState<string[]>([]);
   const persona = kind === 'personas';
   const { message, modal } = App.useApp();
   const [rows, setRows] = useState<Entry[]>([]);
@@ -88,7 +100,10 @@ export default function ContentPage({ kind }: { kind: 'personas' | 'knowledge' }
       setRows(result.data);
       setAppliedScope({ platform, channelId });
       setMatches(undefined);
-      if (persona) setMode((await call('persona-style')).mode);
+      if (persona) {
+        setMode((await call('persona-style')).mode);
+        setDetailFields(await call('persona-detail-fields'));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '读取失败');
     } finally {
@@ -221,6 +236,40 @@ export default function ContentPage({ kind }: { kind: 'personas' | 'knowledge' }
         </Space>
       )}
       {error && <Alert type='error' showIcon title={error} style={{ marginBottom: 16 }} />}
+      {persona && (
+        <Space style={{ marginBottom: 16 }} wrap>
+          <Button
+            disabled={busy}
+            onClick={async () => {
+              try {
+                const result = await call('persona-preview', { platform, channelId });
+                setPreview(result.prompt);
+              } catch (e) {
+                message.error(String(e));
+              }
+            }}
+          >
+            预览已保存的群聊设定
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={async () => {
+              try {
+                const result = await call('persona-preview', { platform, channelId, private: true, owner: true });
+                setPreview(result.prompt);
+              } catch (e) {
+                message.error(String(e));
+              }
+            }}
+          >
+            预览已保存的主人私聊设定
+          </Button>
+          <Typography.Text type='secondary'>按所选会话或默认人设合并；不包含未保存修改。</Typography.Text>
+        </Space>
+      )}
+      <Drawer title='最终人设预览' open={Boolean(preview)} onClose={() => setPreview('')} size={720}>
+        <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{preview}</Typography.Paragraph>
+      </Drawer>
       <Table<Entry>
         rowKey='id'
         loading={busy}
@@ -271,6 +320,7 @@ export default function ContentPage({ kind }: { kind: 'personas' | 'knowledge' }
         title={persona ? (selected ? '编辑人设' : '创建人设') : selected ? '编辑问答' : '添加问答'}
         open={open}
         onClose={async () => {
+          if (busy) return;
           if ((editingDirty || appendText) && !(await modal.confirm({ title: '放弃未保存的修改？' }))) return;
           setOpen(false);
         }}
@@ -282,6 +332,14 @@ export default function ContentPage({ kind }: { kind: 'personas' | 'knowledge' }
             onClick={async () => {
               try {
                 const values = await form.validateFields();
+                if (persona && appendText.trim()) {
+                  message.warning('请先点击“追加”保存追加设定，再保存人物档案。');
+                  return;
+                }
+                if (persona && Object.values(values.details || {}).join('').length > 10000) {
+                  message.error('人物细节累计不能超过10000字');
+                  return;
+                }
                 setBusy(true);
                 if (!persona && selected) {
                   await call('knowledge/edit', {
@@ -296,7 +354,11 @@ export default function ContentPage({ kind }: { kind: 'personas' | 'knowledge' }
                     action: 'save'
                   });
                 } else {
-                  await request(persona ? { ...selected, ...values } : { ...values, scope: appliedScope.platform ? 'session' : 'global', ...appliedScope });
+                  await request(
+                    persona
+                      ? { revision: selected?.revision || '', ...selected, ...values }
+                      : { ...values, scope: appliedScope.platform ? 'session' : 'global', ...appliedScope }
+                  );
                 }
                 message.success('已保存');
                 setOpen(false);
@@ -315,7 +377,7 @@ export default function ContentPage({ kind }: { kind: 'personas' | 'knowledge' }
           </Button>
         }
       >
-        <Form form={form} onValuesChange={() => setEditingDirty(true)} layout='vertical'>
+        <Form disabled={busy} form={form} onValuesChange={() => setEditingDirty(true)} layout='vertical'>
           {persona ? (
             <>
               <Form.Item name='id' label='编号' rules={[{ required: true }, { pattern: /^[a-z][a-z0-9-]{0,63}$/, message: '使用小写字母开头的编号' }]}>
@@ -324,9 +386,30 @@ export default function ContentPage({ kind }: { kind: 'personas' | 'knowledge' }
               <Form.Item name='name' label='名称' rules={[{ required: true, max: 40 }]}>
                 <Input />
               </Form.Item>
-              <Form.Item name='prompt' label='角色设定' rules={[{ required: true, max: 12000 }]}>
+              <Form.Item name='prompt' label='基础角色设定（保留）' rules={[{ required: true, max: 12000 }]}>
                 <Input.TextArea autoSize={{ minRows: 8 }} />
               </Form.Item>
+              <Alert type='info' title='人物细节是补充，不替代基础设定和追加设定。留空会沿用基础设定；作息仅用于人物表达。' style={{ marginBottom: 16 }} />
+              <Collapse
+                style={{ marginBottom: 16 }}
+                items={[
+                  {
+                    key: 'details',
+                    label: '人物档案 · 生活与性格细节（累计最多10000字）',
+                    forceRender: true,
+                    children: detailFields.map(field => (
+                      <Form.Item key={field} name={['details', field]} label={field} rules={[{ max: 1200 }]}>
+                        <Input.TextArea
+                          autoSize={{ minRows: 2, maxRows: 8 }}
+                          maxLength={1200}
+                          showCount
+                          placeholder={detailHints[field] || `补充${field}，不填写则保留基础设定`}
+                        />
+                      </Form.Item>
+                    ))
+                  }
+                ]}
+              />
               <Form.Item name='privateRules' label='私聊规则'>
                 <Input.TextArea rows={3} />
               </Form.Item>

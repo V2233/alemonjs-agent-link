@@ -210,6 +210,7 @@ const runModuleTurnInner = async (options: {
               await onEvent({ type: 'content', content });
             }
           : undefined,
+        onRetry: () => onEvent({ type: 'retrying' }),
         onTool: async name => {
           await onEvent({ type: 'tool_call', tool: name });
         }

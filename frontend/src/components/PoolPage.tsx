@@ -16,6 +16,7 @@ import {
   Input,
   InputNumber,
   Layout,
+  Modal,
   Row,
   Select,
   Space,
@@ -138,6 +139,8 @@ export default function PoolPage() {
   const [balances, setBalances] = useState<Record<string, Balance>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [recognizing, setRecognizing] = useState(false);
+  const [recognitionText, setRecognitionText] = useState('');
   const [filter, setFilter] = useState('');
   const [drawer, setDrawer] = useState<'endpoint' | 'rules' | 'budget'>();
   const [editor, setEditor] = useState<ConfigSnapshot>();
@@ -163,7 +166,7 @@ export default function PoolPage() {
         method: body ? 'POST' : 'GET',
         headers: { 'Content-Type': 'application/json' },
         ...(body ? { body: JSON.stringify(body) } : {}),
-        signal: AbortSignal.timeout(20000)
+        signal: AbortSignal.timeout(40000)
       });
     } catch {
       throw new Error('连接失败或请求超时，请刷新核对操作结果');
@@ -320,6 +323,9 @@ export default function PoolPage() {
           <Button type='primary' icon={<PlusOutlined />} disabled={busy} onClick={() => run(() => open('endpoint'))}>
             新增端点
           </Button>
+          <Button disabled={busy} onClick={() => setRecognizing(true)}>
+            智能识别
+          </Button>
           <Button icon={<ReloadOutlined />} aria-label='刷新轮转状态' disabled={busy} onClick={() => run(refresh)} />
         </Space>
       </Flex>
@@ -330,7 +336,7 @@ export default function PoolPage() {
         </Typography.Paragraph>
       )}
       <Typography.Paragraph type='secondary' style={{ fontSize: 12 }}>
-        当前轮转服务累计统计；重试单独计次，成功率按已完成调用计算，不含测活、额度查询及沙箱独立统计。
+        按端点 ID 累计统计，更换 Key 沿用原 ID 的历史；包含发送前拦截。重试单独计次，成功率按已完成调用计算，不含测活、额度查询及沙箱独立统计。
       </Typography.Paragraph>
       <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
         {[
@@ -352,11 +358,11 @@ export default function PoolPage() {
       <Card title='回复门控调用' style={{ marginBottom: 20 }}>
         <Space wrap size='large'>
           <Typography.Text>
-            总调用：<strong>{data?.replyGateStatistics?.total ?? 0}</strong>
+            尝试数：<strong>{data?.replyGateStatistics?.total ?? 0}</strong>
           </Typography.Text>
           <Typography.Text type='success'>成功：{data?.replyGateStatistics?.success ?? 0}</Typography.Text>
           <Typography.Text type='danger'>失败：{data?.replyGateStatistics?.failed ?? 0}</Typography.Text>
-          <Typography.Text type='secondary'>池内、独立门控配置及自带 Key 的请求均计入</Typography.Text>
+          <Typography.Text type='secondary'>包含池内、独立配置与自带 Key；成功表示响应有效，不代表允许回复</Typography.Text>
         </Space>
       </Card>
       <Card
@@ -579,13 +585,13 @@ export default function PoolPage() {
               }
             },
             {
-              title: '回复门控统计',
+              title: '其中：门控尝试',
               width: 150,
               render: (_, row) => {
                 const stat = row.purposeStatistics?.replyGate;
                 return (
                   <Space orientation='vertical' size={0}>
-                    <span>总调用 {stat?.total ?? 0}</span>
+                    <span>尝试数 {stat?.total ?? 0}</span>
                     <Typography.Text type='success'>成功 {stat?.success ?? 0}</Typography.Text>
                     <Typography.Text type={stat?.failed ? 'danger' : 'secondary'}>失败 {stat?.failed ?? 0}</Typography.Text>
                   </Space>
@@ -593,11 +599,14 @@ export default function PoolPage() {
               }
             },
             {
-              title: '调用统计',
+              title: '全部尝试（含门控）',
               width: 170,
               render: (_, row) => (
                 <Space orientation='vertical' size={0}>
-                  <span>总调用 {row.totalCalls ?? 0}</span>
+                  <span>尝试数 {row.totalCalls ?? 0}</span>
+                  <Typography.Text type='secondary'>
+                    未结算 {Math.max(0, (row.totalCalls ?? 0) - (row.successfulCalls ?? 0) - (row.failedCalls ?? 0))}
+                  </Typography.Text>
                   <Typography.Text type='success'>成功 {row.successfulCalls ?? 0}</Typography.Text>
                   <Typography.Text type={row.failedCalls ? 'danger' : 'secondary'}>失败 {row.failedCalls ?? 0}</Typography.Text>
                   <Typography.Text type='secondary'>
@@ -715,6 +724,38 @@ export default function PoolPage() {
           </Card>
         </Col>
       </Row>
+      <Modal
+        title='智能识别端点'
+        open={recognizing}
+        confirmLoading={busy}
+        okText='识别并填写'
+        cancelText='取消'
+        onCancel={() => {
+          if (!busy) setRecognizing(false);
+        }}
+        onOk={() =>
+          run(async () => {
+            const result = await request('pool/recognize', { text: recognitionText });
+            await open('endpoint');
+            form.setFieldsValue(result.data);
+            setDirty(true);
+            setRecognizing(false);
+            setRecognitionText('');
+            message.success('已填写识别结果，请核对并补全后保存');
+          })
+        }
+      >
+        <Alert type='info' showIcon title='文本会发送给已配置的工作模型，可能包含 API Key。识别后请核对配置，再保存新增。' style={{ marginBottom: 16 }} />
+        <Input.TextArea
+          aria-label='待识别的端点资料'
+          rows={8}
+          maxLength={20000}
+          showCount
+          value={recognitionText}
+          onChange={event => setRecognitionText(event.target.value)}
+          placeholder='粘贴供应商提供的地址、Key、模型名称或配置说明'
+        />
+      </Modal>
       <Drawer
         title={drawer === 'endpoint' ? (editingId ? '编辑端点' : '新增端点') : drawer === 'rules' ? '轮转规则' : '本地额度保护'}
         open={Boolean(drawer)}

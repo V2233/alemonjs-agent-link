@@ -1,7 +1,6 @@
 import { requestReason, type RequestResult } from '../model-pool/request-result';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { rename, writeFile } from 'node:fs/promises';
+import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { logger } from 'alemonjs';
 import { fetchPoolBalances } from '../model-pool/balance';
@@ -196,7 +195,8 @@ export class CredentialPool {
   constructor(
     readonly config: ModelPoolConfig,
     private readonly now: () => number = Date.now,
-    metricsPath?: string
+    metricsPath?: string,
+    private readonly metricsReadOnly = false
   ) {
     this.metricsPath = metricsPath;
     this.states = config.endpoints.map(endpoint => ({
@@ -303,7 +303,7 @@ export class CredentialPool {
   }
 
   private schedulePersist(): void {
-    if (!this.metricsPath || this.persistTimer) return;
+    if (this.metricsReadOnly || !this.metricsPath || this.persistTimer) return;
     this.persistTimer = setTimeout(() => {
       this.persistTimer = undefined;
       void this.persistMetrics();
@@ -311,8 +311,8 @@ export class CredentialPool {
     this.persistTimer.unref?.();
   }
 
-  private async persistMetrics(): Promise<void> {
-    if (!this.metricsPath || this.persisting) return;
+  private persistMetrics(): void {
+    if (this.metricsReadOnly || !this.metricsPath || this.persisting) return;
     this.persisting = true;
     const payload: Record<
       string,
@@ -332,6 +332,12 @@ export class CredentialPool {
       }
     > = {};
 
+    // Retain historical IDs when endpoints are temporarily removed.
+    try {
+      Object.assign(payload, JSON.parse(readFileSync(this.metricsPath, 'utf8')));
+    } catch {
+      // The first write may have no existing file.
+    }
     for (const state of this.states) {
       this.ensureDaily(state);
       payload[state.endpoint.id] = {
@@ -352,10 +358,11 @@ export class CredentialPool {
     const temp = join(dirname(this.metricsPath), `.${process.pid}.${Date.now()}.metrics.tmp`);
 
     try {
-      await writeFile(temp, JSON.stringify(payload), { mode: 0o600 });
-      await rename(temp, this.metricsPath);
+      mkdirSync(dirname(this.metricsPath), { recursive: true, mode: 0o700 });
+      writeFileSync(temp, JSON.stringify(payload), { mode: 0o600 });
+      renameSync(temp, this.metricsPath);
     } catch {
-      // Metrics are best effort; selection must continue if the disk is unavailable.
+      logger.warn('[agent-link] 调用统计保存失败，重启后可能丢失本次统计');
     } finally {
       this.persisting = false;
     }

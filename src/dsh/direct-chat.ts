@@ -92,6 +92,7 @@ export const directChat = async (
       const next = current.next?.();
 
       if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) throw error;
+      await onEvent({ type: 'retrying' });
       current = next;
       continue;
     }
@@ -115,6 +116,7 @@ export const directChat = async (
         throw new Error(`模型服务返回 HTTP ${status}${detail ? `：${detail}` : ''}。`);
       }
       if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
+      await onEvent({ type: 'retrying' });
       current = next;
       continue;
     }

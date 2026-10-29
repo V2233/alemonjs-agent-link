@@ -9,7 +9,13 @@ export default function AdminLayout() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const titles: Record<string, string> = { '/personas': '人设', '/knowledge': '知识库', '/rotation': '额度轮转' };
+  const titles: Record<string, string> = {
+    '/personas': '人设',
+    '/knowledge': '知识库',
+    '/dictionary': '热词词典',
+    '/rotation': '额度轮转',
+    '/work-model': '工作模型'
+  };
   const menu = (
     <Menu
       mode='inline'
@@ -17,6 +23,8 @@ export default function AdminLayout() {
       items={[
         { key: '/personas', label: '人设' },
         { key: '/knowledge', label: '知识库' },
+        { key: '/dictionary', label: '热词词典' },
+        { key: '/work-model', label: '工作模型', icon: <RobotOutlined /> },
         { key: '/rotation', label: '额度轮转', icon: <SwapOutlined /> }
       ]}
       onClick={({ key }) => {
