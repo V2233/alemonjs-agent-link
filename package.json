@@ -36,7 +36,7 @@
     "view": "npx lvy dev --jsxp",
     "build": "lvy build",
     "install-fe": "yarn --cwd frontend install",
-    "build[-fe": "yarn --cwd frontend build",
+    "build-fe": "yarn --cwd frontend build",
     "bundle": "yarn install-fe && yarn build-fe && yarn install && yarn build",
     "test": "npx lvy build && npx eslint src && node --test --test-force-exit test/*.test.mjs && python3 -m unittest scripts/test_dsh_bridge.py scripts/test_dsh_worker.py",
     "eslint": "eslint src --fix",

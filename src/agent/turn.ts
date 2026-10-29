@@ -1,4 +1,5 @@
 import { assertAIEnabled } from '../dsh/ai-switch';
+import { bufferUnavailableMemorySave, resolveUnavailableMemoryEcho } from '../memory/save-reply';
 import { startFrameworkMcp } from '../platform/mcp';
 import { withToolUsePolicy } from './tool-use-policy';
 import { drawingTool } from '../media/drawing';
@@ -116,9 +117,11 @@ const runModuleTurnInner = async (options: {
     // DSH may project images to text placeholders based on its model catalog.
     // Send current-turn image bytes directly through the multimodal tool loop.
     const hasImages = Array.isArray(input) && input.some(block => block.type === 'image');
+    const unavailableMemorySave = bufferUnavailableMemorySave(context.private, context.userText, tools);
 
     if (
       context.autonomous ||
+      unavailableMemorySave ||
       tools.length ||
       lease.transformsReplies ||
       (lease.transformsSystem && personaPrompt !== config.defaultSystemPrompt) ||
@@ -194,7 +197,7 @@ const runModuleTurnInner = async (options: {
         tools.push(workspaceTool);
       }
       const registry = new SessionRegistry(config);
-      const incremental = options.streamContent && !lease.transformsReplies && !config.outputBlockedKeywords.length;
+      const incremental = options.streamContent && !lease.transformsReplies && !config.outputBlockedKeywords.length && !unavailableMemorySave;
       const raw = await runToolChat({
         config: { ...config, defaultSystemPrompt: systemPrompt },
         credentials,
@@ -215,7 +218,8 @@ const runModuleTurnInner = async (options: {
           await onEvent({ type: 'tool_call', tool: name });
         }
       });
-      const transformed = await lease.reply(raw, context);
+      const moduleReply = await lease.reply(raw, context);
+      const transformed = unavailableMemorySave ? resolveUnavailableMemoryEcho(moduleReply, context.userText) : moduleReply;
 
       answer = config.outputBlockedKeywords.some(word => word && transformed.includes(word))
         ? context.autonomous

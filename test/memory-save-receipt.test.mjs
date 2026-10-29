@@ -101,3 +101,66 @@ test('save receipts match actual persisted records, existing records and a full 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('an unavailable save request buffers streaming and replaces only a plain request echo', async () => {
+  const { bufferUnavailableMemorySave, resolveUnavailableMemoryEcho } = await import('../lib/memory/save-reply.js');
+  assert.equal(bufferUnavailableMemorySave(true, '请记住我喜欢茶', []), true);
+  assert.equal(bufferUnavailableMemorySave(true, '请记住我喜欢茶', [{ name: 'remember_private_fact' }]), false);
+  assert.equal(bufferUnavailableMemorySave(false, '请记住我喜欢茶', []), false);
+  assert.equal(bufferUnavailableMemorySave(true, '他说“记住我喜欢茶”', []), false);
+  assert.match(resolveUnavailableMemoryEcho('\n\nuser请记住我喜欢茶', '请记住我喜欢茶'), /没能确认长期保存/);
+  const actual = '这次还没有保存。';
+  assert.equal(resolveUnavailableMemoryEcho(actual, '请记住我喜欢茶'), actual);
+});
+
+test('the actual turn never streams an echoed save request when memory tools are disabled', async () => {
+  const { runModuleTurn } = await import('../lib/agent/turn.js');
+  const { getModuleRuntime } = await import('../lib/agent/modules.js');
+  const root = await mkdtemp(join(tmpdir(), 'memory-disabled-echo-'));
+  const previous = { config: globalThis.__config, fetch: globalThis.fetch };
+  globalThis.__config = {
+    value: {
+      'alemonjs-agent-link': {
+        apiKey: 'test',
+        model: 'test',
+        runtimeMode: 'chat-only',
+        stateBackend: 'local',
+        workspaceRoot: join(root, 'work'),
+        dshHomeRoot: join(root, 'home'),
+        budget: { enabled: false },
+        modules: { disabled: ['memory', 'mood', 'opinions', 'proactive', 'affinity', 'events'] }
+      }
+    }
+  };
+  const config = getDSHConfig();
+  const text = '请记住我喜欢普洱茶';
+  const sent = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    assert.equal(body.stream, false);
+    assert.equal(body.tools, undefined);
+    return Response.json({ choices: [{ message: { content: `\n\nuser${text}` } }] });
+  };
+  try {
+    await runModuleTurn({
+      config,
+      sessionId: 'disabled-memory-test',
+      input: text,
+      context: { ...context(text), allowedTools: [] },
+      streamContent: true,
+      onEvent: event => {
+        if (event.type === 'content') sent.push(event.content);
+        return Promise.resolve();
+      }
+    });
+    assert.equal(sent.length, 1);
+    assert.match(sent[0], /没能确认长期保存/);
+    assert.ok(!sent[0].includes(`user${text}`));
+    assert.equal((await new SessionRegistry(config).privateMemories('private:one')).length, 0);
+  } finally {
+    await (await getModuleRuntime(config)).close();
+    globalThis.__config = previous.config;
+    globalThis.fetch = previous.fetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
