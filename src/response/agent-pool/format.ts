@@ -62,7 +62,7 @@ export type PoolPageView = {
 };
 
 export const poolPageView = (
-  items: ModelPoolStatus[],
+  items: (ModelPoolStatus & { lastProbeAt?: number; lastStatus?: number })[],
   requestedPage: number,
   now = Date.now(),
   balances: Map<string, EndpointBalance> = new Map(),
@@ -77,7 +77,7 @@ export const poolPageView = (
   const available = items.filter(item => !item.disabled && item.cooldownUntil <= now).length;
   const abnormal = items.filter(item => !item.disabled && item.cooldownUntil <= now && item.healthy === false).length;
   const inFlight = items.reduce((sum, item) => sum + item.active, 0);
-  const probeCount = items.filter(item => item.lastProbeAt > 0).length;
+  const probeCount = items.filter(item => (item.lastProbeAt || 0) > 0).length;
   const vision = items.filter(item => item.capabilities.includes('vision')).length;
   const fallback = items.filter(item => item.fallback).length;
   const known = items.map(item => balances.get(item.id)).filter((item): item is EndpointBalance => item?.amount !== undefined);
@@ -109,7 +109,7 @@ export const poolPageView = (
             ? `${cooling} 个端点冷却中；若持续出现，建议补货。`
             : '池状态正常。';
   const lines = [
-    `模型池 ${page}/${pages}`,
+    `额度轮转 ${page}/${pages}`,
     `总数 ${total} · 可用 ${available} · 冷却 ${cooling} · 停用 ${disabled} · 异常 ${abnormal} · 在途 ${inFlight}`,
     `探测 ${probeCount}/${total} · 视觉 ${vision} · 备用 ${fallback} · 沙箱 ${sandboxRequests} 次/${sandboxTokens} tok · 个人/群 ${personalSandboxRequests} 次/${personalSandboxTokens} tok · 余额 ${balanceTotal === undefined ? '未知' : `¥${balanceTotal.toFixed(2)}（${known.length}/${total}）`} · 已用 ${usedTotal === undefined ? '未知' : `¥${usedTotal.toFixed(2)}（${usedByAccount.size}/${total}）`} · 低余额 ${lowBalance} · 补货提示：${hint}`,
     ''
@@ -125,7 +125,14 @@ export const poolPageView = (
       const number = start + offset + 1;
       const state = stateText(item, now);
       const detail = [
-        state,
+        `状态 ${state}`,
+        item.lastRequest
+          ? `最近调用 ${item.lastRequest.ok ? '成功' : '失败'} · ${new Date(item.lastRequest.at).toLocaleString()}${item.lastRequest.status ? ` · HTTP ${item.lastRequest.status}` : ''}`
+          : '暂无调用记录',
+        `提供方 ${item.provider} · 模型 ${item.model}`,
+        `全部尝试（含门控） ${item.totalCalls ?? 0} · 成功 ${item.successfulCalls ?? 0} · 失败 ${item.failedCalls ?? 0}`,
+        `其中门控 ${item.purposeStatistics?.replyGate?.total ?? 0} · 成功 ${item.purposeStatistics?.replyGate?.success ?? 0} · 失败 ${item.purposeStatistics?.replyGate?.failed ?? 0}`,
+        `未结算 ${Math.max(0, (item.totalCalls ?? 0) - (item.successfulCalls ?? 0) - (item.failedCalls ?? 0))}`,
         `在途 ${item.active}/${item.maxConcurrent}`,
         `绑定 ${item.bound}`,
         `近期 ${item.recent}`,
@@ -135,7 +142,7 @@ export const poolPageView = (
           ? `沙箱 ${bridge.endpoints[item.id].requests} 次 / ${bridge.endpoints[item.id].input + bridge.endpoints[item.id].output} tok`
           : '',
         item.latencyMs > 0 ? `延迟 ${item.latencyMs}ms` : '延迟未知',
-        `探测 ${relativeProbe(item.lastProbeAt, now)}`,
+        `探测 ${relativeProbe(item.lastProbeAt || 0, now)}`,
         item.rpm ? `RPM ${item.requests}/${item.rpm}` : '',
         item.tpm ? `TPM ${item.tokens}/${item.tpm}` : '',
         item.lastStatus ? `HTTP ${item.lastStatus}` : '无 HTTP 状态',
@@ -146,7 +153,7 @@ export const poolPageView = (
       ].filter(Boolean);
 
       lines.push(`${number}. ${item.id} · ${item.provider} · ${item.model}`, `   ${detail.join(' · ')}`);
-      rows.push({ number, id: item.id, provider: item.provider, model: item.model, disabled: item.disabled, detail: detail.join(' · ') });
+      rows.push({ number, id: item.id, provider: item.provider, model: item.model, disabled: item.disabled, detail: detail.join('\n') });
     }
   }
 
@@ -167,6 +174,10 @@ export const poolPageView = (
     usedTotal,
     usedCount: usedByAccount.size,
     lowBalance,
+    sandboxRequests,
+    sandboxTokens,
+    personalSandboxRequests,
+    personalSandboxTokens,
     needsRefill,
     rows,
     text: lines.join('\n')

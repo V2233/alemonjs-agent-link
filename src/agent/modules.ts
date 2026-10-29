@@ -1,3 +1,5 @@
+import { eventsModule } from '../modules/events';
+import { affinityModule } from '../modules/affinity';
 import { dictionaryModule } from '../modules/dictionary';
 import { filesModule } from '../modules/files';
 import { exposeModule } from '../modules/expose';
@@ -245,6 +247,7 @@ export class ModuleRuntime {
       filesModule(config),
       personaModule(config),
       moodModule(config),
+      affinityModule(config),
       platformModule(config),
       exposeModule(),
       groupAdminModule(config),
@@ -256,7 +259,8 @@ export class ModuleRuntime {
       memoryModule(config),
       chatHistoryModule(config),
       qaModule(config),
-      dictionaryModule(config)
+      dictionaryModule(config),
+      eventsModule(config)
     ]
   ) {}
 

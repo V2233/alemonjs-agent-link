@@ -136,7 +136,7 @@ export default async (): Promise<void> => {
   } catch (error) {
     logger.warn({ err: error }, 'Group conversation scheduling failed');
     if (prompt !== null) {
-      await reply('群聊消息暂时无法处理，请稍后重试。');
+      await reply('糟糕，网线断了。');
     } else {
       await Promise.resolve(next());
     }

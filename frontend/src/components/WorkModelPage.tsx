@@ -41,7 +41,8 @@ export default function WorkModelPage() {
     <Layout.Content style={{ padding: 24 }}>
       <Typography.Title level={2}>工作模型</Typography.Title>
       <Typography.Paragraph type='secondary'>
-        统一配置各功能使用的工作模型。目前用于「额度轮转 → 智能识别」，后续文本生成、AI 总结等能力将在对应功能中提供入口。
+        使用现有顶层 apiKey、baseUrl、model、provider 配置，默认提供方为 DeepSeek 官方，模型为 deepseek-v4-flash。目前用于「额度轮转 →
+        智能识别」，后续文本生成、AI 总结等能力将在对应功能中提供入口。
       </Typography.Paragraph>
       {error && <Alert type='error' showIcon title={error} style={{ marginBottom: 16 }} />}
       <Card title='模型配置' style={{ marginBottom: 20 }}>
@@ -57,10 +58,13 @@ export default function WorkModelPage() {
             })
           }
         >
-          <Form.Item name='baseUrl' label='接口地址' rules={[{ required: true }]}>
+          <Form.Item name='provider' label='提供方' rules={[{ required: true }]}>
+            <Input placeholder='deepseek-official' />
+          </Form.Item>
+          <Form.Item name='baseUrl' label='接口地址（DeepSeek 官方可留空）'>
             <Input placeholder='https://api.example.com/v1' />
           </Form.Item>
-          <Form.Item name='apiKey' label='API Key' rules={[{ required: true }]}>
+          <Form.Item name='apiKey' label='API Key（留空停用）'>
             <Input.Password autoComplete='off' />
           </Form.Item>
           <Form.Item name='model' label='模型名称' rules={[{ required: true }]}>

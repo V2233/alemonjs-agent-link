@@ -304,23 +304,17 @@ export const purgeGroupHashData = async (config: DSHBridgeConfig, groupHash: str
 };
 
 export const toUserMessage = (error: unknown): string => {
-  if (!(error instanceof DSHError)) {
-    const message = error instanceof Error ? error.message : '';
-
-    if (/模型服务|模型响应|模型未返回|模型请求重试超时/u.test(message)) {
-      return '糟糕，网线断了。';
-    }
-
-    return '糟糕，网线断了。';
-  }
+  if (!(error instanceof DSHError)) return '糟糕，网线断了。';
 
   // 服务诊断保留在错误和日志中，气泡只给出可操作的提示。
   const publicErrors: Record<string, string> = {
+    'Agent 服务繁忙，请稍后重试': '我这会儿忙不过来了，过一会儿再喊我吧。',
+    当前群请求排队已满: '找我的人有点多，过一会儿再喊我吧。',
     '额度统计暂时不可用，已暂停付费调用，请联系主人检查 Redis。': '额度暂时不可用，请稍后重试或联系机器人主人。',
     '当前服务商尚未配置可核验的价格，已暂停付费调用。': '当前服务暂不可用，请联系机器人主人检查配置。',
     '当前模型尚未配置可核验的价格，已暂停付费调用。': '当前模型暂不可用，请联系机器人主人检查配置。',
-    'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。': '服务暂时不可用，请联系机器人主人。',
-    'DSH 沙箱目录访问失败，请重启服务并检查运行环境。': '服务暂时不可用，请联系机器人主人。'
+    'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。': '糟糕，网线断了。',
+    'DSH 沙箱目录访问失败，请重启服务并检查运行环境。': '糟糕，网线断了。'
   };
 
   if (Object.hasOwn(publicErrors, error.message)) return publicErrors[error.message];
@@ -343,7 +337,7 @@ export const toUserMessage = (error: unknown): string => {
     disabled: 'AI 暂时关闭。',
     budget: '今日额度不足，可联系主人调整，或等北京时间零点重置。',
     media: '媒体处理失败，请改用文字。',
-    delivery: '回复发送失败，请稍后重试。',
+    delivery: '刚才的回复没发出去，麻烦再喊我一次。',
     auth: '糟糕，网线断了。',
     http: '糟糕，网线断了。',
     network: '糟糕，网线断了。',
@@ -351,7 +345,7 @@ export const toUserMessage = (error: unknown): string => {
     cancelled: '本次回复已取消。',
     protocol: '糟糕，网线断了。',
     agent: '糟糕，网线断了。',
-    migration: '会话正在初始化，请稍后重试。'
+    migration: '我还在整理思路，稍等一会儿再喊我吧。'
   };
 
   return messages[error.kind];

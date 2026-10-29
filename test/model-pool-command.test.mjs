@@ -52,7 +52,7 @@ test('pool page shows a summary, refill hint and paginates five rows', () => {
   assert.equal(first.cooling, 1);
   assert.equal(first.available, 5);
   assert.equal(first.abnormal, 1);
-  assert.match(first.text, /模型池 1\/2/);
+  assert.match(first.text, /额度轮转 1\/2/);
   assert.match(first.text, /停用/);
   assert.match(first.text, /补货提示/);
   assert.match(first.text, /余额 ¥20.00/);

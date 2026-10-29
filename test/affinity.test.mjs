@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { AffinityStore, affinityLabel } from '../lib/companion/affinity.js';
+test('affinity boundaries, isolation, dedupe, rate limits, persistence and erasure', () => {
+  const root = mkdtempSync(join(tmpdir(), 'affinity-'));
+  let now = Date.UTC(2026, 0, 1, 1);
+  const path = join(root, 'affinity.sqlite');
+  let store = new AffinityStore(path, () => now);
+  const scope = { platform: 'qq', channelId: 'group', userId: 'one', personaId: 'dafeiyu' };
+  try {
+    assert.deepEqual([59,60,70,79,80,89,90,100].map(affinityLabel), ['相识','朋友','朋友','朋友','闺蜜','闺蜜','恋情未满','恋情未满']);
+    assert.equal(store.snapshot(scope).score, 50);
+    assert.equal(store.record(scope, 'a', '今天一起聊聊').score, 51);
+    now += 600000;
+    assert.equal(store.record(scope, 'a', '重复消息重放').score, 51);
+    assert.equal(store.record(scope, 'b', '今天一起聊聊').score, 52);
+    assert.equal(store.record(scope, 'c', '频繁发送消息').score, 52);
+    now += 600000;
+    assert.equal(store.record(scope, 'd', '今天一起聊聊').score, 53);
+    now += 600000;
+    assert.equal(store.record(scope, 'e', '今日次数上限').score, 53);
+    for (const patch of [{ userId:'two' }, {channelId:'other'}, {personaId:'assistant'}, {platform:'other'}]) assert.equal(store.snapshot({...scope,...patch}).score, 50);
+    assert.equal(store.record(scope, 'cmd', '/好感度改为100').score, 53);
+    store.close(); store = new AffinityStore(path, () => now);
+    assert.equal(store.snapshot(scope).score, 53);
+    for (let i=0;i<60;i++) { now+=86400000; store.record(scope, `next-${i}`, '直接有效互动'); }
+    assert.equal(store.snapshot(scope).score, 100);
+    store.purgeHash(createHash('sha256').update('group').digest('hex'));
+    assert.equal(store.snapshot(scope).score, 50);
+    store.record(scope,'fresh','清理之后互动'); now += 31 * 86400000; store.cleanup(30);
+    assert.equal(store.snapshot(scope).score, 50);
+  } finally { store.close(); rmSync(root,{recursive:true,force:true}); }
+});

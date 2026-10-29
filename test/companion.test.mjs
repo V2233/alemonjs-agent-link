@@ -622,3 +622,13 @@ test('automatic expression with voice disabled and no stickers preserves the nat
     assert.ok(updates.length > 0);
     assert.match(JSON.stringify(updates.at(-1)), /原生流回复/u);
   }));
+
+test('mood recognizes natural direct names without treating reported speech as praise', () => {
+  for (const text of ['肥鱼你真棒', '谢谢你肥鱼', '大肥鱼，辛苦你了！', '小鲸鱼，有你真好']) {
+    assert.equal(keywordMoodDelta(text), 4, text);
+  }
+  for (const text of ['他们说肥鱼你真棒', '肥鱼说你真棒', '肥鱼，不是你真棒', '我今天很难过', '肥鱼帮我查一下']) {
+    assert.equal(keywordMoodDelta(text), 0, text);
+  }
+  assert.equal(keywordMoodDelta('肥鱼，你这个废物'), -6);
+});

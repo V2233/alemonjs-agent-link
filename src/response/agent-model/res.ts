@@ -51,7 +51,7 @@ export default async (): Promise<void> => {
         layout: 'inline',
         actions: [
           { label: '模型列表', command: '/模型列表' },
-          { label: '模型池', command: '/模型池' },
+          { label: '额度轮转', command: '/额度轮转' },
           { label: '密钥配置', command: '/密钥配置' }
         ]
       }

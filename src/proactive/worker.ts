@@ -12,7 +12,7 @@ import { personalKeyEntitled } from '../credentials/personal';
 import { biliOptions } from '../bili/client';
 
 type Delivery = { delivered: boolean; completed: boolean; replyText?: string };
-type Dispatch = { signal: AbortSignal; maxChars: number; beforeSend: () => Promise<boolean>; requestId: string };
+type Dispatch = { kind?: ProactiveAttempt['kind']; signal: AbortSignal; maxChars: number; beforeSend: () => Promise<boolean>; requestId: string };
 const destination = (scope: ProactiveScope) => ({
   Platform: scope.platform,
   BotId: scope.botId,
@@ -43,6 +43,7 @@ export const deliverProactive = async (scope: ProactiveScope, prompt: string, di
     prompt,
     {
       allowSilence: true,
+      speakingReason: dispatch.kind === 'nudge' ? 'nudge' : 'share',
       referencesPrepared: true,
       userText: '',
       autonomous: { signal: dispatch.signal, maxChars: dispatch.maxChars, beforeSend: dispatch.beforeSend },
@@ -176,6 +177,7 @@ export class ProactiveWorker {
       const canBrowse = !config.modules?.disabled?.includes('bili') && bili.enabled && bili.allowProactiveBrowse;
       const prompt = this.prompt(attempt, options.maxChars, options.timezone, canBrowse);
       const result = await (this.services.deliver || deliverProactive)(scope, prompt, {
+        kind: attempt.kind,
         signal: job.signal,
         maxChars: options.maxChars,
         requestId: `proactive:${attempt.id}`,

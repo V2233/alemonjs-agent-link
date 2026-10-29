@@ -41,10 +41,15 @@ export const keywordMoodDelta = (text: string): number => {
   if (text.length > 500 || /[“”「」<>]|不是|并不|没有|别说|不要说|他说|她说|有人说/u.test(text) || text.trimStart().startsWith('/')) {
     return 0;
   }
-  if (/^(?:你(?:这个|真是|就是)?(?:笨蛋|废物|傻逼)|闭嘴|滚开)[！!。，,\s]*$/u.test(text.trim())) {
+  const addressed = text
+    .trim()
+    .replace(/^(?:大肥鱼|小肥鱼|肥鱼|小鲸鱼)[，,：:\s]*/u, '')
+    .replace(/[，,\s]*(?:大肥鱼|小肥鱼|肥鱼|小鲸鱼)[！!。\s]*$/u, '');
+
+  if (/^(?:你(?:这个|真是|就是)?(?:笨蛋|废物|傻逼)|闭嘴|滚开)[！!。，,\s]*$/u.test(addressed)) {
     return -6;
   }
-  if (/^(?:谢谢你|你真棒|你太棒了|辛苦你了|喜欢你|你真可爱)[！!。，,呀啊呢\s]*$/u.test(text.trim())) {
+  if (/^(?:谢谢你|谢谢|你真棒|你太棒了|辛苦你了|喜欢你|你真可爱|谢谢你帮我|有你真好|抱抱你|抱抱)[！!。，,呀啊呢\s]*$/u.test(addressed)) {
     return 4;
   }
 

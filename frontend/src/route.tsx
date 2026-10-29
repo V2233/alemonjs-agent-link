@@ -1,3 +1,4 @@
+import EventsPage from './components/EventsPage';
 import WorkModelPage from './components/WorkModelPage';
 import DictionaryPage from './components/DictionaryPage';
 import ContentPage from './components/ContentPage';
@@ -9,6 +10,7 @@ export default createHashRouter([
   {
     element: <AdminLayout />,
     children: [
+      { path: '/events', element: <EventsPage /> },
       { path: '/dictionary', element: <DictionaryPage /> },
       { path: '/personas', element: <ContentPage key='personas' kind='personas' /> },
       { path: '/knowledge', element: <ContentPage key='knowledge' kind='knowledge' /> },

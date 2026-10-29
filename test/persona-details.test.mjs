@@ -10,8 +10,8 @@ test('details supplement base and additions, survive legacy writes and default s
   const store = new PersonaStore(root);
   try {
     const builtin = await store.read('dafeiyu');
-    assert.equal(Object.keys(builtin.details).length, 22);
-    assert.equal(personaDetailFields.length, 22);
+    assert.equal(Object.keys(builtin.details).length, 34);
+    assert.equal(personaDetailFields.length, 34);
     await store.save({ ...builtin, details: { 姓名: '肥鱼', 爱好: '收集奇怪键帽' } });
     const { details, ...legacy } = await store.read('dafeiyu');
     await store.save(legacy);

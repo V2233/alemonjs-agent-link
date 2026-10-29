@@ -1,3 +1,4 @@
+import { getAffinityStore } from '../companion/affinity';
 import { purgeWorkspaceHash } from '../files/workspace';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
@@ -671,6 +672,7 @@ export class SessionRegistry {
     getPlatformLedger(this.config).purgeHash(groupHash(channelId));
     getPersonaStore(this.config).purgeHash(groupHash(channelId));
     getMoodStore(this.config).purgeHash(groupHash(channelId));
+    getAffinityStore(this.config).purgeHash(groupHash(channelId));
     getChatArchive(this.config).purgeHash(groupHash(channelId));
     getMemoryStore(this.config).purgeHash(groupHash(channelId));
     getQAStore(this.config).purgeHash(groupHash(channelId));
@@ -693,6 +695,7 @@ export class SessionRegistry {
     getPlatformLedger(this.config).purgeHash(hash);
     getPersonaStore(this.config).purgeHash(hash);
     getMoodStore(this.config).purgeHash(hash);
+    getAffinityStore(this.config).purgeHash(hash);
     if (includeArchive) {
       getChatArchive(this.config).purgeHash(hash);
       getMemoryStore(this.config).purgeHash(hash);

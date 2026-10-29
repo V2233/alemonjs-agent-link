@@ -13,6 +13,7 @@ export default function AdminLayout() {
     '/personas': '人设',
     '/knowledge': '知识库',
     '/dictionary': '热词词典',
+    '/events': '事件库',
     '/rotation': '额度轮转',
     '/work-model': '工作模型'
   };
@@ -24,6 +25,7 @@ export default function AdminLayout() {
         { key: '/personas', label: '人设' },
         { key: '/knowledge', label: '知识库' },
         { key: '/dictionary', label: '热词词典' },
+        { key: '/events', label: '事件库' },
         { key: '/work-model', label: '工作模型', icon: <RobotOutlined /> },
         { key: '/rotation', label: '额度轮转', icon: <SwapOutlined /> }
       ]}

@@ -1,3 +1,4 @@
+import { getAffinityStore } from './companion/affinity';
 import { budgetEnabled, budgetRedis } from './billing/budget';
 import { writeFile } from 'node:fs/promises';
 import { defineChildren, logger, setCron } from 'alemonjs';
@@ -122,6 +123,7 @@ export default defineChildren({
         getMemoryStore(config).cleanup(config.retentionDays);
         getQAStore(config).cleanup(config.retentionDays);
         getMoodStore(config).cleanup(config.retentionDays);
+        getAffinityStore(config).cleanup(config.retentionDays);
         getPlatformLedger(config).cleanup(config.retentionDays);
         getProactiveStore(config).cleanup(config.retentionDays);
         const registry = new SessionRegistry(config);

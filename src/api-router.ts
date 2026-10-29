@@ -1,3 +1,4 @@
+import { getEventStore } from './events/store';
 import { readWorkModel, saveWorkModel } from './panel/work-model';
 import { recognizeEndpoint } from './panel/endpoint-recognition';
 import { personaDetailFields } from './companion/persona-details';
@@ -61,6 +62,15 @@ apiRouter.post('/dictionary/delete', ctx => {
 
   if (typeof body.id !== 'string' || !Number.isFinite(body.updatedAt)) ctx.throw(400);
   getDictionaryStore(getDSHConfig()).remove(body.id, body.updatedAt);
+  success(ctx, null);
+});
+apiRouter.get('/events', ctx => success(ctx, getEventStore(getDSHConfig()).list()));
+apiRouter.post('/events', ctx => success(ctx, getEventStore(getDSHConfig()).save(ctx.request.body as Partial<Word>)));
+apiRouter.post('/events/delete', ctx => {
+  const body = ctx.request.body as Partial<Word>;
+
+  if (typeof body.id !== 'string' || !Number.isFinite(body.updatedAt)) ctx.throw(400);
+  getEventStore(getDSHConfig()).remove(body.id, body.updatedAt);
   success(ctx, null);
 });
 

@@ -834,3 +834,15 @@ test('cold statements without a question or topic match skip the gate locally', 
   assert.equal(timings?.localSkip, true);
   h.coordinator.close();
 });
+
+test('speaking motive distinguishes direct, continuation and ambient participation without hiding the gate reason', () => {
+  const anchor = message('motive');
+  const batch = { id: 'motive', mode: 'direct', anchor, messages: [anchor], replyAddressed: 'name', replyRelated: 'none', replyReason: 'name' };
+  assert.match(buildGroupBatchPrompt(batch), /reason=name/);
+  assert.match(buildGroupBatchPrompt(batch), /本轮发言缘由：回应当前对你说话的人/);
+  assert.match(buildGroupBatchPrompt({ ...batch, replyAddressed: 'follow_up', replyReason: 'follow_up' }), /本轮发言缘由：承接正在进行的对话/);
+  const ambient = buildGroupBatchPrompt({ ...batch, mode: 'interject', replyAddressed: 'none', replyReason: 'context' });
+  assert.match(ambient, /本轮发言缘由：感知到群聊中有可参与的内容/);
+  assert.match(ambient, /这不代表有人呼唤或请求你/);
+  assert.match(ambient, /不产生任何新的操作授权/);
+});
