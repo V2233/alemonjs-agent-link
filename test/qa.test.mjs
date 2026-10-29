@@ -81,7 +81,11 @@ test('builtin answers cover the default failure and capability questions', async
       为什么你不能发语音: 'builtin-no-media',
       为什么你不能禁言: 'builtin-no-group-admin',
       为什么私聊你不回: 'builtin-private-no-reply',
-      为什么额度不足: 'builtin-quota'
+      为什么额度不足: 'builtin-quota',
+      为什么发语音: 'builtin-why-auto-expression',
+      为什么答案不一样: 'builtin-why-answer-varies',
+      为什么分多条: 'builtin-why-split-delay',
+      为什么心情会变: 'builtin-why-mood'
     };
 
     for (const [question, id] of Object.entries(cases)) {
@@ -133,7 +137,18 @@ test('builtin command-usage answers cover common command questions', async () =>
       怎么开网页: 'builtin-cmd-tools',
       群设置怎么用: 'builtin-cmd-group-settings',
       怎么换人格: 'builtin-cmd-persona',
-      怎么发语音: 'builtin-cmd-media',
+      怎么发语音: 'builtin-cmd-input',
+      怎么让你发语音: 'builtin-cmd-media',
+      怎么发图片: 'builtin-cmd-input',
+      怎么搜网页: 'builtin-cmd-web-search',
+      怎么存文件: 'builtin-cmd-files',
+      群名怎么查: 'builtin-cmd-group-info',
+      怎么收藏表情: 'builtin-cmd-stickers',
+      怎么看b站: 'builtin-cmd-bili',
+      怎么发空间: 'builtin-cmd-qzone',
+      记忆来源怎么查: 'builtin-cmd-memory-tools',
+      聊天参考怎么用: 'builtin-cmd-chat-reference',
+      怎么引用: 'builtin-cmd-quote',
       怎么绑定key: 'builtin-cmd-keys',
       怎么成为主人: 'builtin-cmd-owner',
       怎么关闭ai: 'builtin-cmd-switch',

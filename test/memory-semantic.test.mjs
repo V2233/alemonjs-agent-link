@@ -28,14 +28,7 @@ test('semantic recall finds a differently worded memory that BM25 cannot match',
     const lexical = store.recall(scope, '茶饮偏好', 'u1', 5, false);
     assert.equal(lexical.length, 0, 'BM25 alone should not match 茶饮偏好 to 龙井茶');
 
-    const hits = await store.recallSemantic(
-      scope,
-      '茶饮偏好',
-      'u1',
-      5,
-      { client, weight: 0.8, maxItems: 100, signal: new AbortController().signal },
-      false
-    );
+    const hits = await store.recallSemantic(scope, '茶饮偏好', 'u1', 5, { client, weight: 0.8, maxItems: 100, signal: new AbortController().signal }, false);
     assert.equal(hits[0].text, '主人喜欢喝龙井茶');
     assert.ok(hits[0].score > 0);
     assert.ok(!hits.some(item => item.text === '主人住在杭州'));
@@ -49,14 +42,7 @@ test('semantic recall finds a differently worded memory that BM25 cannot match',
       }
     };
 
-    await store.recallSemantic(
-      scope,
-      '茶饮偏好',
-      'u1',
-      5,
-      { client: cached, weight: 0.8, maxItems: 100, signal: new AbortController().signal },
-      false
-    );
+    await store.recallSemantic(scope, '茶饮偏好', 'u1', 5, { client: cached, weight: 0.8, maxItems: 100, signal: new AbortController().signal }, false);
     assert.equal(embeddedTexts, 1, 'cached document vectors should not be re-embedded');
   } finally {
     store.close();
@@ -95,4 +81,25 @@ test('cosine similarity is bounded and dimension-safe', () => {
   assert.equal(cosineSimilarity(Float32Array.from([1, 0]), Float32Array.from([1, 0])), 1);
   assert.equal(cosineSimilarity(Float32Array.from([1, 0]), Float32Array.from([0, 1])), 0);
   assert.equal(cosineSimilarity(Float32Array.from([1]), Float32Array.from([1, 0])), 0);
+});
+
+test('semantic cache expands across turns and retains old vectors outside the new embedding budget', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'memory-coverage-'));
+  const store = new MemoryStore(join(root, 'memories.sqlite'));
+  const scope = { platform: 'test', channelId: 'coverage' };
+  try {
+    store.syncExplicit(scope, 'u', [
+      { id: '11111111', text: '杭州', createdAt: Date.now() },
+      { id: '22222222', text: '龙井', createdAt: Date.now() - 1000 }
+    ]);
+    const options = { client, weight: 0.8, maxItems: 1, signal: new AbortController().signal };
+    await store.recallSemantic(scope, '城市', 'u', 5, options, false);
+    const second = await store.recallSemantic(scope, '茶饮', 'u', 5, options, false);
+    assert.ok(second.some(item => item.text === '龙井'));
+    const third = await store.recallSemantic(scope, '城市', 'u', 5, options, false);
+    assert.ok(third.some(item => item.text === '杭州'));
+  } finally {
+    store.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });

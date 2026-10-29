@@ -20,6 +20,9 @@ import { ensureStickerRoot } from './media/stickers';
 import { warmCredentialPool, stopCredentialPool } from './credentials/pool';
 import { getMediaConfig } from './media/config';
 import { startStickerPanel, type StickerPanel } from './panel/sticker-panel';
+import { initializeAdminPanel, disposeAdminPanel } from './panel/admin-panel';
+import apiRouter from './api-router';
+let adminStart: Promise<void> = Promise.resolve();
 let stopModuleConfigWatch: (() => void) | undefined;
 let stickerPanel: StickerPanel | undefined;
 let panelChain = Promise.resolve();
@@ -44,11 +47,13 @@ const syncStickerPanel = (config: PanelConfig): Promise<void> => {
 export default defineChildren({
   register() {
     return {
-      response
+      response,
+      koaRouter: apiRouter
     };
   },
   onCreated() {
     panelStopped = false;
+    adminStart = initializeAdminPanel().catch(() => logger.warn('管理接口初始化失败，请检查配置文件路径和权限'));
     try {
       const startupConfig = getDSHConfig();
 
@@ -153,6 +158,6 @@ export default defineChildren({
       stickerPanel = undefined;
     });
 
-    return Promise.all([closePanel, closeModuleRuntime()]).then(() => undefined);
+    return Promise.all([adminStart.then(() => disposeAdminPanel()), closePanel, closeModuleRuntime()]).then(() => undefined);
   }
 });

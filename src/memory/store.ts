@@ -448,13 +448,19 @@ export class MemoryStore {
     const lexical = rankMemories(documents, query, subjectId, this.now());
     const candidates = new Map<string, (typeof documents)[number]>();
 
-    for (const item of [...documents].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, options.maxItems)) {
-      candidates.set(item.id, item);
-    }
-    for (const item of lexical.slice(0, 120)) {
-      const document = documents.find(row => row.id === item.id);
+    const cached = (item: (typeof documents)[number]) =>
+      Boolean(item.embedding && item.embeddingModel === options.client.model && item.embeddingHash === hash(item.text) && item.embedding.length % 4 === 0);
 
-      if (document) candidates.set(item.id, document);
+    // Always search valid cached vectors, including old memories. Spend the
+    // embedding budget on uncached documents so subsequent turns fill gaps.
+    for (const item of documents.filter(cached)) candidates.set(item.id, item);
+    const pending = [...lexical, ...documents.filter(item => item.subjectId === subjectId), ...documents];
+    let remaining = options.maxItems;
+
+    for (const item of pending) {
+      if (candidates.has(item.id) || cached(item) || remaining <= 0) continue;
+      candidates.set(item.id, item);
+      remaining--;
     }
     const selected = [...candidates.values()];
     const vectors = new Map<string, Float32Array>();
@@ -494,7 +500,7 @@ export class MemoryStore {
           }
         });
       }
-      const hybrid = rankMemoriesHybrid(selected, lexical, queryVector, vectors, subjectId, options.weight, this.now());
+      const hybrid = rankMemoriesHybrid(documents, lexical, queryVector, vectors, subjectId, options.weight, this.now());
 
       return this.finishRanked(scope, hybrid, limit, record);
     } catch (error) {

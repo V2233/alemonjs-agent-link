@@ -1,7 +1,7 @@
 import { checkedBoundCredential, disableBoundCredential } from '../credentials/scoped';
 import { assertAIEnabled } from './ai-switch';
 import { withToolUsePolicy } from '../agent/tool-use-policy';
-import { reserveWorkspaceText } from '../billing/budget';
+import { groupKeyDailyLimit, reserveWorkspaceText } from '../billing/budget';
 import { type ChatInput, withInputContext, inputText } from './input';
 import type { PrivateHistoryContext } from '@src/state/registry';
 import { type DSHBridgeConfig, type AgentCapabilities } from './config';
@@ -148,6 +148,8 @@ export const streamChat = async (
     const bridge = await getDSHBridge();
     const personal = await checkedBoundCredential(signal);
 
+    if (personal && !personal.scope.channelId.startsWith('private:') && (await groupKeyDailyLimit(personal.scope)) !== null)
+      throw new DSHError('budget', '本群已设置钥匙金额上限，沙箱内部费用无法完整计量，暂不开放工作区。');
     if (personal?.auth === 'account') throw new DSHError('budget', '扫码账户暂不支持沙箱工作区；请使用普通聊天，或退出后使用个人 API Key。');
     const settleText = personal
       ? async (_output: string) => {}
@@ -198,7 +200,10 @@ export const streamChat = async (
     await consumeEvents(response.body.getReader(), async event => {
       if ((event.type === 'personal_key_exhausted' || event.type === 'scoped_key_exhausted') && personal) {
         await disableBoundCredential(personal);
-        throw new DSHError('budget', '当前绑定 Key 余额不足，已自动停用并切回额度模式。为避免重复执行工作区操作，请重新发送请求；恢复 Key 需手动启用。');
+        throw new DSHError(
+          'budget',
+          '当前绑定 Key 余额不足，已暂停钥匙使用，不会自动切换付款来源。为避免重复执行工作区操作，充值后请启用钥匙；如要使用机器人额度，请显式停用或移除。'
+        );
       }
       if (event.type === 'content') budgetText += event.content;
       if (Buffer.byteLength(budgetText) > config.maxRequestBytes) throw new DSHError('protocol', '工作区回复超过大小限制。');

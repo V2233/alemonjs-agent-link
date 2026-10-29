@@ -646,6 +646,7 @@ test('a provider rejection releases the pre-charge; a 5xx keeps it', async () =>
         ledger.settled += 1;
         return 1;
       }
+      if (script.includes("'initialized'")) return 1;
       return 0;
     }
   };

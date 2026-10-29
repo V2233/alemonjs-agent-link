@@ -185,8 +185,8 @@ export const helpFormat = (isPrivate: boolean, owner: boolean, topic = '', platf
     ];
 
     return sectionBubble(
-      '大肥鱼 · 使用指南',
-      '点主题查看；也可以发 /帮助 主题。',
+      '大肥鱼 · 帮助指南(内测版)',
+      '还在学习如何提升自己哦。',
       rows.map(row => ({
         title: row.key,
         text: row.text,

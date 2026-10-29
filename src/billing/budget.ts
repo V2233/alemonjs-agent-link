@@ -44,8 +44,9 @@ local gate = ARGV[6] == 'reply-gate'
 local autonomous = ARGV[6] == 'autonomous'
 local amount = tonumber(ARGV[1])
 local used = tonumber(redis.call('HGET', KEYS[1], 'used') or '0')
-local paidUsed = tonumber(redis.call('HGET', KEYS[1], 'paidUsed') or '0')
-local paidLimit = tonumber(redis.call('HGET', KEYS[1], 'paidLimit') or '0')
+local wallet = KEYS[6] or KEYS[1]
+local paidUsed = tonumber(redis.call('HGET', wallet, 'paidUsed') or '0')
+local paidLimit = tonumber(redis.call('HGET', wallet, 'paidLimit') or '0')
 local paid = math.min(amount, math.max(0, paidLimit - paidUsed))
 local free = amount - paid
 local total = tonumber(redis.call('HGET', KEYS[2], 'used') or '0')
@@ -81,8 +82,8 @@ for _,i in ipairs({1,2,4}) do
  redis.call('HINCRBY', KEYS[i], 'requests', 1)
  redis.call('EXPIRE', KEYS[i], ARGV[4])
 end
-redis.call('HINCRBY', KEYS[1], 'paidUsed', paid)
-redis.call('HINCRBY', KEYS[1], 'paidReserved', paid)
+redis.call('HINCRBY', KEYS[6] or KEYS[1], 'paidUsed', paid)
+redis.call('HINCRBY', KEYS[6] or KEYS[1], 'paidReserved', paid)
 if gate then redis.call('HINCRBY', KEYS[4], 'paidUsed', paid) end
 return 1
 `;
@@ -105,8 +106,8 @@ for _,i in ipairs({1,2,4}) do
  redis.call('HINCRBY', KEYS[i], 'cacheHitTokens', ARGV[4])
  redis.call('HINCRBY', KEYS[i], 'settled', 1)
 end
-redis.call('HINCRBY', KEYS[1], 'paidUsed', paid - reservation.paid)
-redis.call('HINCRBY', KEYS[1], 'paidReserved', -reservation.paid)
+redis.call('HINCRBY', KEYS[6] or KEYS[1], 'paidUsed', paid - reservation.paid)
+redis.call('HINCRBY', KEYS[6] or KEYS[1], 'paidReserved', -reservation.paid)
 if reservation.gate then redis.call('HINCRBY', KEYS[4], 'paidUsed', paid - reservation.paid) end
 if reservation.gate and KEYS[5] then
  redis.call('HINCRBY', KEYS[5], 'used', actual - reserved)
@@ -172,6 +173,33 @@ export const budgetRedis = async (): Promise<Redis> => {
 const keysFor = (day: string, scope: BudgetScope): [string, string] => [`${prefix}:${day}:${scopeHash(scope)}`, `${prefix}:${day}:all`];
 const redisDay = async (redis: Redis): Promise<string> => budgetDay(Number((await bounded(redis.time()))[0]) * 1000);
 
+const walletKey = (scope: BudgetScope): string => `${prefix}:wallet:${scopeHash(scope)}`;
+// Transfer only the current day's remaining legacy credit once. Prior days have
+// already expired under the old product rules; do not manufacture refunds.
+const ensureWallet = async (redis: Redis, day: string, scope: BudgetScope): Promise<string> => {
+  const key = walletKey(scope);
+
+  const migrated = await bounded(
+    redis.eval(
+      `
+if redis.call('HEXISTS', KEYS[1], 'initialized') == 0 and tonumber(redis.call('HGET', KEYS[2], 'paidReserved') or '0') > 0 then return 0 end
+if redis.call('HSETNX', KEYS[1], 'initialized', '1') == 1 then
+ local limit = tonumber(redis.call('HGET', KEYS[2], 'paidLimit') or '0')
+ local used = tonumber(redis.call('HGET', KEYS[2], 'paidUsed') or '0')
+ redis.call('HSET', KEYS[1], 'paidLimit', math.max(0, limit-used), 'paidUsed', '0')
+end
+return 1`,
+      2,
+      key,
+      keysFor(day, scope)[0]
+    )
+  );
+
+  if (Number(migrated) !== 1) throw new DSHError('budget', '旧充值账本仍有待结算请求，请完成结算后重试。');
+
+  return key;
+};
+
 const personalLimit = (config: DSHBridgeConfig): number => Math.floor((config.budget?.personalDailyYuan ?? config.budget?.privateDailyYuan ?? 1) * units);
 const personalKey = (day: string, scope: BudgetScope): string => {
   if (!scope.userId) throw new DSHError('budget', '无法确定本次调用所属用户，已暂停付费调用。');
@@ -204,7 +232,8 @@ const requestKeys = (day: string, scope: BudgetScope, kind: BudgetKind = 'chat')
     : kind === 'autonomous' || scope.autonomous
       ? `${prefix}:${day}:autonomous:${scopeHash(scope)}`
       : personalKey(day, scope),
-  `${prefix}:${day}:gate-all`
+  `${prefix}:${day}:gate-all`,
+  walletKey(scope)
 ];
 
 export type BudgetBlockReason = 'none' | 'personal' | 'global';
@@ -236,17 +265,19 @@ export const budgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) 
   const redis = await budgetRedis();
   const day = await redisDay(redis);
   const [key, totalKey] = keysFor(day, scope);
-  const [value, total, person] = await bounded(
+  const wallet = await ensureWallet(redis, day, scope);
+  const [value, total, person, paid] = await bounded(
     Promise.all([
       redis.hgetall(key),
       redis.hgetall(totalKey),
-      scope.userId ? redis.hgetall(personalKey(day, scope)) : Promise.resolve({} as Record<string, string>)
+      scope.userId ? redis.hgetall(personalKey(day, scope)) : Promise.resolve({} as Record<string, string>),
+      redis.hgetall(wallet)
     ])
   );
   const freeLimit = person.limitOverride === undefined ? personalLimit(config) : Number(person.limitOverride);
   const used = Number(value.used || 0);
-  const paidUsed = Number(value.paidUsed || 0);
-  const paidLimit = Number(value.paidLimit || 0);
+  const paidUsed = Number(paid.paidUsed || 0);
+  const paidLimit = Number(paid.paidLimit || 0);
   const paidRemaining = Math.max(0, paidLimit - paidUsed);
   const personUsed = Number(person.used || 0);
   const personRemaining = scope.userId && !scope.autonomous ? Math.max(0, freeLimit - personUsed) : 0;
@@ -295,9 +326,14 @@ export const budgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) 
 export const replyGateBudgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) => {
   const redis = await budgetRedis();
   const day = await redisDay(redis);
-  const [groupKey, totalKey] = keysFor(day, scope);
+  const [, totalKey] = keysFor(day, scope);
   const [gate, group, total, gateTotal] = await bounded(
-    Promise.all([redis.hgetall(gateKey(day, scope)), redis.hgetall(groupKey), redis.hgetall(totalKey), redis.hgetall(`${prefix}:${day}:gate-all`)])
+    Promise.all([
+      redis.hgetall(gateKey(day, scope)),
+      redis.hgetall(await ensureWallet(redis, day, scope)),
+      redis.hgetall(totalKey),
+      redis.hgetall(`${prefix}:${day}:gate-all`)
+    ])
   );
   const used = Number(gate.used || 0);
   const paidUsed = Number(gate.paidUsed || 0);
@@ -389,11 +425,34 @@ export const textBudgetInput = (body: { messages?: unknown; tools?: unknown }): 
 // the reservation; only a complete provider response can refund it, exactly once.
 type CredentialPricing = { input: number; output: number; cached: number };
 
+const keyLimitScope = (scope: BudgetScope): BudgetScope => ({
+  platform: `key-budget:${scope.platform}`,
+  userId: scope.channelId,
+  channelId: `private:${JSON.stringify([`key-budget:${scope.platform}`, scope.channelId])}`
+});
+
+export const groupKeyDailyLimit = async (scope: BudgetScope): Promise<number | null> => {
+  const raw = await (await budgetRedis()).get(`${prefix}:key-limit:${scopeHash(scope)}`);
+
+  return raw === null ? null : Number(raw);
+};
+export const setGroupKeyDailyLimit = async (scope: BudgetScope, value: string): Promise<void> => {
+  if (!scope.platform || !scope.channelId || scope.channelId.startsWith('private:')) throw new DSHError('budget', '请在目标群设置。');
+  if (!/^\d+(?:\.\d{1,6})?$/u.test(value) || Number(value) > 10000) throw new DSHError('budget', '每日上限为 0–10000 元，最多六位小数；0 表示暂停钥匙调用。');
+  await (await budgetRedis()).set(`${prefix}:key-limit:${scopeHash(scope)}`, String(Number(value)));
+};
+export const groupKeyBudgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) => {
+  const limit = await groupKeyDailyLimit(scope);
+
+  return limit === null ? null : budgetStatus({ ...config, budget: { enabled: true, personalDailyYuan: limit } }, keyLimitScope(scope));
+};
+
 export const budgetedFetch = async (
   config: DSHBridgeConfig,
   url: URL,
   init: RequestInit & { personalKey?: boolean; scopedKey?: boolean; pricing?: CredentialPricing },
-  kind: BudgetKind = 'chat'
+  kind: BudgetKind = 'chat',
+  keyBudget = false
 ): Promise<Response> => {
   assertAIEnabled(config);
   if (kind === 'chat' && getBudgetScope()?.autonomous) kind = 'autonomous';
@@ -401,7 +460,7 @@ export const budgetedFetch = async (
   if (init.personalKey && !getBudgetScope()?.channelId.startsWith('private:')) throw new DSHError('budget', '个人 Key 只能用于本人私聊。');
   const { getBoundCredential, checkedBoundCredential, disableBoundCredential } = await import('../credentials/scoped');
 
-  if (init.personalKey || init.scopedKey || (await getBoundCredential())) {
+  if (!keyBudget && (init.personalKey || init.scopedKey || (await getBoundCredential()))) {
     const personal = await checkedBoundCredential(init.signal || undefined);
 
     if (personal) {
@@ -413,9 +472,24 @@ export const budgetedFetch = async (
         personal.auth === 'account' ? 'x-dsh-auth-token' : 'Authorization',
         personal.auth === 'account' ? personal.apiKey : `Bearer ${personal.apiKey}`
       );
-      const result = await fetch(new URL('https://api.deepseek.com/chat/completions'), { ...init, headers, redirect: 'error' });
+      const groupLimit = personal.scope.channelId.startsWith('private:') ? null : await groupKeyDailyLimit(personal.scope);
 
-      if (personal.auth === 'account' && [401, 402, 403].includes(result.status)) {
+      if (groupLimit !== null && textBudgetInput(JSON.parse(String(init.body))).hasImages)
+        throw new DSHError('budget', '本群已设置钥匙金额上限，暂不支持无法准确预估费用的图片调用。');
+      const result =
+        groupLimit === null
+          ? await fetch(new URL('https://api.deepseek.com/chat/completions'), { ...init, headers, redirect: 'error' })
+          : await withBudgetScope(keyLimitScope(personal.scope), () =>
+              budgetedFetch(
+                { ...config, budget: { enabled: true, personalDailyYuan: groupLimit, maxOutputTokens: config.budget?.maxOutputTokens ?? 2048 } },
+                new URL('https://api.deepseek.com/chat/completions'),
+                { ...init, headers, redirect: 'error', personalKey: false, scopedKey: false, pricing: undefined },
+                'chat',
+                true
+              )
+            );
+
+      if (personal.auth === 'account' && [401, 403].includes(result.status)) {
         const status = result.status;
 
         await result.body?.cancel();
@@ -424,6 +498,7 @@ export const budgetedFetch = async (
       if (result.status !== 402) return result;
       await result.body?.cancel();
       if (!(await disableBoundCredential(personal))) throw new DSHError('budget', '绑定 Key 设置已变更，请重新发送请求。');
+      throw new DSHError('budget', '钥匙余额不足，已暂停使用；充值后请启用，或显式停用、移除以使用机器人额度。');
     }
     // The input may have been built using a personal key. Fallback must select
     // the robot credential afresh and can only proceed through budget admission.
@@ -460,6 +535,8 @@ export const budgetedFetch = async (
   const amount = Math.ceil(promptBound * rates.input + maxOutput * rates.output);
   const redis = await budgetRedis();
   const day = await redisDay(redis);
+
+  await ensureWallet(redis, day, scope);
   const keys = requestKeys(day, scope, kind);
   const admitted = await bounded(
     redis.eval(
@@ -600,10 +677,11 @@ local field = ARGV[2] == 'add' and 'paidLimit' or 'limitOverride'
 local before = tonumber(redis.call('HGET', KEYS[1], field) or (ARGV[2] == 'add' and '0' or ARGV[1]))
 local amount = tonumber(ARGV[3])
 local after = ARGV[2] == 'add' and before + amount or amount
-if after < 0 or after > 10000000000 then return 'invalid' end
+local remaining = after - (ARGV[2] == 'add' and tonumber(redis.call('HGET', KEYS[1], 'paidUsed') or '0') or 0)
+if after < 0 or after > 9007199254740991 or remaining > 10000000000 then return 'invalid' end
 local entry = cjson.encode({ledger=field, fingerprint=ARGV[7], day=ARGV[6], at=tonumber(redis.call('TIME')[1]), actor=ARGV[4], operation=ARGV[2], amount=amount, before=before, after=after, used=tonumber(redis.call('HGET', KEYS[1], 'used') or '0')})
 redis.call('HSET', KEYS[1], field, after)
-redis.call('EXPIRE', KEYS[1], ARGV[5])
+if ARGV[2] ~= 'add' then redis.call('EXPIRE', KEYS[1], ARGV[5]) end
 redis.call('SET', KEYS[2], entry, 'EX', ARGV[5])
 redis.call('LPUSH', KEYS[3], entry)
 redis.call('LTRIM', KEYS[3], 0, 999)
@@ -640,7 +718,8 @@ export const manageBudget = async (
   const redis = await budgetRedis();
   const day = await redisDay(redis);
   const [conversationKey] = keysFor(day, scope);
-  const key = operation === 'add' ? conversationKey : scope.channelId.startsWith('private:') ? personalKey(day, privateUserScope(scope)) : gateKey(day, scope);
+  const wallet = await ensureWallet(redis, day, scope);
+  const key = operation === 'add' ? wallet : scope.channelId.startsWith('private:') ? personalKey(day, privateUserScope(scope)) : gateKey(day, scope);
   // Source message identity, independent of target/arguments/day: delivery retries
   // and edited commands cannot grant money twice, including across midnight.
   const id = createHash('sha256')
@@ -666,7 +745,7 @@ export const manageBudget = async (
   );
 
   if (result === 'conflict') throw new DSHError('budget', '这条消息已处理过其他额度调整，请发送新的指令。');
-  if (result === 'invalid') throw new DSHError('budget', '调整后的当日额度必须在 0–10000 元之间。');
+  if (result === 'invalid') throw new DSHError('budget', '调整后的可用额度必须在 0–10000 元之间。');
 
   return JSON.parse(result) as BudgetAdjustment;
 };
@@ -814,6 +893,8 @@ export const reserveWorkspaceText = async (config: DSHBridgeConfig, input: strin
   const amount = usageCost({ prompt_tokens: promptTokens, completion_tokens: config.budget?.maxOutputTokens ?? 2048 }, rates);
   const redis = await budgetRedis();
   const day = await redisDay(redis);
+
+  await ensureWallet(redis, day, scope);
   const keys = requestKeys(day, scope);
 
   if (

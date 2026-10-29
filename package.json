@@ -51,10 +51,11 @@
     "prepack": "npm run build"
   },
   "devDependencies": {
-    "lint-staged": "^16.1.5",
     "@alemonjs/db": "^0.0.21",
     "@alemonjs/qq-bot": "^2.1.42",
     "@eslint/js": "^9.14.0",
+    "@types/koa-bodyparser": "^4.3.13",
+    "@types/koa-router": "^7.4.10",
     "@types/node": "^26.6.5",
     "@types/uuid": "^10.0.0",
     "@types/ws": "8.18.1",
@@ -68,6 +69,7 @@
     "globals": "^16.2.0",
     "husky": "^9.1.7",
     "jsxp": "^1.4.0",
+    "lint-staged": "^16.1.5",
     "lvyjs": "^0.3.0-alpha.5",
     "prettier": "^3.5.3",
     "sass": "^1.83.0",
@@ -283,12 +285,14 @@
   "packageManager": "yarn@1.22.22",
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
+    "koa-bodyparser": "^4.4.1",
+    "koa-router": "^14.0.0",
+    "playwright-core": "^1.64.1",
     "proper-lockfile": "^4.1.2",
     "qrcode": "^1.5.4",
     "sharp": "^0.34.3",
     "ws": "8.18.1",
-    "yaml": "^2.9.1",
-    "playwright-core": "^1.64.1"
+    "yaml": "^2.9.1"
   },
   "engines": {
     "node": ">=22.13.0"

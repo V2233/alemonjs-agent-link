@@ -1,25 +1,23 @@
-import { Button, Modal, NotificationDiv, PrimaryDiv } from '@alemonjs/react-ui';
+import { Alert, Empty, Modal, Space, Typography } from 'antd';
 import type { ReactNode } from 'react';
 
 export function Feedback({ kind = 'info', children }: { kind?: 'info' | 'success' | 'error' | 'warning'; children: ReactNode }) {
-  const styles = {
-    info: 'feedback-info',
-    success: 'feedback-success',
-    error: 'feedback-error',
-    warning: 'feedback-warning'
-  };
-
-  return <NotificationDiv className={`rounded-xl px-3.5 py-2.5 text-sm ${styles[kind]} animate-fade-in`}>{children}</NotificationDiv>;
+  return <Alert type={kind} showIcon title={children} />;
 }
 
 export function EmptyState({ icon, title, description, action }: { icon?: string; title: string; description?: string; action?: ReactNode }) {
   return (
-    <PrimaryDiv className='empty-state rounded-xl px-4 py-8 text-center'>
-      {icon && <div className='text-2xl mb-2'>{icon}</div>}
-      <div className='text-sm font-medium'>{title}</div>
-      {description && <div className='text-xs opacity-50 mt-1'>{description}</div>}
-      {action && <div className='mt-4'>{action}</div>}
-    </PrimaryDiv>
+    <Empty
+      image={icon ? <span style={{ fontSize: 32 }}>{icon}</span> : Empty.PRESENTED_IMAGE_SIMPLE}
+      description={
+        <Space orientation='vertical'>
+          <Typography.Text strong>{title}</Typography.Text>
+          {description && <Typography.Text type='secondary'>{description}</Typography.Text>}
+        </Space>
+      }
+    >
+      {action}
+    </Empty>
   );
 }
 
@@ -39,19 +37,8 @@ export function ConfirmDialog({
   onConfirm: () => void;
 }) {
   return (
-    <Modal isOpen={open} onClose={onClose}>
-      <div className='p-5 space-y-4 max-w-sm'>
-        <div className='text-base font-semibold'>{title}</div>
-        <div className='text-sm opacity-65 leading-relaxed'>{description}</div>
-        <div className='flex gap-2.5 justify-end'>
-          <Button className='px-4 py-2 rounded-xl text-sm' onClick={onClose}>
-            取消
-          </Button>
-          <Button className='px-4 py-2 rounded-xl text-sm font-semibold bg-red-500/15 hover:bg-red-500/25 text-red-500' onClick={onConfirm}>
-            {confirmLabel}
-          </Button>
-        </div>
-      </div>
+    <Modal open={open} title={title} onCancel={onClose} onOk={onConfirm} okText={confirmLabel} cancelText='取消'>
+      <Typography.Paragraph>{description}</Typography.Paragraph>
     </Modal>
   );
 }

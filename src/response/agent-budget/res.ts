@@ -123,11 +123,11 @@ export default async (): Promise<void> => {
           : '',
         value.blocked && !groupKey?.enabled && !personal?.enabled
           ? isPrivate
-            ? '额度不足：可绑定个人密钥或等北京时间零点重置。'
-            : '额度不足：可增加群充值或绑定群密钥，也可等北京时间零点重置。'
+            ? '额度不足：可绑定个人密钥或等免费额度北京时间零点重置；充值余额跨天保留。'
+            : '额度不足：可增加群充值或绑定群密钥，也可等北京时间零点恢复免费额度。'
           : '',
         gate?.blocked && !groupKey?.enabled ? '感知不足：后台判断暂停，@我仍可使用。' : '',
-        '北京时间零点重置；额度教程：/帮助 额度。'
+        '免费额度北京时间零点重置；充值余额跨天保留。'
       ].filter(Boolean);
 
       text = [intro, '', table.join('\n'), '', ...details].join('\n');

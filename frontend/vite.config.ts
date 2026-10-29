@@ -1,12 +1,10 @@
-import theme from '@alemonjs/react-ui/theme.json';
 import react from '@vitejs/plugin-react-swc';
 import { readFileSync } from 'fs';
 import { fileURLToPath, URL } from 'url';
 import { defineConfig } from 'vite';
-import tailwindcss from '@tailwindcss/vite';
 const NODE_ENV = process.env.NODE_ENV === 'development';
 const pkg = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf-8')) as { version?: string };
-const __PORT__ = 17187;
+const __PORT__ = 17178;
 export default defineConfig({
   base: NODE_ENV ? '/' : './',
   server: {
@@ -19,13 +17,12 @@ export default defineConfig({
     }
   },
   define: {
-    'process.env.ALEMONJS_CSS_VARIABLES': NODE_ENV ? JSON.stringify(theme) : '{}',
     __APP_VERSION__: JSON.stringify(pkg.version ?? '0.0.0')
   },
   plugins: [
       // React SWC 编译
       react(),
-      tailwindcss(),
+
   ],
   resolve: {
     alias: [
@@ -58,7 +55,7 @@ export default defineConfig({
         assetFileNames: 'assets/[name].[ext]',
         manualChunks(id) {
           if (!id.includes('node_modules')) return;
-          if (id.includes('/@alemonjs/react-ui/')) return 'ui';
+          if (id.includes('/antd/') || id.includes('/@ant-design/') || id.includes('/@rc-component/')) return 'antd';
           if (id.includes('/echarts') || id.includes('/zrender/')) return 'charts';
           if (id.includes('/@uiw/react-markdown-preview/') || id.includes('/rehype-')) return 'markdown';
         }

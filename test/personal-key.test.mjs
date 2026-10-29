@@ -47,7 +47,9 @@ test('personal key encryption, isolation, manual switches and depletion fallback
   const dir = await mkdtemp(join(tmpdir(), 'agent-personal-key-'));
   const previous = { redis: globalThis.ioRedis, fetch: globalThis.fetch, config: globalThis.__config, keyFile: process.env.AGENT_LINK_PERSONAL_KEY_FILE };
   globalThis.ioRedis = redis;
-  globalThis.__config = { value: { 'alemonjs-agent-link': { aiEnabled: true, apiKey: 'sk-shared-test-key', budget: { enabled: true } } } };
+  globalThis.__config = {
+    value: { db: { redis: redisConfig }, 'alemonjs-agent-link': { aiEnabled: true, apiKey: 'sk-shared-test-key', budget: { enabled: true } } }
+  };
   process.env.AGENT_LINK_PERSONAL_KEY_FILE = join(dir, 'master.key');
   const scope = { platform: 'test', userId: 'u', channelId: 'private:["test","u"]' };
   const other = { platform: 'test', userId: 'other', channelId: 'private:["test","other"]' };
@@ -107,15 +109,16 @@ test('personal key encryption, isolation, manual switches and depletion fallback
         assert.equal((await budgetStatus(config, scope)).used, before);
       }
     });
-    await t.test('explicit insufficient balance disables persistently and falls back through budget', async () => {
+    await t.test('insufficient balance pauses until explicit payer switch', async () => {
       mode = 'empty';
       calls = [];
-      await request(scope, true);
-      assert.equal(calls.at(-1).key, 'Bearer sk-shared-test-key');
+      await assert.rejects(request(scope, true), /余额不足/);
       assert.equal((await personalKeyStatus(scope)).reason, 'balance');
-      assert.equal((await budgetStatus(config, scope)).used, 0.00036);
+      assert.equal((await budgetStatus(config, scope)).used, 0);
       mode = 'ok';
       calls = [];
+      await assert.rejects(request(), /余额不足/);
+      await updatePersonalKey(scope, 'disable');
       await request();
       assert.equal(
         calls.some(call => call.url.endsWith('/user/balance')),
@@ -153,7 +156,7 @@ test('personal key encryption, isolation, manual switches and depletion fallback
         exhausted = true;
         await assert.rejects(
           withBudgetScope(scope, () => streamChat(config, 'dsh:qq:private:test', 'hello', async () => {}, 'u')),
-          /自动停用/
+          /暂停/
         );
         assert.equal(workspaceCalls, 2);
         assert.equal((await personalKeyStatus(scope)).enabled, false);
@@ -163,12 +166,12 @@ test('personal key encryption, isolation, manual switches and depletion fallback
         globalThis.fetch = original;
       }
     });
-    await t.test('HTTP 402 switches just the rejected model request; manual off/on and stale CAS are safe', async () => {
+    await t.test('HTTP 402 never switches payer automatically; manual off/on and stale CAS are safe', async () => {
       mode = '402';
       calls = [];
-      await request();
-      assert.equal(calls.filter(call => !call.url.endsWith('/user/balance')).length, 2);
-      assert.equal(calls.at(-1).key, 'Bearer sk-shared-test-key');
+      await assert.rejects(request(), /余额不足/);
+      assert.equal(calls.filter(call => !call.url.endsWith('/user/balance')).length, 1);
+      assert.equal(calls.at(-1).key, `Bearer ${secret}`);
       assert.equal((await personalKeyStatus(scope)).enabled, false);
       await updatePersonalKey(scope, 'enable');
       const old = await withBudgetScope(scope, () => getPersonalCredential());

@@ -62,7 +62,9 @@ test('group key grants, encrypted storage, scope isolation and quota fallback', 
   const dir = await mkdtemp(join(tmpdir(), 'agent-group-key-'));
   const previous = { redis: globalThis.ioRedis, fetch: globalThis.fetch, config: globalThis.__config, keyFile: process.env.AGENT_LINK_PERSONAL_KEY_FILE };
   globalThis.ioRedis = redis;
-  globalThis.__config = { value: { 'alemonjs-agent-link': { aiEnabled: true, apiKey: 'sk-shared-key-12345678', budget: { enabled: true } } } };
+  globalThis.__config = {
+    value: { db: { redis: connection }, 'alemonjs-agent-link': { aiEnabled: true, apiKey: 'sk-shared-key-12345678', budget: { enabled: true } } }
+  };
   process.env.AGENT_LINK_PERSONAL_KEY_FILE = join(dir, 'master.key');
   const config = resolveDSHConfig({ budget: { enabled: true }, runtimeMode: 'chat-only' });
   const scope = { platform: 'test', channelId: 'g1', userId: 'member' };
@@ -151,28 +153,28 @@ test('group key grants, encrypted storage, scope isolation and quota fallback', 
       assert.equal(calls.at(-1).key, `Bearer ${secret}`);
       assert.equal((await budgetStatus(config, scope)).used, 0);
       mode = 'empty';
-      assert.equal((await classifyGroupReply(input, new AbortController().signal)).budgetBlocked, true);
+      assert.equal((await classifyGroupReply(input, new AbortController().signal)).reply, false);
       assert.equal((await groupKeyStatus(scope)).enabled, false);
       mode = 'ok';
       const proof = await issue('enable');
       await redeemGroupKeyCode(privateScope, proof.code, 'enable');
     });
-    await t.test('network errors preserve enabled state; model 402 disables only this group and falls back to quota', async () => {
+    await t.test('network errors preserve enabled state; model 402 disables only this group without switching payer', async () => {
       mode = 'network';
       await assert.rejects(request(), /查询/);
       assert.equal((await groupKeyStatus(scope)).enabled, true);
       mode = '402';
       calls = [];
-      await request();
-      assert.equal(calls.filter(call => !call.url.endsWith('/user/balance')).length, 2);
-      assert.equal(calls.at(-1).key, 'Bearer sk-shared-key-12345678');
+      await assert.rejects(request(), /余额不足/);
+      assert.equal(calls.filter(call => !call.url.endsWith('/user/balance')).length, 1);
+      assert.equal(calls.at(-1).key, `Bearer ${secret}`);
       const status = await budgetStatus(config, scope);
-      assert.equal(status.used, 0.00036);
-      assert.equal(status.personalUsed, 0.00036);
+      assert.equal(status.used, 0);
+      assert.equal(status.personalUsed, 0);
       assert.equal((await groupKeyStatus(scope)).reason, 'balance');
       mode = 'ok';
       calls = [];
-      await request();
+      await assert.rejects(request(), /余额不足/);
       assert.equal(
         calls.some(call => call.url.endsWith('/user/balance')),
         false
@@ -194,6 +196,9 @@ test('group key grants, encrypted storage, scope isolation and quota fallback', 
       assert.equal((await budgetStatus(config, scope)).paidUsed, 0);
       assert.equal((await budgetStatus(config, scope)).personalUsed, before.personalUsed);
       mode = 'empty';
+      await assert.rejects(request(), /余额不足/);
+      const stop = await issue('disable');
+      await redeemGroupKeyCode(privateScope, stop.code, 'disable');
       await request();
       assert.equal((await budgetStatus(config, scope)).paidUsed, 0.00036);
       assert.equal((await budgetStatus(config, scope)).personalUsed, before.personalUsed);
@@ -228,7 +233,7 @@ test('group key grants, encrypted storage, scope isolation and quota fallback', 
       try {
         await assert.rejects(
           withBudgetScope(scope, () => streamChat(config, 'dsh:qq:group:g1', 'hello', async () => {})),
-          /自动停用/
+          /暂停/
         );
         assert.equal(count, 1);
         assert.equal((await groupKeyStatus(scope)).enabled, false);

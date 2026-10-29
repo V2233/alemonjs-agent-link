@@ -1,8 +1,8 @@
 import { detectRuntimeMode, ensureRuntimeAPI } from '@/api/web-api';
-import '@/input.scss';
+import 'antd/dist/reset.css';
 import '@/main.typings';
-import '@alemonjs/react-ui/style.css';
-import '@alemonjs/react-ui/theme';
+import { App, ConfigProvider } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
@@ -19,6 +19,10 @@ const root = createRoot(document.getElementById('root')!);
 
 root.render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#6558dd', borderRadius: 8, colorBgLayout: '#f7f8fb' } }}>
+      <App>
+        <RouterProvider router={router} />
+      </App>
+    </ConfigProvider>
   </React.StrictMode>
 );

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -9,7 +10,8 @@ import { storedKeyBalance } from '../lib/credentials/key-balance.js';
 import { keyringStorageKey, changeKeyring, readKeyring } from '../lib/credentials/keyring.js';
 import { bindPersonalKey, getPersonalCredential, isPersonalKeyCommand } from '../lib/credentials/personal.js';
 import { getGroupCredential, groupStorageKey, updateGroupKey } from '../lib/credentials/group.js';
-import { withBudgetScope } from '../lib/billing/budget.js';
+import { resolveDSHConfig } from '../lib/dsh/config.js';
+import { withBudgetScope, budgetedFetch, setGroupKeyDailyLimit, groupKeyBudgetStatus, budgetStatus, manageBudget } from '../lib/billing/budget.js';
 import { handleKeyringCommand } from '../lib/response/keyring/res.js';
 
 // Use a dedicated disposable server, never a configured production database.
@@ -73,7 +75,17 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
         };
         assert.equal(await storedKeyBalance(keyringStorageKey(own), own, record), '查询失败，请稍后刷新');
         assert.equal((await readKeyring(own)).ring.keys[0].value.enabled, true);
-        assert.equal(await storedKeyBalance(keyringStorageKey(own), own, { ...record, auth: 'account' }), '扫码账户暂不支持金额查询');
+        globalThis.fetch = async (url, options) => {
+          assert.equal(url, 'https://platform.deepseek.com/api/v0/users/get_user_summary');
+          assert.equal(options.headers['x-dsh-auth-token'], secret);
+          assert.equal(options.headers.Authorization, undefined);
+          assert.equal(options.redirect, 'error');
+          return Response.json({
+            code: 0,
+            data: { biz_code: 0, biz_data: { normal_wallets: [{ currency: 'CNY', balance: '10.25' }], bonus_wallets: [{ currency: 'CNY', balance: '0.75' }] } }
+          });
+        };
+        assert.equal(await storedKeyBalance(keyringStorageKey(own), own, { ...record, auth: 'account' }), '11.00 元');
       } finally {
         globalThis.fetch = original;
       }
@@ -165,6 +177,107 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
       assert.equal((await credential(target)).apiKey, secret, 'old owner record cannot remove a later grant');
       const latest = (await readKeyring(own)).ring.grants.find(item => item.channelId === 'group3');
       await changeKeyring(own, 'revoke', String(latest.id));
+    });
+    await t.test('group enable, disable and daily limit preserve owner and do not charge robot quota', async () => {
+      const target = { ...group, channelId: 'protected' };
+      await changeKeyring(target, 'grant', '1');
+      const opts = { ChannelId: 'protected', UserId: 'bob' };
+      assert.match(await command('/我的钥匙 停用', opts), /已停用/);
+      assert.equal(await credential(target), null);
+      assert.match(await command('/我的钥匙 启用', opts), /已启用/);
+      const config = resolveDSHConfig({ budget: { enabled: true }, runtimeMode: 'chat-only' });
+      const original = globalThis.fetch;
+      let calls = 0;
+      globalThis.fetch = async url => {
+        if (String(url).endsWith('/user/balance')) return Response.json({ is_available: true });
+        calls++;
+        return Response.json({ usage: { prompt_tokens: 10, completion_tokens: 10 } });
+      };
+      const request = () =>
+        withBudgetScope(target, async () =>
+          (
+            await budgetedFetch(config, new URL('https://api.deepseek.com/chat/completions'), {
+              method: 'POST',
+              body: JSON.stringify({ model: 'deepseek-flash', messages: [{ role: 'user', content: 'hi' }] })
+            })
+          ).text()
+        );
+      try {
+        assert.match(await command('/我的钥匙 上限 1', { ...opts, IsAdmin: false }), /仅本群管理员/);
+        await setGroupKeyDailyLimit(target, '0');
+        await assert.rejects(request());
+        assert.equal(calls, 0);
+        await setGroupKeyDailyLimit(target, '1');
+        await request();
+        const status = await groupKeyBudgetStatus(config, target);
+        assert.ok(status.personalUsed > 0 && status.personalUsed < 0.01);
+        assert.equal((await budgetStatus(config, target)).personalUsed, 0);
+        await setGroupKeyDailyLimit(target, '0.04');
+        let release, entered;
+        const started = new Promise(resolve => {
+          entered = resolve;
+        });
+        globalThis.fetch = async url => {
+          if (String(url).endsWith('/user/balance')) return Response.json({ is_available: true });
+          entered();
+          await new Promise(resolve => {
+            release = resolve;
+          });
+          return Response.json({ usage: { prompt_tokens: 0, completion_tokens: 0 } });
+        };
+        const first = request();
+        await started;
+        try {
+          await assert.rejects(request());
+        } finally {
+          release();
+        }
+        await first;
+        await setGroupKeyDailyLimit(target, '0');
+        assert.equal((await groupKeyBudgetStatus(config, target)).personalUsed, status.personalUsed);
+        await assert.rejects(request());
+        await setGroupKeyDailyLimit(target, '1');
+        globalThis.fetch = async url => (String(url).endsWith('/user/balance') ? Response.json({ is_available: true }) : new Response('{}', { status: 402 }));
+        await assert.rejects(request(), /余额不足/);
+        await assert.rejects(credential(target), /余额不足/);
+        await command('/我的钥匙 启用', opts);
+        assert.equal((await credential(target)).apiKey, secret);
+      } finally {
+        globalThis.fetch = original;
+      }
+      await command('/我的钥匙 移除', opts);
+      const grant = (await readKeyring(own)).ring.grants.find(item => item.channelId === 'protected');
+      await changeKeyring(own, 'revoke', String(grant.id));
+    });
+    await t.test('recharge persists across midnight while daily free quota resets', async () => {
+      const config = resolveDSHConfig({ budget: { enabled: true } });
+      const scope = { ...group, channelId: 'wallet-test' };
+      const originalTime = redis.time.bind(redis);
+      let timestamp = Date.parse('2026-10-29T12:00:00+08:00') / 1000;
+      redis.time = async () => [String(timestamp), '0'];
+      try {
+        const actor = { isMaster: true, platform: scope.platform, userId: 'owner', channelId: 'owner', messageId: 'recharge-1' };
+        await manageBudget(config, scope, actor, 'add', 2000000);
+        assert.equal((await budgetStatus(config, scope)).paidRemaining, 2);
+        timestamp += 86400;
+        assert.equal((await budgetStatus(config, scope)).paidRemaining, 2);
+        await manageBudget(config, scope, actor, 'add', 2000000);
+        assert.equal((await budgetStatus(config, scope)).paidRemaining, 2, 'delivery retry across days does not add twice');
+        const legacy = { ...scope, channelId: 'legacy-wallet' };
+        const hash = createHash('sha256')
+          .update(JSON.stringify([legacy.platform, legacy.channelId]))
+          .digest('hex');
+        const day = new Date((timestamp + 8 * 3600) * 1000).toISOString().slice(0, 10);
+        const legacyKey = `data:{agent-link-budget}:v1:${day}:${hash}`;
+        await redis.hset(legacyKey, 'paidLimit', '3000000', 'paidUsed', '1000000', 'paidReserved', '1');
+        await assert.rejects(budgetStatus(config, legacy), /待结算/);
+        await redis.hset(legacyKey, 'paidReserved', '0');
+        assert.equal((await budgetStatus(config, legacy)).paidRemaining, 2);
+        assert.equal((await budgetStatus(config, legacy)).paidRemaining, 2, 'migration is idempotent');
+        for (const wallet of await redis.keys('*:wallet:*')) assert.equal(await redis.ttl(wallet), -1);
+      } finally {
+        redis.time = originalTime;
+      }
     });
     await t.test('stale grant cannot delete a replacement copy', async () => {
       const target = { ...group, channelId: 'group2' };

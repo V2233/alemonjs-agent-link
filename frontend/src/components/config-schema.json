@@ -1,0 +1,322 @@
+{
+  "fields": [
+    {
+      "name": "aiEnabled",
+      "type": "boolean",
+      "description": "aiEnabled",
+      "required": false
+    },
+    {
+      "name": "aiDisabledReason",
+      "type": "string",
+      "description": "aiDisabledReason",
+      "required": false
+    },
+    {
+      "name": "aiNoticeEpoch",
+      "type": "string",
+      "description": "aiNoticeEpoch",
+      "required": false
+    },
+    {
+      "name": "transport",
+      "type": "string",
+      "description": "transport",
+      "required": false
+    },
+    {
+      "name": "groupWakeNames",
+      "type": "array",
+      "description": "groupWakeNames",
+      "required": false
+    },
+    {
+      "name": "privateChatAccess",
+      "type": "string",
+      "description": "privateChatAccess",
+      "required": false
+    },
+    {
+      "name": "privateAutoReply",
+      "type": "boolean",
+      "description": "privateAutoReply",
+      "required": false
+    },
+    {
+      "name": "persona",
+      "type": "string",
+      "description": "persona",
+      "required": false
+    },
+    {
+      "name": "privateHistoryMaxTurns",
+      "type": "number",
+      "description": "privateHistoryMaxTurns",
+      "required": false
+    },
+    {
+      "name": "privateHistoryTtlSeconds",
+      "type": "number",
+      "description": "privateHistoryTtlSeconds",
+      "required": false
+    },
+    {
+      "name": "privateHistoryMaxChars",
+      "type": "number",
+      "description": "privateHistoryMaxChars",
+      "required": false
+    },
+    {
+      "name": "stateBackend",
+      "type": "string",
+      "description": "stateBackend",
+      "required": false
+    },
+    {
+      "name": "pythonPackageSources",
+      "type": "array",
+      "description": "pythonPackageSources",
+      "required": false
+    },
+    {
+      "name": "runtimeMode",
+      "type": "string",
+      "description": "runtimeMode",
+      "required": false
+    },
+    {
+      "name": "pythonExecutable",
+      "type": "string",
+      "description": "pythonExecutable",
+      "required": false
+    },
+    {
+      "name": "bridgePort",
+      "type": "number",
+      "description": "bridgePort",
+      "required": false
+    },
+    {
+      "name": "workspaceRoot",
+      "type": "string",
+      "description": "workspaceRoot",
+      "required": false
+    },
+    {
+      "name": "dshHomeRoot",
+      "type": "string",
+      "description": "dshHomeRoot",
+      "required": false
+    },
+    {
+      "name": "profile",
+      "type": "string",
+      "description": "profile",
+      "required": false
+    },
+    {
+      "name": "provider",
+      "type": "string",
+      "description": "provider",
+      "required": false
+    },
+    {
+      "name": "model",
+      "type": "string",
+      "description": "model",
+      "required": false
+    },
+    {
+      "name": "defaultSystemPrompt",
+      "type": "string",
+      "description": "defaultSystemPrompt",
+      "required": false
+    },
+    {
+      "name": "maxMessageLength",
+      "type": "number",
+      "description": "maxMessageLength",
+      "required": false
+    },
+    {
+      "name": "streamFlushIntervalMs",
+      "type": "number",
+      "description": "streamFlushIntervalMs",
+      "required": false
+    },
+    {
+      "name": "bubbleDelayMs",
+      "type": "number",
+      "description": "bubbleDelayMs",
+      "required": false
+    },
+    {
+      "name": "requestTimeoutMs",
+      "type": "number",
+      "description": "requestTimeoutMs",
+      "required": false
+    },
+    {
+      "name": "startupTimeoutMs",
+      "type": "number",
+      "description": "startupTimeoutMs",
+      "required": false
+    },
+    {
+      "name": "preparationTimeoutMs",
+      "type": "number",
+      "description": "preparationTimeoutMs",
+      "required": false
+    },
+    {
+      "name": "maxQueuedPerGroup",
+      "type": "number",
+      "description": "maxQueuedPerGroup",
+      "required": false
+    },
+    {
+      "name": "maxConcurrentRequests",
+      "type": "number",
+      "description": "maxConcurrentRequests",
+      "required": false
+    },
+    {
+      "name": "maxActiveWorkers",
+      "type": "number",
+      "description": "maxActiveWorkers",
+      "required": false
+    },
+    {
+      "name": "maxCallsPerUserPerMinute",
+      "type": "number",
+      "description": "maxCallsPerUserPerMinute",
+      "required": false
+    },
+    {
+      "name": "inputBlockedKeywords",
+      "type": "array",
+      "description": "inputBlockedKeywords",
+      "required": false
+    },
+    {
+      "name": "outputBlockedKeywords",
+      "type": "array",
+      "description": "outputBlockedKeywords",
+      "required": false
+    },
+    {
+      "name": "maxRequestBytes",
+      "type": "number",
+      "description": "maxRequestBytes",
+      "required": false
+    },
+    {
+      "name": "retentionDays",
+      "type": "number",
+      "description": "retentionDays",
+      "required": false
+    },
+    {
+      "name": "recentChatMaxMessages",
+      "type": "number",
+      "description": "recentChatMaxMessages",
+      "required": false
+    },
+    {
+      "name": "recentChatWindowSeconds",
+      "type": "number",
+      "description": "recentChatWindowSeconds",
+      "required": false
+    },
+    {
+      "name": "recentChatMaxChars",
+      "type": "number",
+      "description": "recentChatMaxChars",
+      "required": false
+    },
+    {
+      "name": "recentChatSummaryMaxChars",
+      "type": "number",
+      "description": "recentChatSummaryMaxChars",
+      "required": false
+    }
+  ],
+  "ranges": {
+    "privateHistoryMaxTurns": [
+      0,
+      100
+    ],
+    "privateHistoryTtlSeconds": [
+      1,
+      2592000
+    ],
+    "privateHistoryMaxChars": [
+      1,
+      100000
+    ],
+    "maxMessageLength": [
+      1,
+      10000
+    ],
+    "streamFlushIntervalMs": [
+      1,
+      10000
+    ],
+    "bubbleDelayMs": [
+      0,
+      5000
+    ],
+    "requestTimeoutMs": [
+      1,
+      300000
+    ],
+    "preparationTimeoutMs": [
+      1000,
+      600000
+    ],
+    "startupTimeoutMs": [
+      1,
+      300000
+    ],
+    "bridgePort": [
+      0,
+      65535
+    ],
+    "maxQueuedPerGroup": [
+      0,
+      3
+    ],
+    "maxConcurrentRequests": [
+      1,
+      100
+    ],
+    "maxActiveWorkers": [
+      1,
+      200
+    ],
+    "maxCallsPerUserPerMinute": [
+      1,
+      60
+    ],
+    "retentionDays": [
+      30,
+      30
+    ],
+    "recentChatMaxMessages": [
+      0,
+      10000
+    ],
+    "recentChatWindowSeconds": [
+      0,
+      86400
+    ],
+    "recentChatMaxChars": [
+      0,
+      1000000
+    ],
+    "recentChatSummaryMaxChars": [
+      0,
+      1000000
+    ]
+  }
+}

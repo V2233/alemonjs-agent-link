@@ -160,3 +160,38 @@ test('learned facts enter a real group turn with person attribution and cannot l
     assert.deepEqual(output, ['你提到喜欢杭州茶馆。']);
     assert.equal(calls, 2);
   }));
+
+test('memory tool falls back to same-person same-session user sources without claiming saved facts', () =>
+  fixture(async f => {
+    const { memoryModule } = await import('../lib/modules/memory.js');
+    const tools = [];
+    const disposals = [];
+    memoryModule(f.config).setup({
+      on() {},
+      tool(tool) {
+        tools.push(tool);
+      },
+      onDispose(fn) {
+        disposals.push(fn);
+      }
+    });
+    try {
+      for (const [channelId, speakerId, text, role] of [
+        ['group', 'alice', '我喜欢龙井', 'user'],
+        ['group', 'bob', '别人的资料', 'user'],
+        ['other', 'alice', '其他群资料', 'user'],
+        ['group', 'alice', '机器人猜测', 'assistant']
+      ])
+        f.archive.append({ platform: 'qq', channelId }, { id: text, speakerId, speaker: speakerId, text, role });
+      const result = await tools
+        .find(tool => tool.name === 'recall_memories')
+        .execute({ query: '以前说过什么' }, { ...scope, userId: 'alice', userText: '以前说过什么', signal: new AbortController().signal });
+      assert.deepEqual(result.items, []);
+      assert.deepEqual(
+        result.recentSources.map(item => item.text),
+        ['我喜欢龙井']
+      );
+    } finally {
+      for (const dispose of disposals) dispose();
+    }
+  }));

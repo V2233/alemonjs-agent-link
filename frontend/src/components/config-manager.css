@@ -1,0 +1,115 @@
+.config-shell {
+  min-height: 100vh;
+}
+.config-sider {
+  border-right: 1px solid #eee;
+  position: sticky !important;
+  top: 0;
+  height: 100vh;
+}
+.config-brand {
+  padding: 28px 24px;
+}
+.workspace-card {
+  margin: 0 16px 24px;
+}
+.sidebar-note {
+  padding: 24px;
+  font-size: 12px;
+}
+.config-header {
+  height: auto;
+  min-height: 64px;
+  padding: 16px 32px;
+  background: white;
+  border-bottom: 1px solid #eee;
+  line-height: normal;
+}
+.config-content {
+  width: 100%;
+  max-width: 1280px;
+  margin: auto;
+  padding: 32px;
+}
+.config-summary {
+  margin: 16px 0 24px;
+}
+.config-summary .ant-card {
+  height: 100%;
+}
+.config-toolbar {
+  margin: 28px 0 18px;
+}
+.config-toolbar h4 {
+  margin: 0 0 4px;
+}
+.config-search {
+  width: 280px;
+}
+.config-field-row {
+  padding: 24px !important;
+  margin: 0 !important;
+  border-bottom: 1px solid #f0f0f0;
+}
+.config-field-row:last-child {
+  border-bottom: 0;
+}
+.field-path {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.field-description {
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 6px 0 0 !important;
+  overflow-wrap: anywhere;
+}
+.config-array-heading {
+  padding: 20px 24px;
+  background: #fafaff;
+  border-bottom: 1px solid #eee;
+}
+.config-array-heading .ant-btn {
+  flex-shrink: 0;
+}
+.config-empty {
+  padding: 40px 16px;
+}
+.config-footer {
+  position: sticky;
+  bottom: 12px;
+  margin-top: 20px;
+  box-shadow: 0 4px 20px #00000008;
+  z-index: 2;
+}
+.config-footnote {
+  text-align: center;
+  font-size: 12px;
+  margin-top: 20px;
+}
+@media (max-width: 700px) {
+  .config-content {
+    padding: 20px 16px;
+  }
+  .config-header {
+    padding: 16px;
+  }
+  .config-search {
+    width: 100%;
+  }
+  .config-field-row {
+    padding: 18px 8px !important;
+  }
+  .config-array-heading {
+    padding: 18px 16px;
+  }
+  .config-footnote {
+    text-align: left;
+  }
+}
+
+.config-file-row {
+  margin: 12px 0 20px;
+}

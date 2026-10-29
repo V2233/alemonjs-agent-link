@@ -166,6 +166,7 @@ export const getGroupCredential = async (): Promise<PersonalCredential | null> =
   const raw = await (await budgetRedis()).get(groupStorageKey(scope));
   const value = raw ? (JSON.parse(raw) as RecordValue) : null;
 
+  if (value?.reason === 'balance') throw new DSHError('budget', '本群钥匙余额不足，充值后请管理员启用；如要使用机器人额度，请显式停用或移除钥匙。');
   if (value?.enabled !== true) return null;
   if (!key) throw new DSHError('budget', '群密钥加密文件缺失，请联系主人恢复或重新绑定。');
 
@@ -173,3 +174,24 @@ export const getGroupCredential = async (): Promise<PersonalCredential | null> =
 };
 export const checkedGroupCredential = async (signal?: AbortSignal): Promise<PersonalCredential | null> =>
   checkCredentialBalance(await getGroupCredential(), credential => updateGroupKey(credential.scope, credential.revision), getGroupCredential, signal);
+
+export const setGroupKeyState = async (scope: BudgetScope, enabled: boolean): Promise<boolean> =>
+  Number(
+    await (
+      await budgetRedis()
+    ).eval(
+      `
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local value = cjson.decode(raw)
+value.enabled = ARGV[1] == '1'
+value.reason = value.enabled and '' or 'manual'
+value.revision = ARGV[2]
+redis.call('SET', KEYS[1], cjson.encode(value))
+return 1`,
+      1,
+      groupStorageKey(scope),
+      enabled ? '1' : '0',
+      randomUUID()
+    )
+  ) === 1;
