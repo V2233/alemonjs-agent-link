@@ -79,11 +79,106 @@ test('voice settings persist disable/default and retain masked credentials with 
     await initializeAdminPanel();
     const initial = await readVoiceSettings();
     assert.equal(JSON.stringify(initial).includes('voice-private-secret'), false);
-    await updateVoiceSettings({ ...initial, voices: initial.voices.map(v => ({ ...v, enabled: false })) });
+    await updateVoiceSettings({
+      ...initial,
+      localSpeech: { enabled: false, fallback: false, voice: 'Tingting' },
+      voices: initial.voices.map(v => ({ ...v, enabled: false }))
+    });
     const saved = parse(await readFile(path, 'utf8'))['alemonjs-agent-link'].media;
+    assert.deepEqual(saved.localSpeech, { enabled: false, fallback: false, voice: 'Tingting' });
     assert.equal(saved.voices[0].enabled, false);
     assert.equal(saved.voices[0].speech.apiKey, 'voice-private-secret');
     await assert.rejects(updateVoiceSettings(initial), /配置已/);
+  } finally {
+    disposeAdminPanel();
+    globalThis.__config = previous;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('voice preview with enabled chat budget needs no conversation and retains validation', async () => {
+  const { previewVoice } = await import('../lib/panel/voice-service.js');
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'voice-preview-'));
+  const previous = globalThis.__config;
+  const previousFetch = globalThis.fetch;
+  const mp3 = Buffer.from([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0, 0xff, 0xfb, 0x90, 0x64]);
+  globalThis.__config = {
+    value: {
+      'alemonjs-agent-link': {
+        workspaceRoot: join(root, 'work'),
+        budget: { enabled: true },
+        media: {
+          voices: [
+            { id: 'remote', name: '测试', speech: { engine: 'breeze', url: 'https://example.com', apiKey: 'test', voiceId: 'one', fallback: false } },
+            { id: 'disabled', name: '停用', enabled: false, speech: { engine: 'system' } }
+          ]
+        }
+      }
+    }
+  };
+  let count = 0;
+  globalThis.fetch = async () => {
+    count++;
+    return new Response(mp3);
+  };
+  try {
+    await assert.rejects(previewVoice({ id: 'remote', text: ' ' }));
+    await assert.rejects(previewVoice({ id: 'remote', text: '字'.repeat(201) }));
+    await assert.rejects(previewVoice({ id: 'disabled', text: '你好' }));
+    assert.equal(count, 0);
+    const audio = await previewVoice({ id: 'remote', text: '你好' });
+    assert.equal(audio.engine, 'breeze');
+    assert.deepEqual(audio.fallbackFrom, []);
+    assert.equal(count, 1);
+    const { assertBudgetAvailable } = await import('../lib/billing/budget.js');
+    await assert.rejects(assertBudgetAvailable({ budget: { enabled: true } }), /无法确定/);
+    globalThis.__config.value['alemonjs-agent-link'].aiEnabled = false;
+    await assert.rejects(previewVoice({ id: 'remote', text: '你好' }), /关闭/);
+    assert.equal(count, 1);
+  } finally {
+    globalThis.__config = previous;
+    globalThis.fetch = previousFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('legacy online voice migration preserves masked credentials and all speech fields', async () => {
+  const { mkdtemp, writeFile, readFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { parse } = await import('yaml');
+  const { initializeAdminPanel, disposeAdminPanel } = await import('../lib/panel/admin-panel.js');
+  const { readVoiceSettings, migrateVoiceSettings } = await import('../lib/panel/voice-service.js');
+  const dir = await mkdtemp(join(tmpdir(), 'voice-migration-'));
+  const path = join(dir, 'config.yaml');
+  const previous = globalThis.__config;
+  const speech = {
+    engine: 'breeze',
+    url: 'https://example.com',
+    apiKey: 'test-secret-migrate',
+    voiceId: 'one',
+    language: 'zh',
+    instruction: '轻快',
+    fallback: true
+  };
+  try {
+    await writeFile(path, JSON.stringify({ 'alemonjs-agent-link': { media: { speech } } }));
+    globalThis.__config = { path, value: { 'alemonjs-agent-link': {} }, reload() {} };
+    await initializeAdminPanel();
+    const initial = await readVoiceSettings();
+    assert.equal(initial.legacyAvailable, true);
+    const result = await migrateVoiceSettings({ revision: initial.revision });
+    assert.equal(result.data.legacyAvailable, false);
+    assert.equal(JSON.stringify(result).includes(speech.apiKey), false);
+    const media = parse(await readFile(path, 'utf8'))['alemonjs-agent-link'].media;
+    assert.deepEqual(media.voices[0].speech, speech);
+    assert.equal(media.activeVoice, media.voices[0].id);
+    assert.deepEqual(media.speech, speech);
+    await assert.rejects(migrateVoiceSettings({ revision: initial.revision }), /配置已/);
+    await assert.rejects(migrateVoiceSettings({ revision: result.data.revision }), /尚未使用/);
   } finally {
     disposeAdminPanel();
     globalThis.__config = previous;

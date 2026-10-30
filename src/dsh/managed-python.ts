@@ -1,5 +1,4 @@
-import { readBounded } from '../media/http';
-import { createHash } from 'node:crypto';
+import { downloadRuntime } from './runtime-download';
 import { mkdtemp, mkdir, writeFile, rm, rename, access } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -16,6 +15,13 @@ export const installManagedPython = async (
   signal?: AbortSignal,
   timeout = 120000
 ): Promise<void> => {
+  const deadline = Date.now() + timeout;
+  const budgetSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout);
+  const execute = async (command: string, args: string[], limit = timeout) => {
+    budgetSignal.throwIfAborted();
+    await run(command, args, Math.max(1, Math.min(limit, deadline - Date.now())));
+    budgetSignal.throwIfAborted();
+  };
   const arch = process.arch === 'arm64' ? 'aarch64' : process.arch === 'x64' ? 'x86_64' : '';
   const target = `${arch}-${process.platform === 'darwin' ? 'apple-darwin' : 'unknown-linux-gnu'}`;
 
@@ -28,33 +34,22 @@ export const installManagedPython = async (
   await mkdir(tools, { recursive: true });
   try {
     await access(uv);
-    await run(uv, ['--version'], Math.min(timeout, 5000));
+    await execute(uv, ['--version'], 5000);
   } catch {
-    signal?.throwIfAborted();
-    await rm(uv, { force: true });
+    budgetSignal.throwIfAborted();
     const temporary = await mkdtemp(join(tools, '.uv-'));
 
     try {
-      const response = await fetch(`https://github.com/astral-sh/uv/releases/download/0.13.6/uv-${target}.tar.gz`, {
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout)
-      });
-
-      if (!response.ok) {
-        throw new Error('Managed Python bootstrap download failed');
-      }
-      const bytes = await readBounded(response, 64 * 1024 * 1024);
-
-      if (createHash('sha256').update(bytes).digest('hex') !== hashes[target]) {
-        throw new Error('Managed Python bootstrap checksum mismatch');
-      }
+      const bytes = await downloadRuntime(`https://github.com/astral-sh/uv/releases/download/0.13.6/uv-${target}.tar.gz`, hashes[target], budgetSignal);
       const archive = join(temporary, 'uv.tar.gz');
 
       await writeFile(archive, bytes);
-      await run('/usr/bin/tar', ['-xzf', archive, '-C', temporary], timeout);
+      await execute('/usr/bin/tar', ['-xzf', archive, '-C', temporary]);
+      await execute(join(temporary, `uv-${target}`, 'uv'), ['--version'], 5000);
       await rename(join(temporary, `uv-${target}`, 'uv'), uv);
     } finally {
       await rm(temporary, { recursive: true, force: true });
     }
   }
-  await run(uv, ['venv', '--python', '3.12', '--managed-python', '--seed', join(root, 'venv')], timeout);
+  await execute(uv, ['venv', '--python', '3.12', '--managed-python', '--seed', join(root, 'venv')]);
 };

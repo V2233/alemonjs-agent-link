@@ -221,16 +221,21 @@ test('rapid status transitions persist the latest phase and cancellation cannot 
   assert.equal(JSON.parse(await readFile(path, 'utf8')).phase, 'stopped');
 });
 
-test('bubblewrap setup never prompts and tries another package manager on failure', async () => {
+test('bubblewrap refreshes missing apt indexes without prompting', async () => {
   const { installBubblewrap } = await import('../lib/dsh/sandbox-bootstrap.js');
   const calls = [];
-  await installBubblewrap(1000, undefined, async (...args) => {
-    calls.push(args);
-    if (calls.length === 1) throw new Error('unavailable');
-  });
-  assert.equal(calls.length, 2);
+  await installBubblewrap(
+    1000,
+    undefined,
+    async (...args) => {
+      calls.push(args);
+      if (calls.length === 1) throw new Error('no package index');
+    },
+    async () => ({ name: 'apt-get', executable: '/usr/bin/apt-get', sudo: '/usr/bin/sudo', root: false, manual: 'sudo apt-get install -y bubblewrap' })
+  );
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls[1][1], ['-n', '/usr/bin/apt-get', 'update']);
   assert.equal(calls[0][5].DEBIAN_FRONTEND, 'noninteractive');
-  if (process.getuid?.() !== 0) assert.equal(calls[0][1][0], '-n');
 });
 
 test('managed Python rejects a corrupt download before extracting or executing', async () => {
@@ -417,4 +422,65 @@ test('cancelled installation kills descendant processes on POSIX', { skip: proce
   const stopped = await readFile(heartbeat, 'utf8');
   await new Promise(resolve => setTimeout(resolve, 150));
   assert.equal(await readFile(heartbeat, 'utf8'), stopped);
+});
+
+test('bubblewrap installer reports unavailable privilege and does not run commands', async () => {
+  const { installBubblewrap, inspectBubblewrapInstaller } = await import('../lib/dsh/sandbox-bootstrap.js');
+  const inspect = () => inspectBubblewrapInstaller(async name => (name === 'dnf' ? '/usr/bin/dnf' : undefined), false);
+  await assert.rejects(
+    installBubblewrap(1000, undefined, async () => assert.fail('must not run'), inspect),
+    /没有 root 权限/
+  );
+  assert.equal(await inspectBubblewrapInstaller(async () => undefined), undefined);
+});
+
+test('executable discovery ignores relative PATH entries and directories', async () => {
+  const { findExecutable } = await import('../lib/dsh/sandbox-bootstrap.js');
+  const { delimiter } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'agent-executable-'));
+  await mkdir(join(root, 'fake-command'));
+  assert.equal(await findExecutable('fake-command', ['.', root].join(delimiter)), undefined);
+});
+
+test('cancelling apt installation does not start an index refresh', async () => {
+  const { installBubblewrap } = await import('../lib/dsh/sandbox-bootstrap.js');
+  const controller = new AbortController();
+  let calls = 0;
+  await assert.rejects(
+    installBubblewrap(
+      1000,
+      controller.signal,
+      async () => {
+        calls++;
+        controller.abort();
+        throw new Error('cancelled');
+      },
+      async () => ({ name: 'apt-get', executable: '/usr/bin/apt-get', root: true, manual: 'apt-get install -y bubblewrap' })
+    ),
+    /abort/i
+  );
+  assert.equal(calls, 1);
+});
+
+test('managed installer timeout keeps the existing tool instead of deleting it', async () => {
+  const { installManagedPython } = await import('../lib/dsh/managed-python.js');
+  const root = await mkdtemp(join(tmpdir(), 'agent-managed-deadline-'));
+  const tool = join(root, 'tools', 'uv-0.13.6');
+  await mkdir(join(root, 'tools'));
+  await writeFile(tool, 'existing-tool');
+  let calls = 0;
+  await assert.rejects(
+    installManagedPython(
+      root,
+      async () => {
+        calls++;
+        await new Promise(resolve => setTimeout(resolve, 30));
+      },
+      undefined,
+      10
+    ),
+    /timeout|timed out/i
+  );
+  assert.equal(calls, 1);
+  assert.equal(await readFile(tool, 'utf8'), 'existing-tool');
 });

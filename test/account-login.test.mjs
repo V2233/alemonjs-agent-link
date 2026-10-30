@@ -60,7 +60,7 @@ test('scan prepares two purposes once; private switches and group grants are ind
           body: JSON.stringify({ model: 'deepseek-flash', messages: [{ role: 'user', content: 'hi' }] })
         })
       ),
-      /余额不足/
+      /机器人未配置模型凭证/
     );
     assert.equal(calls, 1);
     const grant = (await readKeyring(own)).ring.grants.find(g => g.channelId === 'g1');

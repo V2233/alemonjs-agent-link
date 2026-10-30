@@ -23,12 +23,18 @@ export const budgetNoticeActions = (isPrivate: boolean): { label: string; comman
     ? [
         { label: '绑定密钥', command: '/我的钥匙 私聊 添加' },
         { label: '启用密钥', command: '/我的钥匙 私聊 启用' },
-        { label: '查额度', command: '/额度' }
+        { label: '查额度', command: '/额度' },
+        { label: '今日免扰', command: '/额度 今日不再提醒' }
       ]
     : [
         { label: '申请密钥', command: '/我的钥匙' },
-        { label: '查额度', command: '/额度' }
+        { label: '查额度', command: '/额度' },
+        { label: '今日免扰', command: '/额度 今日不再提醒' }
       ];
 
 export const insufficientBudgetHelp = (isPrivate: boolean): string =>
-  ['本次可用额度不足。', isPrivate ? personalKeyGuide : groupKeyGuide, '可联系机器人主人加额度，或等北京时间零点重置；/额度 可查剩余。'].join('\n\n');
+  [
+    '本次可用额度不足。自动额度提醒每天最多一次；/额度 今日不再提醒 可设置今日免扰。',
+    isPrivate ? personalKeyGuide : groupKeyGuide,
+    '可联系机器人主人加额度，或等北京时间零点重置；/额度 可查剩余。'
+  ].join('\n\n');

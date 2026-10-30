@@ -286,3 +286,39 @@ test('media refuses paid requests without a valid budget scope', async () => {
     globalThis.fetch = oldFetch;
   }
 });
+
+test('local voice switches control direct use and remote failure fallback', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'local-voice-'));
+  const runtime = { workspaceRoot: join(root, 'work') };
+  const oldFetch = globalThis.fetch;
+  let calls = 0;
+  const services = {
+    system: async (_text, file, config) => {
+      calls++;
+      assert.equal(config.speech.systemVoice, 'TestVoice');
+      await writeFile(file, mp3);
+    }
+  };
+  try {
+    const direct = getMediaConfig({ media: { speech: { engine: 'system' }, localSpeech: { enabled: true, fallback: false, voice: 'TestVoice' } } });
+    assert.equal((await renderSpeech('你好', direct, signal(), runtime, services)).engine, 'system');
+    await assert.rejects(renderSpeech('你好', { ...direct, localSpeech: { enabled: false, fallback: true } }, signal(), runtime, services), /本地音色已关闭/);
+    globalThis.fetch = async () => new Response('', { status: 402 });
+    const remote = getMediaConfig({
+      media: {
+        speech: { engine: 'breeze', url: 'https://example.com', apiKey: 'test-local', voiceId: 'one' },
+        localSpeech: { enabled: true, fallback: false, voice: 'TestVoice' }
+      }
+    });
+    await assert.rejects(renderSpeech('你好', remote, signal(), runtime, services));
+    assert.equal(calls, 1);
+    assert.equal(
+      (await renderSpeech('你好', { ...remote, localSpeech: { ...remote.localSpeech, fallback: true } }, signal(), runtime, services)).engine,
+      'system'
+    );
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = oldFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});

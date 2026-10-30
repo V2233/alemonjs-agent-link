@@ -10,7 +10,14 @@ export const isPersonalKeyCommand = (text: unknown): boolean =>
   /^(?:\/(?:我的钥匙|授权钥匙|授权记录|apikey|个人密钥|群密钥|groupapikey)|[#/]个人(?:登录|退出))(?:\s|$)/iu.test(String(text ?? '').trimStart());
 const keyFile = () => resolve(process.env.AGENT_LINK_PERSONAL_KEY_FILE || '.data/agent-link/personal-key.key');
 
-export type RecordValue = { auth?: 'account'; accountId?: string; encrypted: string; enabled: boolean; revision: string; reason: 'manual' | 'balance' | '' };
+export type RecordValue = {
+  auth?: 'account';
+  accountId?: string;
+  encrypted: string;
+  enabled: boolean;
+  revision: string;
+  reason: 'manual' | 'balance' | 'auth' | '';
+};
 export type PersonalCredential = { apiKey: string; auth?: 'account'; revision: string; scope: BudgetScope };
 export const personalStorageKey = (scope: BudgetScope): string => {
   if (!scope.platform || !scope.userId || scope.channelId !== `private:${JSON.stringify([scope.platform, scope.userId])}`) {
@@ -94,7 +101,12 @@ export const personalKeyEntitled = async (target: { platform?: string; userId?: 
 
   return value?.enabled === true;
 };
-export const updatePersonalKey = async (scope: BudgetScope, action: 'enable' | 'disable' | 'remove', revision?: string): Promise<boolean> => {
+export const updatePersonalKey = async (
+  scope: BudgetScope,
+  action: 'enable' | 'disable' | 'remove',
+  revision?: string,
+  reason: 'balance' | 'auth' = 'balance'
+): Promise<boolean> => {
   const redis = await budgetRedis();
   const result = await redis.eval(
     `
@@ -104,7 +116,7 @@ local value = cjson.decode(raw)
 if ARGV[2] ~= '' and value.revision ~= ARGV[2] then return 0 end
 if ARGV[1] == 'remove' then redis.call('DEL', KEYS[1]); return 1 end
 value.enabled = ARGV[1] == 'enable'
-value.reason = ARGV[2] ~= '' and 'balance' or (value.enabled and '' or 'manual')
+value.reason = ARGV[2] ~= '' and ARGV[4] or (value.enabled and '' or 'manual')
 value.revision = ARGV[3]
 redis.call('SET', KEYS[1], cjson.encode(value))
 return 1`,
@@ -112,7 +124,8 @@ return 1`,
     personalStorageKey(scope),
     action,
     revision || '',
-    randomUUID()
+    randomUUID(),
+    reason
   );
 
   return Number(result) === 1;
@@ -157,7 +170,8 @@ export const checkCredentialBalance = async (
   credential: PersonalCredential | null,
   disable: (credential: PersonalCredential) => Promise<boolean>,
   latestCredential: () => Promise<PersonalCredential | null>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  invalidate?: (credential: PersonalCredential) => Promise<boolean>
 ): Promise<PersonalCredential | null> => {
   if (!credential) return null;
   signal?.throwIfAborted();
@@ -195,6 +209,12 @@ export const checkCredentialBalance = async (
   } catch {
     signal?.throwIfAborted();
     throw new DSHError('budget', '绑定 Key 余额查询暂时失败，未切换到机器人额度，请稍后再试。');
+  }
+  if ([401, 403].includes(response.status) && invalidate) {
+    await response.body?.cancel();
+    if (!(await invalidate(credential))) throw new DSHError('budget', '绑定 Key 设置已变更，请重新发送请求。');
+
+    return null;
   }
   if (!response.ok && response.status !== 402) {
     await response.body?.cancel();
@@ -243,5 +263,6 @@ export const checkedPersonalCredential = async (signal?: AbortSignal): Promise<P
     await getPersonalCredential(),
     credential => updatePersonalKey(credential.scope, 'disable', credential.revision),
     getPersonalCredential,
-    signal
+    signal,
+    credential => updatePersonalKey(credential.scope, 'disable', credential.revision, 'auth')
   );

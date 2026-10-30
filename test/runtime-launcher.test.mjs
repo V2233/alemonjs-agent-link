@@ -111,3 +111,37 @@ test('connection timeout stops worker, reports an actionable log path and releas
   assert.equal(f.released(), 1);
   assert.match(f.output.join(''), /诊断日志/);
 });
+
+test('late QR frames cannot rearm startup timers after readiness', async () => {
+  const f = await fixture();
+  const pending = launchRuntime(f.options);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  f.child.emit('message', { type: 'agent-link.state', module: 'app_ready', phase: 'ready', chatReady: true });
+  f.child.emit('message', frame({ name: 'connection.ready' }));
+  await pending;
+  const count = f.output.length;
+  f.child.emit('message', frame({ name: 'login.qrcode', QRCode: { url: 'https://example.invalid/late-login' } }));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(f.output.length, count);
+  f.child.kill();
+  await new Promise(resolve => setTimeout(resolve, 10));
+});
+
+test('QR login does not shorten a longer cold-start installation budget', async t => {
+  const f = await fixture();
+  const delays = [];
+  const original = globalThis.setTimeout;
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    delays.push(delay);
+    return original(callback, delay, ...args);
+  });
+  const pending = launchRuntime({ ...f.options, timeoutMs: 1200000 });
+  await new Promise(resolve => original(resolve, 20));
+  f.child.emit('message', frame({ name: 'login.qrcode', QRCode: { url: 'https://example.invalid/login' } }));
+  assert.ok(delays.some(delay => delay > 1100000 && delay < 1200000));
+  f.child.emit('message', { type: 'agent-link.state', module: 'app_ready', phase: 'ready', chatReady: true });
+  f.child.emit('message', frame({ name: 'connection.ready' }));
+  await pending;
+  f.child.kill();
+  await new Promise(resolve => original(resolve, 10));
+});

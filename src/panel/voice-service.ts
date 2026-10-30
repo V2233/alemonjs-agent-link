@@ -1,3 +1,6 @@
+import { withAdminSpeechPreview } from '../media/admin-preview-context';
+import { migrateLegacyVoice } from '../media/voice-migration';
+import { localSpeechOptions } from '../media/local-speech';
 import { getConfig } from 'alemonjs';
 import { getAdminStore } from './admin-panel';
 import { getMediaConfig } from '../media/config';
@@ -39,14 +42,20 @@ export const readVoiceSettings = async () => {
   const snapshot = await getAdminStore().read();
   const media = JSON.parse(snapshot.source)['alemonjs-agent-link']?.media || {};
 
-  return { revision: snapshot.revision, voices: media.voices || [], activeVoice: media.activeVoice || '' };
+  return {
+    legacyAvailable: Boolean(media.speech && !media.activeVoice && !media.voices?.length),
+    revision: snapshot.revision,
+    voices: media.voices || [],
+    activeVoice: media.activeVoice || '',
+    localSpeech: localSpeechOptions(media.localSpeech)
+  };
 };
 export const updateVoiceSettings = async (input: unknown) => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('无效的音色设置');
-  const body = input as { revision: string; voices: unknown; activeVoice: string };
+  const body = input as { revision: string; voices: unknown; activeVoice: string; localSpeech?: unknown };
 
   if (
-    Object.keys(body).some(key => !['revision', 'voices', 'activeVoice'].includes(key)) ||
+    Object.keys(body).some(key => !['revision', 'voices', 'activeVoice', 'localSpeech', 'legacyAvailable'].includes(key)) ||
     typeof body.revision !== 'string' ||
     typeof body.activeVoice !== 'string'
   )
@@ -61,7 +70,9 @@ export const updateVoiceSettings = async (input: unknown) => {
   const source = JSON.parse(snapshot.source);
   const app = source['alemonjs-agent-link'];
 
-  app.media = { ...app.media, voices: body.voices, activeVoice: body.activeVoice };
+  const localSpeech = localSpeechOptions(body.localSpeech ?? app.media?.localSpeech);
+
+  app.media = { ...app.media, localSpeech, voices: body.voices, activeVoice: body.activeVoice };
   await store.save(JSON.stringify(source), body.revision);
   let message = '音色设置已保存';
 
@@ -99,4 +110,42 @@ export const probeVoices = async (id?: unknown) => {
   }
 
   return voiceSnapshot();
+};
+
+let previewRunning = false;
+
+/** Explicit administrator action; never invoked by refresh or diagnostics. */
+export const previewVoice = async (input: unknown) => {
+  const body = input as { id?: unknown; text?: unknown };
+
+  if (!body || typeof body.text !== 'string' || !body.text.trim() || Array.from(body.text).length > 200 || typeof body.id !== 'string')
+    throw new Error('试听文本需要1–200字');
+  if (previewRunning) throw new Error('正在试听，请稍后重试');
+  const config = getMediaConfig();
+
+  if (body.id && !config.voices?.some(v => v.id === body.id && v.enabled !== false)) throw new Error('音色不存在或已停用');
+  previewRunning = true;
+  try {
+    const { renderSpeech } = await import('../media/speech');
+
+    return await withAdminSpeechPreview(() =>
+      renderSpeech(body.text as string, { ...config, activeVoice: body.id as string }, AbortSignal.timeout(Math.min(config.timeoutMs, 60000)))
+    );
+  } finally {
+    previewRunning = false;
+  }
+};
+
+export const migrateVoiceSettings = async (input: unknown) => {
+  const body = input as { revision?: string };
+
+  if (!body || typeof body.revision !== 'string') throw new Error('迁移需要当前配置版本');
+  const store = getAdminStore();
+  const snapshot = await store.read();
+
+  if (snapshot.revision !== body.revision) throw new Error('配置已变化');
+  const app = JSON.parse(snapshot.source)['alemonjs-agent-link'];
+  const media = migrateLegacyVoice(app.media || {});
+
+  return updateVoiceSettings({ revision: body.revision, voices: media.voices, activeVoice: media.activeVoice, localSpeech: media.localSpeech });
 };

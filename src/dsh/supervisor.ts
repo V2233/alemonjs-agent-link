@@ -619,7 +619,7 @@ export class DSHSupervisor {
     if (message.includes('checksum mismatch')) {
       return '环境安装包校验失败，已拒绝执行；请检查下载网络，后台会重试。';
     }
-    if (message.includes('preparation timed out')) {
+    if (message.includes('preparation timed out') || (error instanceof Error && error.name === 'TimeoutError')) {
       return '环境下载或安装超时；请检查网络，或调大 preparationTimeoutMs 后重试。';
     }
     if (message.includes('Model credentials missing')) {
@@ -627,6 +627,9 @@ export class DSHSupervisor {
     }
     if (message.includes('Windows sandbox')) {
       return '当前系统不提供受支持的本地沙箱。';
+    }
+    if (message.startsWith('Bubblewrap setup: ')) {
+      return message.slice('Bubblewrap setup: '.length);
     }
     if (message.includes('bubblewrap')) {
       return 'Linux 沙箱未就绪，自动安装未完成；请由管理员安装 bubblewrap，并确认当前主机允许创建用户命名空间。';

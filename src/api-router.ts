@@ -5,7 +5,7 @@ import { readHobbies, saveHobbies } from './panel/hobbies';
 import { inspectBiliReadiness } from './panel/bili-diagnostics';
 import { logger } from 'alemonjs';
 import { AdminInputError } from './panel/admin-error';
-import { voiceSnapshot, probeVoices, voiceBalances, readVoiceSettings, updateVoiceSettings } from './panel/voice-service';
+import { migrateVoiceSettings, previewVoice, voiceSnapshot, probeVoices, voiceBalances, readVoiceSettings, updateVoiceSettings } from './panel/voice-service';
 import { getOpinionStore } from './opinions/store';
 import { getEventStore } from './events/store';
 import { readWorkModel, saveWorkModel } from './panel/work-model';
@@ -264,6 +264,19 @@ apiRouter.post('/hobbies/diagnostics', async ctx => success(ctx, await inspectBi
 apiRouter.post('/hobbies', async ctx => success(ctx, await saveHobbies(ctx.request.body)));
 apiRouter.get('/work-model', async ctx => success(ctx, await readWorkModel()));
 apiRouter.post('/work-model', async ctx => success(ctx, await saveWorkModel(ctx.request.body)));
+apiRouter.post('/voices/migrate', async ctx => {
+  const result = await migrateVoiceSettings(ctx.request.body);
+
+  success(ctx, result.data, result.message);
+});
+apiRouter.post('/voices/preview', async ctx => {
+  const audio = await previewVoice(ctx.request.body);
+
+  ctx.type = audio.extension === 'mp3' ? 'audio/mpeg' : audio.extension === 'wav' ? 'audio/wav' : 'audio/ogg';
+  ctx.set('X-Speech-Engine', audio.engine);
+  ctx.set('X-Speech-Fallback', audio.fallbackFrom.join(','));
+  ctx.body = audio.data;
+});
 apiRouter.post('/voices/probe', async ctx => success(ctx, await probeVoices((ctx.request.body as { id?: unknown })?.id)));
 apiRouter.get('/voices', ctx => success(ctx, voiceSnapshot()));
 apiRouter.post('/voices/balances', async ctx => success(ctx, await voiceBalances((ctx.request.body as { id?: unknown })?.id)));

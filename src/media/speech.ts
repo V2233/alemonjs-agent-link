@@ -1,3 +1,4 @@
+import { localSpeechOptions } from './local-speech';
 import { voiceBalanceExhausted } from './voice-status';
 import { access, mkdtemp, mkdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
@@ -160,6 +161,11 @@ export const renderSpeech = async (
   }
   config = selectVoice(config);
   const options = speechOptions(config.speech);
+  const local = localSpeechOptions(config.localSpeech);
+  const allowLocalFallback = local.enabled && local.fallback && options.fallback;
+
+  if (options.engine === 'system' && !local.enabled) throw new SpeechError('configuration', '本地音色已关闭。');
+  if (local.voice) options.systemVoice = local.voice;
   const quotaKey = JSON.stringify([options.engine, options.url, options.apiKey, config.tts?.baseUrl, config.tts?.apiKey]);
   let quotaBlocked = voiceBalanceExhausted(config) || (quotaCooldowns.get(quotaKey) || 0) > Date.now();
 
@@ -183,10 +189,14 @@ export const renderSpeech = async (
       }
     }
   }
-  if (quotaBlocked) {
-    if (!options.fallback) throw new SpeechError('engine', '语音额度不足，且未启用降级。');
+  for (let i = engines.length - 1; i >= 0; i--) {
+    if (engines[i] === 'system' && (!local.enabled || (options.engine !== 'system' && !allowLocalFallback))) engines.splice(i, 1);
+  }
+  if (quotaBlocked && options.engine !== 'system') {
+    if (!allowLocalFallback) throw new SpeechError('engine', '语音额度不足，且未启用降级。');
     engines.splice(0, engines.length, 'system');
   }
+  if (!engines.length) throw new SpeechError('configuration', '没有启用的可用语音引擎。');
   const root = join(dirname(runtime.workspaceRoot), 'speech-cache');
 
   await mkdir(root, { recursive: true, mode: 0o700 });
@@ -224,7 +234,7 @@ export const renderSpeech = async (
               attempt
             );
           } else {
-            await (services.system || systemSpeech)(text, file, config, attempt);
+            await (services.system || systemSpeech)(text, file, { ...config, speech: options }, attempt);
           }
           if ((await stat(file)).size > config.maxBytes) {
             throw new SpeechError('format', '语音文件超过大小限制。');
@@ -244,7 +254,7 @@ export const renderSpeech = async (
             if (quotaCooldowns.size >= 1000) quotaCooldowns.clear();
             quotaCooldowns.set(quotaKey, Date.now() + 5 * 60_000);
           }
-          if (options.fallback && engine !== 'system') engines.splice(engines.indexOf(engine) + 1, engines.length, 'system');
+          if (allowLocalFallback && engine !== 'system') engines.splice(engines.indexOf(engine) + 1, engines.length, 'system');
         }
       }
     }

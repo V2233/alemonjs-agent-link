@@ -90,7 +90,8 @@ test('personal key encryption, isolation, manual switches and depletion fallback
       assert.equal((await getDSHCredentials()).apiKey, 'sk-shared-test-key');
       assert.equal(await withBudgetScope(other, () => getPersonalCredential()), null);
       assert.equal(await withBudgetScope({ ...scope, channelId: 'group' }, () => getPersonalCredential()), null);
-      await assert.rejects(request({ ...scope, channelId: 'group' }, true), /本人私聊/);
+      await request({ ...scope, channelId: 'group' }, true);
+      assert.equal(calls.at(-1).key, `Bearer ${secret}`);
     });
     await t.test('personal requests bypass both quota ledgers', async () => {
       await request();
@@ -109,15 +110,15 @@ test('personal key encryption, isolation, manual switches and depletion fallback
         assert.equal((await budgetStatus(config, scope)).used, before);
       }
     });
-    await t.test('insufficient balance pauses until explicit payer switch', async () => {
+    await t.test('insufficient balance disables the key and falls back to quota', async () => {
       mode = 'empty';
       calls = [];
-      await assert.rejects(request(scope, true), /余额不足/);
+      await request(scope, true);
       assert.equal((await personalKeyStatus(scope)).reason, 'balance');
-      assert.equal((await budgetStatus(config, scope)).used, 0);
+      assert.ok((await budgetStatus(config, scope)).used > 0);
       mode = 'ok';
       calls = [];
-      await assert.rejects(request(), /余额不足/);
+      await request();
       await updatePersonalKey(scope, 'disable');
       await request();
       assert.equal(
@@ -166,12 +167,12 @@ test('personal key encryption, isolation, manual switches and depletion fallback
         globalThis.fetch = original;
       }
     });
-    await t.test('HTTP 402 never switches payer automatically; manual off/on and stale CAS are safe', async () => {
+    await t.test('HTTP 402 falls back to quota; manual off/on and stale CAS are safe', async () => {
       mode = '402';
       calls = [];
-      await assert.rejects(request(), /余额不足/);
-      assert.equal(calls.filter(call => !call.url.endsWith('/user/balance')).length, 1);
-      assert.equal(calls.at(-1).key, `Bearer ${secret}`);
+      await request();
+      assert.equal(calls.filter(call => !call.url.endsWith('/user/balance')).length, 2);
+      assert.equal(calls.at(-1).key, 'Bearer sk-shared-test-key');
       assert.equal((await personalKeyStatus(scope)).enabled, false);
       await updatePersonalKey(scope, 'enable');
       const old = await withBudgetScope(scope, () => getPersonalCredential());

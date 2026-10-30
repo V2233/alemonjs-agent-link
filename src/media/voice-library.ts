@@ -1,3 +1,4 @@
+import { localSpeechOptions } from './local-speech';
 import { speechOptions, SpeechError, type SpeechOptions } from './speech-config';
 import type { MediaConfig } from './config';
 
@@ -56,13 +57,15 @@ export const voiceLibrary = (value: unknown): VoicePreset[] => {
   });
 };
 
-export const selectVoice = (config: MediaConfig): MediaConfig => {
+export const selectVoice = (config: MediaConfig, validateOnly = false): MediaConfig => {
   if (!config.activeVoice) return config;
   const preset = voiceLibrary(config.voices).find(item => item.id === config.activeVoice);
 
   if (!preset) throw new SpeechError('configuration', '所选音色不在音色库中。');
   if (preset.enabled === false) {
-    if (preset.speech.fallback === false) throw new SpeechError('configuration', '当前音色已停用。');
+    if (validateOnly) return config;
+    if (preset.speech.fallback === false || !localSpeechOptions(config.localSpeech).enabled || !localSpeechOptions(config.localSpeech).fallback)
+      throw new SpeechError('configuration', '当前音色已停用。');
 
     return { ...config, speech: { engine: 'system', fallback: true } };
   }

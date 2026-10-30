@@ -126,7 +126,7 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
       for (const key of await redis.keys('*')) {
         if ((await redis.type(key)) === 'string') assert.ok(!(await redis.get(key)).includes(secret));
       }
-      const copy = JSON.parse(await redis.get(groupStorageKey(group)));
+      const copy = JSON.parse(await redis.get(groupStorageKey((await credential(group)).scope)));
       assert.equal(copy.userId, undefined);
       assert.equal(copy.keyId, undefined);
     });
@@ -150,7 +150,7 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
     });
     await t.test('depleted copies remain revocable without affecting original or other groups', async () => {
       const before = await credential(group);
-      await updateGroupKey(group, before.revision);
+      await updateGroupKey(before.scope, before.revision);
       const grant = (await readKeyring(own)).ring.grants.find(x => x.channelId === 'group1');
       assert.match(await command(`/授权记录 移除 ${grant.id}`, { IsPrivate: true }), /已移除/);
       assert.equal(await redis.get(groupStorageKey(group)), null);
@@ -181,7 +181,7 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
       assert.match(await command('/我的钥匙 移除', { ...options, IsAdmin: false, Role: 'member', IsMaster: true }), /仅本群管理员/);
       await command('/我的钥匙 移除', { ...options, IsPrivate: true });
       assert.equal((await credential(target)).apiKey, secret);
-      await updateGroupKey(target, (await credential(target)).revision);
+      await updateGroupKey((await credential(target)).scope, (await credential(target)).revision);
       assert.match(await command('/我的钥匙 移除', options), /本群钥匙已移除/);
       assert.equal(await redis.get(groupStorageKey(target)), null);
       assert.equal((await credential({ ...group, channelId: 'group2' })).apiKey, secret);
@@ -257,8 +257,8 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
         await assert.rejects(request());
         await setGroupKeyDailyLimit(target, '1');
         globalThis.fetch = async url => (String(url).endsWith('/user/balance') ? Response.json({ is_available: true }) : new Response('{}', { status: 402 }));
-        await assert.rejects(request(), /余额不足/);
-        await assert.rejects(credential(target), /余额不足/);
+        await assert.rejects(request(), /机器人未配置模型凭证/);
+        assert.equal(await credential(target), null);
         await command('/我的钥匙 启用', opts);
         assert.equal((await credential(target)).apiKey, secret);
       } finally {
@@ -310,11 +310,11 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
       assert.match(recordView, /提供者上限：1 元/);
       assert.match(recordView, /群上限：5 元/);
       assert.match(recordView, /生效上限：1 元/);
-      assert.equal((await groupKeyBudgetStatus(config, target)).personalLimit, 1);
+      assert.equal((await groupKeyBudgetStatus(config, (await credential(target)).scope)).personalLimit, 1);
       await setGroupKeyDailyLimit(target, '0.5');
-      assert.equal((await groupKeyBudgetStatus(config, target)).personalLimit, 0.5);
+      assert.equal((await groupKeyBudgetStatus(config, (await credential(target)).scope)).personalLimit, 0.5);
       await setGroupKeyDailyLimit(target, '取消');
-      assert.equal((await groupKeyBudgetStatus(config, target)).personalLimit, 1);
+      assert.equal((await groupKeyBudgetStatus(config, (await credential(target)).scope)).personalLimit, 1);
       await command('/我的钥匙 移除', { ChannelId: target.channelId });
       await changeKeyring(target, 'grant', '1');
       await assert.rejects(setGrantDailyLimit(own, String(grant.id), '0'));
@@ -505,15 +505,15 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
       await changeKeyring(target, 'grant', '1');
       const snapshot = await credential(target);
       await command('/我的钥匙 停用', { ChannelId: target.channelId });
-      await assert.rejects(groupKeyDailyLimit(target, snapshot.revision), /已变更/);
+      await assert.rejects(groupKeyDailyLimit(snapshot.scope, snapshot.revision), /已变更/);
       await command('/我的钥匙 启用', { ChannelId: target.channelId });
       const hash = createHash('sha256')
         .update(JSON.stringify([target.platform, target.channelId]))
         .digest('hex');
       await redis.set(`data:{agent-link-budget}:v1:key-limit:${hash}`, 'NaN');
-      await assert.rejects(groupKeyDailyLimit(target), /配置无效/);
+      await assert.rejects(groupKeyDailyLimit((await credential(target)).scope), /配置无效/);
       await setGroupKeyDailyLimit(target, '取消');
-      assert.equal(await groupKeyDailyLimit(target), null);
+      assert.equal(await groupKeyDailyLimit((await credential(target)).scope), null);
       const grant = (await readKeyring(own)).ring.grants.find(row => row.channelId === target.channelId);
       await changeKeyring(own, 'revoke', String(grant.id));
     });
@@ -555,9 +555,10 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
     await t.test('stale grant cannot delete a replacement copy', async () => {
       const target = { ...group, channelId: 'group2' };
       const grant = (await readKeyring(own)).ring.grants[0];
-      const raw = JSON.parse(await redis.get(groupStorageKey(target)));
+      const storage = groupStorageKey((await credential(target)).scope);
+      const raw = JSON.parse(await redis.get(storage));
       raw.grantToken = 'new-owner-token';
-      await redis.set(groupStorageKey(target), JSON.stringify(raw));
+      await redis.set(storage, JSON.stringify(raw));
       await changeKeyring(own, 'revoke', String(grant.id));
       assert.equal((await credential(target)).apiKey, secret);
       assert.equal((await readKeyring(own)).ring.grants.length, 0);

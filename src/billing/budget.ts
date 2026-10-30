@@ -1,3 +1,4 @@
+import { isAdminSpeechPreview } from '../media/admin-preview-context';
 import { assertAIEnabled } from '../dsh/ai-switch';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
@@ -18,7 +19,15 @@ export type BudgetConfig = {
   globalDailyYuan?: number;
   maxOutputTokens?: number;
 };
-export type BudgetScope = { platform: string; channelId: string; userId?: string; autonomous?: boolean; credentialId?: string; sharedOnly?: boolean };
+export type BudgetScope = {
+  platform: string;
+  channelId: string;
+  userId?: string;
+  autonomous?: boolean;
+  credentialId?: string;
+  sharedOnly?: boolean;
+  excludedCredentials?: string[];
+};
 const context = new AsyncLocalStorage<BudgetScope>();
 
 export const getBudgetScope = (): BudgetScope | undefined => context.getStore();
@@ -40,6 +49,7 @@ const scopeHash = (scope: BudgetScope): string =>
 // Keep existing spend and recharge keys. Conversation usage is reporting only;
 // free admission uses the person or recognition ledger, never a shared chat limit.
 export const reserveScript = `
+local keyPool = ARGV[6] == 'key-pool'
 local gate = ARGV[6] == 'reply-gate'
 local autonomous = ARGV[6] == 'autonomous'
 local observe = ARGV[6] == 'observe'
@@ -72,6 +82,7 @@ local wallet = KEYS[6] or KEYS[1]
 local paidUsed = tonumber(redis.call('HGET', wallet, 'paidUsed') or '0')
 local paidLimit = tonumber(redis.call('HGET', wallet, 'paidLimit') or '0')
 local paid = math.min(amount, math.max(0, paidLimit - paidUsed))
+if keyPool then paid = 0 end
 local free = amount - paid
 local total = tonumber(redis.call('HGET', KEYS[2], 'used') or '0')
 local gateTotal = gate and KEYS[5] and tonumber(redis.call('HGET', KEYS[5], 'used') or '0') or 0
@@ -79,7 +90,7 @@ local gateGlobalBlocked = gate and tonumber(ARGV[7] or '0') > 0 and gateTotal + 
 local person = tonumber(redis.call('HGET', KEYS[4], 'used') or '0')
 local limit = tonumber(redis.call('HGET', KEYS[4], 'limitOverride') or (gate and ARGV[2] or ARGV[5]))
 local freeUsed = gate and person - tonumber(redis.call('HGET', KEYS[4], 'paidUsed') or '0') or person
-local groupBlocked = gate and free > 0 and freeUsed + free > limit
+local groupBlocked = (gate and free > 0 and freeUsed + free > limit) or (keyPool and used + amount > tonumber(ARGV[2]))
 local personBlocked = not gate and free > 0 and (autonomous or person + free > limit)
 -- Aggregate aliases too: one hash can serve multiple ledger roles.
 local changes={}
@@ -109,11 +120,12 @@ for key,fields in pairs(changes) do
  end
 end
 if not observe and (groupBlocked or personBlocked or gateGlobalBlocked or (tonumber(ARGV[3]) > 0 and total + amount > tonumber(ARGV[3]))) then
- if groupBlocked then redis.call('HSET', KEYS[4], 'blockedRequired', free) end
+ if groupBlocked and not keyPool then redis.call('HSET', KEYS[4], 'blockedRequired', free) end
  if personBlocked then redis.call('HSET', KEYS[4], 'blockedRequired', free) end
  if tonumber(ARGV[3]) > 0 and total + amount > tonumber(ARGV[3]) then redis.call('HSET', KEYS[2], 'blockedRequired', amount) end
  if gateGlobalBlocked then redis.call('HSET', KEYS[5], 'blockedRequired', amount) if (tonumber(redis.call('HGET',KEYS[5],'reserved') or '0')>0 or tonumber(redis.call('HGET',KEYS[5],'pendingRequests') or '0')>0) then redis.call('PERSIST',KEYS[5]) else redis.call('EXPIRE', KEYS[5], ARGV[4]) end end
  for _,i in ipairs({1,2,4}) do if (tonumber(redis.call('HGET',KEYS[i],'reserved') or '0')>0 or tonumber(redis.call('HGET',KEYS[i],'pendingRequests') or '0')>0) then redis.call('PERSIST',KEYS[i]) else redis.call('EXPIRE', KEYS[i], ARGV[4]) end end
+ if keyPool then return groupBlocked and -2 or -3 end
  return 0
 end
 if redis.call('EXISTS', KEYS[3]) == 1 then return 0 end
@@ -510,6 +522,11 @@ const keyLimitScope = (scope: BudgetScope): BudgetScope => ({
   channelId: `private:${JSON.stringify([`key-budget:${scope.platform}`, scope.channelId])}`
 });
 
+type KeyPoolBudget = { group: number | null; donor: number | null; ledger: string };
+class KeyPoolLimitError extends Error {}
+const donorLedger = (scope: BudgetScope) => `${scopeHash(scope)}:${scope.credentialId || 'legacy'}`;
+const donorUsageKey = (day: string, ledger: string) => `${prefix}:${day}:key-donor:${ledger}`;
+
 export const groupKeyLimitDetails = async (scope: BudgetScope, expectedRevision?: string) => {
   const raw = await (await budgetRedis()).get(`${prefix}:key-limit:${scopeHash(scope)}`);
 
@@ -544,11 +561,27 @@ export const setGroupKeyDailyLimit = async (scope: BudgetScope, value: string): 
   await (await budgetRedis()).set(`${prefix}:key-limit:${scopeHash(scope)}`, String(Number(value)));
 };
 export const groupKeyBudgetStatus = async (config: DSHBridgeConfig, scope: BudgetScope) => {
-  const limit = await groupKeyDailyLimit(scope);
+  const limits = await groupKeyLimitDetails(scope);
+  const status = await budgetStatus({ ...config, budget: { enabled: true, personalDailyYuan: limits.group ?? 1000000000 } }, keyLimitScope(scope));
+  const donor = await (await budgetRedis()).hgetall(donorUsageKey(status.day, donorLedger(scope)));
+  const donorUsed = Number(donor.used || 0) / units;
+  const groupRemaining = limits.group === null ? null : Math.max(0, limits.group - status.used);
+  const donorRemaining = limits.donor === null ? null : Math.max(0, limits.donor - donorUsed);
+  const remaining = [groupRemaining, donorRemaining].filter((n): n is number => n !== null);
 
-  const status = await budgetStatus({ ...config, budget: { enabled: true, personalDailyYuan: limit ?? 1000000000 } }, keyLimitScope(scope));
-
-  return { ...status, unlimited: limit === null };
+  return {
+    ...status,
+    personalUsed: scope.credentialId ? donorUsed : status.used,
+    personalLimit: limits.effective ?? 1000000000,
+    personalRemaining: remaining.length ? Math.min(...remaining) : 1000000000,
+    unlimited: limits.effective === null,
+    groupLimit: limits.group,
+    groupUsed: status.used,
+    groupRemaining,
+    donorLimit: limits.donor,
+    donorUsed,
+    donorRemaining
+  };
 };
 
 const markPendingBudget = async (redis: Redis, key: string, reason: string): Promise<void> => {
@@ -565,7 +598,7 @@ export const budgetedFetch = async (
   url: URL,
   init: RequestInit & { onDispatch?: () => void; personalKey?: boolean; scopedKey?: boolean; robotKey?: boolean; pricing?: CredentialPricing },
   kind: BudgetKind = 'chat',
-  keyBudget: boolean | 'observe' = false
+  keyBudget: boolean | 'observe' | KeyPoolBudget = false
 ): Promise<Response> => {
   assertAIEnabled(config);
   if (init.robotKey && (init.personalKey || init.scopedKey)) throw new DSHError('budget', '模型凭据类型冲突。');
@@ -575,9 +608,14 @@ export const budgetedFetch = async (
   const { getBoundCredential, checkedBoundCredential, disableBoundCredential } = await import('../credentials/scoped');
 
   if (!init.robotKey && !keyBudget && (init.personalKey || init.scopedKey || (await getBoundCredential()))) {
-    let personal = await checkedBoundCredential(init.signal || undefined, kind !== 'chat');
+    const selectionScope = { ...getBudgetScope(), excludedCredentials: [] as string[] };
+    const select = () => withBudgetScope(selectionScope, () => checkedBoundCredential(init.signal || undefined, kind !== 'chat'));
+    let personal = await select();
+
+    let attempts = 0;
 
     while (personal) {
+      if (++attempts > 66) throw new DSHError('budget', '钥匙频繁变更，请重新发送请求。');
       const headers = new Headers(init.headers);
 
       headers.delete('Authorization');
@@ -586,35 +624,41 @@ export const budgetedFetch = async (
         personal.auth === 'account' ? 'x-dsh-auth-token' : 'Authorization',
         personal.auth === 'account' ? personal.apiKey : `Bearer ${personal.apiKey}`
       );
-      const groupLimit = personal.scope.channelId.startsWith('private:') ? null : await groupKeyDailyLimit(personal.scope, personal.revision);
+      const limits = personal.scope.channelId.startsWith('private:') ? null : await groupKeyLimitDetails(personal.scope, personal.revision);
+      const groupLimit = limits?.effective ?? null;
 
       if (groupLimit !== null && textBudgetInput(JSON.parse(String(init.body))).hasImages)
         throw new DSHError('budget', '本群已设置钥匙金额上限，暂不支持无法准确预估费用的图片调用。');
       const trackGroup = !personal.scope.channelId.startsWith('private:') && !textBudgetInput(JSON.parse(String(init.body))).hasImages;
-      const result = !trackGroup
-        ? await (() => {
-            init.onDispatch?.();
+      let result: Response;
 
-            return fetch(new URL('https://api.deepseek.com/chat/completions'), { ...init, headers, redirect: 'error' });
-          })()
-        : await withBudgetScope(keyLimitScope(personal.scope), () =>
-            budgetedFetch(
-              { ...config, budget: { enabled: true, personalDailyYuan: groupLimit ?? 1000000000, maxOutputTokens: config.budget?.maxOutputTokens ?? 2048 } },
-              new URL('https://api.deepseek.com/chat/completions'),
-              { ...init, headers, redirect: 'error', personalKey: false, scopedKey: false, pricing: undefined },
-              'chat',
-              groupLimit === null ? 'observe' : true
-            )
-          );
+      try {
+        result = !trackGroup
+          ? await (() => {
+              init.onDispatch?.();
 
-      if (personal.auth === 'account' && [401, 403].includes(result.status)) {
-        await result.body?.cancel();
-        throw new DSHError('budget', '账户授权不可用，请退出后重新登录。');
+              return fetch(new URL('https://api.deepseek.com/chat/completions'), { ...init, headers, redirect: 'error' });
+            })()
+          : await withBudgetScope(keyLimitScope(personal.scope), () =>
+              budgetedFetch(
+                { ...config, budget: { enabled: true, personalDailyYuan: groupLimit ?? 1000000000, maxOutputTokens: config.budget?.maxOutputTokens ?? 2048 } },
+                new URL('https://api.deepseek.com/chat/completions'),
+                { ...init, headers, redirect: 'error', personalKey: false, scopedKey: false, pricing: undefined },
+                'chat',
+                { group: limits.group, donor: limits.donor, ledger: donorLedger(personal.scope) }
+              )
+            );
+      } catch (error) {
+        if (!(error instanceof KeyPoolLimitError)) throw error;
+        selectionScope.excludedCredentials.push(personal.scope.credentialId || 'legacy');
+        personal = await select();
+        continue;
       }
-      if (result.status !== 402) return result;
+      if (![401, 403, 402].includes(result.status)) return result;
       await result.body?.cancel();
-      if (!(await disableBoundCredential(personal))) throw new DSHError('budget', '绑定 Key 设置已变更，请重新发送请求。');
-      personal = await checkedBoundCredential(init.signal || undefined, kind !== 'chat');
+      if (!(await disableBoundCredential(personal, result.status === 402 ? 'balance' : 'auth')))
+        throw new DSHError('budget', '绑定 Key 设置已变更，请重新发送请求。');
+      personal = await select();
     }
     // The input may have been built using a personal key. Fallback must select
     // the robot credential afresh and can only proceed through budget admission.
@@ -643,15 +687,17 @@ export const budgetedFetch = async (
   const rates = init.pricing || officialRates(url, body.model);
 
   const textInput = textBudgetInput(body);
+  const poolBudget = typeof keyBudget === 'object' ? keyBudget : null;
+  const observeOnly = keyBudget === 'observe' || Boolean(poolBudget?.group === null && poolBudget.donor === null);
   const maxOutput =
-    keyBudget === 'observe' && Number.isSafeInteger(body.max_tokens) && body.max_tokens > 0
+    observeOnly && Number.isSafeInteger(body.max_tokens) && body.max_tokens > 0
       ? body.max_tokens
       : Math.min(
           config.budget?.maxOutputTokens ?? 2048,
           Number.isSafeInteger(body.max_tokens) && body.max_tokens > 0 ? body.max_tokens : (config.budget?.maxOutputTokens ?? 2048)
         );
 
-  if (keyBudget !== 'observe') body.max_tokens = maxOutput;
+  if (!observeOnly) body.max_tokens = maxOutput;
   if (body.stream) body.stream_options = { ...body.stream_options, include_usage: true };
   // UTF-8 bytes conservatively bound text tokenization, plus framing/tool overhead.
   const promptBound = textInput.bytes + 8192;
@@ -661,21 +707,24 @@ export const budgetedFetch = async (
 
   await ensureWallet(redis, day, scope);
   const keys = requestKeys(day, scope, kind);
+
+  if (poolBudget) keys[3] = donorUsageKey(day, poolBudget.ledger);
   const admitted = await bounded(
     redis.eval(
       reserveScript,
       keys.length,
       ...keys,
       amount,
-      kind === 'reply-gate' ? gateLimit(config) : budgetLimit(config, scope),
+      poolBudget ? Math.floor((poolBudget.group ?? 1000000000) * units) : kind === 'reply-gate' ? gateLimit(config) : budgetLimit(config, scope),
       Math.floor((config.budget?.globalDailyYuan ?? 0) * units),
       ttl,
-      personalLimit(config),
-      keyBudget === 'observe' ? 'observe' : kind,
+      poolBudget ? Math.floor((poolBudget.donor ?? 1000000000) * units) : personalLimit(config),
+      poolBudget ? 'key-pool' : keyBudget === 'observe' ? 'observe' : kind,
       Math.floor((config.budget?.replyGateGlobalDailyYuan ?? 0) * units)
     )
   );
 
+  if (poolBudget && [-2, -3].includes(Number(admitted))) throw new KeyPoolLimitError('共享钥匙本次可用额度不足');
   if (Number(admitted) !== 1) throw new BudgetExceededError(await budgetFailureDetails(config, scope, kind, amount / units));
   init.signal?.throwIfAborted();
   assertAIEnabled(config);
@@ -956,49 +1005,43 @@ async function budgetFailureDetails(config: DSHBridgeConfig, scope: BudgetScope,
   }
 }
 
-// All three rolling windows share one atomic Redis decision, across restarts
-// for ordinary chat budget errors; recognition has its own once-daily notice.
+// A shared Beijing calendar-day claim covers both chat and recognition notices.
 export const budgetNoticeScript = `
-local t = redis.call('TIME')
-local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
-redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - 86400000)
-if redis.call('ZSCORE', KEYS[1], ARGV[1]) then return 0 end
-if redis.call('ZCOUNT', KEYS[1], '(' .. (now - 3600000), '+inf') >= 3 or
- redis.call('ZCOUNT', KEYS[1], '(' .. (now - 21600000), '+inf') >= 5 or
- redis.call('ZCARD', KEYS[1]) >= 7 then return 0 end
-redis.call('ZADD', KEYS[1], now, ARGV[1])
-redis.call('EXPIRE', KEYS[1], 86401)
+local now = tonumber(redis.call('TIME')[1])
+local day = tostring(math.floor((now + 28800) / 86400))
+if redis.call('GET', KEYS[1]) == day then return 0 end
+redis.call('SET', KEYS[1], day, 'EX', 172800)
 return 1
 `;
-export const claimBudgetNotice = async (scope: BudgetScope, messageId?: string): Promise<boolean> => {
+export const claimBudgetNotice = async (scope: BudgetScope, _messageId?: string): Promise<boolean> => {
   if (!scope.channelId || !scope.platform) return false;
   try {
     const redis = await budgetRedis();
 
-    return Number(await bounded(redis.eval(budgetNoticeScript, 1, `${prefix}:notices:${scopeHash(scope)}`, messageId || randomUUID()))) === 1;
+    return Number(await bounded(redis.eval(budgetNoticeScript, 1, `${prefix}:daily-notice:${scopeHash(scope)}`))) === 1;
   } catch {
     return false;
   }
 };
+export const muteBudgetNoticesToday = async (scope: BudgetScope): Promise<void> => {
+  if (!scope.channelId || !scope.platform) throw new Error('无法确定当前会话');
+  const redis = await budgetRedis();
 
-export const replyGateExceededMessage = `本群今日感知预算不足，已暂停后台判断，今天只提醒这一次。\n@我、喊肥鱼或 /chat 仍可发问，聊天额度单独计算。\n\n${groupKeyGuide}\n\n也可请机器人主人为本群增加额度，或等北京时间零点重置。`;
+  // Claiming the shared daily slot also suppresses all later notices today.
+  await bounded(redis.eval(budgetNoticeScript, 1, `${prefix}:daily-notice:${scopeHash(scope)}`));
+};
 
-// Independent daily claim: neither recharge nor process restarts reset it.
-// Claim before delivery; failures stay claimed to avoid retry spam.
+export const replyGateExceededMessage = `本群今日感知预算不足，已暂停后台判断，今天只提醒这一次。可发送 /额度 今日不再提醒 设置今日免扰。\n@我、喊肥鱼或 /chat 仍可发问，聊天额度单独计算。\n\n${groupKeyGuide}\n\n也可请机器人主人为本群增加额度，或等北京时间零点重置。`;
+
 export const claimReplyGateBudgetNotice = async (scope: BudgetScope): Promise<boolean> => {
-  if (!scope.platform || !scope.channelId || scope.channelId.startsWith('private:')) return false;
-  try {
-    const redis = await budgetRedis();
-    const day = await redisDay(redis);
+  if (scope.channelId.startsWith('private:')) return false;
 
-    return (await bounded(redis.set(`${prefix}:${day}:gate-notice:${scopeHash(scope)}`, '1', 'EX', ttl, 'NX'))) === 'OK';
-  } catch {
-    return false;
-  }
+  return await claimBudgetNotice(scope);
 };
 
 export const assertBudgetAvailable = async (config: DSHBridgeConfig): Promise<void> => {
   assertAIEnabled(config);
+  if (isAdminSpeechPreview()) return;
   if (!budgetEnabled(config)) return;
   const scope = context.getStore();
 

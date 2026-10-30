@@ -26,7 +26,7 @@ export const checkedBoundCredential = async (signal?: AbortSignal, sharedOnly = 
 
   return shared || (own ? withBudgetScope(own, () => checkedPersonalCredential(signal)) : null);
 };
-export const disableBoundCredential = (credential: PersonalCredential): Promise<boolean> =>
+export const disableBoundCredential = (credential: PersonalCredential, reason: 'balance' | 'auth' = 'balance'): Promise<boolean> =>
   credential.scope.channelId.startsWith('private:')
-    ? updatePersonalKey(credential.scope, 'disable', credential.revision)
-    : updateGroupKey(credential.scope, credential.revision);
+    ? updatePersonalKey(credential.scope, 'disable', credential.revision, reason)
+    : updateGroupKey(credential.scope, credential.revision, reason);

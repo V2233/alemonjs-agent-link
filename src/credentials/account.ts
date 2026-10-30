@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { encryptionKey, encryptStoredKey, decryptStoredKey, personalStorageKey, type PersonalCredential, type RecordValue } from './personal';
 import { getBudgetScope, budgetRedis, type BudgetScope } from '../billing/budget';
 import { readKeyring, keyringStorageKey } from './keyring';
-import { groupStorageKey } from './group';
+import { groupStorageKey, resolveGrantScope } from './group';
 export const accountId = (scope: BudgetScope): string => {
   personalStorageKey(scope);
 
@@ -75,7 +75,8 @@ export async function removeAccount(scope: BudgetScope): Promise<void> {
   const keys = [
     keyringStorageKey(scope),
     personalStorageKey(scope),
-    ...grants.map(grant => groupStorageKey({ ...scope, channelId: grant.channelId, credentialId: grant.token }))
+    ...(await Promise.all(grants.map(async grant => groupStorageKey(await resolveGrantScope({ ...scope, channelId: grant.channelId }, grant.token))))),
+    ...grants.map(grant => `${groupStorageKey({ ...scope, channelId: grant.channelId })}:pool`)
   ];
   const result = await (
     await budgetRedis()
@@ -85,9 +86,12 @@ if (redis.call('GET',KEYS[1]) or '') ~= ARGV[1] then return 0 end
 local p=redis.call('GET',KEYS[2])
 if p and cjson.decode(p).accountId == ARGV[3] then redis.call('DEL',KEYS[2]) end
 local tokens=cjson.decode(ARGV[4])
-for i=3,#KEYS do
+for i=3,2+#tokens do
  local current=redis.call('GET',KEYS[i])
- if current and cjson.decode(current).grantToken == tokens[i-2] then redis.call('DEL',KEYS[i]) end
+ if not current or cjson.decode(current).grantToken == tokens[i-2] then
+  redis.call('DEL',KEYS[i])
+  redis.call('LREM',KEYS[i+#tokens],0,tokens[i-2])
+ end
 end
 redis.call('SET',KEYS[1],ARGV[2])
 return 1`,

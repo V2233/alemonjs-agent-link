@@ -1,3 +1,4 @@
+import { localSpeechOptions, type LocalSpeech } from './local-speech';
 import { voiceLibrary, selectVoice, type VoicePreset } from './voice-library';
 import { getAppConfigValue } from 'alemonjs';
 import { join, resolve } from 'node:path';
@@ -8,6 +9,7 @@ export type ImageGenerationProvider = MediaProvider & { size: string; stylePromp
 export type MediaConfig = {
   voices?: VoicePreset[];
   activeVoice?: string;
+  localSpeech?: LocalSpeech;
   vision?: MediaProvider;
   asr?: MediaProvider;
   tts?: MediaProvider;
@@ -91,6 +93,7 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
   const config: MediaConfig = {
     voices: voiceLibrary(raw.voices),
     activeVoice: raw.activeVoice,
+    localSpeech: localSpeechOptions(raw.localSpeech),
     allowedHosts: raw.allowedHosts ?? [],
     timeoutMs: raw.timeoutMs ?? 60000,
     maxBytes: raw.maxBytes ?? 10 * 1024 * 1024,
@@ -127,7 +130,7 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
   }
 
   if (config.activeVoice !== undefined && typeof config.activeVoice !== 'string') throw new MediaError('音色ID无效。');
-  selectVoice(config);
+  selectVoice(config, true);
 
   return config;
 };

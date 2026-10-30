@@ -4,10 +4,18 @@ import { useEvent, useMessage } from 'alemonjs';
 import { commandBubble, sectionBubble } from '../bubble';
 import { getConversationId } from '../dsh/util';
 import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
-import { readKeyring, setGrantDailyLimit, keyringStorageKey, changeKeyring, removeCurrentGroupKey, grantLimitDetails } from '../../credentials/keyring';
+import {
+  readKeyring,
+  setGrantState,
+  setGrantDailyLimit,
+  keyringStorageKey,
+  changeKeyring,
+  removeCurrentGroupKey,
+  grantLimitDetails
+} from '../../credentials/keyring';
 import { bindPersonalKey, personalStorageKey, personalKeyStatus, updatePersonalKey } from '../../credentials/personal';
 import { storedKeyBalance } from '../../credentials/key-balance';
-import { setGroupKeyState, groupStorageKey, groupKeyStatus } from '../../credentials/group';
+import { setGroupKeyState, groupKeyStatus, groupKeyEntries, credentialStateLabel } from '../../credentials/group';
 import { DSHError } from '../../dsh/errors';
 
 export default async (): Promise<void> => {
@@ -40,20 +48,25 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
     if (!event.IsPrivate && !(await verifyGroupKeyAdmin(event))) throw new DSHError('budget', '仅本群管理员可查看、授权和移除群聊钥匙。');
     if (command === '/我的钥匙' && !event.IsPrivate && args.length === 2 && args[0] === '上限') {
       await setGroupKeyDailyLimit(scope, args[1]);
-      text = args[1] === '取消' ? '已取消群管理员设置的上限；提供者上限仍然有效，当日用量保留。' : '群钥匙每日上限已保存；实际取提供者上限与本群上限的较小值。';
+      text = args[1] === '取消' ? '已取消群管理员设置的上限；提供者上限仍然有效，当日用量保留。' : '群共享池每日总上限已保存；每次分享的上限独立计量。';
     } else if (command === '/我的钥匙' && !event.IsPrivate && args.length === 1 && ['启用', '停用'].includes(args[0])) {
       const changed = await setGroupKeyState(scope, args[0] === '启用');
 
-      text = changed ? `本群钥匙已${args[0]}。${args[0] === '停用' ? '后续使用机器人额度。' : '后续优先使用本群钥匙。'}` : '本群尚未授权钥匙。';
+      text = changed
+        ? `本群钥匙已${args[0]}。${args[0] === '停用' ? '后续使用发言人的个人钥匙，再使用额度。' : '后续优先使用本群钥匙。'}`
+        : '本群尚未授权钥匙。';
     } else if (command === '/我的钥匙' && !event.IsPrivate && args.length === 1 && args[0] === '移除') {
       const removed = await removeCurrentGroupKey(scope);
 
-      text = removed ? '本群钥匙已移除，后续恢复群额度模式；已发出的请求可能继续完成。' : '本群尚未授权钥匙。';
+      text = removed ? '本群钥匙已移除，后续使用发言人的个人钥匙，再使用额度；已发出的请求可能继续完成。' : '本群尚未授权钥匙。';
     } else if (command === '/授权记录') {
       if (!event.IsPrivate) throw new DSHError('budget', '请私聊查看授权记录。');
       if (args.length === 3 && args[0] === '上限') {
         await setGrantDailyLimit(scope, args[1], args[2]);
         text = '授权每日上限已保存，群管理员不能提高此上限。';
+      } else if (args.length === 2 && ['启用', '停用'].includes(args[0])) {
+        await setGrantState(scope, args[1], args[0] === '启用');
+        text = '该次分享状态已更新，用量保留；启用后会在调用时重新校验。';
       } else if (args.length === 2 && args[0] === '移除') {
         await changeKeyring(scope, 'revoke', args[1]);
         text = '授权已移除，对应群副本已撤销；已发出的请求可能继续完成。';
@@ -64,8 +77,13 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
         const sections = ring.grants.length
           ? ring.grants.map((item, index) => ({
               title: `记录 ${item.id}`,
-              text: `群 ${item.channelId} · 钥匙 ${item.keyId} · ${current[index] ? '授权有效' : '授权已失效'}${current[index] ? `\n提供者上限：${current[index].donor === null ? '未设置' : `${current[index].donor} 元/日`}；群上限：${current[index].group === null ? '未设置' : `${current[index].group} 元/日`}；生效上限：${current[index].effective === null ? '未设置' : `${current[index].effective} 元/日`}` : ''}`,
-              actions: [{ label: current[index] ? '移除授权' : '清理记录', command: `/授权记录 移除 ${item.id}` }]
+              text: `群 ${item.channelId} · 钥匙 ${item.keyId} · ${current[index] ? current[index].label : '授权已失效'}${current[index] ? `\n提供者上限：${current[index].donor === null ? '未设置' : `${current[index].donor} 元/日`}；群上限：${current[index].group === null ? '未设置' : `${current[index].group} 元/日`}；生效上限：${current[index].effective === null ? '未设置' : `${current[index].effective} 元/日`}` : ''}`,
+              actions: [
+                ...(current[index]
+                  ? [{ label: current[index].enabled ? '停用' : '启用', command: `/授权记录 ${current[index].enabled ? '停用' : '启用'} ${item.id}` }]
+                  : []),
+                { label: current[index] ? '移除授权' : '清理记录', command: `/授权记录 移除 ${item.id}` }
+              ]
             }))
           : [
               {
@@ -84,11 +102,11 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
     } else if (command === '/授权钥匙') {
       if (event.IsPrivate || args.length !== 1) throw new DSHError('budget', '请管理员在目标群发送 /授权钥匙 编号。');
       await changeKeyring(scope, 'grant', args[0]);
-      text = '本群钥匙已授权。';
+      text = '本群钥匙已授权，已加入共享池，供全群使用。';
     } else if (event.IsPrivate && args[0] === '私聊') {
       if (args[1] === '添加' && args.length === 3) {
         await bindPersonalKey(scope, args[2]);
-        text = '私聊钥匙 1 已保存，仅用于本人私聊。';
+        text = '个人钥匙已保存，用于本人私聊及本人触发的群回复，不分享给其他群友。';
       } else if (args.length === 2 && ['启用', '停用', '移除'].includes(args[1])) {
         const changed = await updatePersonalKey(scope, ({ 启用: 'enable', 停用: 'disable', 移除: 'remove' } as const)[args[1]]);
 
@@ -98,7 +116,7 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
 
         const balance = status.bound ? await storedKeyBalance(personalStorageKey(scope), scope) : '未绑定';
 
-        text = `剩余额度：${balance}\n${status.bound ? `私聊钥匙 1：${status.enabled ? '启用' : '停用'}` : '暂无私聊钥匙'}\n/我的钥匙 私聊 添加 sk-你的Key\n/我的钥匙 私聊 启用（或停用、移除）`;
+        text = `剩余额度：${balance}\n${status.bound ? `私聊钥匙 1：${credentialStateLabel(status)}` : '暂无私聊钥匙'}\n/我的钥匙 私聊 添加 sk-你的Key\n/我的钥匙 私聊 启用（或停用、移除）`;
         actions = status.bound
           ? [
               { label: status.enabled ? '停用' : '启用', command: `/我的钥匙 私聊 ${status.enabled ? '停用' : '启用'}` },
@@ -148,10 +166,20 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
           actions: [{ label: '取消群上限', command: '/我的钥匙 上限 取消' }]
         });
 
+        for (const [index, entry] of (await groupKeyEntries(scope)).entries()) {
+          const detail = await groupKeyBudgetStatus(getDSHConfig(), entry.scope);
+
+          sections.push({
+            title: `共享钥匙 ${index + 1}`,
+            text: `${entry.label}\n本次分享今日已用及预占 ${detail.donorUsed} 元；提供者上限：${detail.donorLimit === null ? '未设置' : `${detail.donorLimit} 元/日；剩余 ${detail.donorRemaining} 元`}。`,
+            actions: []
+          });
+        }
+
         sections.unshift({
           title: '本群钥匙',
           text: status.bound
-            ? `${status.enabled ? '已授权，使用中' : '已授权，已停用'}\n剩余额度：${await storedKeyBalance(groupStorageKey(scope), scope)}`
+            ? `已分享 ${status.count} 把，已启用 ${status.active} 把（不代表余额或授权有效）。\n按顺序使用，余额不足换下一把；全部不可用时使用发言人自己的钥匙，再使用已有充值和免费额度。`
             : '尚未授权',
           actions: status.bound
             ? [

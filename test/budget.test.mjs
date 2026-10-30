@@ -8,6 +8,7 @@ import Redis from 'ioredis';
 import YAML from 'yaml';
 import {
   budgetNoticeScript,
+  muteBudgetNoticesToday,
   claimBudgetNotice,
   claimReplyGateBudgetNotice,
   replyGateExceededMessage,
@@ -301,33 +302,22 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
       await request(s);
       assert.ok((await budgetStatus(config, s)).used > spent);
     });
-    await t.test('notice caps are atomic rolling 3/hour, 5/6 hours, 7/day and deduplicate messages', async () => {
-      const key = 'notice-windows';
-      const invoke = id => redis.eval(budgetNoticeScript, 1, key, id);
-      const admitted = await Promise.all(Array.from({ length: 20 }, (_, i) => invoke(`a${i}`)));
-      assert.equal(admitted.filter(n => n === 1).length, 3);
-      const at = Number((await redis.time())[0]) * 1000;
-      let ids = await redis.zrange(key, 0, -1);
-      assert.equal(await invoke(ids[0]), 0);
-      for (const id of ids) await redis.zadd(key, at - 2 * 3600000, id);
-      assert.equal(await invoke('b1'), 1);
-      assert.equal(await invoke('b2'), 1);
-      assert.equal(await invoke('b3'), 0);
-      ids = await redis.zrange(key, 0, -1);
-      for (const id of ids) await redis.zadd(key, at - 7 * 3600000, id);
-      assert.equal(await invoke('c1'), 1);
-      assert.equal(await invoke('c2'), 1);
-      assert.equal(await invoke('c3'), 0);
-      ids = await redis.zrange(key, 0, -1);
-      for (const id of ids) await redis.zadd(key, at - 25 * 3600000, id);
-      assert.equal(await invoke('next-day'), 1);
-      assert.equal(await redis.zcard(key), 1);
-      const one = { ...scope, channelId: 'notice-group' };
-      for (let i = 0; i < 3; i++) assert.equal(await claimBudgetNotice(one, String(i)), true);
-      assert.equal(await claimBudgetNotice(one, 'fourth'), false);
-      assert.equal(await claimBudgetNotice({ ...one, channelId: 'notice-other' }, 'fourth'), true);
+    await t.test('shared daily notice is atomic, resets by Beijing day and supports mute', async () => {
+      const key = 'notice-daily';
+      const invoke = () => redis.eval(budgetNoticeScript, 1, key);
+      const admitted = await Promise.all(Array.from({length:20}, invoke));
+      assert.equal(admitted.filter(n => n === 1).length, 1);
+      const day = Math.floor((Number((await redis.time())[0]) + 28800) / 86400);
+      await redis.set(key, String(day - 1));
+      assert.equal(await invoke(), 1);
+      assert.equal(await invoke(), 0);
+      const one = {...scope, channelId:'muted-notice'};
+      await muteBudgetNoticesToday(one);
+      assert.equal(await claimBudgetNotice(one, 'chat'), false);
+      assert.equal(await claimReplyGateBudgetNotice(one), false);
+      assert.equal(await claimBudgetNotice({...one, channelId:'other-notice'}), true);
     });
-    await t.test('recognition sends only one group notice, independently of chat notices and recharge', async () => {
+    await t.test('recognition sends only one group notice, shared with chat notices and unchanged by recharge', async () => {
       const { respondToGroupBatch } = await import('../lib/social/respond.js');
       const s = { platform: scope.platform, channelId: 'gate-once-notice' };
       const event = { Platform: s.platform, ChannelId: s.channelId };
@@ -363,7 +353,7 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
         await manageBudget(config, s, actor, 'add', 1000000);
         assert.equal(await claimReplyGateBudgetNotice(s), false);
         assert.equal(await claimReplyGateBudgetNotice({ ...s, channelId: 'another-gate-notice' }), true);
-        for (let i = 0; i < 3; i++) assert.equal(await claimBudgetNotice(s, `ordinary-${i}`), true);
+        assert.equal(await claimBudgetNotice(s, 'ordinary'), false);
         assert.equal(await claimBudgetNotice(s, 'ordinary-fourth'), false);
       } finally {
         globalThis.fetch = oldFetchForNotice;

@@ -1,3 +1,5 @@
+import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
+import { muteBudgetNoticesToday } from '../../billing/budget';
 import { getAds } from '../../ads/config';
 import { commandBubble, sectionBubble, type BubbleSection } from '../bubble';
 import { groupKeyStatus } from '../../credentials/group';
@@ -26,6 +28,23 @@ export default async (): Promise<void> => {
   let text = '当前未设置每日额度。';
   let actions = budgetActions(event);
 
+  if (route.rawArgs.map(String).join(' ').trim() === '今日不再提醒') {
+    let notice: string;
+
+    try {
+      if (!event.IsPrivate && !event.IsMaster && !(await verifyGroupKeyAdmin(event))) {
+        notice = '群内今日免扰需要群管理员或机器人主人设置。';
+      } else {
+        await muteBudgetNoticesToday({ platform: event.Platform || '', channelId: getConversationId(event) });
+        notice = `${event.IsPrivate ? '本私聊' : '本群'}今日不再自动提醒聊天额度和感知预算不足，北京时间零点恢复。仍可发送 /额度 主动查询。`;
+      }
+    } catch {
+      notice = '设置未成功，请稍后重试。';
+    }
+    await message.send({ format: commandBubble(notice, '额度提醒', { platform: event.Platform }) });
+
+    return;
+  }
   if (budgetEnabled(config)) {
     try {
       const command = parseBudgetCommand(route.rawArgs.map(String), event);
@@ -92,8 +111,8 @@ export default async (): Promise<void> => {
       const value = await budgetStatus(config, { ...command.scope, ...(command.scope.channelId === getConversationId(event) ? { userId: event.UserId } : {}) });
       const gate = command.scope.channelId.startsWith('private:') ? undefined : await replyGateBudgetStatus(config, command.scope);
       const personal =
-        event.IsPrivate && command.scope.channelId === getConversationId(event)
-          ? await personalKeyStatus({ ...command.scope, userId: event.UserId })
+        command.scope.channelId === getConversationId(event) && event.UserId
+          ? await personalKeyStatus({ ...command.scope, userId: event.UserId, channelId: `private:${JSON.stringify([event.Platform, event.UserId])}` })
           : undefined;
       const groupKey = !command.scope.channelId.startsWith('private:') ? await groupKeyStatus(command.scope) : undefined;
       const sameTarget = command.scope.channelId === getConversationId(event);
@@ -118,7 +137,11 @@ export default async (): Promise<void> => {
       const intro = [notice.trim(), `${target} · ${value.day}`].filter(Boolean).join('\n');
       const details = [
         `可用：${money(value.available)} 元${gate?.blocked ? '（感知预算不足）' : value.blocked ? '（不足）' : ''}`,
-        groupKey?.enabled ? '群 Key 优先，不扣内部额度。' : personal?.enabled ? '个人 Key 优先，不扣额度。' : '',
+        groupKey?.enabled
+          ? `群共享池优先（已启用 ${groupKey.active} / ${groupKey.count} 把，调用时校验），余额不足依次换钥匙；池用尽后使用本人的 Key，再使用内部额度。`
+          : personal?.enabled
+            ? '当前使用本人的个人 Key，不扣内部额度，也不供其他群友使用。'
+            : '',
         event.IsPrivate && event.IsMaster
           ? `全局今日已用 ${money(value.globalUsed)} 元${value.globalLimit > 0 ? ` / 上限 ${money(value.globalLimit)} 元` : '（未设上限）'}`
           : '',
