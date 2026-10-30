@@ -28,6 +28,7 @@ type CacheStatistics = Partial<Record<ModelPoolPurpose, { reports: number; known
 type EndpointState = {
   endpoint: ModelPoolEndpoint;
   active: number;
+  healthRevision: number;
   failures: number;
   cooldownUntil: number;
   disabled: boolean;
@@ -71,6 +72,8 @@ type PoolInput = {
 };
 
 export type PoolSelectionOptions = {
+  signal?: AbortSignal;
+  taskEndpoint?: string;
   requestId?: string;
   purpose?: ModelPoolPurpose;
   stickyKey?: string;
@@ -87,6 +90,7 @@ export type PoolSelectionOptions = {
 
 const globalState = globalThis as typeof globalThis & {
   __agentLinkCredentialPool__?: { fingerprint: string; pool: CredentialPool };
+  __agentLinkDrainingPool__?: CredentialPool;
 };
 
 const endpointFingerprint = (endpoint: ModelPoolEndpoint): string =>
@@ -184,7 +188,8 @@ export type ModelPoolStatus = {
 
 export class CredentialPool {
   private readonly states: EndpointState[];
-  private cursor = 0;
+  private readonly retired = new Map<string, EndpointState>();
+
   private readonly bindings = new Map<string, { endpointId: string; expiresAt: number }>();
   private readonly accounts = new Map<
     string,
@@ -206,6 +211,7 @@ export class CredentialPool {
     this.states = config.endpoints.map(endpoint => ({
       endpoint,
       active: 0,
+      healthRevision: 0,
       failures: 0,
       cooldownUntil: 0,
       disabled: endpoint.enabled === false,
@@ -234,6 +240,46 @@ export class CredentialPool {
       latencyMs: 0
     }));
     this.loadMetrics();
+  }
+
+  /** Preserve process-local capacity across config generations; leases keep their old credentials. */
+  inheritRuntime(previous: CredentialPool): void {
+    for (const [id, state] of previous.retired) this.retired.set(id, state);
+    for (const state of previous.states) this.retired.set(state.endpoint.id, state);
+    for (const state of this.states) {
+      const old = previous.states.find(item => item.endpoint.id === state.endpoint.id) || previous.retired.get(state.endpoint.id);
+
+      if (!old) continue;
+      const keys: Array<keyof EndpointState> = ['active', 'pendingTokens', 'requestWindow', 'usageWindow'];
+      const sameIdentity =
+        state.endpoint.apiKey === old.endpoint.apiKey && state.endpoint.baseUrl === old.endpoint.baseUrl && state.endpoint.model === old.endpoint.model;
+
+      if (sameIdentity) {
+        keys.push('cooldownUntil', 'failures', 'healthy', 'healthRevision');
+        // A config enable/disable change takes precedence over the old admin state.
+        if (state.endpoint.enabled === old.endpoint.enabled) keys.push('disabled', 'disabledUntil');
+      }
+      for (const key of keys) {
+        const descriptor = Object.getOwnPropertyDescriptor(old, key);
+
+        // Reuse the original accessor rather than building one closure per reload.
+        Object.defineProperty(
+          state,
+          key,
+          descriptor?.get
+            ? descriptor
+            : {
+                configurable: true,
+                enumerable: true,
+                get: () => old[key],
+                set: value => {
+                  (old as any)[key] = value;
+                }
+              }
+        );
+      }
+    }
+    for (const [key, value] of previous.accounts) this.accounts.set(key, value);
   }
 
   private day(now = this.now()): string {
@@ -539,17 +585,6 @@ export class CredentialPool {
     }
   }
 
-  private canUse(state: EndpointState, purpose: ModelPoolPurpose, exclude: ReadonlySet<string>, provider?: string): boolean {
-    return (
-      !state.disabled &&
-      state.cooldownUntil <= this.now() &&
-      state.active < state.endpoint.maxConcurrent &&
-      this.supports(state, purpose) &&
-      (!provider || state.endpoint.provider === provider) &&
-      !exclude.has(state.endpoint.id)
-    );
-  }
-
   private effectiveCapabilities(state: EndpointState): ModelPoolPurpose[] {
     const configured = state.capabilityProbed ? state.endpoint.capabilities.filter(capability => state.verified.has(capability)) : state.endpoint.capabilities;
     // Probing is evidence of capability, not permission to promote a gate-only key into chat.
@@ -572,6 +607,7 @@ export class CredentialPool {
         !state.disabled &&
         state.cooldownUntil <= time &&
         state.active < state.endpoint.maxConcurrent &&
+        (state.healthy !== false || state.active === 0) &&
         this.supports(state, purpose) &&
         (!provider || state.endpoint.provider === provider) &&
         this.withinLimits(state, time, estimatedTokens) &&
@@ -596,26 +632,11 @@ export class CredentialPool {
     );
   }
 
-  private endpointScore(state: EndpointState): number {
-    // 0 -> 1，10 -> 0.67，20 -> 0.5，100 -> 0.17；高优先级有偏好但不会独占。
-    const priority = 1 / (1 + Math.max(0, state.endpoint.priority) / 20);
-    const load = 1 / (1 + state.active * 2 + this.recentCount(state) + Math.min(10000, state.latencyMs) / 50);
-
-    return Math.max(0.000001, state.endpoint.weight * priority * load);
-  }
-
-  private rank(state: EndpointState, key: string): number {
-    const digest = createHash('sha256').update(`${key}:${state.endpoint.id}`).digest();
-    const unit = (digest.readUInt32BE(0) + 1) / 0x100000000;
-
-    return -Math.log(unit) / this.endpointScore(state);
-  }
-
   private choose(
     purpose: ModelPoolPurpose,
-    stickyKey: string | undefined,
+    _stickyKey: string | undefined,
     exclude: ReadonlySet<string>,
-    stable = false,
+    _stable = false,
     provider?: string,
     estimatedTokens = 0,
     waitForCapacity = false,
@@ -643,35 +664,7 @@ export class CredentialPool {
     if (!eligible.length) return undefined;
     const candidates = eligible.some(state => state.healthy !== false) ? eligible.filter(state => state.healthy !== false) : eligible;
 
-    if (stable) {
-      // 工作区等稳定调用只要求“不轮询”；仍保留软优先级，不在慢端点之间乱跳。
-      const latency = (state: EndpointState): number => (state.latencyMs > 0 ? state.latencyMs : 1200);
-
-      return [...candidates].sort(
-        (left, right) =>
-          latency(left) - latency(right) ||
-          this.endpointScore(right) - this.endpointScore(left) ||
-          right.endpoint.weight - left.endpoint.weight ||
-          left.lastUsed - right.lastUsed
-      )[0];
-    }
-    if (this.config.strategy === 'least-busy') {
-      return [...candidates].sort(
-        (left, right) =>
-          right.active - left.active ||
-          right.endpoint.weight - left.endpoint.weight ||
-          this.endpointScore(right) - this.endpointScore(left) ||
-          left.latencyMs - right.latencyMs ||
-          left.lastUsed - right.lastUsed
-      )[0];
-    }
-
-    // 软优先级 + 权重 + 负载 + 延迟的离散加权选择：
-    // 优先级只改变被选中的概率，不会把高优先级端点完全饿死。
-    // 同一个 stickyKey 会得到稳定结果，实际绑定由 select() 持久化。
-    const key = stickyKey ? `${this.config.strategy}:${stickyKey}` : `${this.config.strategy}:${this.cursor++}`;
-
-    return [...candidates].sort((left, right) => this.rank(left, key) - this.rank(right, key))[0];
+    return [...candidates].sort((a, b) => a.active - b.active || a.endpoint.priority - b.endpoint.priority)[0];
   }
 
   /** Probe endpoints without spending completion tokens. Called once at
@@ -708,6 +701,7 @@ export class CredentialPool {
 
   private async probe(state: EndpointState, includeChat = false): Promise<void> {
     const endpoint = state.endpoint;
+    const revision = state.healthRevision;
     const healthy = () => state.healthy !== false;
     const url = `${endpoint.baseUrl.replace(/\/+$/u, '')}/models`;
 
@@ -723,6 +717,11 @@ export class CredentialPool {
         headers: { Authorization: `Bearer ${endpoint.apiKey}`, Accept: 'application/json' }
       });
 
+      if (state.healthRevision !== revision) {
+        await response.body?.cancel();
+
+        return;
+      }
       state.probeReachable = true;
       state.probeStatus = response.status;
       state.lastStatus = response.status;
@@ -780,6 +779,7 @@ export class CredentialPool {
       }
       await response.body?.cancel();
     } catch {
+      if (state.healthRevision !== revision) return;
       state.probeReachable = false;
       state.probeStatus = undefined;
       state.healthy = false;
@@ -790,6 +790,7 @@ export class CredentialPool {
 
   private async probeChat(state: EndpointState): Promise<void> {
     const endpoint = state.endpoint;
+    const revision = state.healthRevision;
     const url = `${endpoint.baseUrl.replace(/\/+$/u, '')}/chat/completions`;
 
     try {
@@ -810,6 +811,11 @@ export class CredentialPool {
         } catch {
           // Best-effort provider diagnostics.
         }
+      }
+      if (state.healthRevision !== revision) {
+        await response.body?.cancel();
+
+        return;
       }
       state.lastStatus = response.status;
       if (response.ok) {
@@ -841,6 +847,7 @@ export class CredentialPool {
       }
       await response.body?.cancel();
     } catch {
+      if (state.healthRevision !== revision) return;
       state.healthy = false;
       state.failures += 1;
       if (state.failures >= this.config.failureThreshold) state.cooldownUntil = this.now() + this.config.cooldownSeconds * 1000;
@@ -975,6 +982,7 @@ export class CredentialPool {
     const state = this.states.find(item => item.endpoint.id === id);
 
     if (!state) return false;
+    state.healthRevision += 1;
     if (enabled) {
       state.disabled = false;
       state.disabledUntil = 0;
@@ -1076,52 +1084,32 @@ export class CredentialPool {
     const now = this.now();
 
     this.pruneBindings(now);
-    const bindingKey = !options.stable && options.stickyKey ? `${purpose}:${options.workspaceOnly ? 'workspace:' : ''}${options.stickyKey}` : undefined;
-    let state: EndpointState | undefined;
-    const bound = bindingKey ? this.bindings.get(bindingKey) : undefined;
+    const state = options.taskEndpoint
+      ? this.states.find(
+          item =>
+            item.endpoint.id === options.taskEndpoint &&
+            !(item.disabled && Number.isFinite(item.disabledUntil)) &&
+            item.cooldownUntil <= now &&
+            this.supports(item, purpose) &&
+            this.withinLimits(item, now, options.estimatedTokens || 0)
+        )
+      : this.choose(
+          purpose,
+          undefined,
+          tried,
+          false,
+          options.provider,
+          options.estimatedTokens || 0,
+          options.waitForCapacity === true,
+          options.fallbackOnly === true,
+          options.workspaceOnly === true
+        );
 
-    if (bound && bound.expiresAt > now && !tried.has(bound.endpointId)) {
-      const candidate = this.states.find(item => item.endpoint.id === bound.endpointId);
-
-      if (
-        !options.fallbackOnly &&
-        candidate &&
-        candidate.healthy !== false &&
-        (!options.workspaceOnly || candidate.endpoint.workspace === true) &&
-        this.canUse(candidate, purpose, tried, options.provider) &&
-        this.withinLimits(candidate, now, options.estimatedTokens || 0)
-      ) {
-        state = candidate;
-        // 活跃会话滑动续期：持续接待一直保持同一端点，空闲超过 TTL 才释放。
-        if (bindingKey && this.config.stickySeconds > 0)
-          this.bindings.set(bindingKey, { endpointId: candidate.endpoint.id, expiresAt: now + this.config.stickySeconds * 1000 });
-      }
-    }
-    if (!state)
-      state = this.choose(
-        purpose,
-        options.stickyKey,
-        tried,
-        options.stable === true,
-        options.provider,
-        options.estimatedTokens || 0,
-        options.waitForCapacity === true,
-        options.fallbackOnly === true,
-        options.workspaceOnly === true
-      );
-
-    if (!state) {
-      if (bindingKey) this.bindings.delete(bindingKey);
-
-      return null;
-    }
-    if (bindingKey && !state.endpoint.fallback && this.config.stickySeconds > 0) {
-      this.bindings.set(bindingKey, { endpointId: state.endpoint.id, expiresAt: now + this.config.stickySeconds * 1000 });
-    }
+    if (!state) return null;
     tried.add(state.endpoint.id);
     const reserved = options.reserve !== false;
 
-    if (reserved) {
+    if (reserved && !options.taskEndpoint) {
       state.active += 1;
     }
     state.lastUsed = now;
@@ -1149,6 +1137,8 @@ export class CredentialPool {
         this.recentCount(state, now);
       }
     }
+    let held = Boolean(options.taskEndpoint);
+    let ended = false;
     let settled = false;
     let sent = false;
     const id = randomUUID();
@@ -1161,6 +1151,16 @@ export class CredentialPool {
       startedAt: options.startedAt || Date.now(),
       retryBudgetMs: this.config.retryBudgetMs,
       retryJitterMs: this.config.retryJitterMs,
+      hold: () => {
+        held = true;
+      },
+      endTask: () => {
+        if (ended || options.taskEndpoint) return;
+        ended = true;
+        if (!settled) credential.report?.({ ok: false, errorKind: 'cancelled' });
+        if (held && reserved) state.active = Math.max(0, state.active - 1);
+      },
+      renew: estimatedTokens => (ended ? null : this.select({ ...options, taskEndpoint: state.endpoint.id, estimatedTokens, startedAt: Date.now() })),
       reportUsage: usage => this.recordUsage(state, usage, purpose),
       invalidate: status => this.markInvalid(state, status),
       disable: () => this.disableEndpoint(state),
@@ -1194,9 +1194,10 @@ export class CredentialPool {
           });
           state.lifecycle.records = state.lifecycle.records.slice(-20);
         }
-        this.report(state, outcome, reserved, reservedTokens, purpose);
+        this.report(state, outcome, reserved, reservedTokens, purpose, !held);
       },
       next: (nextOptions?: { fallback?: boolean }) => {
+        if (held || (credential.attempt || 1) >= this.config.maxAttempts) return null;
         const next = this.select({
           purpose,
           stickyKey: options.stickyKey,
@@ -1226,6 +1227,7 @@ export class CredentialPool {
     const targets = account ? this.states.filter(item => item.endpoint.account === account) : [state];
 
     for (const target of targets) {
+      target.healthRevision += 1;
       target.disabled = true;
       target.disabledUntil = this.now() + this.config.recoveryProbeSeconds * 1000;
       target.healthy = false;
@@ -1236,6 +1238,7 @@ export class CredentialPool {
   }
 
   private markInvalid(state: EndpointState, status?: number): void {
+    state.healthRevision += 1;
     state.lastStatus = status;
     state.failures += 1;
     state.healthy = false;
@@ -1249,7 +1252,8 @@ export class CredentialPool {
     outcome: { ok: boolean; status?: number; headers?: Headers; latencyMs?: number; detail?: string; errorKind?: string },
     reserved: boolean,
     reservedTokens = 0,
-    purpose: ModelPoolPurpose = 'chat'
+    purpose: ModelPoolPurpose = 'chat',
+    releaseActive = true
   ): void {
     if (reserved) {
       const statistics = (state.purposeStatistics[purpose] ||= { total: 0, success: 0, failed: 0 });
@@ -1269,7 +1273,7 @@ export class CredentialPool {
       else state.failedCalls += 1;
       this.schedulePersist();
     }
-    if (reserved && state.active > 0) state.active -= 1;
+    if (reserved && releaseActive && state.active > 0) state.active -= 1;
     if (reservedTokens > 0) {
       state.pendingTokens = Math.max(0, state.pendingTokens - reservedTokens);
       if (state.endpoint.account) {
@@ -1278,17 +1282,19 @@ export class CredentialPool {
         account.pendingTokens = Math.max(0, account.pendingTokens - reservedTokens);
       }
     }
+    state.healthRevision += 1;
     state.lastStatus = outcome.status;
     const responseReset = rateResetAfter(outcome.headers);
 
     if (responseReset > 0) state.cooldownUntil = Math.max(state.cooldownUntil, this.now() + responseReset);
     if (outcome.ok) {
-      state.failures = 0;
-      state.cooldownUntil = this.now() + (rateResetAfter(outcome.headers) || 0);
-      state.healthy = true;
-      state.disabled = false;
-      state.disabledUntil = 0;
-      // 用真实请求耗时校正延迟模型，选择时能把慢端点排到后面。
+      // A late success must not undo a concurrent 429/401 or an operator stop.
+      // Recovery probes and explicit enable actions own disabled-state recovery.
+      if (!state.disabled && state.cooldownUntil <= this.now()) {
+        state.failures = 0;
+        state.healthy = true;
+      }
+      // Latency is observational only; it does not affect task allocation.
       if (Number.isFinite(outcome.latencyMs) && Number(outcome.latencyMs) > 0) {
         const sample = Number(outcome.latencyMs);
 
@@ -1297,6 +1303,7 @@ export class CredentialPool {
 
       return;
     }
+    if (['cancelled', 'local-budget', 'local-disabled', 'pricing-unconfigured'].includes(requestReason(outcome))) return;
     const status = outcome.status;
 
     if (!outcome.ok) {
@@ -1322,7 +1329,7 @@ export class CredentialPool {
 
       return;
     }
-    if (status !== undefined && status >= 500 && status <= 599) {
+    if ((status !== undefined && status >= 500 && status <= 599) || ['network', 'timeout', 'stream-error'].includes(requestReason(outcome))) {
       state.failures += 1;
       state.healthy = false;
       if (state.failures >= this.config.failureThreshold) {
@@ -1342,6 +1349,7 @@ export const getCredentialPool = (input: PoolInput): CredentialPool | null => {
 
   if (!pool) {
     globalState.__agentLinkCredentialPool__?.pool.stop();
+    if (globalState.__agentLinkCredentialPool__) globalState.__agentLinkDrainingPool__ = globalState.__agentLinkCredentialPool__.pool;
     globalState.__agentLinkCredentialPool__ = undefined;
 
     return null;
@@ -1354,6 +1362,11 @@ export const getCredentialPool = (input: PoolInput): CredentialPool | null => {
   const metricsPath =
     typeof input.dshHomeRoot === 'string' && input.dshHomeRoot.trim() ? join(dirname(input.dshHomeRoot), 'model-pool-metrics.json') : undefined;
   const instance = new CredentialPool(pool, Date.now, metricsPath);
+
+  const previous = existing?.pool || globalState.__agentLinkDrainingPool__;
+
+  if (previous) instance.inheritRuntime(previous);
+  globalState.__agentLinkDrainingPool__ = undefined;
 
   globalState.__agentLinkCredentialPool__ = { fingerprint, pool: instance };
 

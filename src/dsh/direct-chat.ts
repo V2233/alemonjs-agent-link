@@ -85,16 +85,11 @@ export const directChat = async (
             ? 'cancelled'
             : error instanceof Error && /timeout/i.test(error.name + error.message)
               ? 'timeout'
-              : undefined
+              : 'network'
       });
       if (error instanceof BudgetExceededError) throw error;
       signal.throwIfAborted();
-      const next = current.next?.();
-
-      if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) throw error;
-      await onEvent({ type: 'retrying' });
-      current = next;
-      continue;
+      throw error;
     }
 
     if (!response.ok) {
@@ -110,14 +105,22 @@ export const directChat = async (
       }
       logger.warn({ status, detail }, 'Direct model provider rejected request');
       current.report?.({ ok: false, status, detail, headers: response.headers });
-      const next = status === 400 ? current.next?.({ fallback: true }) : current.retryable?.(status) ? current.next?.() : null;
+      const refused =
+        [401, 402, 403, 429].includes(status) ||
+        (status === 400 && /计费账户|余额不足|余额已|欠费|冻结|billing|insufficient|quota|frozen|credit/iu.test(detail));
+      const next = refused && (current.attempt || 1) < (current.maxAttempts || 1) ? current.next?.() : null;
 
       if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
         throw new Error(`模型服务返回 HTTP ${status}${detail ? `：${detail}` : ''}。`);
       }
-      if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
-      await onEvent({ type: 'retrying' });
       current = next;
+      try {
+        if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
+        await onEvent({ type: 'retrying' });
+      } catch (error) {
+        current.report?.({ ok: false, errorKind: 'cancelled' });
+        throw error;
+      }
       continue;
     }
     if (!response.body) {

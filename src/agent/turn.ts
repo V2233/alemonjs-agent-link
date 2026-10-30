@@ -14,7 +14,7 @@ import { modelContext } from '../dsh/model-context';
 import { logger } from 'alemonjs';
 import { abortFailure } from '../dsh/errors';
 import { streamChat, type DSHBridgeConfig, type DSHStreamEvent } from '../dsh/client';
-import { getChatCredentials, getWorkspaceCredentials } from '../dsh/credentials';
+import { createChatTaskCredentials, getWorkspaceCredentials } from '../dsh/credentials';
 import { inputText, withInputContext, type ChatInput } from '../dsh/input';
 import { normalizeBubbleText } from '../dsh/reply-format';
 import { ensureDSHSupervisor, hasDSHBridgeOverride } from '../dsh/supervisor';
@@ -55,6 +55,7 @@ const runModuleTurnInner = async (options: {
 
   context.intelligenceLevel = intelligence.level;
   const preparingAt = Date.now();
+  const chatTask = createChatTaskCredentials();
   const lease = await (await getModuleRuntime(config)).acquire();
 
   try {
@@ -219,7 +220,8 @@ const runModuleTurnInner = async (options: {
       const raw = await runToolChat({
         config: { ...config, defaultSystemPrompt: systemPrompt },
         credentials: (messages, requestTools) =>
-          getChatCredentials({
+          chatTask.acquire({
+            signal: context.signal,
             purpose: hasImages ? 'vision' : requestTools.length ? 'tools' : 'chat',
             stickyKey: context.channelId,
             requestId: context.requestId,
@@ -295,6 +297,7 @@ const runModuleTurnInner = async (options: {
   } catch (error) {
     throw abortFailure(error, context.signal) ?? error;
   } finally {
+    chatTask.close();
     await lease.release();
   }
 };

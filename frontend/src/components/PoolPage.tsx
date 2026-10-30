@@ -27,15 +27,9 @@ import {
   Tag,
   Typography
 } from 'antd';
-import { PlusOutlined, MinusOutlined, VerticalAlignTopOutlined, ReloadOutlined, MoreOutlined } from '@ant-design/icons';
+import { PlusOutlined, MinusOutlined, VerticalAlignTopOutlined, VerticalAlignBottomOutlined, ReloadOutlined, MoreOutlined } from '@ant-design/icons';
 import { useUnsavedNavigation } from './useUnsavedNavigation';
 
-const strategies = [
-  { value: 'balanced', label: '均衡分配' },
-  { value: 'weighted-round-robin', label: '按权重轮转' },
-  { value: 'least-busy', label: '优先空闲' },
-  { value: 'sticky', label: '会话粘性' }
-];
 const ruleFields = [
   { name: 'maxAttempts', label: '最大尝试次数', min: 1, max: 20 },
   { name: 'failureThreshold', label: '连续失败阈值', min: 1, max: 100 },
@@ -228,7 +222,7 @@ export default function PoolPage() {
     setEditingId(id);
     setDirty(false);
     setDrawer(kind);
-    if (kind === 'endpoint') form.setFieldsValue(entry || { provider: 'openai-compatible', enabled: true, capabilities: [], weight: 1, maxConcurrent: 2 });
+    if (kind === 'endpoint') form.setFieldsValue(entry || { provider: 'openai-compatible', enabled: true, capabilities: [], maxConcurrent: 2 });
     else form.setFieldsValue(kind === 'rules' ? value.modelPool || {} : value.budget || {});
   };
   const save = async () => {
@@ -431,7 +425,7 @@ export default function PoolPage() {
                 {
                   key: 'strategy',
                   label: '分配策略',
-                  children: strategies.find(item => item.value === (app.modelPool?.strategy || 'weighted-round-robin'))?.label
+                  children: '最少活跃任务（同负载按列表顺序）'
                 },
                 { key: 'retry', label: '失败重试', children: (app.modelPool?.maxAttempts ?? 3) + ' 次尝试' },
                 { key: 'cooldown', label: '失败冷却', children: (app.modelPool?.cooldownSeconds ?? 60) + ' 秒' }
@@ -483,7 +477,6 @@ export default function PoolPage() {
                       label: '主备 / 优先级',
                       children: (row.fallback ? '备用' : '主用') + ' / ' + (configured.findIndex(item => item.id === row.id) + 1)
                     },
-                    { key: '3', label: '权重', children: row.weight ?? 1 },
                     { key: '4', label: '并发', children: row.active === undefined ? '无运行数据' : row.active + ' / ' + row.maxConcurrent },
                     { key: '5', label: '分钟请求', children: row.requests === undefined ? '无运行数据' : row.requests + ' / ' + (row.rpm ?? '不限') },
                     { key: '6', label: '分钟 Token', children: row.tokens === undefined ? '无运行数据' : row.tokens + ' / ' + (row.tpm ?? '不限') },
@@ -540,7 +533,7 @@ export default function PoolPage() {
           columns={[
             {
               title: '顺序',
-              width: 120,
+              width: 160,
               render: (_, row) => (
                 <Space size={4}>
                   <span>{configured.findIndex(item => item.id === row.id) + 1}</span>
@@ -562,6 +555,15 @@ export default function PoolPage() {
                     title='置顶'
                     disabled={busy || Boolean(drawer) || configured[0]?.id === row.id}
                     onClick={() => void reorder(row.id, configured[0]?.id)}
+                  />
+                  <Button
+                    size='small'
+                    type='text'
+                    icon={<VerticalAlignBottomOutlined />}
+                    aria-label='置底端点'
+                    title='置底'
+                    disabled={busy || Boolean(drawer) || configured[configured.length - 1]?.id === row.id}
+                    onClick={() => void reorder(row.id, configured[configured.length - 1]?.id)}
                   />
                 </Space>
               )
@@ -889,7 +891,6 @@ export default function PoolPage() {
                       <>
                         <Row gutter={16}>
                           {[
-                            { name: 'weight', label: '权重', min: 1, max: 100 },
                             { name: 'maxConcurrent', label: '并发上限', min: 1, max: 100 },
                             { name: 'rpm', label: '每分钟请求上限', min: 1, max: 1000000 },
                             { name: 'tpm', label: '每分钟 Token 上限', min: 1, max: 1000000000 }
@@ -935,9 +936,7 @@ export default function PoolPage() {
               <Form.Item name='enabled' label='启用轮转' valuePropName='checked'>
                 <Switch />
               </Form.Item>
-              <Form.Item name='strategy' label='分配策略'>
-                <Select allowClear placeholder='默认按权重轮转' options={strategies} />
-              </Form.Item>
+              <Alert type='info' title='按最少活跃任务分配；任务执行期间保持端点绑定。' />
               <Row gutter={16}>
                 {ruleFields.map(item => (
                   <Col span={12} key={item.name}>

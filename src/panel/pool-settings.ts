@@ -43,7 +43,10 @@ const editablePool = (app: Record<string, any>) => {
   );
   const { keys: _keys, ...settings } = raw;
 
-  return { ...settings, endpoints: normalized?.endpoints || [] };
+  delete settings.strategy;
+  delete settings.stickySeconds;
+
+  return { ...settings, endpoints: (normalized?.endpoints || []).map(({ weight: _weight, ...entry }) => entry) };
 };
 const project = (snapshot: { source: string; revision: string }) => {
   const app = JSON.parse(snapshot.source)[root] || {};
@@ -120,7 +123,14 @@ export const updatePoolSettings = async (input: unknown) => {
 
     app[section] = patch(app[section] || {});
   }
-  if (body.action !== 'budget') for (const entry of app.modelPool.endpoints || []) delete entry.priority;
+  if (body.action !== 'budget') {
+    delete app.modelPool.strategy;
+    delete app.modelPool.stickySeconds;
+    for (const entry of app.modelPool.endpoints || []) {
+      delete entry.priority;
+      delete entry.weight;
+    }
+  }
   // Pausing rotation must not bypass endpoint validation on product writes.
   if (body.action !== 'budget') editablePool(app);
   const saved = await store.save(JSON.stringify(source), body.revision);

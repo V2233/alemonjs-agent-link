@@ -35,7 +35,6 @@ test('model pool validates endpoints, model and key shape', () => {
   for (const bad of [
     { endpoints: [{ id: 'bad id', apiKey: 'sk-aaaaaaaa' }] },
     { endpoints: [{ id: 'a', apiKey: '' }] },
-    { endpoints: [{ id: 'a', apiKey: 'sk-aaaaaaaa', weight: 0 }] },
     { endpoints: [{ id: 'a', apiKey: 'sk-aaaaaaaa', capabilities: ['unknown'] }] },
     { endpoints: [{ id: 'a', apiKey: 'sk-aaaaaaaa', apiKeyEnv: 'EMPTY' }] }
   ]) {
@@ -385,7 +384,7 @@ test('a fallback endpoint is used only after primary endpoints are unavailable',
   assert.equal(pool.select({ purpose: 'chat' }).endpointId, 'backup');
 });
 
-test('priority biases selection without starving higher-priority endpoints', () => {
+test('equal-load sequential requests follow array order and ignore legacy weights', () => {
   const pool = new CredentialPool(
     parseModelPool(
       {
@@ -407,10 +406,10 @@ test('priority biases selection without starving higher-priority endpoints', () 
     credential.report({ ok: true });
   }
   assert.ok(picks.filter(id => id === 'preferred').length > picks.filter(id => id === 'second').length);
-  assert.ok(picks.includes('preferred') && picks.includes('second'));
+  assert.ok(picks.every(id => id === 'preferred'));
 });
 
-test('chat keeps its sticky endpoint while new chats balance by recent load', () => {
+test('completed requests do not retain conversation bindings', () => {
   const pool = new CredentialPool(
     parseModelPool(
       {
@@ -441,8 +440,8 @@ test('chat keeps its sticky endpoint while new chats balance by recent load', ()
     seen.add(credential.endpointId);
     credential.report?.({ ok: true, status: 200 });
   }
-  assert.deepEqual([...seen].sort(), ['a', 'b']);
-  assert.equal(pool.status.find(item => item.id === 'a').bound + pool.status.find(item => item.id === 'b').bound, 21);
+  assert.deepEqual([...seen].sort(), ['a']);
+  assert.equal(pool.status.find(item => item.id === 'a').bound + pool.status.find(item => item.id === 'b').bound, 0);
 });
 
 test('a failed endpoint releases its chat bindings for rebalance', () => {
@@ -457,7 +456,7 @@ test('a failed endpoint releases its chat bindings for rebalance', () => {
     )
   );
   const credential = pool.select({ purpose: 'chat', stickyKey: 'chat-a' });
-  assert.equal(pool.status[0].bound, 1);
+  assert.equal(pool.status[0].bound, 0);
   credential.report?.({ ok: false, status: 500 });
   assert.equal(pool.status[0].bound, 0);
 });
@@ -549,7 +548,7 @@ test('a busy primary can wait instead of immediately spending the fallback', () 
   assert.equal(pool.select({ purpose: 'chat' }).endpointId, 'backup');
 });
 
-test('a provider-specific 400 falls through to the fallback endpoint', async () => {
+test('a provider-specific 400 does not replay', async () => {
   const pool = new CredentialPool(
     parseModelPool(
       {
@@ -570,22 +569,22 @@ test('a provider-specific 400 falls through to the fallback endpoint', async () 
   };
   try {
     const credential = pool.select({ purpose: 'chat' });
-    const result = await requestModelMessage(
-      { provider: 'deepseek-official', model: 'm', maxRequestBytes: 10000, budget: { enabled: false } },
-      credential,
-      [{ role: 'user', content: '天气' }],
-      [],
-      new AbortController().signal
+    await assert.rejects(
+      requestModelMessage(
+        { provider: 'deepseek-official', model: 'm', maxRequestBytes: 10000, budget: { enabled: false } },
+        credential,
+        [{ role: 'user', content: '天气' }],
+        [],
+        new AbortController().signal
+      )
     );
-    assert.equal(result.content, '兜底成功');
-    assert.equal(calls.length, 2);
-    assert.equal(calls[1].body.model, 'backup-model');
+    assert.equal(calls.length, 1);
   } finally {
     globalThis.fetch = original;
   }
 });
 
-test('an empty 200 response fails over to the next endpoint', async () => {
+test('an empty 200 response does not replay', async () => {
   const credentials = new CredentialPool(
     parseModelPool(
       {
@@ -605,15 +604,16 @@ test('an empty 200 response fails over to the next endpoint', async () => {
     return calls.length === 1 ? Response.json({}) : Response.json({ choices: [{ message: { content: '换节点成功' } }] });
   };
   try {
-    const result = await requestModelMessage(
-      { provider: 'deepseek-official', model: 'm', maxRequestBytes: 10000, budget: { enabled: false } },
-      credentials,
-      [{ role: 'user', content: 'x' }],
-      [],
-      new AbortController().signal
+    await assert.rejects(
+      requestModelMessage(
+        { provider: 'deepseek-official', model: 'm', maxRequestBytes: 10000, budget: { enabled: false } },
+        credentials,
+        [{ role: 'user', content: 'x' }],
+        [],
+        new AbortController().signal
+      )
     );
-    assert.equal(result.content, '换节点成功');
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 1);
   } finally {
     globalThis.fetch = original;
   }
@@ -681,7 +681,7 @@ test('startup chat probe disables a frozen billing account even when /models is 
   }
 });
 
-test('a hanging endpoint is abandoned inside the retry budget and failed over', async () => {
+test('a hanging endpoint is abandoned inside the retry budget without replay', async () => {
   const pool = new CredentialPool(
     parseModelPool(
       { enabled: true, maxAttempts: 3, retryBudgetMs: 2000, endpoints: config.modelPool.endpoints },
@@ -703,16 +703,17 @@ test('a hanging endpoint is abandoned inside the retry budget and failed over', 
   };
   try {
     const started = Date.now();
-    const result = await requestModelMessage(
-      { provider: 'deepseek-official', model: 'fallback', maxRequestBytes: 10000, budget: { enabled: false } },
-      credentials,
-      [{ role: 'user', content: '你好' }],
-      [],
-      new AbortController().signal
+    await assert.rejects(
+      requestModelMessage(
+        { provider: 'deepseek-official', model: 'fallback', maxRequestBytes: 10000, budget: { enabled: false } },
+        credentials,
+        [{ role: 'user', content: '你好' }],
+        [],
+        new AbortController().signal
+      )
     );
 
-    assert.equal(result.content, '备用端点');
-    assert.equal(calls.length, 2, '挂起的端点被执行超时打断后换到了备用端点');
+    assert.equal(calls.length, 1);
     assert.ok(Date.now() - started < 5000, '不会等到外层请求超时');
   } finally {
     globalThis.fetch = original;
@@ -748,7 +749,7 @@ test('when every endpoint hangs the error names the attempts instead of a bare t
   }
 });
 
-test('real request latency demotes slow endpoints instead of just probe results', () => {
+test('latency is observable but does not override least-active array tie breaking', () => {
   const pool = new CredentialPool(
     parseModelPool(
       {
@@ -777,10 +778,10 @@ test('real request latency demotes slow endpoints instead of just probe results'
     picks.push(credential.endpointId);
     credential.report({ ok: true, latencyMs: credential.endpointId === 'slow' ? 4000 : 80 });
   }
-  assert.ok(picks.filter(id => id === 'fast').length >= 35, `慢端点应被降权，实际：${picks.join(',')}`);
+  assert.ok(picks.every(id => id === 'slow'));
 });
 
-test('stable selection prefers the measured fast endpoint instead of the first configured one', () => {
+test('legacy stable flag uses the same least-active selection', () => {
   const pool = new CredentialPool(
     parseModelPool(
       {
@@ -814,7 +815,7 @@ test('stable selection prefers the measured fast endpoint instead of the first c
     stable.push(credential.endpointId);
     credential.report({ ok: true, latencyMs: credential.endpointId === 'slow' ? 3500 : 120 });
   }
-  assert.deepEqual(stable, ['fast', 'fast', 'fast']);
+  assert.deepEqual(stable, ['slow', 'slow', 'slow']);
 });
 
 test('a sticky session stays on its endpoint even when it turns out much slower', () => {
@@ -944,27 +945,41 @@ test('runtime summary shows the backend and pool models the process really uses'
 });
 
 test('replyGate-only endpoint is not promoted to chat by successful capability probes', async () => {
-  const pool = new CredentialPool(parseModelPool({
-    probeChat:true, capabilityProbe:true,probeIntervalSeconds:0,
-    endpoints:[{id:'gate-only',apiKey:'gate-private-key',model:'test',capabilities:['replyGate'],maxConcurrent:5}]
-  },{provider:'test',baseUrl:'https://gate.example',model:'test'}));
-  const previous=globalThis.fetch;
-  globalThis.fetch=async (_url,init)=>{
-    if(!init?.body)return Response.json({data:[]});
-    const body=JSON.parse(init.body);
-    return Response.json({choices:[{message:body.tools?{tool_calls:[{id:'p',type:'function',function:{name:'probe_value',arguments:'{}'}}]}:{content:'OK'}}]});
+  const pool = new CredentialPool(
+    parseModelPool(
+      {
+        probeChat: true,
+        capabilityProbe: true,
+        probeIntervalSeconds: 0,
+        endpoints: [{ id: 'gate-only', apiKey: 'gate-private-key', model: 'test', capabilities: ['replyGate'], maxConcurrent: 5 }]
+      },
+      { provider: 'test', baseUrl: 'https://gate.example', model: 'test' }
+    )
+  );
+  const previous = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    if (!init?.body) return Response.json({ data: [] });
+    const body = JSON.parse(init.body);
+    return Response.json({
+      choices: [
+        { message: body.tools ? { tool_calls: [{ id: 'p', type: 'function', function: { name: 'probe_value', arguments: '{}' } }] } : { content: 'OK' } }
+      ]
+    });
   };
-  try{
-    await pool.probeEndpoint('gate-only',true);
-    assert.deepEqual(pool.status[0].capabilities,['replyGate']);
-    assert.equal(pool.select({purpose:'chat'}),null);
-    assert.equal(pool.select({purpose:'tools'}),null);
-    assert.equal(pool.select({purpose:'vision'}),null);
-    const gate=pool.select({purpose:'replyGate'});
-    assert.equal(gate.endpointId,'gate-only');
-    gate.report({ok:true,status:200});
+  try {
+    await pool.probeEndpoint('gate-only', true);
+    assert.deepEqual(pool.status[0].capabilities, ['replyGate']);
+    assert.equal(pool.select({ purpose: 'chat' }), null);
+    assert.equal(pool.select({ purpose: 'tools' }), null);
+    assert.equal(pool.select({ purpose: 'vision' }), null);
+    const gate = pool.select({ purpose: 'replyGate' });
+    assert.equal(gate.endpointId, 'gate-only');
+    gate.report({ ok: true, status: 200 });
     await pool.healthCheckEndpoint('gate-only');
-    assert.deepEqual(pool.status[0].capabilities,['replyGate']);
-    assert.equal(pool.select({purpose:'chat'}),null);
-  }finally{globalThis.fetch=previous;pool.stop();}
+    assert.deepEqual(pool.status[0].capabilities, ['replyGate']);
+    assert.equal(pool.select({ purpose: 'chat' }), null);
+  } finally {
+    globalThis.fetch = previous;
+    pool.stop();
+  }
 });

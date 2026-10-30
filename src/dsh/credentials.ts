@@ -15,7 +15,7 @@ export type DSHCredentialReport = {
   detail?: string;
   errorKind?: string;
   headers?: Headers;
-  /** 本次请求的真实耗时，用于把慢端点降权。 */ latencyMs?: number;
+  /** 本次请求的真实耗时，仅用于观测，不影响调度顺序。 */ latencyMs?: number;
 };
 export type DSHCredentials = {
   apiKey: string;
@@ -25,6 +25,9 @@ export type DSHCredentials = {
   model?: string;
   pricing?: { input: number; output: number; cached: number };
   /** Pool metadata is process-local and is never serialized or logged. */
+  hold?: () => void;
+  endTask?: () => void;
+  renew?: (estimatedTokens: number) => DSHCredentials | null;
   endpointId?: string;
   attempt?: number;
   maxAttempts?: number;
@@ -89,27 +92,27 @@ export const getWorkspaceCredentials = (options: { stickyKey?: string } = {}): P
 
   try {
     const pool = getCredentialPool(config);
-    const selected = pool?.select({ purpose: 'chat', stickyKey: options.stickyKey, stable: false, reserve: false, workspaceOnly: true });
+    const selected = pool?.select({ purpose: 'chat', stickyKey: options.stickyKey, stable: false, reserve: true, workspaceOnly: true });
 
     if (selected) return Promise.resolve(selected);
   } catch {
     // Fall through to the sandbox credential; config validation reports malformed pools.
   }
 
-  return getSandboxCredentials();
+  return getSandboxCredentials(true);
 };
 
 /** Sandbox workers speak the deepseek-official Messages protocol. Prefer a
  * matching pooled endpoint, then fall back to the legacy DeepSeek key. */
-export const getSandboxCredentials = (): Promise<DSHCredentials | null> => {
+export const getSandboxCredentials = (reserve = false): Promise<DSHCredentials | null> => {
   const config = getAppConfigValue<CredentialConfig>();
   const provider = typeof config.provider === 'string' && config.provider.trim() ? config.provider.trim() : 'deepseek-official';
 
   try {
     const pool = getCredentialPool(config);
-    const selected = pool?.select({ purpose: 'chat', stable: true, reserve: false, provider });
+    const selected = pool?.select({ purpose: 'chat', stable: true, reserve, provider });
 
-    if (selected) return Promise.resolve(selected);
+    if (pool) return Promise.resolve(selected);
   } catch {
     // Fall through to the legacy key; config validation reports malformed pools.
   }
@@ -136,6 +139,7 @@ export const getChatCredentials = async (options: PoolSelectionOptions = {}): Pr
   const deadline = Date.now() + waitMs;
 
   for (;;) {
+    options.signal?.throwIfAborted();
     const credentials = await getDSHCredentials(undefined, {
       purpose: options.purpose || 'chat',
       stickyKey: options.stickyKey,
@@ -143,10 +147,62 @@ export const getChatCredentials = async (options: PoolSelectionOptions = {}): Pr
       stable: false,
       estimatedTokens: options.estimatedTokens,
       requestId: options.requestId,
-      waitForCapacity: true
+      waitForCapacity: Date.now() < deadline
     });
 
     if (credentials || waitMs <= 0 || Date.now() >= deadline) return credentials;
-    await delay(50);
+    await delay(50, undefined, { signal: options.signal });
   }
+};
+
+/** One lease for a complete logical turn, including tool rounds. */
+export const createChatTaskCredentials = () => {
+  let lease: DSHCredentials | null = null;
+  let current: DSHCredentials | null = null;
+  let acquiring = false;
+  const lifetime = new AbortController();
+
+  return {
+    async acquire(options: PoolSelectionOptions): Promise<DSHCredentials | null> {
+      const signal = options.signal ? AbortSignal.any([options.signal, lifetime.signal]) : lifetime.signal;
+
+      signal.throwIfAborted();
+      if (acquiring) throw new Error('同一任务不能并发获取模型轮次');
+      acquiring = true;
+      try {
+        if (lease) {
+          const deadline = Date.now() + (getCredentialPool(getAppConfigValue<CredentialConfig>())?.config.queueMaxWaitMs || 0);
+          let next = lease.renew ? lease.renew(options.estimatedTokens || 0) : lease;
+
+          while (!next && Date.now() < deadline) {
+            await delay(Math.min(50, deadline - Date.now()), undefined, { signal });
+            signal.throwIfAborted();
+            next = lease.renew ? lease.renew(options.estimatedTokens || 0) : lease;
+          }
+          if (!next) throw new Error('当前任务绑定端点暂不可用，任务未切换端点。');
+          current = next;
+
+          return { ...next, next: undefined };
+        }
+        const selected = await getChatCredentials({ ...options, signal });
+
+        if (signal.aborted) {
+          selected?.report?.({ ok: false, errorKind: 'cancelled' });
+          signal.throwIfAborted();
+        }
+        lease = selected;
+        lease?.hold?.();
+        current = lease;
+
+        return lease ? { ...lease, next: undefined } : null;
+      } finally {
+        acquiring = false;
+      }
+    },
+    close() {
+      lifetime.abort(new Error('任务绑定已释放'));
+      current?.report?.({ ok: false, errorKind: 'cancelled' });
+      lease?.endTask?.();
+    }
+  };
 };

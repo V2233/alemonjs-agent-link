@@ -6,7 +6,7 @@ import { groupKeyDailyLimit, reserveWorkspaceText } from '../billing/budget';
 import { type ChatInput, withInputContext, inputText } from './input';
 import type { PrivateHistoryContext } from '@src/state/registry';
 import { type DSHBridgeConfig, type AgentCapabilities } from './config';
-import type { DSHCredentials } from './credentials';
+import { getSandboxCredentials, type DSHCredentials } from './credentials';
 import { DSHError, abortFailure } from './errors';
 import { ensureDSHSupervisor, getDSHBridge, hasDSHBridgeOverride } from '@src/dsh/supervisor';
 export { DSHError } from './errors';
@@ -129,6 +129,8 @@ export const streamChat = async (
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
 
   timeout.unref();
+  let sandboxLease = workspace;
+  let sandboxCompleted = false;
 
   try {
     // Application configuration is intentionally evaluated by the caller per request.
@@ -161,6 +163,12 @@ export const streamChat = async (
       ? async (_output: string) => {}
       : await reserveWorkspaceText(config, `${config.defaultSystemPrompt}\n${inputText(message)}\n${privateHistory?.memoryContext || ''}`);
     let budgetText = '';
+
+    if (!personal && !workspace && !hasDSHBridgeOverride()) {
+      sandboxLease = (await getSandboxCredentials(true)) || undefined;
+      if (!sandboxLease) throw new DSHError('budget', '没有可分配的沙箱端点，任务未启动。');
+      workspace = sandboxLease;
+    }
 
     signal.throwIfAborted();
     assertAIEnabled(config);
@@ -216,6 +224,7 @@ export const streamChat = async (
       if (Buffer.byteLength(budgetText) > config.maxRequestBytes) throw new DSHError('protocol', '工作区回复超过大小限制。');
       await onEvent(event);
     });
+    sandboxCompleted = true;
     await settleText(budgetText);
     signal.throwIfAborted();
     await onCompleted?.(signal);
@@ -238,6 +247,7 @@ export const streamChat = async (
 
     throw new DSHError('network', error instanceof Error ? error.message : '无法连接 DSH 服务');
   } finally {
+    sandboxLease?.report?.({ ok: sandboxCompleted, errorKind: sandboxCompleted ? undefined : 'cancelled' });
     clearTimeout(timeout);
   }
 };

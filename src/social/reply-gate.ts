@@ -234,12 +234,8 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
         current.report?.({ ok: false, errorKind: localRequestFailure(error) || (signal.aborted ? 'cancelled' : 'network') });
         if (error instanceof BudgetExceededError) throw error;
         signal.throwIfAborted();
-        const next = current.next?.();
 
-        if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) return reject();
-        current = next;
-        pendingCredential = current;
-        continue;
+        return reject();
       }
       if (!response.ok) {
         pendingAttempt(false);
@@ -255,7 +251,10 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
           /* Status is still available. */
         }
         current.report?.({ ok: false, status, detail, headers: response.headers });
-        const next = status === 400 ? current.next?.({ fallback: true }) : current.retryable?.(status) ? current.next?.() : null;
+        const refused =
+          [401, 402, 403, 429].includes(status) ||
+          (status === 400 && /计费账户|余额不足|余额已|欠费|冻结|billing|insufficient|quota|frozen|credit/iu.test(detail));
+        const next = refused && (current.attempt || 1) < (current.maxAttempts || 1) ? current.next?.() : null;
 
         if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) return reject();
         current = next;

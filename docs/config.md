@@ -129,7 +129,7 @@ modelPool:
 
 需要保留官方贵价 Key 兜底时，给该端点加 `fallback: true`：平时聊天只选主端点，只有主端点全部不可用、超并发或冷却时才用它；沙箱仍可直接使用该端点。
 
-`priority` 是软优先级：数字越小，被选中的概率越高，但不会把其他端点完全饿死。实际选择同时叠加 `weight`、当前负载、近期请求和延迟；`fallback` 端点仍然只在没有主端点可用时才启用。
+调度统一采用最少活跃任务：同组可用端点的任务数越少越优先，相同时按数组顺序。旧 `priority`、`weight`、`strategy` 和 `stickySeconds` 不再控制调度。
 
 配置了 `modelPool` 后，外层 `apiKey` 只作为旧配置兼容，不再参与普通请求或沙箱兜底；沙箱必须在池里有一个 `provider: deepseek-official` 的端点。
 
@@ -137,9 +137,9 @@ modelPool:
 
 需要硬限流时给端点加 `account`、`rpm`、`tpm`：同一 `account` 共享 60 秒滑动窗口内的请求数和 token 数，达到 RPM/TPM 后不再选择该端点，不必等厂商返回 429。请求前会按估算 token 预留，响应后按真实 usage 结算；未完成的预留会在失败/取消时释放。`balanceAlertYuan` 控制 `/额度轮转` 的低余额提示阈值。`retryBudgetMs` 控制总重试时间，`retryJitterMs` 控制切换抖动。`queueMaxWaitMs` 让主端点并发满时短暂等待，超时才用 fallback，避免为了 200ms 的空档直接花贵价额度。
 
-`strategy: balanced` 使用离散加权公式：`weight × 1/(1+priority/20) × 1/(1+2×在途+近期+延迟/50)`，再用带 `stickyKey` 的加权 rendezvous 选择；所有符合能力的端点都有非零概率。新会话按该公式落点，同一会话绑定后持续使用，活跃请求会滑动续期，空闲超过 `stickySeconds` 才释放；只有失败、冷却、停用才切走，变慢不再强制换端点。
+一次聊天任务绑定一个端点，工具执行与后续模型轮次保持一致，结束时释放并发槽。故障或限流不会让任务中途换端点；网络超时、空响应等结果不确定的请求不自动重放。新任务重新参与选择。管理页保存时清理旧策略与权重字段。
 
-默认行为已经够用：启动时异步探测、之后每 60 秒复查一次，加权轮转、429/5xx 换 Key、401/402/403 停用、失败重试 3 次。启动时会额外发一次极小 chat 探测，用于发现“`/models` 正常但计费冻结/模型不可用”的情况；`capabilityProbe` 默认关闭，能力以配置里的 `capabilities` 为准，这些值由真实调用实测后写入。chat 探测（`max_tokens: 16`），用于发现“`/models` 正常但计费冻结/模型不可用”的情况；可通过 `probeChat: false` 关闭。日常探测仍只请求 `/models`，不消耗对话 token；某些兼容网关没有 `/models` 时只保持“未知”，不会误停用。429 会优先读 `Retry-After` / `x-ratelimit-reset-requests`，`x-ratelimit-remaining-requests: 0` 也会提前冷却。以下高级项不写就用默认值：`strategy`、`maxAttempts`、`failureThreshold`、`cooldownSeconds`、`retryStatuses`、`probeIntervalSeconds`、`probeTimeoutMs`、`recoveryProbeSeconds`、`stickySeconds`、`balanceWindowSeconds`、`weight`、`maxConcurrent`、`capabilities`。
+启动与周期探测仍按现有探测配置执行；这与管理页面轮询无关，页面仅手动刷新。`/models` 成功不能证明计费恢复。429 优先读取 `Retry-After` / `x-ratelimit-reset-requests`。具体调度、沙箱统计边界和任务生命周期见[额度轮转管理](quota-rotation.md)。
 
 - Node 聊天、工具轮次和主动识别统一使用 **OpenAI-compatible `/chat/completions`**；OpenAI、OpenRouter、SiliconFlow、Gemini 的 OpenAI 兼容入口等都可以。
 - 沙箱工作区任务仍走 DSH 的 `deepseek-official` 协议；只有 `provider: deepseek-official` 的端点会进入沙箱 Bridge。跨厂商端点可以参与普通聊天，但不能替代沙箱任务的模型。

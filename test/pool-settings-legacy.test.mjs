@@ -43,10 +43,10 @@ for (const [name, pool] of [
       if (name === 'legacy object') {
         assert.equal(updated.enabled, false);
         assert.equal(updated.endpoints[0].enabled, false);
-        assert.equal(updated.endpoints[0].weight, 3);
+        assert.equal(updated.endpoints[0].weight, undefined);
         assert.equal(updated.endpoints[0].baseUrl, 'https://override.example/v1');
       }
-      if (name === 'key strings') assert.equal(updated.strategy, 'least-busy');
+      if (name === 'key strings') assert.equal(updated.strategy, undefined);
       const current = await readPoolSettings();
       await assert.rejects(updatePoolSettings({ revision: first.revision, action: 'endpoint', id: endpoint.id, values: { model: 'stale' } }), /变化/);
       await updatePoolSettings({ revision: current.revision, action: 'remove', id: endpoint.id });

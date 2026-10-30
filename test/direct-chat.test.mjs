@@ -43,3 +43,32 @@ test('chat-only starts without Python and keeps a stable degraded status', async
   assert.equal(supervisor.status().phase, 'degraded');
   supervisor.stop();
 });
+
+test('direct chat never replays uncertain failures or arbitrary provider errors', async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const failure of ['network', 400, 500]) {
+      let sends = 0;
+      let selections = 0;
+      globalThis.fetch = async () => {
+        sends += 1;
+        if (failure === 'network') throw new Error('connection reset after dispatch');
+        return Response.json({ error: { message: 'provider failed' } }, { status: failure });
+      };
+      const credential = {
+        apiKey: 'test',
+        maxAttempts: 3,
+        retryable: () => true,
+        next: () => {
+          selections += 1;
+          return { apiKey: 'another' };
+        }
+      };
+      await assert.rejects(directChat(config, credential, 'hi', new AbortController().signal, async () => {}));
+      assert.equal(sends, 1);
+      assert.equal(selections, 0);
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});

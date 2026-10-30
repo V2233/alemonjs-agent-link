@@ -57,6 +57,7 @@ export const requestModelMessage = async (
         { requestId: meta.requestId, endpoint, model, attempts, elapsedMs: elapsed, totalElapsedMs: Date.now() - requestStartedAt, budgetMs },
         'Model request retry budget exhausted'
       );
+      current.report?.({ ok: false, errorKind: 'cancelled' });
       throw new Error(`模型请求超时：${attempts.length} 次尝试在 ${Math.round(budgetMs / 1000)} 秒内未成功${detail}。`);
     }
     logger.info(
@@ -136,29 +137,7 @@ export const requestModelMessage = async (
       const reason = timedOut ? `单次尝试超过 ${attemptMs}ms` : error instanceof Error ? error.message : '网络失败';
 
       attempts.push({ endpoint, model, error: reason });
-      const next = current.next?.();
-
-      logger.warn(
-        {
-          requestId: meta.requestId,
-          endpoint,
-          model,
-          attempt: current.attempt,
-          error: reason,
-          timedOut,
-          next: next?.endpointId,
-          elapsedMs: Date.now() - startedAt,
-          promptPreview
-        },
-        'Model endpoint transport failed'
-      );
-
-      if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
-        throw new Error(`模型请求失败：${endpoint} ${reason}${next ? '' : '，且没有可切换的备用端点'}。`);
-      }
-      await meta.onRetry?.();
-      current = next;
-      continue;
+      throw new Error(`模型请求失败：${endpoint} ${reason}；执行结果未知，未自动重放。`);
     }
     // 响应头已经到手，单次尝试的计时器不再需要（正文流式收完不受影响）。
     clearTimeout(attemptTimer);
@@ -198,16 +177,21 @@ export const requestModelMessage = async (
       const billing = /计费账户|余额不足|余额已|欠费|冻结|billing|insufficient|quota|frozen|credit/iu.test(detail);
 
       if (billing) current.disable?.();
-      // A provider-specific 400 (tool schema, model routing, context quirk) can
-      // still be served by the reserved fallback endpoint.
-      const next = status === 400 || billing || current.retryable?.(status) ? current.next?.() : null;
+      // Only explicit refusal may be retried; task-bound credentials expose no next().
+      const next =
+        (current.attempt || 1) < (current.maxAttempts || 1) && ([401, 402, 403, 429].includes(status) || (status === 400 && billing)) ? current.next?.() : null;
 
       if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
         throw new Error(`模型服务返回 HTTP ${status}${detail ? `：${detail}` : ''}。`);
       }
-      if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
-      await meta.onRetry?.();
       current = next;
+      try {
+        if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
+        await meta.onRetry?.();
+      } catch (error) {
+        current.report?.({ ok: false, errorKind: 'cancelled' });
+        throw error;
+      }
       continue;
     }
     clearTimeout(attemptTimer);
@@ -223,20 +207,11 @@ export const requestModelMessage = async (
       },
       'Model response received'
     );
-    const retryInvalid = async (status = 200): Promise<boolean> => {
+    const retryInvalid = (status = 200): Promise<boolean> => {
       current.report?.({ ok: false, status, headers: response.headers, errorKind: 'invalid-response' });
       current.invalidate?.(status);
-      const next = current.next?.();
 
-      if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) return false;
-      const failedEndpoint = current.endpointId;
-
-      if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
-      await meta.onRetry?.();
-      current = next;
-      logger.warn({ endpoint: failedEndpoint, next: current.endpointId, status }, 'Model returned an invalid response; trying next endpoint');
-
-      return true;
+      return Promise.resolve(false);
     };
 
     if (!response.body) {

@@ -1,7 +1,7 @@
 // Model endpoint pool configuration. Kept dependency-free so both the config
 // reader and the credential runtime can validate the same shape.
 export type ModelPoolPurpose = 'chat' | 'tools' | 'vision' | 'replyGate';
-export type ModelPoolStrategy = 'weighted-round-robin' | 'least-busy' | 'balanced' | 'sticky';
+export type ModelPoolStrategy = 'least-busy';
 
 export type ModelPoolEndpoint = {
   id: string;
@@ -58,7 +58,7 @@ export type ModelPoolDefaults = {
 
 const idPattern = /^[a-z][a-z0-9-]{0,39}$/u;
 const purposes = new Set<ModelPoolPurpose>(['chat', 'tools', 'vision', 'replyGate']);
-const strategies = new Set<ModelPoolStrategy>(['weighted-round-robin', 'least-busy', 'balanced', 'sticky']);
+
 const defaultRetryStatuses = [401, 402, 403, 404, 405, 429, 500, 502, 503, 504];
 
 const text = (value: unknown, name: string, max: number): string => {
@@ -234,7 +234,7 @@ export const parseModelPool = (raw: unknown, defaults: ModelPoolDefaults): Model
     const rpm = item.rpm === undefined ? undefined : integer(item.rpm, `endpoints[${index}].rpm`, 1, 1000000);
     const tpm = item.tpm === undefined ? undefined : integer(item.tpm, `endpoints[${index}].tpm`, 1, 1000000000);
     const balanceUrl = item.balanceUrl === undefined ? undefined : balanceTemplate(item.balanceUrl, `endpoints[${index}].balanceUrl`);
-    const weight = item.weight === undefined ? 1 : integer(item.weight, `endpoints[${index}].weight`, 1, 100);
+    const weight = 1; // Legacy field is ignored.
     const maxConcurrent = item.maxConcurrent === undefined ? 2 : integer(item.maxConcurrent, `endpoints[${index}].maxConcurrent`, 1, 100);
     const capabilities = item.capabilities === undefined ? (['chat', 'tools', 'replyGate'] as ModelPoolPurpose[]) : item.capabilities;
 
@@ -270,9 +270,8 @@ export const parseModelPool = (raw: unknown, defaults: ModelPoolDefaults): Model
       enabled: item.enabled !== false
     };
   });
-  const strategy = value.strategy === undefined ? 'weighted-round-robin' : value.strategy;
+  const strategy = 'least-busy';
 
-  if (typeof strategy !== 'string' || !strategies.has(strategy as ModelPoolStrategy)) throw new Error('modelPool.strategy 无效。');
   const retryStatuses = value.retryStatuses === undefined ? defaultRetryStatuses : value.retryStatuses;
 
   if (
@@ -288,7 +287,7 @@ export const parseModelPool = (raw: unknown, defaults: ModelPoolDefaults): Model
 
   return {
     enabled: true,
-    strategy: strategy as ModelPoolStrategy,
+    strategy: strategy,
     maxAttempts: value.maxAttempts === undefined ? 3 : integer(value.maxAttempts, 'maxAttempts', 1, 20),
     failureThreshold: value.failureThreshold === undefined ? 2 : integer(value.failureThreshold, 'failureThreshold', 1, 10),
     cooldownSeconds: value.cooldownSeconds === undefined ? 60 : integer(value.cooldownSeconds, 'cooldownSeconds', 1, 86400),
@@ -300,7 +299,7 @@ export const parseModelPool = (raw: unknown, defaults: ModelPoolDefaults): Model
     capabilityProbeTimeoutMs:
       value.capabilityProbeTimeoutMs === undefined ? 60000 : integer(value.capabilityProbeTimeoutMs, 'capabilityProbeTimeoutMs', 5000, 120000),
     recoveryProbeSeconds: value.recoveryProbeSeconds === undefined ? 300 : integer(value.recoveryProbeSeconds, 'recoveryProbeSeconds', 0, 86400),
-    stickySeconds: value.stickySeconds === undefined ? 1800 : integer(value.stickySeconds, 'stickySeconds', 0, 86400),
+    stickySeconds: 0,
     balanceWindowSeconds: value.balanceWindowSeconds === undefined ? 300 : integer(value.balanceWindowSeconds, 'balanceWindowSeconds', 0, 86400),
     retryBudgetMs: value.retryBudgetMs === undefined ? 12000 : integer(value.retryBudgetMs, 'retryBudgetMs', 1000, 300000),
     retryJitterMs: value.retryJitterMs === undefined ? 200 : integer(value.retryJitterMs, 'retryJitterMs', 0, 5000),
