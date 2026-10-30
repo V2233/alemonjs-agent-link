@@ -1,4 +1,5 @@
 import { useEvent, useMessage, useRoute, useMedia } from 'alemonjs';
+import { canManageConversation } from '../dsh/util';
 import { noticeBubble } from '../bubble';
 import { runDSHChat } from '@src/response/dsh/chat';
 import { submitGroupChat } from '../../social/respond';
@@ -14,19 +15,26 @@ export default async (): Promise<void> => {
   const prompt = route.rawArgs.join(' ').trim();
   const [message] = useMessage();
 
-  if (!eventContext.current.IsPrivate && !eventContext.current.ChannelId) {
+  if (!eventContext.current.Platform || !eventContext.current.UserId || (!eventContext.current.IsPrivate && !eventContext.current.ChannelId)) {
+    await message.send({
+      format: noticeBubble('无法识别提问者或当前会话，请重新发送。', {
+        platform: eventContext.current.Platform,
+        title: '提问',
+        actions: [{ label: '聊天说明', command: '/帮助 聊天' }]
+      })
+    });
+
     return;
   }
 
   if (!prompt && !eventContext.current.MessageMedia?.length && !eventContext.current.ReplyId && !eventContext.current.MessageContent?.replyReferenceId) {
+    const canStart = eventContext.current.IsPrivate || (await canManageConversation(eventContext.current));
+
     await message.send({
       format: noticeBubble('想问什么？例如：/提问 帮我总结刚才的讨论。', {
         platform: eventContext.current.Platform,
         title: '提问',
-        actions: [
-          { label: '帮助', command: '/帮助 聊天' },
-          { label: '新会话', command: '/新会话' }
-        ]
+        actions: [{ label: '帮助', command: '/帮助 聊天' }, ...(canStart ? [{ label: '新会话', command: '/新会话' }] : [])]
       })
     });
 

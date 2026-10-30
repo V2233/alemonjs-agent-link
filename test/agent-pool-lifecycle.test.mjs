@@ -19,7 +19,7 @@ for (const scenario of ['normal', 'rpm', 'tpm', 'second-request-contention']) {
     const root = await mkdtemp(join(tmpdir(), 'reading-pool-'));
     const previous = globalThis.__config;
     const oldFetch = globalThis.fetch;
-    globalThis.__config = { value: { 'alemonjs-agent-link': {
+    globalThis.__config = { value: { onebot: {master_id:['100']}, 'alemonjs-agent-link': {
       model: 'fixture', runtimeMode: 'chat-only', stateBackend: 'local', workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'),
       modules: { disabled: ['opinions'], settings: { bili: { dailyBrowse: true, dailyBrowseMaxReads: 1 } } },
       modelPool: { queueMaxWaitMs: 0, probeIntervalSeconds: 0, endpoints: [{ id: 'only', apiKey: 'fixture-key', baseUrl: 'https://model.example/v1', model: 'fixture',
@@ -53,7 +53,7 @@ for (const scenario of ['normal', 'rpm', 'tpm', 'second-request-contention']) {
     };
     try {
       const run = () => browseDaily(config, { platform: 'onebot', userId: '100', botId: '900' }, AbortSignal.timeout(10000));
-      if (scenario === 'rpm' || scenario === 'tpm') await assert.rejects(run, /凭证|额度/);
+      if (scenario === 'rpm' || scenario === 'tpm') await assert.rejects(run, /凭证|额度|绑定端点暂不可用/);
       else assert.equal(await run(), 'recorded');
       assert.equal(calls, scenario === 'tpm' ? 0 : scenario === 'rpm' ? 2 : 4);
       const status = pool.status[0];

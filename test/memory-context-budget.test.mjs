@@ -53,3 +53,12 @@ test('invalid budgets and oversized instructions are rejected without truncating
   for (const limit of [0, -1, 1.5, Infinity]) assert.throws(() => renderMemoryContext(['规则'], data(), limit));
   assert.throws(() => renderMemoryContext(['规则'.repeat(1000)], data(), 100), /规则本身/);
 });
+
+test('cancelled topic boundaries survive trimming before optional recent topics', () => {
+  const cancelled = { id: 'paused', state: 'cancelled', match: 'recent', followUpEligible: false, text: '项目暂停，不主动追问' };
+  const text = renderMemoryContext(['规则'], data({ sharedThreads: [
+    { id: 'open', state: 'discussed', match: 'recent', text: '普通话题'.repeat(500) }, cancelled
+  ] }), 800);
+  assert.deepEqual(payload(text).sharedThreads, [cancelled]);
+  assert.equal(payload(text).contextOmissions.sharedThreads, 1);
+});

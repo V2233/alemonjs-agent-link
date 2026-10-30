@@ -1,3 +1,6 @@
+import GroupTopicsPage from './components/GroupTopicsPage';
+import FaqPage from './components/FaqPage';
+import KeysPage from './components/KeysPage';
 import SponsorsPage from './components/SponsorsPage';
 import TokenUsagePage from './components/TokenUsagePage';
 import ImagesPage from './components/ImagesPage';
@@ -30,8 +33,11 @@ export default createHashRouter([
       { path: '/events', element: <EventsPage /> },
       { path: '/dictionary', element: <DictionaryPage /> },
       { path: '/personas', element: <ContentPage key='personas' kind='personas' /> },
+      { path: '/faq', element: <FaqPage /> },
       { path: '/knowledge', element: <ContentPage key='knowledge' kind='knowledge' /> },
+      { path: '/group-topics', element: <GroupTopicsPage /> },
       { path: '/work-model', element: <WorkModelPage /> },
+      { path: '/keys', element: <KeysPage /> },
       { path: '/token-usage', element: <TokenUsagePage /> },
       { path: '/rotation', element: <PoolPage /> }
     ]

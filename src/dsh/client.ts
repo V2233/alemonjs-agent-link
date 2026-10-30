@@ -316,7 +316,7 @@ export const purgeGroupHashData = async (config: DSHBridgeConfig, groupHash: str
 };
 
 export const toUserMessage = (error: unknown): string => {
-  if (!(error instanceof DSHError)) return '非常抱歉，我网卡没流量了';
+  if (!(error instanceof DSHError)) return '这次处理未完成，请稍后重试；如果涉及修改，请先核对结果。';
 
   // 服务诊断保留在错误和日志中，气泡只给出可操作的提示。
   const publicErrors: Record<string, string> = {
@@ -325,8 +325,8 @@ export const toUserMessage = (error: unknown): string => {
     '额度统计暂时不可用，已暂停付费调用，请联系主人检查 Redis。': '额度暂时不可用，请稍后重试或联系机器人主人。',
     '当前服务商尚未配置可核验的价格，已暂停付费调用。': '当前服务暂不可用，请联系机器人主人检查配置。',
     '当前模型尚未配置可核验的价格，已暂停付费调用。': '当前模型暂不可用，请联系机器人主人检查配置。',
-    'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。': '非常抱歉，我网卡没流量了',
-    'DSH 沙箱目录访问失败，请重启服务并检查运行环境。': '非常抱歉，我网卡没流量了'
+    'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。': '服务启动失败，请联系机器人主人检查运行环境。',
+    'DSH 沙箱目录访问失败，请重启服务并检查运行环境。': '工作区暂时无法访问，请联系机器人主人检查目录权限。'
   };
 
   if (Object.hasOwn(publicErrors, error.message)) return publicErrors[error.message];
@@ -350,13 +350,13 @@ export const toUserMessage = (error: unknown): string => {
     budget: '今日额度不足，可联系主人调整，或等北京时间零点重置。',
     media: '媒体处理失败，请改用文字。',
     delivery: '刚才的回复没发出去，麻烦再喊我一次。',
-    auth: '非常抱歉，我网卡没流量了',
-    http: '非常抱歉，我网卡没流量了',
-    network: '非常抱歉，我网卡没流量了',
-    timeout: '非常抱歉，我网卡没流量了',
+    auth: '服务认证未通过，请检查所用密钥或联系机器人主人。',
+    http: '服务未能完成这次请求，请稍后重试；如果涉及修改，请先核对结果。',
+    network: '暂时无法连接服务，请稍后重试；如果涉及修改，请先核对结果。',
+    timeout: '这次请求等待超时；如果涉及修改，请先核对结果，避免重复提交。',
     cancelled: '本次回复已取消。',
-    protocol: '非常抱歉，我网卡没流量了',
-    agent: '非常抱歉，我网卡没流量了',
+    protocol: '服务返回的内容无法处理，请稍后重试或联系机器人主人。',
+    agent: '这次任务未完成；如果涉及修改，请先核对结果，再决定是否重试。',
     migration: '我还在整理思路，稍等一会儿再喊我吧。'
   };
 

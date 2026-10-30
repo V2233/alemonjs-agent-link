@@ -42,7 +42,7 @@ setDSHBridgeForTesting({ url: 'http://dsh.test', token: 'secret' });
 
 test('startup diagnostics stay concise and do not expose internal details or claim a reset', () => {
   const detail = 'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。';
-  assert.equal(toUserMessage(new DSHError('agent', detail)), '非常抱歉，我网卡没流量了');
+  assert.match(toUserMessage(new DSHError('agent', detail)), /服务启动失败/);
   const generic = toUserMessage(new DSHError('agent', 'private provider detail'));
   assert.doesNotMatch(generic, /private provider detail|已自动开始/);
 });
@@ -118,8 +118,8 @@ test('maps DSH HTTP and protocol failures to safe user messages', async () => {
   );
   globalThis.fetch = originalFetch;
 
-  assert.equal(toUserMessage(new DSHError('auth', 'x')), '非常抱歉，我网卡没流量了');
-  assert.equal(toUserMessage(new DSHError('network', 'x')), '非常抱歉，我网卡没流量了');
+  assert.match(toUserMessage(new DSHError('auth', 'x')), /认证未通过/);
+  assert.match(toUserMessage(new DSHError('network', 'x')), /无法连接服务/);
 });
 
 test('clears an encoded group session through the DSH API', async () => {
@@ -321,13 +321,25 @@ test('sandbox bridge forwards image bytes as ACP blocks with memory intact', asy
 
 test('service failures use conversational copy while actionable errors remain clear', () => {
   for (const kind of ['auth', 'http', 'network', 'timeout', 'protocol', 'agent']) {
-    assert.equal(toUserMessage(new DSHError(kind, 'internal diagnostic')), '非常抱歉，我网卡没流量了');
+    const text = toUserMessage(new DSHError(kind, 'internal diagnostic'));
+    assert.doesNotMatch(text, /internal diagnostic|没流量|网线断了/);
+    assert.match(text, /重试|核对|检查/);
   }
-  assert.equal(toUserMessage(new Error('模型请求失败：internal endpoint')), '非常抱歉，我网卡没流量了');
+  assert.match(toUserMessage(new Error('模型请求失败：internal endpoint')), /处理未完成/);
   assert.equal(toUserMessage(new DSHError('http', '当前群请求排队已满')), '找我的人有点多，过一会儿再喊我吧。');
   assert.equal(toUserMessage(new DSHError('http', 'Agent 服务繁忙，请稍后重试')), '我这会儿忙不过来了，过一会儿再喊我吧。');
-  assert.equal(toUserMessage(new DSHError('agent', 'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。')), '非常抱歉，我网卡没流量了');
+  assert.match(toUserMessage(new DSHError('agent', 'DSH 初始化失败，自动恢复后仍不可用，请检查本地运行环境。')), /服务启动失败/);
   for (const kind of ['budget', 'disabled', 'media']) {
     assert.equal(toUserMessage(new DSHError(kind, '需要用户操作的说明')), '需要用户操作的说明');
   }
+});
+
+test('new operational failure notices remain excluded from answer and opinion learning', async () => {
+  const { isFailureReply } = await import('../lib/dsh/failure-reply.js');
+  for (const kind of ['auth', 'http', 'network', 'timeout', 'protocol', 'agent']) {
+    assert.equal(isFailureReply(toUserMessage(new DSHError(kind, 'internal diagnostic'))), true, kind);
+  }
+  assert.equal(isFailureReply(toUserMessage(new Error('unexpected internal diagnostic'))), true);
+  assert.equal(isFailureReply('非常抱歉，我网卡没流量了'), true, 'historical notices remain excluded');
+  assert.equal(isFailureReply('打开群记忆，在对应条目旁点击来源即可查看完整内容。'), false);
 });

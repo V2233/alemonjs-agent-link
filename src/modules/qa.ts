@@ -1,3 +1,4 @@
+import { isFailureReply } from '../dsh/failure-reply';
 import { logger } from 'alemonjs';
 import type { DSHBridgeConfig } from '../dsh/client';
 import type { AgentModule, TurnContext } from '../agent/types';
@@ -57,6 +58,24 @@ export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
       if (!context.platform || !context.channelId || context.autonomous) {
         return '';
       }
+      if (
+        options.autoRecord &&
+        context.addressed !== false &&
+        !context.independentReading &&
+        !context.signal.aborted &&
+        /[？?]|为什么|为何|怎么|如何|是什么|能否|是否|哪里|怎么办|多少/u.test(context.userText)
+      ) {
+        const matches = store.search(context, context.userText, 1, { threshold: options.matchThreshold, record: false });
+
+        if (!matches.length) {
+          try {
+            store.observe(context);
+            store.collectQuestion(context, context.inputId || context.requestId || '', context.userText);
+          } catch {
+            logger.warn('Question note collection failed');
+          }
+        }
+      }
       const why = isWhyQuestion(context.userText);
       const command = !why && isCommandQuestion(context.userText);
 
@@ -95,7 +114,7 @@ export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
       if (question.length < 2 || answer.length < 6 || answer.length > 1200) {
         return;
       }
-      if (/(糟糕，网线断了|非常抱歉，我网卡没流量了|服务暂时不可用|模型服务暂时不可用|请稍后再试|回复因内容安全策略未发送|\[沉默\])/u.test(answer)) {
+      if (isFailureReply(answer)) {
         return;
       }
       try {
@@ -108,7 +127,12 @@ export const qaModule = (config: DSHBridgeConfig): AgentModule => ({
         if (matches.length) {
           store.recordAsked(context, { userId: context.userId, question, answer, matchedId: matches[0].id });
         } else {
-          store.learn(context, { question, answer }, options.maxEntries);
+          store.collectQuestion(
+            context,
+            context.inputId || context.requestId || '',
+            question,
+            /我不知道|我不清楚|我不确定|无法确定|无法回答/u.test(answer) ? '回复无法确认答案' : '问答库未命中'
+          );
           store.recordAsked(context, { userId: context.userId, question, answer });
         }
       } catch {

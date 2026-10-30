@@ -254,7 +254,7 @@ export class ModuleRuntime {
     private readonly builtins: AgentModule[] = [
       filesModule(config),
       personaModule(config),
-      hobbiesModule(),
+      hobbiesModule(config),
       conversationModule(config),
       moodModule(config),
       affinityModule(config),

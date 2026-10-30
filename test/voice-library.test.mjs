@@ -1,3 +1,4 @@
+import { speechOptions } from '../lib/media/speech-config.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { voiceLibrary, selectVoice } from '../lib/media/voice-library.js';
@@ -184,4 +185,23 @@ test('legacy online voice migration preserves masked credentials and all speech 
     globalThis.__config = previous;
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('changed speech can append Edge beside migrated Breeze and select it without losing either', async () => {
+  const { migrateLegacyVoice, legacyVoiceAvailable } = await import('../lib/media/voice-migration.js');
+  const breeze = {
+    id: 'legacy-voice',
+    name: 'Breeze',
+    enabled: true,
+    speech: { engine: 'breeze', url: 'https://example.com', apiKey: 'test', voiceId: 'one' }
+  };
+  const speech = { engine: 'edge', fallback: true, edgeVoice: 'zh-TW-HsiaoChenNeural' };
+  const media = { voices: [breeze], activeVoice: breeze.id, speech };
+  assert.equal(legacyVoiceAvailable(media), true);
+  const next = migrateLegacyVoice(media);
+  assert.equal(next.voices.length, 2);
+  assert.deepEqual(next.voices[0], breeze);
+  assert.deepEqual(selectVoice(next).speech, speechOptions(speech));
+  assert.equal(legacyVoiceAvailable(next), false);
+  assert.equal(media.activeVoice, 'legacy-voice');
 });

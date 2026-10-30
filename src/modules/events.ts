@@ -29,7 +29,7 @@ export const eventsModule = (config: DSHBridgeConfig): AgentModule => ({
   setup(api) {
     const store = getEventStore(config);
     const scope = (c: TurnContext) =>
-      JSON.stringify([c.platform, c.channelId, getPersonaStore(config).selected(c) || config.modules?.settings?.persona?.defaultId || config.persona]);
+      JSON.stringify([c.platform, c.channelId, getPersonaStore(config).activeSelection(c) || config.modules?.settings?.persona?.defaultId || config.persona]);
 
     api.on('context', c => {
       if (!c.platform || !c.channelId) return '';

@@ -1,4 +1,5 @@
-import { getAppConfigValue } from 'alemonjs';
+import { resolveDSHConfig } from './config';
+import { getAppConfig } from 'alemonjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { getCredentialPool, type PoolSelectionOptions } from '../credentials/pool';
 
@@ -53,6 +54,15 @@ type CredentialConfig = {
   modelPool?: unknown;
 };
 
+// Pool selection and status must resolve the same storage root from live configuration.
+const currentCredentialConfig = (): CredentialConfig => {
+  const app = getAppConfig<CredentialConfig>();
+  const root = typeof app.value?.dshHomeRoot === 'string' ? { dshHomeRoot: app.value.dshHomeRoot } : {};
+
+  // Resolve only storage paths: credential inspection does not validate unrelated runtime options.
+  return { ...app.value, dshHomeRoot: resolveDSHConfig(root, { configPath: app.path ?? undefined }).dshHomeRoot };
+};
+
 const managedByConfigMessage = '模型凭证由 alemon.config.yaml 管理，保存配置后，后续请求自动使用新配置，无需重启机器人。';
 
 const legacyCredentials = (config: CredentialConfig): DSHCredentials | null => {
@@ -67,10 +77,7 @@ const legacyCredentials = (config: CredentialConfig): DSHCredentials | null => {
   };
 };
 
-export const getDSHCredentials = (
-  config: CredentialConfig = getAppConfigValue<CredentialConfig>(),
-  options: PoolSelectionOptions = {}
-): Promise<DSHCredentials | null> => {
+export const getDSHCredentials = (config: CredentialConfig = currentCredentialConfig(), options: PoolSelectionOptions = {}): Promise<DSHCredentials | null> => {
   try {
     const pool = getCredentialPool(config);
 
@@ -89,7 +96,7 @@ export const getDSHCredentials = (
 /** Dedicated workspace endpoint for agent_workspace; falls back to the
  * sandbox credential when no endpoint is explicitly marked as workspace. */
 export const getWorkspaceCredentials = (options: { stickyKey?: string } = {}): Promise<DSHCredentials | null> => {
-  const config = getAppConfigValue<CredentialConfig>();
+  const config = currentCredentialConfig();
 
   try {
     const pool = getCredentialPool(config);
@@ -106,7 +113,7 @@ export const getWorkspaceCredentials = (options: { stickyKey?: string } = {}): P
 /** Sandbox workers speak the deepseek-official Messages protocol. Prefer a
  * matching pooled endpoint, then fall back to the legacy DeepSeek key. */
 export const getSandboxCredentials = (reserve = false): Promise<DSHCredentials | null> => {
-  const config = getAppConfigValue<CredentialConfig>();
+  const config = currentCredentialConfig();
   const provider = typeof config.provider === 'string' && config.provider.trim() ? config.provider.trim() : 'deepseek-official';
 
   try {
@@ -135,7 +142,7 @@ export const getChatCredentials = async (options: PoolSelectionOptions = {}): Pr
   if (personal) {
     return { apiKey: personal.apiKey, baseUrl: 'https://api.deepseek.com', scoped: true, personal: personal.scope.channelId.startsWith('private:') };
   }
-  const config = getAppConfigValue<CredentialConfig>();
+  const config = currentCredentialConfig();
   const waitMs = getCredentialPool(config)?.config.queueMaxWaitMs ?? 0;
   const deadline = Date.now() + waitMs;
 
@@ -192,7 +199,7 @@ export const createChatTaskCredentials = () => {
       try {
         if (lease) {
           committed = true;
-          const deadline = Date.now() + (getCredentialPool(getAppConfigValue<CredentialConfig>())?.config.queueMaxWaitMs || 0);
+          const deadline = Date.now() + (getCredentialPool(currentCredentialConfig())?.config.queueMaxWaitMs || 0);
           let next = lease.renew ? lease.renew(options.estimatedTokens || 0) : lease;
 
           while (!next && Date.now() < deadline) {

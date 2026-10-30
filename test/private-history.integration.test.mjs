@@ -1,11 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import Redis from 'ioredis';
+import YAML from 'yaml';
 import { getDSHConfig } from '../lib/dsh/client.js';
 import { SessionRegistry } from '../lib/state/registry.js';
 
-test('Redis private history bounds, isolation, generation guard and deletion', { skip: process.env.AGENT_LINK_HISTORY_INTEGRATION !== '1' }, async () => {
-  const config = getDSHConfig({ privateHistoryMaxTurns: 2, privateHistoryMaxChars: 12, privateHistoryTtlSeconds: 60 });
+const withRedis = async (overrides, run) => {
+  const root=await mkdtemp(join(tmpdir(),'private-history-redis-'));
+  const connection=YAML.parse(await readFile(process.env.AGENT_LINK_TEST_REDIS_CONFIG,'utf8')).db.redis;
+  const client=new Redis({...connection,maxRetriesPerRequest:0,retryStrategy:()=>null});
+  client.on('error',()=>{});
+  await client.ping();
+  const previous=globalThis.ioRedis;
+  globalThis.ioRedis=client;
+  const config=getDSHConfig({stateBackend:'redis',workspaceRoot:join(root,'work'),dshHomeRoot:join(root,'home'),...overrides});
+  assert.equal(config.stateBackend,'redis');
+  try {await run(config,client);} finally {globalThis.ioRedis=previous;await client.quit();await rm(root,{recursive:true,force:true});}
+};
+
+
+test('Redis private history bounds, isolation, generation guard and deletion', { skip: !process.env.AGENT_LINK_TEST_REDIS_CONFIG }, () => withRedis({ privateHistoryMaxTurns: 2, privateHistoryMaxChars: 12, privateHistoryTtlSeconds: 60 }, async (config,client) => {
   const registry = new SessionRegistry(config);
   const channelId = `private:test-${randomUUID()}`;
   const reset = await registry.beginReset(channelId);
@@ -13,21 +31,26 @@ test('Redis private history bounds, isolation, generation guard and deletion', {
   try {
     await registry.completeReset(channelId, reset.operationId);
     await registry.appendPrivateTurn(ctx, 'a', 'b');
+    assert.ok((await client.keys('data:agent-link:group:*')).length > 0,'Redis must contain actual history keys');
+    await new Promise(resolve=>setTimeout(resolve,2));
     await registry.appendPrivateTurn(ctx, 'c', 'd');
+    await new Promise(resolve=>setTimeout(resolve,2));
     await registry.appendPrivateTurn(ctx, 'e', 'f');
     assert.deepEqual(
       (await registry.privateHistory(ctx)).map(m => m.content),
-      ['c', 'd', 'e', 'f']
+      ['a', 'b', 'c', 'd', 'e', 'f']
     );
     const smallBudget = new SessionRegistry({ ...config, privateHistoryMaxChars: 3 });
     assert.deepEqual(
-      (await smallBudget.privateHistory(ctx)).map(m => m.content),
+      (await smallBudget.privateHistory(ctx)).filter(m=>m.role!=='system').map(m => m.content),
       ['e', 'f']
     );
     assert.deepEqual(await new SessionRegistry({ ...config, privateHistoryMaxTurns: 0 }).privateHistory(ctx), []);
     assert.deepEqual(await registry.privateHistory({ ...ctx, channelId: channelId + '-other' }), []);
     await registry.appendPrivateTurn(ctx, 'oversized turn', 'answer');
-    assert.equal((await registry.privateHistory(ctx)).length, 4);
+    const compacted=await registry.privateHistory(ctx);
+    assert.match(compacted[0].content,/早前对话摘要/);
+    assert.deepEqual(compacted.filter(m=>m.role!=='system').map(m=>m.content),['e','f']);
     const next = await registry.beginReset(channelId);
     const duringReset = await registry.touch(channelId, ctx.generation);
     assert.equal(duringReset.generation, next.generation);
@@ -51,13 +74,12 @@ test('Redis private history bounds, isolation, generation guard and deletion', {
   } finally {
     await registry.purgeHash(await registry.groupKey(channelId));
   }
-});
+}));
 
 test(
   'explicit private memories are bounded, isolated, survive new topics, and are deletable',
-  { skip: process.env.AGENT_LINK_HISTORY_INTEGRATION !== '1' },
-  async () => {
-    const config = getDSHConfig({});
+  { skip: !process.env.AGENT_LINK_TEST_REDIS_CONFIG },
+  () => withRedis({},async (config) => {
     const registry = new SessionRegistry(config);
     const channel = `private:memory-${randomUUID()}`;
     try {
@@ -86,5 +108,5 @@ test(
     } finally {
       await registry.purgeHash(await registry.groupKey(channel));
     }
-  }
+  })
 );

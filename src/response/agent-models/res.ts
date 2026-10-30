@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
 import { getDSHCredentials } from '@src/dsh/credentials';
@@ -16,7 +16,27 @@ export default async (): Promise<void> => {
   const [route] = useRoute();
 
   if (!event.IsMaster) {
-    await message.send({ format: commandBubble('公共模型列表仅限机器人主人查看。', '模型列表', { platform: event.Platform }) });
+    await message.send({
+      format: commandBubble('公共模型列表仅限机器人主人查看。个人钥匙和权益可从下方入口查看。', '模型列表', {
+        platform: event.Platform,
+        actions: [
+          { label: '我的钥匙', command: '/我的钥匙 私聊' },
+          { label: '我的权限', command: '/我的权限' }
+        ]
+      })
+    });
+
+    return;
+  }
+  const args = route.rawArgs.map(String).join(' ').trim();
+
+  if (args && (!/^[1-9]\d*$/u.test(args) || !Number.isSafeInteger(Number(args)))) {
+    await message.send({
+      format: commandBubble('没有识别出页码。请返回模型列表，再使用翻页入口。', '模型列表', {
+        platform: event.Platform,
+        actions: [{ label: '模型列表', command: '/模型列表' }]
+      })
+    });
 
     return;
   }
@@ -44,24 +64,21 @@ export default async (): Promise<void> => {
     const current = credentials.model || config.model;
     const pageSize = 8;
     const pages = Math.max(1, Math.ceil(models.length / pageSize));
-    const requested = Number.parseInt(String(route.rawArgs[0] ?? '1'), 10);
+    const requested = Number(args || '1');
     const page = Number.isSafeInteger(requested) ? Math.min(pages, Math.max(1, requested)) : 1;
     const start = (page - 1) * pageSize;
     const visible = models.slice(start, start + pageSize);
-    const table = [
-      '| # | 模型 | 状态 |',
-      '| --- | --- | --- |',
-      ...visible.map((model, index) => `| ${start + index + 1} | ${model} | ${model === current ? '当前' : '-'} |`)
-    ];
+    const sections = visible.map((model, index) => ({ title: `${start + index + 1}. ${model}`, text: model === current ? '当前使用' : '可用模型' }));
     const nav = [
       ...(page > 1 ? [{ label: '上一页', command: `/模型列表 ${page - 1}` }] : []),
       ...(page < pages ? [{ label: '下一页', command: `/模型列表 ${page + 1}` }] : []),
-      { label: '刷新', command: '/模型列表' }
+      { label: '刷新', command: `/模型列表 ${page}` },
+      { label: '当前模型', command: '/当前模型' }
     ];
-    const intro = models.length ? `当前模型：${current}；共 ${models.length} 个。` : '没有可用模型。';
+    const intro = models.length ? `当前模型：${current}；共 ${models.length} 个。` : `当前配置：${current}。服务未返回可列出的模型，不代表当前模型不可用。`;
 
     await message.send({
-      format: commandBubble(`${intro}\n\n${table.join('\n')}`, '模型列表', {
+      format: sectionBubble('模型列表', `${intro} 第 ${page}/${pages} 页`, sections, {
         platform: event.Platform,
         layout: 'inline',
         actions: nav

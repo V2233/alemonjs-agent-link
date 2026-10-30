@@ -159,7 +159,7 @@ export const runDSHChat = async (
     return;
   }
   if (event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))) {
-    await reply('仅机器人主人可在私聊中使用 Agent。');
+    await reply('当前未开放此私聊。', { title: '私聊权限', actions: [{ label: '个人 Key 说明', command: '/帮助 额度' }] });
 
     return;
   }
@@ -311,8 +311,16 @@ export const runDSHChat = async (
       config.recentChatSummaryMaxChars
     );
   } catch (error) {
-    logger.warn({ err: error }, 'Redis unavailable for chat context');
-    await reply('糟糕，网线断了。');
+    logger.warn({ err: error }, 'Chat context unavailable');
+    if (!options.allowSilence) {
+      await reply('暂时无法读取会话信息，这次回答未开始。请稍后重新提问。', {
+        title: '暂时不可用',
+        actions: [
+          { label: '重新提问', command: '/提问' },
+          { label: '服务状态', command: '/状态' }
+        ]
+      });
+    }
 
     return;
   }

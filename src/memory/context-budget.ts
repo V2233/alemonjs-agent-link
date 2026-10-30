@@ -8,7 +8,12 @@ const priority = (group: Group, row: unknown): number => {
 
   if (group === 'recentSources') return match === 'keyword' ? 1 : 4;
   if (group === 'sharedDialogues') return match === 'text' ? 1 : 3;
-  if (group === 'sharedThreads') return match === 'topic' ? 0 : 2;
+  if (group === 'sharedThreads') {
+    // Retain stop boundaries before optional recollections when trimming context.
+    if (row && typeof row === 'object' && 'state' in row && row.state === 'cancelled') return 0;
+
+    return match === 'topic' ? 0 : 2;
+  }
   if (group === 'profile') return 0;
 
   return 1;

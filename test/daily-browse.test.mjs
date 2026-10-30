@@ -18,6 +18,7 @@ for (const scenario of ['reading', 'silence', 'cancelled', 'comparison']) {
     const scope = { platform: 'onebot', userId: '100', botId: '900' };
     globalThis.__config = {
       value: {
+        onebot: {master_id:['100']},
         'alemonjs-agent-link': {
           apiKey: 'test',
           model: 'test',
@@ -140,6 +141,7 @@ for (const scenario of ['final-thought', 'final-unavailable', 'no-reading', 'con
     const scope = { platform: 'onebot', userId: '100', botId: '900' };
     globalThis.__config = {
       value: {
+        onebot: {master_id:['100']},
         'alemonjs-agent-link': {
           apiKey: 'test',
           model: 'test',

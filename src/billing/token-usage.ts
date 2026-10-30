@@ -192,23 +192,53 @@ export const tokenUsageFetch = async (
     }
     if (buffer.length > 8 * 1024 * 1024) buffer = '';
   };
-  const body = response.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        inspect(decoder.decode(chunk, { stream: true }));
-        controller.enqueue(chunk);
-      },
-      flush() {
-        inspect(decoder.decode());
-        if (!streaming) parse(buffer);
-        else if (buffer.trim().startsWith('data:')) parse(buffer.trim().slice(5).trim());
+  const reader = response.body.getReader();
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    inspect(decoder.decode());
+    if (buffer.trim().startsWith('data:')) parse(buffer.trim().slice(5).trim());
+    try {
+      settle(usage);
+    } catch {
+      logger.warn('Token 用量结算失败');
+    }
+  };
+  // Keep backpressure and cancellation while settling any usage already received,
+  // including when the upstream disconnects after its final usage frame.
+  const body = new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
         try {
-          settle(usage);
-        } catch {
-          logger.warn('Token 用量结算失败');
+          const chunk = await reader.read();
+
+          if (finished) return;
+          if (chunk.done) {
+            finish();
+            controller.close();
+            reader.releaseLock();
+          } else {
+            inspect(decoder.decode(chunk.value, { stream: true }));
+            controller.enqueue(chunk.value);
+          }
+        } catch (error) {
+          if (finished) return;
+          finish();
+          controller.error(error);
+          reader.releaseLock();
+        }
+      },
+      async cancel(reason) {
+        finish();
+        try {
+          await reader.cancel(reason);
+        } finally {
+          reader.releaseLock();
         }
       }
-    })
+    },
+    { highWaterMark: 0 }
   );
 
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });

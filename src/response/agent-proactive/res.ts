@@ -34,15 +34,28 @@ export default async (): Promise<void> => {
         await message.send({
           format: commandBubble(chunk, '主动搭话', {
             platform: event.Platform,
-            actions: index === chunks.length - 1 ? actions : []
+            actions:
+              index === chunks.length - 1
+                ? actions.length
+                  ? actions
+                  : [
+                      {
+                        label: route.rawArgs[0] === '阅读' ? '返回阅读设置' : '查看状态',
+                        command: route.rawArgs[0] === '阅读' ? '/主动搭话 阅读' : '/主动搭话 状态'
+                      }
+                    ]
+                : []
           })
         })
       );
     }
   };
 
-  if (!event.IsMaster || event.IsBot) {
-    await reply('请主人在自己的私聊管理主动搭话。');
+  if (event.IsBot) {
+    await reply('请在自己的私聊管理聊天偏好。', [
+      { label: '我的权限', command: '/我的权限' },
+      { label: '聊天说明', command: '/帮助 聊天' }
+    ]);
 
     return;
   }
@@ -64,10 +77,12 @@ export default async (): Promise<void> => {
         elevated = Boolean(options.flexible);
       }
     } catch {
-      // 权益查询失败时按普通参数展示与订阅，不影响原有能力。
+      // 权益查询失败时按普通参数展示与聊天设置，不影响原有能力。
     }
     const store = getProactiveStore(config);
     const scope = { platform: event.Platform, botId: event.BotId, userId: event.UserId };
+
+    if (proactiveEnabled(config) && options.autoSubscribe && !store.get(scope)) store.subscribe(scope, true, options);
     const args = route.rawArgs.join(' ').trim();
     const time = (value: number): string => new Date(value).toLocaleString('zh-CN', { timeZone: options.timezone, hour12: false });
 
@@ -75,12 +90,55 @@ export default async (): Promise<void> => {
       const readingArgs = args.slice(2).trim();
       const windowMatch = readingArgs.match(/^作息\s+(\d{1,2})\s+(\d{1,2})$/u);
 
-      if (readingArgs === '开启' || readingArgs === '关闭') {
+      if (!readingArgs || readingArgs === '状态' || readingArgs === '帮助') {
+        const reading = readingSettings(config, store, scope);
+
+        await message.send({
+          format: sectionBubble(
+            '独立阅读',
+            '仅影响本人的主动搭话；需要主动聊天开启，并遵守免打扰和次数限制。',
+            [
+              {
+                title: `阅读偏好${reading.enabled ? '已允许' : '未允许'}`,
+                text: '此开关只保存本私聊的阅读偏好；后台执行还需符合模块开关与工具权限。是否实际阅读请查看日记和最近记录。',
+                actions: [{ label: reading.enabled ? '关闭阅读' : '开启阅读', command: `/主动搭话 阅读 ${reading.enabled ? '关闭' : '开启'}` }]
+              },
+              {
+                title: '阅读时段',
+                text: reading.window
+                  ? `${reading.window[0]}:00–${reading.window[1]}:00（${options.timezone}）`
+                  : '未单独限定阅读时段，仍遵守主动搭话作息与免打扰。',
+                actions: [{ label: '调整时段', command: '/主动搭话 阅读 作息' }]
+              },
+              {
+                title: '阅读内容',
+                text: '查看已经记录的经历，或调整想多看和避开的内容。',
+                actions: [
+                  { label: '阅读日记', command: '/主动搭话 阅读 日记' },
+                  { label: '阅读偏好', command: '/主动搭话 阅读 偏好' }
+                ]
+              }
+            ],
+            {
+              platform: event.Platform,
+              actions: [
+                { label: '跟随全局', command: '/主动搭话 阅读 恢复默认' },
+                { label: '返回聊天设置', command: '/主动搭话 状态' }
+              ]
+            }
+          )
+        });
+      } else if (readingArgs === '作息') {
+        await reply('希望在哪段时间阅读？填写开始和结束整点（0–23）。例如：\n/主动搭话 阅读 作息 18 22\n表示18点开始、22点结束；也支持跨过零点。', [
+          { label: '填写时段', command: '/主动搭话 阅读 作息 ' },
+          { label: '返回阅读设置', command: '/主动搭话 阅读' }
+        ]);
+      } else if (readingArgs === '开启' || readingArgs === '关闭') {
         store.setDailyBrowse(scope, { enabled: readingArgs === '开启' });
         await reply(
           readingArgs === '开启'
             ? readingSettings(config, store, scope).enabled
-              ? '本私聊的独立阅读已开启；需保持主动搭话订阅，遵守暂停、免打扰和每日次数限制。'
+              ? '本私聊的独立阅读偏好已保存为允许；后台执行仍需符合工具权限、主动聊天开关、免打扰与次数限制。是否实际阅读请核对日记和最近记录。'
               : '本私聊已允许阅读，但全局爱好开关尚未启用，暂不执行。'
             : '本私聊的独立阅读已关闭，正在阅读的任务已取消。'
         );
@@ -130,11 +188,11 @@ export default async (): Promise<void> => {
           `当前有效阅读偏好\n多看：${effective.topics.join('、') || '未指定，按人格兴趣选题'}\n避开：${effective.exclude.join('、') || '未指定'}\n已合并全局配置与本私聊反馈，避雷优先。可说“以后多看独立游戏”“以后别看恐怖”或“恢复推荐恐怖”；恢复推荐不会移除全局避雷词。`
         );
       } else {
-        await reply('用法：/主动搭话 阅读 开启|关闭|作息 18 22|恢复默认|偏好|日记 [1-7] [关键词]。');
+        await reply('没有识别出阅读操作。请返回阅读设置，选择开关、时段、日记或偏好。');
       }
     } else if (args === '开启') {
       if (!proactiveEnabled(config)) {
-        await reply('主动搭话模块或总设置已停用，请在配置中启用后再开启订阅。');
+        await reply('主动搭话模块或总设置已停用，请在配置中启用后再恢复主动聊天。');
 
         return;
       }
@@ -150,16 +208,35 @@ export default async (): Promise<void> => {
         { label: '重新开启', command: '/主动搭话 开启' }
       ]);
     } else if (args === '恢复' || /^暂停\s+\d{1,5}$/u.test(args)) {
-      if (!store.get(scope)) {
-        await reply('尚未订阅，请先使用 /主动搭话 开启。');
+      const subscription = store.get(scope);
+
+      if (!subscription?.enabled) {
+        await reply(subscription ? '主动聊天已关闭。请先恢复主动聊天，再调整暂停状态。' : '尚未建立自动聊天记录，请先开启主动搭话。', [
+          { label: '恢复主动聊天', command: '/主动搭话 开启' },
+          { label: '查看状态', command: '/主动搭话 状态' }
+        ]);
 
         return;
       }
-      store.pause(scope, args === '恢复' ? 0 : Number(args.split(/\s+/u)[1]));
-      await reply(args === '恢复' ? '主动搭话已恢复。' : '已暂停，待发送消息已取消。', [
-        { label: '查看状态', command: '/主动搭话 状态' },
-        ...(args === '恢复' ? [] : [{ label: '恢复', command: '/主动搭话 恢复' }])
-      ]);
+      const minutes = args === '恢复' ? 0 : Number(args.split(/\s+/u)[1]);
+
+      if (args !== '恢复' && (minutes < 1 || minutes > 10080)) {
+        await reply('暂停时长为 1–10080 分钟；想解除暂停，请选择恢复。', [
+          { label: '暂停60分钟', command: '/主动搭话 暂停 60' },
+          { label: '恢复聊天', command: '/主动搭话 恢复' }
+        ]);
+
+        return;
+      }
+      store.pause(scope, minutes);
+      await reply(
+        args === '恢复'
+          ? proactiveEnabled(config)
+            ? '本私聊已解除暂停，继续遵守作息与次数限制。'
+            : '本私聊已解除暂停，但主动搭话模块或总设置仍停用，暂不会发送。'
+          : `本私聊已暂停 ${minutes} 分钟，待发送消息已取消。`,
+        [{ label: '查看状态', command: '/主动搭话 状态' }, ...(args === '恢复' ? [] : [{ label: '恢复', command: '/主动搭话 恢复' }])]
+      );
     } else if (args === '现在') {
       const worker = new ProactiveWorker(config);
 
@@ -171,8 +248,8 @@ export default async (): Promise<void> => {
           unknown: '发送结果未确认，已暂停主动搭话。请先核对平台消息，再用 /主动搭话 恢复。',
           cancelled: '搭话已取消。',
           failed: '本次未完成，未自动重试。',
-          disabled: '主动搭话已停用或当前身份不再是主人。',
-          'not-due': '当前未订阅、达到次数限制或已有任务。先查看 /主动搭话 状态。',
+          disabled: '主动聊天已停用或当前会话不可用。',
+          'not-due': '当前已关闭主动聊天、达到次数限制或已有任务。先查看 /主动搭话 状态。',
           offline: '平台尚未确认在线，未生成或发送搭话。',
           busy: '已有主动搭话任务在执行，请稍后重试。'
         };
@@ -200,7 +277,7 @@ export default async (): Promise<void> => {
       const sections = row
         ? [
             {
-              title: '订阅',
+              title: '聊天设置',
               text: `${row.enabled ? '已开启' : '已关闭'}；模块${proactiveEnabled(config) ? '启用' : '停用'}。`,
               actions: [
                 row.enabled ? { label: '关闭', command: '/主动搭话 关闭' } : { label: '开启', command: '/主动搭话 开启' },
@@ -213,7 +290,7 @@ export default async (): Promise<void> => {
             },
             {
               title: '独立阅读',
-              text: `${reading.enabled ? '独立阅读已配置开启' : '独立阅读未开启'}。${reading.window ? `作息 ${reading.window[0]}:00–${reading.window[1]}:00（${options.timezone}）。` : ''}${browsing ? `最近尝试 ${time(browsing.at)}：${browseLabels[browsing.status] || '结果待核查'}。可询问“看看你的浏览日记”。` : '暂无尝试记录。'}`,
+              text: `${reading.enabled ? '独立阅读偏好已允许，后台执行仍受工具权限约束' : '独立阅读未开启'}。${reading.window ? `作息 ${reading.window[0]}:00–${reading.window[1]}:00（${options.timezone}）。` : ''}${browsing ? `最近尝试 ${time(browsing.at)}：${browseLabels[browsing.status] || '结果待核查'}。可询问“看看你的浏览日记”。` : '暂无尝试记录。'}`,
               actions: [
                 { label: reading.enabled ? '关闭阅读' : '开启阅读', command: `/主动搭话 阅读 ${reading.enabled ? '关闭' : '开启'}` },
                 { label: '阅读偏好', command: '/主动搭话 阅读 偏好' },
@@ -257,7 +334,7 @@ export default async (): Promise<void> => {
                 ]
               : []),
             {
-              title: '更多',
+              title: '暂停与恢复',
               text: '需要时暂停；恢复不会补发错过的消息。',
               actions: [
                 { label: '暂停 60 分钟', command: '/主动搭话 暂停 60' },
@@ -267,8 +344,8 @@ export default async (): Promise<void> => {
           ]
         : [
             {
-              title: '订阅',
-              text: '尚未订阅，不会主动发送消息。',
+              title: '聊天设置',
+              text: '尚未建立自动聊天记录，不会主动发送消息。',
               actions: [
                 { label: '开启', command: '/主动搭话 开启' },
                 { label: '状态', command: '/主动搭话 状态' }
@@ -276,11 +353,13 @@ export default async (): Promise<void> => {
             }
           ];
 
-      await message.send({ format: sectionBubble('主动搭话', '仅主人私聊。', sections, { platform: event.Platform, layout: 'inline' }) });
+      await message.send({
+        format: sectionBubble('主动搭话', '每个人均可在自己的私聊管理；默认自动开启，可随时关闭。', sections, { platform: event.Platform, layout: 'inline' })
+      });
     } else {
-      await reply('用法：/主动搭话 开启|关闭|状态|现在|暂停 分钟|恢复。', [{ label: '查看状态', command: '/主动搭话 状态' }]);
+      await reply('没有识别出这次操作。请查看聊天设置状态，再选择开启、暂停或恢复。', [{ label: '查看状态', command: '/主动搭话 状态' }]);
     }
   } catch {
-    await reply('操作未完成，请核对状态后再试。', [{ label: '查看状态', command: '/主动搭话 状态' }]);
+    await reply('操作结果暂时无法确认。请先核对状态，再决定是否重试。', [{ label: '查看状态', command: '/主动搭话 状态' }]);
   }
 };

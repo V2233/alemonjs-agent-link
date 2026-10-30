@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createChatTaskCredentials } from '../lib/dsh/credentials.js';
@@ -8,9 +11,11 @@ const config = { provider: 'deepseek-official', model: 'default', maxRequestByte
 const messages = [{ role: 'user', content: 'hello' }];
 const success = () => Response.json({ choices: [{ message: { content: 'ok' } }] });
 async function fixture(run, extra = {}) {
+  const root = await mkdtemp(join(tmpdir(), 'initial-failover-'));
   const savedConfig = globalThis.__config;
   const savedFetch = globalThis.fetch;
   const app = {
+    dshHomeRoot: join(root, 'homes'),
     modelPool: {
       probeIntervalSeconds: 0,
       retryJitterMs: 0,
@@ -34,6 +39,7 @@ async function fixture(run, extra = {}) {
     stopCredentialPool();
     globalThis.__config = savedConfig;
     globalThis.fetch = savedFetch;
+    await rm(root, { recursive: true, force: true });
   }
 }
 

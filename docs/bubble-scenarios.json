@@ -1,0 +1,342 @@
+{
+  "note": "Manual scenario registry. Automated pass does not prove client display; source and test hashes must still match. Pending entries are not an exhaustive scenario denominator yet.",
+  "scenarios": [
+    {
+      "id": "chat-empty-private",
+      "handler": "src/response/agent-chat/res.ts",
+      "title": "本人私聊空提问显示填写说明",
+      "status": "automated-pass",
+      "sourceHash": "73eab61c408645ea623f66fcf37c8c3beac26c459582884fc356ac60022cc376",
+      "test": "test/setup-bubbles.test.mjs",
+      "testHash": "f4803c960210a715c82edc2ee78fdf20a33970d3c8cbdb40cbf404fcb06a6507",
+      "clientVerified": false
+    },
+    {
+      "id": "voice-empty-private",
+      "handler": "src/response/agent-voice/res.ts",
+      "title": "本人私聊空语音问题说明文字回退",
+      "status": "automated-pass",
+      "sourceHash": "034edf92857ca24dbcebd7230d921d7fe6f82943e4575e25112ef6b42f402b94",
+      "test": "test/setup-bubbles.test.mjs",
+      "testHash": "f4803c960210a715c82edc2ee78fdf20a33970d3c8cbdb40cbf404fcb06a6507",
+      "clientVerified": false
+    },
+    {
+      "id": "chat-missing-identity",
+      "handler": "src/response/agent-chat/res.ts",
+      "title": "缺少群或用户身份给出明确反馈",
+      "status": "automated-pass",
+      "sourceHash": "73eab61c408645ea623f66fcf37c8c3beac26c459582884fc356ac60022cc376",
+      "test": "test/setup-bubbles.test.mjs",
+      "testHash": "f4803c960210a715c82edc2ee78fdf20a33970d3c8cbdb40cbf404fcb06a6507",
+      "clientVerified": false
+    },
+    {
+      "id": "voice-missing-identity",
+      "handler": "src/response/agent-voice/res.ts",
+      "title": "缺少群或用户身份给出明确反馈",
+      "status": "automated-pass",
+      "sourceHash": "034edf92857ca24dbcebd7230d921d7fe6f82943e4575e25112ef6b42f402b94",
+      "test": "test/setup-bubbles.test.mjs",
+      "testHash": "f4803c960210a715c82edc2ee78fdf20a33970d3c8cbdb40cbf404fcb06a6507",
+      "clientVerified": false
+    },
+    {
+      "id": "chat-member-empty",
+      "handler": "src/response/agent-chat/res.ts",
+      "title": "普通群成员空提问不显示新会话",
+      "status": "automated-pass",
+      "sourceHash": "73eab61c408645ea623f66fcf37c8c3beac26c459582884fc356ac60022cc376",
+      "test": "test/setup-bubbles.test.mjs",
+      "testHash": "f4803c960210a715c82edc2ee78fdf20a33970d3c8cbdb40cbf404fcb06a6507",
+      "clientVerified": false
+    },
+    {
+      "id": "chat-admin-empty",
+      "handler": "src/response/agent-chat/res.ts",
+      "title": "群管理员空提问显示新会话",
+      "status": "automated-pass",
+      "sourceHash": "73eab61c408645ea623f66fcf37c8c3beac26c459582884fc356ac60022cc376",
+      "test": "test/setup-bubbles.test.mjs",
+      "testHash": "f4803c960210a715c82edc2ee78fdf20a33970d3c8cbdb40cbf404fcb06a6507",
+      "clientVerified": false
+    },
+    {
+      "id": "voice-group-config-failure",
+      "handler": "src/response/agent-voice/res.ts",
+      "title": "群语音配置无效反馈且未调度",
+      "status": "automated-pass",
+      "sourceHash": "034edf92857ca24dbcebd7230d921d7fe6f82943e4575e25112ef6b42f402b94",
+      "test": "test/setup-bubbles.test.mjs",
+      "testHash": "f4803c960210a715c82edc2ee78fdf20a33970d3c8cbdb40cbf404fcb06a6507",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-chat-pending-0",
+      "handler": "src/response/agent-chat/res.ts",
+      "title": "正常回复与排队回执",
+      "status": "pending",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-chat-pending-1",
+      "handler": "src/response/agent-chat/res.ts",
+      "title": "生成异常与投递失败",
+      "status": "pending",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-voice-pending-0",
+      "handler": "src/response/agent-voice/res.ts",
+      "title": "群语音关闭后的真实文字回退",
+      "status": "pending",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-voice-pending-1",
+      "handler": "src/response/agent-voice/res.ts",
+      "title": "合成成功与合成失败后的文字回退",
+      "status": "pending",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-voice-pending-2",
+      "handler": "src/response/agent-voice/res.ts",
+      "title": "语音投递失败",
+      "status": "pending",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-scoped-persona-01",
+      "handler": "src/response/agent-scoped-persona/res.ts",
+      "title": "字段列表可翻到第二页",
+      "status": "automated-pass",
+      "sourceHash": "8760a504ce4ed9aef00457aaf0452a6de98bd6edfbbcd0710c2eff59a8e695e7",
+      "test": "test/command-rights.test.mjs",
+      "testHash": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-scoped-persona-02",
+      "handler": "src/response/agent-scoped-persona/res.ts",
+      "title": "无Key成员没有编辑入口",
+      "status": "automated-pass",
+      "sourceHash": "8760a504ce4ed9aef00457aaf0452a6de98bd6edfbbcd0710c2eff59a8e695e7",
+      "test": "test/command-rights.test.mjs",
+      "testHash": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-scoped-persona-03",
+      "handler": "src/response/agent-scoped-persona/res.ts",
+      "title": "空编辑提供填写说明且不写入",
+      "status": "automated-pass",
+      "sourceHash": "8760a504ce4ed9aef00457aaf0452a6de98bd6edfbbcd0710c2eff59a8e695e7",
+      "test": "test/command-rights.test.mjs",
+      "testHash": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-scoped-persona-04",
+      "handler": "src/response/agent-scoped-persona/res.ts",
+      "title": "编辑后实际保存新字段",
+      "status": "automated-pass",
+      "sourceHash": "8760a504ce4ed9aef00457aaf0452a6de98bd6edfbbcd0710c2eff59a8e695e7",
+      "test": "test/command-rights.test.mjs",
+      "testHash": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-scoped-persona-05",
+      "handler": "src/response/agent-scoped-persona/res.ts",
+      "title": "字段详情返回对应页",
+      "status": "automated-pass",
+      "sourceHash": "8760a504ce4ed9aef00457aaf0452a6de98bd6edfbbcd0710c2eff59a8e695e7",
+      "test": "test/command-rights.test.mjs",
+      "testHash": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-scoped-persona-06",
+      "handler": "src/response/agent-scoped-persona/res.ts",
+      "title": "带多余内容清空不删除字段",
+      "status": "automated-pass",
+      "sourceHash": "8760a504ce4ed9aef00457aaf0452a6de98bd6edfbbcd0710c2eff59a8e695e7",
+      "test": "test/command-rights.test.mjs",
+      "testHash": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-scoped-persona-07",
+      "handler": "src/response/agent-scoped-persona/res.ts",
+      "title": "恢复默认预览保留字段、确认后清除",
+      "status": "automated-pass",
+      "sourceHash": "8760a504ce4ed9aef00457aaf0452a6de98bd6edfbbcd0710c2eff59a8e695e7",
+      "test": "test/command-rights.test.mjs",
+      "testHash": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-scoped-persona-pending-01",
+      "handler": "src/response/agent-scoped-persona/res.ts",
+      "title": "恢复默认直接确认/跨用户与变化后确认边界",
+      "status": "pending",
+      "clientVerified": false
+    },
+    {
+      "id": "agent-scoped-persona-pending-02",
+      "handler": "src/response/agent-scoped-persona/res.ts",
+      "title": "保存失败与长字段内容平台展示",
+      "status": "pending",
+      "clientVerified": false
+    },
+    {
+      "id": "history-clear-01",
+      "handler": "src/response/history-clear/res.ts",
+      "title": "清记录展示范围与确认/取消入口",
+      "status": "automated-pass",
+      "sourceHash": "ba2d08ab8009886666630eee6e75e6f7e51b4dfb18868177eb5eea3725aaca38",
+      "test": "test/bubble-confirmations.test.mjs",
+      "testHash": "33e91d7253405d736f738aa453d7775fc456257a983e4d93e0cb1f18bfa8d030",
+      "clientVerified": false
+    },
+    {
+      "id": "history-clear-02",
+      "handler": "src/response/history-clear/res.ts",
+      "title": "跨用户平台机器人群确认失效",
+      "status": "automated-pass",
+      "sourceHash": "ba2d08ab8009886666630eee6e75e6f7e51b4dfb18868177eb5eea3725aaca38",
+      "test": "test/bubble-confirmations.test.mjs",
+      "testHash": "33e91d7253405d736f738aa453d7775fc456257a983e4d93e0cb1f18bfa8d030",
+      "clientVerified": false
+    },
+    {
+      "id": "history-clear-03",
+      "handler": "src/response/history-clear/res.ts",
+      "title": "确认带多余内容被拒绝",
+      "status": "automated-pass",
+      "sourceHash": "ba2d08ab8009886666630eee6e75e6f7e51b4dfb18868177eb5eea3725aaca38",
+      "test": "test/bubble-confirmations.test.mjs",
+      "testHash": "33e91d7253405d736f738aa453d7775fc456257a983e4d93e0cb1f18bfa8d030",
+      "clientVerified": false
+    },
+    {
+      "id": "history-clear-04",
+      "handler": "src/response/history-clear/res.ts",
+      "title": "取消后确认失效",
+      "status": "automated-pass",
+      "sourceHash": "ba2d08ab8009886666630eee6e75e6f7e51b4dfb18868177eb5eea3725aaca38",
+      "test": "test/bubble-confirmations.test.mjs",
+      "testHash": "33e91d7253405d736f738aa453d7775fc456257a983e4d93e0cb1f18bfa8d030",
+      "clientVerified": false
+    },
+    {
+      "id": "history-clear-05",
+      "handler": "src/response/history-clear/res.ts",
+      "title": "超过60秒确认失效",
+      "status": "automated-pass",
+      "sourceHash": "ba2d08ab8009886666630eee6e75e6f7e51b4dfb18868177eb5eea3725aaca38",
+      "test": "test/bubble-confirmations.test.mjs",
+      "testHash": "33e91d7253405d736f738aa453d7775fc456257a983e4d93e0cb1f18bfa8d030",
+      "clientVerified": false
+    },
+    {
+      "id": "history-clear-06",
+      "handler": "src/response/history-clear/res.ts",
+      "title": "普通成员无确认入口",
+      "status": "automated-pass",
+      "sourceHash": "ba2d08ab8009886666630eee6e75e6f7e51b4dfb18868177eb5eea3725aaca38",
+      "test": "test/bubble-confirmations.test.mjs",
+      "testHash": "33e91d7253405d736f738aa453d7775fc456257a983e4d93e0cb1f18bfa8d030",
+      "clientVerified": false
+    },
+    {
+      "id": "history-clear-pending-01",
+      "handler": "src/response/history-clear/res.ts",
+      "title": "确认后实际归档删除及其他会话保留",
+      "status": "pending",
+      "clientVerified": false
+    },
+    {
+      "id": "history-clear-pending-02",
+      "handler": "src/response/history-clear/res.ts",
+      "title": "删除失败与投递失败",
+      "status": "pending",
+      "clientVerified": false
+    },
+    {
+      "id": "key-intake-01",
+      "handler": "src/response/key-intake/res.ts",
+      "title": "私聊识别后展示两种用途",
+      "status": "automated-pass",
+      "sourceHash": "63642523a68770e0733a48c2e97aa2f83da841422899797370c78ff6865f4e50",
+      "test": "test/key-intake.test.mjs",
+      "testHash": "617adceda59b24bc6f8d6e2f869e03b245ecc664dd15e809d8665979d488159d",
+      "clientVerified": false
+    },
+    {
+      "id": "key-intake-02",
+      "handler": "src/response/key-intake/res.ts",
+      "title": "密钥不出现在回复与按钮中",
+      "status": "automated-pass",
+      "sourceHash": "63642523a68770e0733a48c2e97aa2f83da841422899797370c78ff6865f4e50",
+      "test": "test/key-intake.test.mjs",
+      "testHash": "617adceda59b24bc6f8d6e2f869e03b245ecc664dd15e809d8665979d488159d",
+      "clientVerified": false
+    },
+    {
+      "id": "key-intake-03",
+      "handler": "src/response/key-intake/res.ts",
+      "title": "群里发Key提示私聊且不下传",
+      "status": "automated-pass",
+      "sourceHash": "63642523a68770e0733a48c2e97aa2f83da841422899797370c78ff6865f4e50",
+      "test": "test/key-intake.test.mjs",
+      "testHash": "617adceda59b24bc6f8d6e2f869e03b245ecc664dd15e809d8665979d488159d",
+      "clientVerified": false
+    },
+    {
+      "id": "key-intake-04",
+      "handler": "src/response/key-intake/res.ts",
+      "title": "普通消息下传且不被识别",
+      "status": "automated-pass",
+      "sourceHash": "63642523a68770e0733a48c2e97aa2f83da841422899797370c78ff6865f4e50",
+      "test": "test/key-intake.test.mjs",
+      "testHash": "617adceda59b24bc6f8d6e2f869e03b245ecc664dd15e809d8665979d488159d",
+      "clientVerified": false
+    },
+    {
+      "id": "key-intake-05",
+      "handler": "src/response/key-intake/res.ts",
+      "title": "多把Key要求一次一把",
+      "status": "automated-pass",
+      "sourceHash": "63642523a68770e0733a48c2e97aa2f83da841422899797370c78ff6865f4e50",
+      "test": "test/key-intake.test.mjs",
+      "testHash": "617adceda59b24bc6f8d6e2f869e03b245ecc664dd15e809d8665979d488159d",
+      "clientVerified": false
+    },
+    {
+      "id": "key-intake-06",
+      "handler": "src/response/key-intake/res.ts",
+      "title": "未知与畸形票据提供重新发送指引",
+      "status": "automated-pass",
+      "sourceHash": "63642523a68770e0733a48c2e97aa2f83da841422899797370c78ff6865f4e50",
+      "test": "test/key-intake.test.mjs",
+      "testHash": "617adceda59b24bc6f8d6e2f869e03b245ecc664dd15e809d8665979d488159d",
+      "clientVerified": false
+    },
+    {
+      "id": "key-intake-pending-01",
+      "handler": "src/response/key-intake/res.ts",
+      "title": "处理函数通过真实Redis确认添加与重放",
+      "status": "pending",
+      "clientVerified": false
+    },
+    {
+      "id": "key-intake-pending-02",
+      "handler": "src/response/key-intake/res.ts",
+      "title": "存储失败重试与实际平台点击",
+      "status": "pending",
+      "clientVerified": false
+    }
+  ]
+}

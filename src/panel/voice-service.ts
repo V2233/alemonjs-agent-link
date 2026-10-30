@@ -1,5 +1,5 @@
 import { withAdminSpeechPreview } from '../media/admin-preview-context';
-import { migrateLegacyVoice } from '../media/voice-migration';
+import { legacyVoiceAvailable, migrateLegacyVoice } from '../media/voice-migration';
 import { localSpeechOptions } from '../media/local-speech';
 import { getConfig } from 'alemonjs';
 import { getAdminStore } from './admin-panel';
@@ -43,7 +43,13 @@ export const readVoiceSettings = async () => {
   const media = JSON.parse(snapshot.source)['alemonjs-agent-link']?.media || {};
 
   return {
-    legacyAvailable: Boolean(media.speech && !media.activeVoice && !media.voices?.length),
+    legacyAvailable: legacyVoiceAvailable(media),
+    originalSpeech: {
+      engine: media.speech?.engine || 'auto',
+      edgeVoice: media.speech?.edgeVoice,
+      systemVoice: media.speech?.systemVoice,
+      fallback: media.speech?.fallback !== false
+    },
     revision: snapshot.revision,
     voices: media.voices || [],
     activeVoice: media.activeVoice || '',
@@ -55,7 +61,7 @@ export const updateVoiceSettings = async (input: unknown) => {
   const body = input as { revision: string; voices: unknown; activeVoice: string; localSpeech?: unknown };
 
   if (
-    Object.keys(body).some(key => !['revision', 'voices', 'activeVoice', 'localSpeech', 'legacyAvailable'].includes(key)) ||
+    Object.keys(body).some(key => !['revision', 'voices', 'activeVoice', 'localSpeech', 'legacyAvailable', 'originalSpeech'].includes(key)) ||
     typeof body.revision !== 'string' ||
     typeof body.activeVoice !== 'string'
   )

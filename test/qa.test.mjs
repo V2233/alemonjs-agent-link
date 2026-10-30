@@ -333,7 +333,11 @@ test('qa module injects confirmed answers, records why questions, and learns unm
 
     assert.match(await hooks.context[0](unmatched), /没有直接匹配/u);
     await hooks.activity[0]({ input: unmatched.userText, output: '可能大家都在忙，或者静默时段到了。' }, unmatched);
-    assert.ok(store.list(scope).some(item => item.question === '为什么今天群里这么安静' && item.origin === 'learned'));
+    assert.equal(
+      store.list(scope).some(item => item.question === '为什么今天群里这么安静' && item.origin === 'learned'),
+      false
+    );
+    assert.ok(store.questionNotes().some(item => item.question === '为什么今天群里这么安静'));
     assert.equal(store.recentQuestions(scope)[0].matchedId, undefined);
     const command = { ...base, requestId: 'request-3', inputId: 'message-3', userText: '怎么取消' };
     const injectedCommand = await hooks.context[0](command);
@@ -374,6 +378,35 @@ test('qa module injects confirmed answers, records why questions, and learns unm
     assert.equal(store.recentQuestions(scope).length, 3);
   } finally {
     globalThis.__config = oldConfig;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('question notes stay outside recall, deduplicate and publish only after human review', async () => {
+  const { root, store } = await fixture();
+  try {
+    const question = '如何处理测试节点的蓝色灯闪烁问题';
+    store.collectQuestion(scope, 'm1', question);
+    store.collectQuestion(scope, 'm1', question);
+    store.collectQuestion(scope, 'm2', question);
+    store.collectQuestion(scope, 'secret', '我的 apiKey=sk-test 应该怎么设置');
+    assert.equal(store.questionNotes().length, 1);
+    const note = store.questionNotes()[0];
+    assert.equal(note.count, 2);
+    assert.equal(store.search(scope, question).length, 0);
+    assert.throws(() => store.processQuestion({ id: note.id, updatedAt: note.updatedAt, action: 'publish', question, answer: '' }));
+    assert.equal(store.questionNotes()[0].status, 'pending');
+    store.processQuestion({ id: note.id, updatedAt: note.updatedAt, action: 'publish', question, answer: '先检查测试节点供电。', global: false });
+    assert.equal(store.questionNotes()[0].status, 'published');
+    assert.equal(store.search(scope, question)[0].origin, 'explicit');
+    assert.equal(store.search({ platform: 'qq', channelId: 'other' }, question).length, 0);
+    assert.throws(() => store.processQuestion({ id: note.id, updatedAt: note.updatedAt, action: 'publish', question, answer: '不要覆盖' }), /配置已/);
+    store.collectQuestion(scope, 'm3', '怎么修理另一个紫色测试节点');
+    const other = store.questionNotes().find(row => row.status === 'pending');
+    assert.throws(() => store.processQuestion({ id: other.id, updatedAt: other.updatedAt, action: 'publish', question, answer: '不应覆盖原答案' }), /同名/);
+    assert.equal(store.questionNotes().find(row => row.id === other.id).status, 'pending');
+  } finally {
+    store.close();
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -36,11 +36,15 @@ const interval = (now: number, options: ProactiveOptions, random: () => number):
   now + Math.round((options.minIntervalMinutes + Math.max(0, Math.min(1, random())) * (options.maxIntervalMinutes - options.minIntervalMinutes)) * 60000);
 
 const shareKeys = (text: string): string[] => {
-  const normalized = normalizeBubbleText(text).replace(/\s+/gu, ' ');
+  const legacy = normalizeBubbleText(text).replace(/\s+/gu, ' ');
+  const normalized = normalizeBubbleText(text)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\p{P}\p{Z}\s]+/gu, '');
 
   if (!normalized) return [];
 
-  return [...new Set([`text:${hash(normalized)}`, ...[...text.matchAll(/\bBV[0-9A-Za-z]{10}\b/gu)].map(match => `video:${match[0]}`)])];
+  return [...new Set([`text:${hash(normalized)}`, `text:${hash(legacy)}`, ...[...text.matchAll(/\bBV[0-9A-Za-z]{10}\b/gu)].map(match => `video:${match[0]}`)])];
 };
 
 export class ProactiveStore {

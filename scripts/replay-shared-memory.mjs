@@ -51,7 +51,7 @@ const reset = () => {
   for (const dispose of disposers) dispose();
   setup();
 };
-const scope = { platform: 'replay', channelId: 'synthetic' };
+const scope = { platform: 'replay', channelId: 'synthetic', botId: 'fish' };
 const registry = new SessionRegistry(config);
 const isolated = await registry.beginReset('private:compression-replay');
 await registry.completeReset('private:compression-replay', isolated.operationId);
@@ -61,7 +61,7 @@ const report = { startedAt: new Date().toISOString(), kind: 'real-model-producti
 const ask = async (system, input, history = []) => {
   const result = await requestModelMessage(
     config,
-    credentials,
+    (await getDSHCredentials()) || credentials,
     [{ role: 'system', content: system }, ...history, { role: 'user', content: JSON.stringify(input) }],
     [],
     AbortSignal.timeout(45000)
@@ -119,6 +119,15 @@ try {
     noFalseExecution: !/已经(?:成功)?(?:创建|设置|建好)|提醒(?:已经)?(?:创建|设置)成功/u.test(reply),
     statesPreserved: items[0]?.state === 'cancelled',
     uncertaintyStated: /没|未|没有|只是|约定|取消|不能确认|无法确认/u.test(reply)
+  }));
+  await turn('甲','今天下班路上看见一只橘猫，蹲在便利店门口不走。', (items,reply)=>({
+    everydayScene:items.some(item=>/橘猫/u.test(item.text) && item.state==='discussed'),
+    noTaskNarration:!/已记录|已保存|事项状态|接话/u.test(reply)
+  }));
+  reset();
+  await turn('甲','刚才说的那只猫是在哪儿来着？', (items,reply)=>({
+    sceneRecall:/便利店/u.test(reply),
+    noInventedPresence:!/我(?:刚才|当时)?(?:也)?(?:看到|看见|遇到)/u.test(reply)
   }));
   report.passed = report.compression?.digestPresent && report.turns.every(turn => Object.values(turn.checks).every(Boolean));
 } catch (error) {

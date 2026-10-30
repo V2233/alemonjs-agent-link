@@ -53,6 +53,9 @@ test('topic recall finds an old cancelled thread through earlier versions beyond
   assert.ok(!store.sharedThreads(scope,'u').some(item=>item.id===old.id));
   const recalled=store.recallSharedThreads(scope,'u','鲸鱼生态比赛');
   assert.equal(recalled[0].id,old.id);assert.equal(recalled[0].state,'cancelled');assert.equal(recalled[0].revision,2);
+  assert.equal(recalled[0].followUpEligible,false);
+  store.recordSharedThread(scope,'u',{id:old.id,expectedRevision:2,text:'重新讨论鲸鱼生态比赛',state:'discussed',sources:[source('我们继续讨论鲸鱼生态比赛')]});
+  assert.equal(store.recallSharedThreads(scope,'u','鲸鱼生态比赛')[0].followUpEligible,true);
   assert.deepEqual(store.recallSharedThreads(scope,'other','鲸鱼生态比赛'),[]);
  }finally{store.close();rmSync(dir,{recursive:true,force:true});}
 });

@@ -20,7 +20,7 @@ test('deadline expiration is a timeout while user cancellation remains cancellat
   cancel.abort();
   assert.equal(abortFailure(new Error('fetch failed'), cancel.signal).kind, 'cancelled');
   assert.equal(abortFailure(new Error('ordinary failure')), undefined);
-  assert.equal(toUserMessage(abortFailure(new DOMException('deadline', 'TimeoutError'))), '非常抱歉，我网卡没流量了');
+  assert.match(toUserMessage(abortFailure(new DOMException('deadline', 'TimeoutError'))), /等待超时.*先核对结果/);
 });
 
 test('stalled model requests report timeout without retrying or running tools', async () => {

@@ -229,7 +229,7 @@ test('worker revalidates authorization and configuration before sending and pers
       config: () => ({ ...f.config, modules: { settings: { proactive: { enabled } } } }),
       deliver: async (_scope, prompt, dispatch) => {
         deliveries++;
-        assert.match(prompt, /系统主动搭话提醒，不是主人发言/u);
+        assert.match(prompt, /系统主动搭话提醒，不是对方发言/u);
         if (mode === 'revoke') allowed = false;
         if (!(await dispatch.beforeSend())) return { completed: false, delivered: false };
         if (mode === 'timeout') throw new Error('lost receipt');
@@ -418,9 +418,11 @@ test('proactive delivery can browse a real tool result and remember the actual r
       if (address.includes('/reply/')) return Response.json({ code: 0, data: { replies: [] } });
       const body = JSON.parse(init.body);
       modelCalls++;
-      assert.ok(body.tools.some(tool => tool.function.name === 'bili_search'));
+      // Autonomous light mode closes after two tool rounds; the third call only summarizes receipts.
+      if (modelCalls <= 2) assert.ok(body.tools.some(tool => tool.function.name === 'bili_search'));
+      else assert.equal(body.tools?.length || 0, 0);
       assert.equal(
-        body.tools.some(tool => tool.function.name === 'bili_comment'),
+        (body.tools || []).some(tool => tool.function.name === 'bili_comment'),
         false
       );
       if (modelCalls === 1)
@@ -535,11 +537,11 @@ test('real delivery pipeline uses owner persona and history readers without writ
       assert.ok(tools.includes('recall_memories'));
       assert.ok(tools.includes('search_chat_history'));
       for (const denied of ['remember_private_fact', 'manage_group', 'poke_speaker', 'agent_workspace']) assert.equal(tools.includes(denied), false);
-      assert.match(JSON.stringify(body.messages.at(-1).content), /系统主动搭话提醒，不是主人发言/u);
+      assert.match(JSON.stringify(body.messages.at(-1).content), /系统主动搭话提醒，不是对方发言/u);
       if (requests > 1) {
         assert.ok(body.messages.some(message => message.role === 'assistant' && message.content === '今天有空喝茶吗？'));
         assert.equal(
-          body.messages.slice(0, -1).some(message => message.role === 'user' && String(message.content).includes('【系统主动搭话提醒，不是主人发言】')),
+          body.messages.slice(0, -1).some(message => message.role === 'user' && String(message.content).includes('【系统主动搭话提醒，不是对方发言】')),
           false
         );
       }
@@ -761,6 +763,7 @@ test('only confirmed initial shares enter the scoped seven-day duplicate index',
     const split = f.store.claim(scope, options, 1000, true);
     f.store.finish(split, 'confirmed', '今天看到一条视频\n内容很有趣');
     assert.equal(f.store.duplicateShare(scope, '今天看到一条视频|||内容很有趣'), true);
+    assert.equal(f.store.duplicateShare(scope, '今天看到一条视频！ 内容很有趣。'), true);
     f.reopen();
     assert.equal(f.store.duplicateShare(scope, text), true);
     f.advance(7 * 1440);
@@ -808,7 +811,7 @@ test('explicit reading feedback is scoped, replaceable, persistent and reversibl
     assert.equal(f.store.browseFeedback(scope).length, 20);
   }));
 
-test('verified owner feedback is captured once while group and non-owner text cannot alter it', () =>
+test('private user feedback is deduplicated and group text cannot alter it', () =>
   fixture(f => {
     const store = getProactiveStore(f.config);
     const event = {
@@ -826,7 +829,7 @@ test('verified owner feedback is captured once while group and non-owner text ca
     assert.equal(store.browseFeedback(scope).length, 1);
     observeProactiveInput(f.config, { ...event, MessageId: 'group', IsPrivate: false, MessageText: '恢复推荐恐怖' });
     observeProactiveInput(f.config, { ...event, MessageId: 'non-owner', IsMaster: false, MessageText: '恢复推荐恐怖' });
-    assert.equal(store.browseFeedback(scope).length, 1);
+    assert.equal(store.browseFeedback(scope).length, 0);
     observeProactiveInput(f.config, { ...event, MessageId: 'feedback-2', MessageText: '恢复推荐恐怖' });
     assert.deepEqual(store.browseFeedback(scope), []);
   }));
@@ -1181,4 +1184,28 @@ test('group wake uses actual chat/delivery pipeline with group-scoped readonly t
     const rows = getChatArchive(f.config).search({ platform: scope.platform, botId: scope.botId, channelId: '200' }).items;
     assert.equal(rows.filter(row => row.role === 'user').length, 0);
     assert.equal(rows.filter(row => row.role === 'assistant').length, 1);
+  }));
+
+test('ordinary private users are enrolled automatically and opt-out survives subsequent messages', () =>
+  fixture(f => {
+    const store = getProactiveStore(f.config);
+    const event = {
+      Platform: scope.platform,
+      BotId: scope.botId,
+      UserId: scope.userId,
+      IsPrivate: true,
+      IsMaster: false,
+      IsBot: false,
+      MessageId: 'ordinary-first',
+      MessageText: '你好'
+    };
+    observeProactiveInput(f.config, event);
+    assert.equal(store.get(scope)?.enabled, true);
+    observeProactiveInput(f.config, { ...event, MessageId: 'ordinary-stop', MessageText: '不要主动找我' });
+    assert.equal(store.get(scope)?.enabled, false);
+    observeProactiveInput(f.config, { ...event, MessageId: 'ordinary-next', MessageText: '问个问题' });
+    assert.equal(store.get(scope)?.enabled, false);
+    const botScope = { ...scope, userId: 'bot-user' };
+    observeProactiveInput(f.config, { ...event, UserId: botScope.userId, IsBot: true, MessageId: 'bot-input' });
+    assert.equal(store.get(botScope), undefined);
   }));

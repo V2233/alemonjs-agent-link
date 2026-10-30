@@ -13,9 +13,11 @@ export default function AdminLayout() {
     '/personas': '人设',
     '/hobbies': '爱好设置',
     '/knowledge': '问答库',
+    '/faq': '常见问题',
     '/dictionary': '热词词典',
     '/events': '事件库',
     '/opinions': '对象评价',
+    '/keys': '钥匙列表',
     '/token-usage': 'Token 用量',
     '/rotation': '额度轮转',
     '/voices': '音色库',
@@ -24,6 +26,7 @@ export default function AdminLayout() {
     '/ads': '广告列表',
     '/sponsors': '赞助列表',
     '/settings': '设置',
+    '/group-topics': '群话题库',
     '/work-model': '工作模型'
   };
   const menu = (
@@ -38,10 +41,13 @@ export default function AdminLayout() {
         { key: '/images', label: '生图库' },
         { key: '/stickers', label: '表情管理' },
         { key: '/knowledge', label: '问答库' },
+        { key: '/faq', label: '常见问题' },
         { key: '/dictionary', label: '热词词典' },
         { key: '/events', label: '事件库' },
         { key: '/opinions', label: '对象评价' },
+        { key: '/group-topics', label: '群话题库' },
         { key: '/work-model', label: '工作模型' },
+        { key: '/keys', label: '钥匙列表' },
         { key: '/token-usage', label: 'Token 用量' },
         { key: '/rotation', label: '额度轮转' },
         { key: '/ads', label: '广告列表' },

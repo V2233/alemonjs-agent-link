@@ -24,13 +24,26 @@ export default async (): Promise<void> => {
   const event = eventContext.current;
 
   if (event.IsPrivate) {
-    await message.send({ format: commandBubble('请到需要管理的目标群里使用 /工具策略。', '本群工具权限') });
+    await message.send({
+      format: commandBubble('请到需要管理的目标群里使用 /工具策略。', '本群工具权限', {
+        platform: event.Platform,
+        actions: [{ label: '我的权限', command: '/我的权限' }]
+      })
+    });
 
     return;
   }
 
   if (!event.ChannelId || !event.IsMaster) {
-    await message.send({ format: commandBubble('只有机器人主人可在群内管理 Agent 策略。', '本群工具权限') });
+    await message.send({
+      format: commandBubble('本群工具策略由机器人主人管理。可以查看自己的权限，或进入群设置。', '本群工具权限', {
+        platform: event.Platform,
+        actions: [
+          { label: '我的权限', command: '/我的权限' },
+          { label: '群设置', command: '/群设置' }
+        ]
+      })
+    });
 
     return;
   }
@@ -41,35 +54,37 @@ export default async (): Promise<void> => {
     const rawRequested = String(route.rawArgs[0] || 'status').toLowerCase();
     const requested = aliases[rawRequested] || rawRequested;
 
-    if (requested === 'status') {
+    if (requested === 'status' && route.rawArgs.length <= 1) {
       const stored = await registry.policy(event.ChannelId);
       const entitled = await toolsEntitled(event.Platform, event.ChannelId);
       const policy = entitled ? { ...stored, web: true, files: true } : stored;
-      const toggle = (name: string) => [
-        { label: '开', command: `/工具策略 ${name} 开启` },
-        { label: '关', command: `/工具策略 ${name} 关闭` }
-      ];
+      const toggle = (name: string, enabled: boolean) => [{ label: enabled ? '关闭' : '开启', command: `/工具策略 ${name} ${enabled ? '关闭' : '开启'}` }];
 
       await message.send({
         format: sectionBubble(
           '本群工具权限',
           '切换会开始新话题；终端始终禁止。',
           [
-            { title: '聊天', text: policy.chat ? '已开启' : '已关闭', actions: toggle('聊天') },
+            { title: '聊天', text: policy.chat ? '已开启' : '已关闭', actions: toggle('聊天', policy.chat) },
             {
               title: '网页',
               text: entitled ? '已开放（本群自带 Key）' : policy.web ? '已开启' : '已关闭',
-              actions: entitled ? [] : toggle('网页')
+              actions: entitled ? [] : toggle('网页', policy.web)
             },
             {
               title: '文件',
               text: entitled ? '已开放（本群自带 Key）' : policy.files ? '已开启' : '已关闭',
-              actions: entitled ? [] : toggle('文件')
+              actions: entitled ? [] : toggle('文件', policy.files)
             },
-            { title: '终端', text: '禁止；文件操作仅限本群隔离目录。', actions: [] },
-            { title: '更多', text: '', actions: [{ label: '刷新', command: '/工具策略 状态' }] }
+            { title: '终端', text: '禁止；文件操作仅限本群隔离目录。', actions: [] }
           ],
-          { platform: event.Platform, layout: 'inline' }
+          {
+            platform: event.Platform,
+            actions: [
+              { label: '刷新', command: '/工具策略 状态' },
+              { label: '群设置', command: '/群设置' }
+            ]
+          }
         )
       });
 
@@ -78,15 +93,11 @@ export default async (): Promise<void> => {
     const rawEnabled = String(route.rawArgs[1] || '').toLowerCase();
     const enabled = rawEnabled === '开启' ? 'on' : rawEnabled === '关闭' ? 'off' : rawEnabled;
 
-    if (!['chat', 'web', 'files', 'terminal'].includes(requested) || !['on', 'off'].includes(enabled)) {
+    if (route.rawArgs.length !== 2 || !['chat', 'web', 'files', 'terminal'].includes(requested) || !['on', 'off'].includes(enabled)) {
       await message.send({
-        format: commandBubble('用法：/工具策略 状态，或 /工具策略 聊天|网页|文件 开启|关闭', '本群工具权限', {
+        format: commandBubble('没有识别出要修改的权限。请打开本群工具状态，在对应项目下选择开启或关闭。', '本群工具权限', {
           platform: event.Platform,
-          actions: [
-            { label: '查看状态', command: '/工具策略 状态' },
-            { label: '网页开启', command: '/工具策略 网页 开启' },
-            { label: '文件开启', command: '/工具策略 文件 开启' }
-          ]
+          actions: [{ label: '查看本群工具', command: '/工具策略 状态' }]
         })
       });
 
@@ -108,7 +119,7 @@ export default async (): Promise<void> => {
       if (await toolsEntitled(event.Platform, event.ChannelId)) {
         await message.send({
           format: commandBubble(
-            '本群使用自带 Key，网页与文件已自动开放，无法在群内关闭。\n需要关闭请让主人在 groupChat.overrides 里为本群设置 boundKeyElevation: false。',
+            '本群使用自带 Key，网页与文件已自动开放，无法在群内关闭。\n需要取消自动开放，请在本群配置中设置 boundKeyTools: false，再关闭对应工具权限。',
             '本群工具权限',
             { platform: event.Platform, actions: [{ label: '查看状态', command: '/工具策略 状态' }] }
           )
@@ -121,9 +132,17 @@ export default async (): Promise<void> => {
     await registry.setPolicy(event.ChannelId, { ...policy, [requested]: enabled === 'on' });
     await resetGroupSession(event.ChannelId, getDSHConfig());
     await message.send({
-      format: commandBubble(`本群${capabilityNames[requested]}已${enabled === 'on' ? '开启' : '关闭'}，已开始新话题。`, '本群工具权限')
+      format: commandBubble(`本群${capabilityNames[requested]}已${enabled === 'on' ? '开启' : '关闭'}，已开始新话题。`, '本群工具权限', {
+        platform: event.Platform,
+        actions: [{ label: '核对当前权限', command: '/工具策略 状态' }]
+      })
     });
   } catch {
-    await message.send({ format: commandBubble('策略暂时无法读取，请稍后再试。', '本群工具权限') });
+    await message.send({
+      format: commandBubble('本次操作未能确认完成。若刚才修改过权限，请先查看当前状态，再决定是否重试。', '本群工具权限', {
+        platform: event.Platform,
+        actions: [{ label: '查看当前状态', command: '/工具策略 状态' }]
+      })
+    });
   }
 };

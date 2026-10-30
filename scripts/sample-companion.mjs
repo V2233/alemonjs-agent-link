@@ -125,10 +125,25 @@ export const sampleCompanion = async ({
     const row = result.responses.find(item => item.id === scenario.id);
     const started = performance.now();
     try {
-      const sampled = await complete({
-        messages: sampleMessages(scenario, persona),
-        signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])
-      });
+      const messages = sampleMessages(scenario, persona);
+      const followUps = scenario.followUps || [];
+      if (!Array.isArray(followUps) || followUps.length > 5 || followUps.some(text => typeof text !== 'string' || !text.trim()))
+        throw new Error('invalid_content');
+      let sampled;
+      if (followUps.length) row.turns = [];
+      for (let turn = 0; turn <= followUps.length; turn++) {
+        if (turn) messages.push({ role: 'user', content: followUps[turn - 1] });
+        sampled = await complete({
+          messages: messages.map(message => ({ ...message })),
+          signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])])
+        });
+        if (!sampled || typeof sampled.text !== 'string' || !sampled.text.trim()) throw new Error('invalid_content');
+        if (row.turns)
+          row.turns.push({ input: messages.at(-1).content, response: sampled.text, truncated: sampled.truncated === true, usage: sampled.usage || null });
+        if (signal?.aborted) break;
+        // Silence is retained in the audit, but is not a message sent to the user.
+        if (!/^\s*\[沉默\]\s*$/u.test(sampled.text)) messages.push({ role: 'assistant', content: sampled.text });
+      }
       if (signal?.aborted) {
         result.sampling.status = 'cancelled';
         break;
@@ -140,8 +155,15 @@ export const sampleCompanion = async ({
         response: silence ? '' : sampled.text,
         latencyMs: Math.round(performance.now() - started),
         sampledAt: new Date().toISOString(),
-        truncated: sampled.truncated === true,
-        usage: sampled.usage || null,
+        truncated: sampled.truncated === true || Boolean(row.turns?.some(turn => turn.truncated)),
+        usage: row.turns
+          ? Object.fromEntries(
+              ['prompt_tokens', 'completion_tokens', 'total_tokens'].map(key => [
+                key,
+                row.turns.every(turn => Number.isSafeInteger(turn.usage?.[key])) ? row.turns.reduce((sum, turn) => sum + turn.usage[key], 0) : null
+              ])
+            )
+          : sampled.usage || null,
         hadReasoning: sampled.hadReasoning ?? null
       });
       result.sampling.completed++;
@@ -168,7 +190,7 @@ const main = async () => {
   const args = process.argv.slice(2);
   if (!args.length || args.includes('--help')) {
     process.stdout.write(
-      '只测内置基础人设文字，不连接QQ、不运行工具；使用配置模型服务会产生费用。\n预览：node scripts/sample-companion.mjs --dry-run\n采样：node scripts/sample-companion.mjs --out /绝对路径/sample.json [--config alemon.config.yaml] [--endpoint 端点编号] [--limit 12] [--timeout 30000] [--corpus 合成场景.json] [--thinking default|enabled|disabled]\n默认最多3题、每题最多256输出tokens；固定一个启用的chat端点，不自动换模型，失败即停止并保留记录。\n'
+      '只测内置基础人设文字，不连接QQ、不运行工具；使用配置模型服务会产生费用。\n预览：node scripts/sample-companion.mjs --dry-run\n采样：node scripts/sample-companion.mjs --out /绝对路径/sample.json [--config alemon.config.yaml] [--endpoint 端点编号] [--limit 12] [--timeout 30000] [--corpus 合成场景.json] [--thinking default|enabled|disabled]\n默认最多3题、每轮最多256输出tokens（连续场景最多6轮）；固定一个启用的chat端点，不自动换模型，失败即停止并保留记录。\n'
     );
     return;
   }
@@ -200,6 +222,8 @@ const main = async () => {
         !item.id ||
         !Array.isArray(item.conversation) ||
         !item.conversation.length ||
+        (item.followUps !== undefined &&
+          (!Array.isArray(item.followUps) || item.followUps.length > 5 || item.followUps.some(text => typeof text !== 'string' || !text.trim()))) ||
         item.conversation.some(turn => !['user', 'assistant'].includes(turn.role) || typeof turn.text !== 'string')
     )
   )
@@ -217,7 +241,7 @@ const main = async () => {
         network: false,
         personaHash: fingerprint(dafeiyuPrompt),
         cases: corpus.cases.slice(0, limit).map(item => item.id),
-        maxOutputTokensPerCase: 256,
+        maxOutputTokensPerCase: 256 * Math.max(...corpus.cases.slice(0, limit).map(item => 1 + (item.followUps?.length || 0))),
         thinkingRequested: thinking
       }) + '\n'
     );

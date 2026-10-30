@@ -1,3 +1,4 @@
+import { providerImageError } from './provider-error';
 import { localRequestFailure } from '../dsh/errors';
 import { setTimeout as delay } from 'node:timers/promises';
 import { logger } from 'alemonjs';
@@ -95,10 +96,12 @@ export const directChat = async (
     if (!response.ok) {
       const status = response.status;
       let detail = '';
+      let imageError: ReturnType<typeof providerImageError>;
 
       try {
         const payload = (await response.json()) as { error?: { message?: unknown; code?: unknown }; message?: unknown };
 
+        imageError = providerImageError(status, JSON.stringify(payload));
         detail = (String(payload.error?.code || '') + ' ' + String(payload.error?.message || payload.message || '')).trim().slice(0, 500);
       } catch {
         // Best-effort provider diagnostic.
@@ -111,6 +114,7 @@ export const directChat = async (
       const next = refused && (current.attempt || 1) < (current.maxAttempts || 1) ? current.next?.() : null;
 
       if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
+        if (imageError) throw imageError;
         throw new Error(`模型服务返回 HTTP ${status}${detail ? `：${detail}` : ''}。`);
       }
       current = next;

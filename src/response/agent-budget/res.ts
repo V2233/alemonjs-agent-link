@@ -25,9 +25,70 @@ export default async (): Promise<void> => {
   const event = eventContext.current;
   const [message] = useMessage();
   const [route] = useRoute();
-  const config = getDSHConfig();
+
+  if (!route.matched) return;
+  let config: ReturnType<typeof getDSHConfig>;
+
+  try {
+    config = getDSHConfig();
+  } catch {
+    await message.send({
+      format: commandBubble('额度配置暂不可用，请联系机器人主人核对服务配置。当前查询未能完成。', '今日额度', {
+        platform: event.Platform,
+        actions: [
+          { label: '服务状态', command: '/状态' },
+          { label: '额度说明', command: '/帮助 额度' }
+        ]
+      })
+    });
+
+    return;
+  }
   let text = '当前未设置每日额度。';
   let actions = budgetActions(event);
+  let sources: BubbleSection[] | undefined;
+
+  if (route.rawArgs.map(String).join(' ').trim() === '帮助') {
+    await message.send({
+      format: sectionBubble(
+        '额度怎么用',
+        `${event.IsPrivate ? '本人私聊' : '当前群聊'} · ${budgetEnabled(config) ? '每日额度保护已开启' : '当前未开启每日额度保护'}`,
+        [
+          {
+            title: '查看与免扰',
+            text: '免费额度北京时间零点重置，充值余额跨天保留。群内今日免扰需管理员或主人。',
+            actions: [
+              { label: '查看额度', command: '/额度' },
+              { label: '今日免扰', command: '/额度 今日不再提醒' }
+            ]
+          },
+          {
+            title: '使用自己的钥匙',
+            text: '个人免费额度跨群和私聊共享；群与私聊充值分别使用。自带 Key 的用法见额度说明。',
+            actions: [{ label: '额度说明', command: '/帮助 额度' }]
+          },
+          ...(event.IsMaster
+            ? [
+                {
+                  title: '手动调整',
+                  text: `增加：填写元数，如 /额度 增加 2。
+设置：私聊设置本人今日免费总额度；群内设置本群今日感知预算。不会重置已用量，也不涉及实际付款。
+跨会话调整请指定目标，例如 /额度 查询 群 群ID。`,
+                  actions: [
+                    { label: '填写增加金额', command: '/额度 增加 ' },
+                    { label: '填写设置金额', command: '/额度 设置 ' },
+                    { label: '调整记录', command: '/额度 记录' }
+                  ]
+                }
+              ]
+            : [])
+        ],
+        { platform: event.Platform }
+      )
+    });
+
+    return;
+  }
 
   if (route.rawArgs.map(String).join(' ').trim() === '今日不再提醒') {
     let notice: string;
@@ -42,11 +103,22 @@ export default async (): Promise<void> => {
     } catch {
       notice = '设置未成功，请稍后重试。';
     }
-    await message.send({ format: commandBubble(notice, '额度提醒', { platform: event.Platform }) });
+    await message.send({
+      format: commandBubble(notice, '额度提醒', {
+        platform: event.Platform,
+        actions: [
+          { label: '查看额度', command: '/额度' },
+          { label: '我的权限', command: '/我的权限' }
+        ]
+      })
+    });
 
     return;
   }
   if (budgetEnabled(config)) {
+    let adjustmentReceipt = '';
+    let targetDescription = '';
+
     try {
       const command = parseBudgetCommand(route.rawArgs.map(String), event);
 
@@ -58,6 +130,17 @@ export default async (): Promise<void> => {
       const isPrivate = command.scope.channelId.startsWith('private:');
       const rechargeLabel = isPrivate ? '私聊充值' : '群充值';
       const freeLabel = isPrivate ? '个人免费总额度' : '群感知总预算';
+      const sameScope = command.scope.channelId === getConversationId(event);
+      const targetSuffix = sameScope ? '' : isPrivate ? ` 私聊 ${JSON.parse(command.scope.channelId.slice(8))[1]}` : ` 群 ${command.scope.channelId}`;
+      const queryCommand = `/额度${targetSuffix ? ' 查询' + targetSuffix : ''}`;
+      const historyCommand = `/额度 记录${targetSuffix}`;
+
+      targetDescription = sameScope ? (event.IsPrivate ? '本人私聊' : '本群') : targetSuffix.trim();
+      actions = [
+        { label: '查询目标额度', command: queryCommand },
+        ...(event.IsMaster ? [{ label: '目标调整记录', command: historyCommand }] : []),
+        { label: '操作帮助', command: '/额度 帮助' }
+      ];
       let notice = '';
 
       if (command.action === 'add' || command.action === 'set') {
@@ -77,15 +160,16 @@ export default async (): Promise<void> => {
 
         notice = `调整结果（${adjusted.day}）：${command.action === 'add' ? `${rechargeLabel}额度` : freeLabel} ${(adjusted.before / 1_000_000).toFixed(2)} → ${(adjusted.after / 1_000_000).toFixed(2)} 元。\n`;
       }
+      adjustmentReceipt = notice.trim();
       if (command.action === 'history') {
         const rows = await budgetAdjustments(command.scope, Boolean(event.IsMaster));
 
         if (!rows.length) {
           await message.send({
-            format: commandBubble('今天没有手动额度调整记录。', '今日额度', {
+            format: commandBubble(`${targetDescription}：今天没有手动额度调整记录。`, '今日额度', {
               platform: event.Platform,
               layout: 'keyboard',
-              actions: budgetActions(event)
+              actions
             })
           });
 
@@ -97,15 +181,16 @@ export default async (): Promise<void> => {
           actions: []
         }));
 
-        sections.push({
-          title: '更多',
-          text: '',
-          actions: [
-            { label: '刷新', command: '/额度' },
-            { label: '教程', command: '/帮助 额度' }
-          ]
+        await message.send({
+          format: sectionBubble('额度记录', `${targetDescription} · 最近 5 次手动调整。`, sections, {
+            platform: event.Platform,
+            actions: [
+              { label: '刷新记录', command: `/额度 ${route.rawArgs.map(String).join(' ')}` },
+              { label: '目标额度', command: queryCommand },
+              { label: '教程', command: '/帮助 额度' }
+            ]
+          })
         });
-        await message.send({ format: sectionBubble('额度记录', '最近 5 次手动调整。', sections, { platform: event.Platform, layout: 'inline' }) });
 
         return;
       }
@@ -117,22 +202,22 @@ export default async (): Promise<void> => {
           : undefined;
       const groupKey = !command.scope.channelId.startsWith('private:') ? await groupKeyStatus(command.scope) : undefined;
       const sameTarget = command.scope.channelId === getConversationId(event);
-      const target = sameTarget ? (event.IsPrivate ? '本人私聊' : '本群') : command.scope.channelId;
+      const target = targetDescription;
 
       const keyName = groupKey ? '群密钥' : '个人密钥';
       const keyCommand = groupKey ? '/我的钥匙' : '/我的钥匙 私聊';
       const money = (amount: number): string => (amount > 0 && amount < 0.01 ? '<0.01' : amount.toFixed(2));
-      const table = [
-        '| 来源 | 已用 / 上限 | 可用 |',
-        '| --- | --- | --- |',
-        ...(gate ? [`| 群感知 | ${money(gate.freeUsed)} / ${money(gate.limit)} | ${money(gate.freeRemaining)} |`] : []),
-        `| ${rechargeLabel} | ${money(value.paidUsed)} / ${money(value.paidLimit)} | ${money(value.paidRemaining)} |`,
-        ...(isPrivate || sameTarget ? [`| 个人免费 | ${money(value.personalUsed)} / ${money(value.personalLimit)} | ${money(value.personalRemaining)} |`] : [])
+      const sourceText = (used: number, limit: number, remaining: number) => `已用 ${money(used)} / 上限 ${money(limit)} 元；可用 ${money(remaining)} 元`;
+
+      sources = [
+        ...(gate ? [{ title: '群感知', text: sourceText(gate.freeUsed, gate.limit, gate.freeRemaining) }] : []),
+        { title: rechargeLabel, text: sourceText(value.paidUsed, value.paidLimit, value.paidRemaining) },
+        ...(isPrivate || sameTarget ? [{ title: '个人免费', text: sourceText(value.personalUsed, value.personalLimit, value.personalRemaining) }] : [])
       ];
 
       actions = [
-        { label: '刷新', command: '/额度' },
-        ...(event.IsMaster ? [{ label: '记录', command: '/额度 记录' }] : []),
+        { label: '刷新', command: queryCommand },
+        ...(event.IsMaster ? [{ label: '记录', command: historyCommand }] : []),
         ...(sameTarget ? [{ label: keyName, command: keyCommand }] : [])
       ];
       const intro = [notice.trim(), `${target} · ${value.day}`].filter(Boolean).join('\n');
@@ -155,12 +240,21 @@ export default async (): Promise<void> => {
         '免费额度北京时间零点重置；充值余额跨天保留。'
       ].filter(Boolean);
 
-      text = [intro, '', table.join('\n'), '', ...details].join('\n');
+      text = [intro, ...details].join('\n');
     } catch (error) {
-      text = toUserMessage(error);
+      text = adjustmentReceipt
+        ? `${targetDescription}\n${adjustmentReceipt}\n调整已保存，但最新余额暂时无法读取。请先查询目标额度核对，不要重复增加。`
+        : error instanceof Error && error.message === budgetHelp
+          ? '没有识别出这次额度操作。请先查看额度帮助，再选择查询或调整。'
+          : toUserMessage(error);
+      actions.push({ label: '操作帮助', command: '/额度 帮助' });
     }
   }
   if (getSponsors().enabled) actions.push({ label: '赞助列表', command: '/赞助列表' });
   if (budgetEnabled(config) && getAds().enabled) actions.push({ label: '广告列表', command: '/广告列表' });
-  await message.send({ format: commandBubble(text, '今日额度', { platform: event.Platform, layout: 'auto', actions }) });
+  await message.send({
+    format: sources
+      ? sectionBubble('今日额度', text, sources, { platform: event.Platform, actions })
+      : commandBubble(text, '今日额度', { platform: event.Platform, actions })
+  });
 };

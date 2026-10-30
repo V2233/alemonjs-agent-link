@@ -13,7 +13,7 @@ export const affinityModule = (config: DSHBridgeConfig): AgentModule => ({
       platform: context.platform,
       channelId: context.channelId,
       userId: context.userId,
-      personaId: String(getPersonaStore(config).selected(context) || config.modules?.settings?.persona?.defaultId || config.persona)
+      personaId: String(getPersonaStore(config).activeSelection(context) || config.modules?.settings?.persona?.defaultId || config.persona)
     });
     const available = (context: TurnContext) =>
       Boolean(context.platform && context.channelId && context.userId && !context.autonomous && scope(context).personaId === 'dafeiyu');

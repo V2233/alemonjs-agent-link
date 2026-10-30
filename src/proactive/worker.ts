@@ -1,3 +1,4 @@
+import { publicPlay } from './public-play';
 import { normalizeHobbies } from '../companion/hobbies';
 import { dirname } from 'node:path';
 import { isMaster, useConnection, useMedia, MessageDirect, ResultCode, createUserHashKey, logger } from 'alemonjs';
@@ -38,7 +39,7 @@ export const deliverProactive = async (scope: ProactiveScope, prompt: string, di
   await runDSHChat(
     {
       ...recipient,
-      IsMaster: true,
+      IsMaster: isMaster(scope.userId, scope.platform),
       ChannelId: proactiveChannel(scope),
       MessageId: dispatch.requestId,
       UserKey: createUserHashKey({ Platform: scope.platform, UserId: scope.userId })
@@ -90,8 +91,8 @@ export class ProactiveWorker {
   private current(): DSHBridgeConfig {
     return (this.services.config || getDSHConfig)();
   }
-  private owner(scope: ProactiveScope): boolean {
-    return this.services.owner ? this.services.owner(scope) : isMaster(scope.userId, scope.platform);
+  private eligible(scope: ProactiveScope): boolean {
+    return this.services.owner ? this.services.owner(scope) : Boolean(scope.platform && scope.botId && scope.userId);
   }
   private store(): ProactiveStore {
     return this.services.store || getProactiveStore(this.config);
@@ -127,7 +128,7 @@ export class ProactiveWorker {
       const scopes: ProactiveScope[] = [];
 
       for (const scope of store.list()) {
-        if (!this.owner(scope)) continue;
+        if (!this.eligible(scope)) continue;
         if (store.due(scope, await this.options(scope, config))) scopes.push(scope);
       }
 
@@ -155,11 +156,9 @@ export class ProactiveWorker {
 
     // Once autonomous hobbies are configured, their switches own independent reading.
     if (config.modules?.settings?.hobbies?.autonomous !== undefined) {
-      if (!hobbies.enabled || !hobbies.autonomous || !hobbies.bilibili || config.modules?.disabled?.includes('hobbies')) return;
-      const bili = biliOptions(config.modules?.settings?.bili || {});
-
+      if (!hobbies.enabled || !hobbies.autonomous || config.modules?.disabled?.includes('hobbies')) return;
       for (const scope of store.list()) {
-        if (excluded.has(proactiveScopeId(scope)) || !this.owner(scope) || conversationBusy(proactiveChannel(scope), conversationQueueScope(config, scope)))
+        if (excluded.has(proactiveScopeId(scope)) || !this.eligible(scope) || conversationBusy(proactiveChannel(scope), conversationQueueScope(config, scope)))
           continue;
         const reading = readingSettings(config, store, scope);
 
@@ -172,16 +171,11 @@ export class ProactiveWorker {
           const runId = store.hobbyActivity(scope)?.runId;
 
           if (!runId) continue;
-          if (!bili.enabled || !bili.allowProactiveBrowse || config.modules?.disabled?.includes('bili')) {
-            store.finishHobbyActivity(scope, runId, 'unavailable');
-
-            return;
-          }
           this.running.add(job.stop);
           const signal = AbortSignal.any([job.signal, AbortSignal.timeout(60000)]);
 
           try {
-            const result = await (this.services.browse || browseDaily)(config, scope, signal);
+            const result = await (this.services.browse || publicPlay)(config, scope, signal);
 
             store.finishHobbyActivity(scope, runId, signal.aborted ? 'cancelled' : result || 'completed');
           } catch {
@@ -206,7 +200,7 @@ export class ProactiveWorker {
       const reading = readingSettings(config, store, scope);
 
       if (!reading.enabled) continue;
-      if (!this.owner(scope) || conversationBusy(proactiveChannel(scope), conversationQueueScope(config, scope))) continue;
+      if (!this.eligible(scope) || conversationBusy(proactiveChannel(scope), conversationQueueScope(config, scope))) continue;
       const job = beginProactive(dirname(config.workspaceRoot), scope);
 
       if (!job) continue;
@@ -236,7 +230,7 @@ export class ProactiveWorker {
   async run(scope: ProactiveScope, manual = false): Promise<ProactiveResult | 'not-due' | 'offline' | 'busy' | 'disabled'> {
     const config = this.current();
 
-    if (this.closed || !proactiveEnabled(config) || config.workspaceRoot !== this.config.workspaceRoot || !this.owner(scope)) {
+    if (this.closed || !proactiveEnabled(config) || config.workspaceRoot !== this.config.workspaceRoot || !this.eligible(scope)) {
       return 'disabled';
     }
     const store = this.store();
@@ -288,7 +282,7 @@ export class ProactiveWorker {
               job.signal.aborted ||
               fresh.workspaceRoot !== config.workspaceRoot ||
               !proactiveEnabled(fresh) ||
-              !this.owner(scope) ||
+              !this.eligible(scope) ||
               !store.current(currentAttempt, await this.options(scope, fresh), manual) ||
               !(await (this.services.online || proactiveOnline)(scope))
             ) {
@@ -297,7 +291,7 @@ export class ProactiveWorker {
             job.signal.throwIfAborted();
             const latest = this.current();
 
-            if (!proactiveEnabled(latest) || latest.workspaceRoot !== config.workspaceRoot || !this.owner(scope)) {
+            if (!proactiveEnabled(latest) || latest.workspaceRoot !== config.workspaceRoot || !this.eligible(scope)) {
               return false;
             }
 
@@ -324,19 +318,20 @@ export class ProactiveWorker {
 
   private prompt(attempt: ProactiveAttempt, maxChars: number, timezone: string, canBrowse: boolean): string {
     const angles = [
-      '从实际的最近聊天里挑一件适合重提的小事，像熟悉的网友那样接上；没有合适内容就换一个轻松话题。',
+      '从实际的最近聊天里挑一件适合重提的小事，像熟悉的网友那样接上；只有新的具体进展或补充才重提；没有就沉默。',
       '根据确有来源的共同话题，说一点自己的看法或联想，可以不问问题；不要编共同经历。',
-      '随手提出一个与你稳定兴趣有关的小话题或想法；可以俏皮，也可以只说一句，不需要例行问候。'
+      '从实际阅读资料中选一个与你稳定兴趣相关的新发现，说明具体看法；没有新发现就沉默。'
     ];
     const angle = angles[Number.parseInt(attempt.id.slice(0, 8), 16) % angles.length];
 
-    return `【系统主动搭话提醒，不是主人发言】当前时间 ${new Date().toLocaleString('zh-CN', { timeZone: timezone, hour12: false })} (${timezone})。${
+    return `【系统主动搭话提醒，不是对方发言】当前时间 ${new Date().toLocaleString('zh-CN', { timeZone: timezone, hour12: false })} (${timezone})。${
       attempt.kind === 'nudge'
-        ? `你先前问过一个问题，对方暂未回复。原话仅为引用：${JSON.stringify(attempt.questionText)}。只可轻轻接一句，不能催促、抱怨或要求回应。`
-        : `主人有一段时间没有私聊了。${angle}`
+        ? `你先前问过一个问题，对方暂未回复。原话仅为引用：${JSON.stringify(attempt.questionText)}。未回复本身不是再次发言的理由。只有能补充原问题相关的新信息才轻轻接一句，否则输出 [沉默]；不能催促、抱怨或要求回应。`
+        : `对方有一段时间没有私聊了。${angle}`
     }
 ${canBrowse && attempt.kind === 'initial' ? '如果自然适合开启新话题，可先用 bili_diary 核对本会话近期已保存的阅读经历，避免重复推荐；也可以用只读的 B 站搜索和视频资料工具找一个符合兴趣的新话题，无需每次都查。已有资料足够时直接聊一处具体内容和当前看法，不写流水账，不把过去的阅读说成刚刚发生。只谈实际获取的资料，不声称看过没有读取的画面或声音，也不要评论、点赞或联系他人。' : ''}
-请保持当前人格，一到两句，总共不超过${maxChars}字符。像网友有话想说，不用每次“在吗”“吃了吗”，也不用每条末尾追问；兴趣随当前人格自然表达，不套固定台词。不得编造今天做过的现实事情或假装主人刚才找你。觉得对方忙或没有合适内容时，只输出 [沉默]。不要解释调度机制。`;
+发言前先核对具体依据：新的阅读发现、共同话题的新进展或有内容的观点修正。单纯空闲、随机想起旧事、例行问候不足以开口；已暂停、取消或用户已经报告完成的事项不再追问。不要为了获得回复重复提问；没有依据只输出 [沉默]。
+请保持当前人格，一到两句，总共不超过${maxChars}字符。像网友有话想说，不用每次“在吗”“吃了吗”，也不用每条末尾追问；兴趣随当前人格自然表达，不套固定台词。不得编造今天做过的现实事情或假装对方刚才找你。觉得对方忙或没有合适内容时，只输出 [沉默]。不要解释调度机制。`;
   }
 }
 

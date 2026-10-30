@@ -3,7 +3,7 @@ import { useEvent, useMessage } from 'alemonjs';
 import { personalKeyGuide } from '../../billing/help';
 
 export default async (): Promise<void> => {
-  const [eventContext] = useEvent({ selects: 'private.message.create' });
+  const [eventContext] = useEvent({ selects: ['private.message.create', 'message.create'] });
 
   if (!eventContext.match.selects) {
     return;
@@ -11,6 +11,20 @@ export default async (): Promise<void> => {
 
   const event = eventContext.current;
   const [message] = useMessage();
+
+  if (!event.IsPrivate) {
+    await message.send({
+      format: commandBubble('公共密钥的配置与移除请由机器人主人在私聊查看指引。群内请勿发送真实密钥。', '公共密钥说明', {
+        platform: event.Platform,
+        actions: [
+          { label: '我的权限', command: '/我的权限' },
+          { label: '额度说明', command: '/帮助 额度' }
+        ]
+      })
+    });
+
+    return;
+  }
 
   if (!event.IsMaster) {
     await message.send({
@@ -27,12 +41,16 @@ export default async (): Promise<void> => {
   }
 
   await message.send({
-    format: commandBubble('在 alemon.config.yaml 的 alemonjs-agent-link 中填写 apiKey，可选填 baseUrl。保存即生效，请勿在聊天中发送公共密钥。', '密钥配置', {
-      platform: event.Platform,
-      actions: [
-        { label: '模型列表', command: '/模型列表' },
-        { label: '当前模型', command: '/当前模型' }
-      ]
-    })
+    format: commandBubble(
+      '这里只提供配置说明，尚未修改公共密钥。\n由主人在 alemon.config.yaml 的 alemonjs-agent-link 中填写 apiKey，可选填 baseUrl。保存后可查看当前模型核对，请勿在聊天中发送公共密钥。',
+      '密钥配置',
+      {
+        platform: event.Platform,
+        actions: [
+          { label: '模型列表', command: '/模型列表' },
+          { label: '当前模型', command: '/当前模型' }
+        ]
+      }
+    )
   });
 };

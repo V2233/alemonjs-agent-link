@@ -1,0 +1,841 @@
+{
+  "note": "Partial runtime evidence only. Source/test hashes bind this review to inspected code. Never treat a current hash as full acceptance.",
+  "files": {
+    "src/response/agent-memory/res.ts": {
+      "sourceHash": "9ae063fcfb613ae54c7f20bed439e99f041a0d8eb7f1724ba36b6c331b6d7d79",
+      "tests": {
+        "test/memory-bubbles.test.mjs": "4da8874e583aacff9a9a536fab4e3b885972017ca69789e31be8f1e05806adc6"
+      },
+      "covered": [
+        "Private list: 13 records across 3 pages, overflow page clamp, invalid page input"
+      ],
+      "pending": [
+        "Empty state and actual mutations",
+        "Very long explicit note values",
+        "Real QQ client display"
+      ]
+    },
+    "src/response/memory-tools/res.ts": {
+      "sourceHash": "277b42f8510517b350bc3317743626804d38481300241207af06b8aef1ca790d",
+      "tests": {
+        "test/memory-bubbles.test.mjs": "4da8874e583aacff9a9a536fab4e3b885972017ca69789e31be8f1e05806adc6"
+      },
+      "covered": [
+        "Group active and outdated list pagination",
+        "Complete source text, all 4 sources reachable, invalid input and foreign conversation denied",
+        "Owner versus ordinary group member restore actions"
+      ],
+      "pending": [
+        "Consolidation failure and stale runtime branches",
+        "Search ranking and input guidance",
+        "Actual restore and forget command writes",
+        "Real QQ client display"
+      ]
+    },
+    "src/response/agent-help/res.ts": {
+      "sourceHash": "d817f0dda168fbdb1c6c44100f24b14a65d6417b69ec6176148f1535672cdafa",
+      "tests": {
+        "test/bubble-copy.test.mjs": "3407ce44b15c39b911f27dd3e6367e532dd788044db013acecf81573985fb926",
+        "test/command-bubble.test.mjs": "6545452e8f07222c1d6a755c2dd8ec65cdd9288b82234b66ef3ee7e23000af51"
+      },
+      "covered": [
+        "Seven topic role and context matrix",
+        "QQ serialization and OneBot text fallback",
+        "No fixed keyboard bar and topic length bound"
+      ],
+      "pending": [
+        "End-to-end click-through of every help action",
+        "Real QQ client display"
+      ]
+    },
+    "src/response/agent-persona/res.ts": {
+      "sourceHash": "3219593d8b115a2075e26f12526dd39188708f45e0c90e60272749c52256882a",
+      "tests": {
+        "test/bubble-copy.test.mjs": "3407ce44b15c39b911f27dd3e6367e532dd788044db013acecf81573985fb926",
+        "test/persona-additions.test.mjs": "d14545739700299fdedda65fcc8ef896dac19c1dbf593bc67c5bb479dcfc824c",
+        "test/command-rights.test.mjs": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a",
+        "test/setup-bubbles.test.mjs": "aaf59886f8a4136609527a5c862b4c6845ede403c7a01c3c6531cc32147289d8"
+      },
+      "covered": [
+        "Owner help and ordinary group help",
+        "Input errors and associated recovery actions",
+        "Existing persona additions and rights regression",
+        "Shared-template save journey: incomplete fields preserve original prompt; successful save returns to details",
+        "Trailing delete content rejected without mutation; missing-template read offers recovery",
+        "QQ serialized help commands and OneBot copyable help output",
+        "Shared template destructive preview, cancellation, fresh one-shot confirmation and changed-content rejection; real local deletion and additions clear",
+        "Four destructive operations: actual handler rejects confirmations after 61 seconds, different bot and separate workspace with identical seeded data; templates/additions/group settings remain intact"
+      ],
+      "pending": [
+        "Every template management success and error branch",
+        "Long template output",
+        "Real QQ client display",
+        "Delete with active conversation reset; configured default deletion refusal; cross-user confirmation"
+      ]
+    },
+    "src/response/agent-sticker/res.ts": {
+      "sourceHash": "ae972d2d9c212f0b1d5f7b3e88283b2b22b771ab70b028f3290a3a4edd2ad9fa",
+      "tests": {
+        "test/bubble-copy.test.mjs": "3407ce44b15c39b911f27dd3e6367e532dd788044db013acecf81573985fb926"
+      },
+      "covered": [
+        "Owner versus ordinary group member help; QQ transport hides OneBot favorites"
+      ],
+      "pending": [
+        "List with concrete assets",
+        "Live favorite import, sync and delete",
+        "Permission failure and media delivery failure",
+        "Real QQ client display"
+      ]
+    },
+    "src/response/master/res.ts": {
+      "sourceHash": "1e34035584821128553d375d9062c01c492aefe1c73accfdb7eb254c9ad8b66b",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1"
+      },
+      "covered": [
+        "Owner status offers management instead of re-verification",
+        "Malformed verification input, strict issue-command grammar",
+        "Valid identity-bound challenge grants owner in isolated test configuration"
+      ],
+      "pending": [
+        "Code issuance and delivery failure",
+        "Configuration save failure",
+        "Real QQ display"
+      ]
+    },
+    "src/response/personal-login/res.ts": {
+      "sourceHash": "b1283d72ab13737660f987d7347bcfd62e9657145725fe97b6a00c3f21bed251",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1"
+      },
+      "covered": [
+        "Invalid input provides QR login entry",
+        "Cancel with no active task does not claim logout"
+      ],
+      "pending": [
+        "Live QR lifecycle",
+        "Redis account status and mutations",
+        "Account failures before versus after local deletion",
+        "Real QQ display"
+      ]
+    },
+    "src/response/agent-speech/res.ts": {
+      "sourceHash": "953385cef380ded542b21a696769cd5b753a409a7da4e5d0077829a2e9eea50c",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1"
+      },
+      "covered": [
+        "Owner/private permission check",
+        "Read-only status without model configuration",
+        "Invalid install arguments do not start installation",
+        "Disabled module links to module status"
+      ],
+      "pending": [
+        "Engine installation success/failure",
+        "Real audio delivery and fallback",
+        "Real QQ display"
+      ]
+    },
+    "src/response/agent-model/res.ts": {
+      "sourceHash": "836fc56461c4d15d2f97c8d60ed949dc2bde0a1b6f1d0b68176a5168d281e236",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1"
+      },
+      "covered": [
+        "Ordinary user denied with rights navigation",
+        "Default single-key overview without table",
+        "Read-only model configuration guidance explicitly not applied",
+        "Extra arguments rejected"
+      ],
+      "pending": [
+        "Pool status with multiple endpoint states",
+        "Configuration failure branch",
+        "Real QQ display"
+      ]
+    },
+    "src/response/dsh/chat.ts": {
+      "sourceHash": "914cd605c1493c4881696bfb7150217d0c0844e9511b7def388c8e5e59d7f7bf",
+      "tests": {
+        "test/chat-failure-bubbles.test.mjs": "7f9832f86850b8dff902aa64b161220086a24d35b9337eb774a295079823af5f",
+        "test/group-chat.test.mjs": "91eee7206ba8313e161579049269116b48fe5eb9c1c98c0d85598298bec3d80b"
+      },
+      "covered": [
+        "Injected conversation-storage failure: accurate stage and actionable retry",
+        "Unsolicited group response remains silent on context failure",
+        "Group streaming and delivery failure regression"
+      ],
+      "pending": [
+        "All credential and media error branches",
+        "Long media fallback text",
+        "Real platform delivery"
+      ]
+    },
+    "src/proactive/worker.ts": {
+      "sourceHash": "c6a3d262395e0dbec2213bc556a1c72981b5d8922c48469aae2c615732e49796",
+      "tests": {
+        "test/proactive.test.mjs": "2c79ebcbb697c8e519191941082701e33be11f6a399a3f67c5769ce571a2382d"
+      },
+      "covered": [
+        "Existing worker integration cases including native send fixture",
+        "Tool browsing receipts summarized with tools disabled after two rounds",
+        "Cancellation and memory reading integration regression"
+      ],
+      "pending": [
+        "Live platform delivery",
+        "Real autonomous scheduling and client presentation"
+      ]
+    },
+    "src/dsh/qq-stream.ts": {
+      "sourceHash": "2c8d9626fbd4bb603106b8091dbe4106a656f8075971f152450ed56652b07407",
+      "tests": {
+        "test/qq-stream.test.mjs": "8df5ab240cd0b0ad450ec9fcd74485bdd3ba00225791f21217aae0ccf7e50a58"
+      },
+      "covered": [
+        "Existing QQ stream adapter tests, failure and cancellation regression"
+      ],
+      "pending": [
+        "Actual QQ client rendering and partial update display"
+      ]
+    },
+    "src/response/agent-purge/res.ts": {
+      "sourceHash": "b8eed86de9f3ac87677e93d9832fdb9baae82631a5e7bef1a9e4d69e724383b2",
+      "tests": {
+        "test/bubble-copy.test.mjs": "3407ce44b15c39b911f27dd3e6367e532dd788044db013acecf81573985fb926",
+        "test/bubble-confirmations.test.mjs": "33e91d7253405d736f738aa453d7775fc456257a983e4d93e0cb1f18bfa8d030"
+      },
+      "covered": [
+        "Preview states raw channel identifier scope across bot/platform variants",
+        "Cancel, expiry, actor scope and strict confirmation grammar",
+        "Preview length and action labels"
+      ],
+      "pending": [
+        "Actual full purge command against isolated bridge and stores",
+        "Partial purge failure recovery",
+        "Real QQ display"
+      ]
+    },
+    "src/response/agent-privacy/res.ts": {
+      "sourceHash": "d7a4a243bbaa4b19b4bad6fdde0fd1a2df2fa1a1f75cb034021b4b16df7ae821",
+      "tests": {
+        "test/bubble-copy.test.mjs": "3407ce44b15c39b911f27dd3e6367e532dd788044db013acecf81573985fb926"
+      },
+      "covered": [
+        "Private/group owner/member action matrix; scoped memory navigation",
+        "Destructive actions open preview only; no confirmation commands exposed",
+        "OneBot copyable instruction and QQ input guidance; compact-message length budget"
+      ],
+      "pending": [
+        "Group administrator role lookup and failure injection",
+        "Every privacy action through actual router",
+        "Real QQ client layout"
+      ]
+    },
+    "src/dsh/client.ts": {
+      "sourceHash": "d40910948d728ad41cca4ddeeafc387833ec0c84b566acb073c3a5afd637c3e2",
+      "tests": {
+        "test/dsh-bridge.test.mjs": "4dfc46f1e91e888b19775d62a10c4460bf5218a7dac03a5890a23949d752339b",
+        "test/agent-timeout.test.mjs": "d685126adb73fa69a740f7968d94c668c3d804d381519801209cf5ec754bf326"
+      },
+      "covered": [
+        "Failure kind-specific public messages conceal internal diagnostics",
+        "Timeout preserves uncertainty for write operations",
+        "New failure copy remains excluded from learning"
+      ],
+      "pending": [
+        "Other callers and retry controls per failure category"
+      ]
+    },
+    "src/response/agent-mood/res.ts": {
+      "sourceHash": "6ca5bb8354dccc19aa01726b438e3c410eeeb9c8d3daa91e3b047373c0e40131",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/list-detail-bubbles.test.mjs": "7846744b244eeac8532fcb250b3a53c350a20f336b93c87a9eb497b485229e3c"
+      },
+      "covered": [
+        "Seeded mood history displays timestamp and delta as readable rows without table",
+        "Invalid mood arguments are read-only guidance; owner scope visible",
+        "Explicit owner-only private access yields denial guidance; disabled module avoids history view",
+        "Invalid runtime config returns status recovery; existing history/context display regression"
+      ],
+      "pending": [
+        "Actual mood database failure and missing-identity handler branches",
+        "Group/admin and private bound-Key entitlement matrix",
+        "Real QQ client layout"
+      ]
+    },
+    "src/response/agent-context/res.ts": {
+      "sourceHash": "717b948528d4a294a173d28b39327e47b4249aff04d95c4859db575b84bc0f92",
+      "tests": {
+        "test/list-detail-bubbles.test.mjs": "7846744b244eeac8532fcb250b3a53c350a20f336b93c87a9eb497b485229e3c"
+      },
+      "covered": [
+        "Actual scoped context record appears in preview without model instructions"
+      ],
+      "pending": [
+        "Empty, failure and role matrix",
+        "Real QQ display"
+      ]
+    },
+    "src/response/agent-sponsors/res.ts": {
+      "sourceHash": "541a9598d48a4afe5966e0780113bedb782e6be7b2a8ce65e3706b41e8283674",
+      "tests": {
+        "test/list-detail-bubbles.test.mjs": "7846744b244eeac8532fcb250b3a53c350a20f336b93c87a9eb497b485229e3c"
+      },
+      "covered": [
+        "Six long sponsor records keep list previews bounded",
+        "Full detail is chunked, external link preserved, return goes to original page",
+        "Missing sponsor detail returns to list"
+      ],
+      "pending": [
+        "Empty, disabled and invalid page cases",
+        "Real QQ display"
+      ]
+    },
+    "src/response/agent-ads/res.ts": {
+      "sourceHash": "23c42a073dbee3cf6989f64c0a760b7289cbad316f7ef7a15664f7dc576a5a33",
+      "tests": {
+        "test/ads-commands.test.mjs": "036246420ec59cd0f26718587f6123834d5e2d3f095983aea987047c9c9c5877"
+      },
+      "covered": [
+        "List works in private and group, stays silent when disabled",
+        "Second detail chunk delivery failure stops before reward step"
+      ],
+      "pending": [
+        "Real Redis credit success and idempotent retry",
+        "Real QQ display"
+      ]
+    },
+    "src/response/agent-policy/res.ts": {
+      "sourceHash": "811c425acf25edfbbe9c656e7f3decbff9a308dcf3b5307735eb1c5f6f04118d",
+      "tests": {
+        "test/policy-bubbles.test.mjs": "f542216b81ba260ec6aaba92149947cab95033d2effc5197c4f3c77e9f751f0a"
+      },
+      "covered": [
+        "Malformed mutations and terminal requests leave local permissions unchanged",
+        "Private scope and non-owner guidance; only opposite state toggle shown"
+      ],
+      "pending": [
+        "Successful mutation and reset failure branches",
+        "Bound Key automatic entitlement in Redis integration",
+        "Real QQ client display"
+      ]
+    },
+    "src/response/agent-modules/res.ts": {
+      "sourceHash": "539026a76a17bc3df5a82147a5c81a63f03ea5bfae6ac0a7dba0fef6ba4c7c2b",
+      "tests": {
+        "test/policy-bubbles.test.mjs": "f542216b81ba260ec6aaba92149947cab95033d2effc5197c4f3c77e9f751f0a",
+        "test/router-leading-space.test.mjs": "0481ac82c9729bdadb984d7de41f5d5e42ae4ecdaa69b53f5d5a96e57ca9e978"
+      },
+      "covered": [
+        "Owner/private enforcement and invalid page inputs",
+        "First and overflow pages; both aliases reach group guidance through router"
+      ],
+      "pending": [
+        "Module load failure detail and empty registry",
+        "Real QQ client display"
+      ]
+    },
+    "src/response/agent-context-clear/res.ts": {
+      "sourceHash": "8cd7d0bf1447621a70ec0d3b6c30728fdf911c1a07e183d72e499a36fd325c66",
+      "tests": {
+        "test/list-detail-bubbles.test.mjs": "7846744b244eeac8532fcb250b3a53c350a20f336b93c87a9eb497b485229e3c"
+      },
+      "covered": [
+        "Trailing arguments leave stored context unchanged",
+        "Scoped clear preserves other bot context; new-message behavior explained",
+        "Injected storage failure offers verification instead of claiming success"
+      ],
+      "pending": [
+        "Actual router clear path and role denial",
+        "Redis backend failure behavior",
+        "Real QQ client display"
+      ]
+    },
+    "src/response/ai-switch/res.ts": {
+      "sourceHash": "f63184a64ae46a41cba500ed83072703144bf1ee839cd00f49167cde473e2701",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/ai-switch.test.mjs": "9d2bef517904ad6a305c1e4c865569021ac9632c1a601fb152289a58ac4ccbe4"
+      },
+      "covered": [
+        "Owner-only switch errors use neutral title; ordinary members receive public actions only",
+        "Invalid enable args and oversized disable reason do not claim success",
+        "Underlying AI-switch persistence, unrelated settings preservation and request blocking regression"
+      ],
+      "pending": [
+        "Rendered success bubble after real config save",
+        "Injected write failure and real QQ display"
+      ]
+    },
+    "src/response/agent-new/res.ts": {
+      "sourceHash": "cb9e749d53f59a8a3b46f96c96a76cd8576f0fa5e8d1d422f87f0106ad050d94",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1"
+      },
+      "covered": [
+        "Attached questions rejected before reset with separate new-topic and question guidance"
+      ],
+      "pending": [
+        "Successful reset and failed reset behavior",
+        "Private access and group-role denial through actual router",
+        "Real QQ display"
+      ]
+    },
+    "src/response/agent-cancel/res.ts": {
+      "sourceHash": "edfb51a04fd019432af7aba254421a4d00e3ed5664ee34d53b506d39205b7fbf",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1"
+      },
+      "covered": [
+        "Invalid args do not abort an actual running queue job",
+        "Valid actor cancellation aborts the running signal; completed queue returns empty message",
+        "Missing identity returns guidance; no fixed bar"
+      ],
+      "pending": [
+        "Queued job cancellation and foreign-member denial through handler",
+        "Group pending/coordinator cancellation wording integration",
+        "Injected role/coordinator failure and real QQ client display"
+      ]
+    },
+    "src/response/agent-bind/res.ts": {
+      "sourceHash": "6e2e0ff079e7e096496c1fef335de6d8549d3f199d7cb4c8bf2a68d1e5f08e30",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/router-leading-space.test.mjs": "0481ac82c9729bdadb984d7de41f5d5e42ae4ecdaa69b53f5d5a96e57ca9e978"
+      },
+      "covered": [
+        "Owner guide explicitly states no mutation; arguments not echoed",
+        "Personal member action; both group aliases reach private-entry guidance"
+      ],
+      "pending": [
+        "Real QQ display and config guidance click-through"
+      ]
+    },
+    "src/response/agent-unbind/res.ts": {
+      "sourceHash": "cb11d2e85eab695f814809a456ec91b0b078c2e4b39fa05552c72a6593282ce7",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/router-leading-space.test.mjs": "0481ac82c9729bdadb984d7de41f5d5e42ae4ecdaa69b53f5d5a96e57ca9e978"
+      },
+      "covered": [
+        "Owner guide explicitly states no deletion and distinguishes personal keys",
+        "Personal member action; both group aliases reach private-entry guidance"
+      ],
+      "pending": [
+        "Real QQ display and config guidance click-through"
+      ]
+    },
+    "src/response/agent-models/res.ts": {
+      "sourceHash": "e1fb16dc8ec3ad64576dfc87201e40e7f041b6cb4684a11b40fd9337f9dbf1b3",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/dsh-bridge.test.mjs": "4dfc46f1e91e888b19775d62a10c4460bf5218a7dac03a5890a23949d752339b"
+      },
+      "covered": [
+        "Invalid page inputs rejected before network; member recovery actions",
+        "Existing provider model list unit regression",
+        "Actual handler with controlled provider: 17 models across 3 pages, overflow clamped",
+        "Empty response distinguished from provider 403 and malformed payload; no sensitive diagnostic echoed",
+        "Current model recovery action available on successful and empty lists"
+      ],
+      "pending": [
+        "Actual external provider and QQ client rendering"
+      ]
+    },
+    "src/response/agent-status/res.ts": {
+      "sourceHash": "fa4782f6d96ae5da7cfc2f9df8afe553fe915b0ba5f377170ab70461fdf8ced0",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/bubble-copy.test.mjs": "3407ce44b15c39b911f27dd3e6367e532dd788044db013acecf81573985fb926"
+      },
+      "covered": [
+        "Malformed status args rejected before runtime initialization",
+        "Details limited to owner private chat with public recovery actions",
+        "Owner overview size and diagnostic opt-in regression"
+      ],
+      "pending": [
+        "Real supervisor startup and OneBot connection errors",
+        "Actual owner details rendering with group-permission guidance",
+        "Real QQ display"
+      ]
+    },
+    "src/dsh/models.ts": {
+      "sourceHash": "b66078602095eed62e841b35d78d9117217237a526e238677a853eab8fe8ea09",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/dsh-bridge.test.mjs": "4dfc46f1e91e888b19775d62a10c4460bf5218a7dac03a5890a23949d752339b"
+      },
+      "covered": [
+        "Controlled provider empty array returns empty result; malformed data rejects",
+        "Existing selected-provider URL, deduplication and sorting regression"
+      ],
+      "pending": [
+        "Actual external provider response and timeout behavior"
+      ]
+    },
+    "src/response/agent-token-usage/res.ts": {
+      "sourceHash": "db7fa4a6737cacd79a6a56fa2159f8e297eed5f96b24c660cd3e87a92f78fd84",
+      "tests": {
+        "test/token-usage-command.test.mjs": "2e5e5e4a678757b84d5255c04b3a98d931dbf27699463d12f490141224a9c91c",
+        "test/token-usage.test.mjs": "401db52f42c0986bd697070bb253a91d9b21fba570f91bf35222be0aab71572e"
+      },
+      "covered": [
+        "Owner private day/month/year/all and explicit calendar period queries",
+        "Public denial with no totals or key id; structured help and no fixed bar",
+        "Empty date has explicit no-calls message; invalid date and extra arguments return recovery or help",
+        "Durable usage ledger and key deletion regression"
+      ],
+      "pending": [
+        "Actual database unavailable branch and rendered QQ/OneBot navigation",
+        "Per-key frontend and live platform usage comparison"
+      ]
+    },
+    "src/response/agent-intelligence/res.ts": {
+      "sourceHash": "dba5efc17db07dc937fb5558b87845801ada57b898616f93c683857eecc9e958",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/command-rights.test.mjs": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a",
+        "test/intelligence.test.mjs": "398b06e8bb0c6adf9d3c080c556c48980f5ae2fbbd700b731f2494cc875366ce"
+      },
+      "covered": [
+        "Permission query arguments explicitly rejected without changing intelligence setting",
+        "Invalid level input offers settings; owner menu explains all levels and consumption implications",
+        "Identity/config/role exceptions enter recovery bubble; missing identity hides internal diagnostic",
+        "Existing intelligence limits, default inheritance and permission regression"
+      ],
+      "pending": [
+        "Bound Key owner and group admin handler matrix with actual Redis credentials",
+        "Injected settings persistence failure",
+        "Real QQ client display"
+      ]
+    },
+    "src/response/agent-budget/res.ts": {
+      "sourceHash": "c2ee6e47d93438af2e352b32f597c9bfaccf091ea75352edfcab04b9a49904e0",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/budget-bubbles.integration.test.mjs": "513892d60a433658414b0f2d8124b25d357799bbe54f1d2e854d3f3eedcf838c",
+        "test/budget.test.mjs": "cfa18b2a6485163c4056b27563e18b9716dfecc18929f47144739302581fe7d0"
+      },
+      "covered": [
+        "Structured budget help available even when protection is disabled",
+        "Owner-only adjustment actions; member help preserves reset and carryover facts",
+        "Budget parser and pricing regression; no fixed bar in help",
+        "Actual isolated Redis handler: private/group source sections, recharge adjustment and history, member mutation refusal, malformed amount recovery",
+        "Actual group-owner daily mute and recovery actions",
+        "Injected storage read failure hides diagnostics and offers help; invalid runtime config produces usable bubble",
+        "Actual Redis remote-group adjustment/history and remote-user query retain correct refresh target",
+        "Injected balance read failure after successful recharge retains adjustment receipt, warns against duplicate adds, and links exact target",
+        "After restoring reads, target wallet confirms the recharge persisted"
+      ],
+      "pending": [
+        "Bound-Key priority handler matrix",
+        "Group administrator versus ordinary member daily-mute handler matrix",
+        "Interrupted adjustment before manageBudget returns",
+        "Real QQ display"
+      ]
+    },
+    "src/response/keyring/res.ts": {
+      "sourceHash": "ffdab3941dd5eaeddf0ce4e015eb892340024382745952905c7466a5c0686dd0",
+      "tests": {
+        "test/command-rights.test.mjs": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a"
+      },
+      "covered": [
+        "Actual isolated Redis grant pagination, limit guide preserves page, last-page deletion clamps return page; all record assertions inspect built message contents"
+      ],
+      "pending": [
+        "Other keyring command branch matrix",
+        "Actual QQ display"
+      ]
+    },
+    "src/response/agent-proactive/res.ts": {
+      "covered": [
+        "Handler no-subscription/closed-subscription resume guidance; closed subscription not reported restored",
+        "Pause 0 and 10081 rejected, valid 60-minute pause and resume journey",
+        "Member rejection exposes public recovery entries only",
+        "Existing proactive scheduling, delivery and reading worker regression",
+        "Own diary readable by ordinary user with same identity; different user sees no stored diary; no model requests"
+      ],
+      "pending": [
+        "Handler global-disabled resume wording after changing configuration",
+        "Reading settings and diary full handler matrix",
+        "Actual proactive delivery client and QQ display"
+      ],
+      "sourceHash": "bb697de5bd159529cf178cb346f4d30ca37aa0793b2fd7971e95177605361aed",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/proactive.test.mjs": "2c79ebcbb697c8e519191941082701e33be11f6a399a3f67c5769ce571a2382d",
+        "test/bubble-copy.test.mjs": "3407ce44b15c39b911f27dd3e6367e532dd788044db013acecf81573985fb926"
+      }
+    },
+    "src/response/agent-group-settings/res.ts": {
+      "sourceHash": "fb1512a294da1667b5ecc89c076c278f8ad1cdea9b37b033fc0c50a0682f5fb2",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "aaf59886f8a4136609527a5c862b4c6845ede403c7a01c3c6531cc32147289d8",
+        "test/command-rights.test.mjs": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a",
+        "test/group-settings.test.mjs": "a1ca296ca50b2ffd0b5b5d12e523e6be3f7f9735cf62613dbcc3ec780c0cc227",
+        "test/group-topics.test.mjs": "dea07e9381f764f513a04bb1cf67228b14dd24eab92af4d79ae0075f0509f6ed",
+        "test/bubble-pagination-router.test.mjs": "da185596eaa6ea3b63a8940aaabcbd628d0d07b8fd94ef19c41e9248b944569c"
+      },
+      "covered": [
+        "Invalid trailing args in voice, activity alias, reset, word clear, persona clear, hourly limit and read query preserve stored settings",
+        "Public persona view has no edit/clear actions; editable view offers input entry",
+        "Private misuse and unknown action have usable navigation; existing voice/list help role checks",
+        "Local group settings and rights plus isolated Redis grant tests regression",
+        "Group voice structured help; actual close/automatic-on/status/reopen handler journey",
+        "Voice permission is not advertised as tested synthesis; automatic permission explicitly inactive while voice disabled",
+        "Restore action label matches actual behavior of enabling both permissions",
+        "Reset preview preserves saved settings; cancellation and direct confirmation do not reset",
+        "Cross-user reset confirmation refused; changes after preview invalidate confirmation",
+        "Fresh confirmation resets local settings and cannot replay",
+        "Group persona clear: preserved-scope preview, direct/cancelled confirmation rejection, changed-content guard, successful clear and empty state",
+        "Wake/banned list handler: 12 entries across three pages, overflow clamp, invalid page rejection",
+        "Word-specific delete and add entries hidden from ordinary member; deletion updates only selected list",
+        "List intros distinguish extra wake words and bot-output-only filtering",
+        "Word help/add/delete journey: empty add preserves state, missing deletion returns list, delete last item on page returns preceding page, actual add merges list",
+        "Group topic structured profile and toggles, owner-only edit/candidate/collect actions",
+        "Empty positioning guide, actual positioning save and malformed read argument rejection",
+        "Five actual news candidates across two pages; overflow clamp, bounded preview, full-detail preservation, missing candidate recovery",
+        "News empty form describes fields/recency/length and supplies input entry; public sources use HTTPS link action",
+        "Added topic-candidate paginator route round-trip; actual news add and duplicate response preserve candidate navigation",
+        "Four destructive operations: actual handler rejects confirmations after 61 seconds, different bot and separate workspace with identical seeded data; templates/additions/group settings remain intact"
+      ],
+      "pending": [
+        "Other group field success/failure and history branches",
+        "Maximum-length word and persona content platform serialization",
+        "Actual group administrator authorization and QQ display",
+        "Topic candidate/news/collection complete bubble journeys and actual upstream collection",
+        "New topic paginator actual router round-trip",
+        "News successful ingestion/duplicate error bubble and real upstream collection"
+      ]
+    },
+    "src/response/dsh/res.ts": {
+      "sourceHash": "bf7333a8f7df9e3ae895284e926e41f8a958f21bcb1ad2f87c66ee9273017abe",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/router-leading-space.test.mjs": "0481ac82c9729bdadb984d7de41f5d5e42ae4ecdaa69b53f5d5a96e57ca9e978",
+        "test/chat-failure-bubbles.test.mjs": "7f9832f86850b8dff902aa64b161220086a24d35b9337eb774a295079823af5f"
+      },
+      "covered": [
+        "Invalid-config ambient group message is silent and passes through",
+        "Configuration failure actions no longer advertise unrelated quota controls",
+        "Actual group-message event: explicit IsAtMe config failure receives feedback; ambient config failure passes through silently",
+        "Configuration read after mention parsing now caught before any chat request"
+      ],
+      "pending": [
+        "Quoted-bot configuration error matrix",
+        "Custom wake name behavior during unavailable config",
+        "Actual platform delivery"
+      ]
+    },
+    "src/response/private-chat/res.ts": {
+      "sourceHash": "8cecba9a97c7acda1a453b00dc3c64ea1f818ab15b6d126e9e3e3b7d786738b1",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "c21ff0db8db8b869350a1b790638d356f55d73b70e388732bb7d95b3112a85e1",
+        "test/router-leading-space.test.mjs": "0481ac82c9729bdadb984d7de41f5d5e42ae4ecdaa69b53f5d5a96e57ca9e978",
+        "test/chat-failure-bubbles.test.mjs": "7f9832f86850b8dff902aa64b161220086a24d35b9337eb774a295079823af5f"
+      },
+      "covered": [
+        "Private invalid-config feedback exposes public status/chat help; credential configuration visible only to owner",
+        "No unrelated daily mute or key activation guidance on config failures"
+      ],
+      "pending": [
+        "Valid-config private automatic reply integration",
+        "Actual platform delivery"
+      ]
+    },
+    "src/response/bubble.ts": {
+      "sourceHash": "da0b1aa8ab95dee3f2a1afed13c42d70d4850db698efe706eeb7696b8fd2ceb6",
+      "tests": {
+        "test/bubble-pagination-router.test.mjs": "da185596eaa6ea3b63a8940aaabcbd628d0d07b8fd94ef19c41e9248b944569c"
+      },
+      "covered": [
+        "All four shared paginator callers: generated button command extracted and dispatched through real router to page 2 and back; word list, persona templates, private memories, actual encrypted Redis key library",
+        "Added topic-candidate paginator route round-trip; actual news add and duplicate response preserve candidate navigation"
+      ],
+      "pending": [
+        "Real QQ client rendering and click behavior",
+        "All renderer option/error boundary cases"
+      ]
+    },
+    "src/state/registry.ts": {
+      "sourceHash": "ea770fa91fcf8acc0861f30dc4ad31f2cec6591c442ef40832e64f34ca6ec4b8",
+      "tests": {
+        "test/private-history.integration.test.mjs": "5593b2e2903750be2ab89950094edf67e9665bbdbd54b134213fb6440ea99afd"
+      },
+      "covered": [
+        "Actual Redis private-history role pairs and size compaction into summary plus complete tail",
+        "Generation/transition guards, expiration, cross-conversation isolation and deletion",
+        "Explicit private memory capacity, duplicate/remove/clear semantics and preservation across new topic"
+      ],
+      "pending": [
+        "Identical-timestamp compaction boundary review",
+        "Backend semantics do not verify command bubbles or actual QQ display"
+      ]
+    },
+    "src/response/agent-pool/res.ts": {
+      "sourceHash": "b7920e236b3ff2db00881c2fb04d93176d68b43f29b5a9d1636ed008188e4fd5",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "61d1c30396fd3e20333d9210e7fc6b8cbf9275fd47245d45a5b503f3d3e8e62d",
+        "test/agent-pool-lifecycle.test.mjs": "4f50b5d4adf7e96b38cea0950e3a7711fc85f3e1f343f1b93770d5958c8bff91",
+        "test/pool-bubble-settings.test.mjs": "8cda069485444fffdbeea7de74b1672ba772189d482987b7772f7bd3c5989b39"
+      },
+      "covered": [
+        "Malformed page input rejected before configuration/provider access",
+        "Non-owner denial exposes public status/rights entries",
+        "Existing credential lifecycle round/reservation regression",
+        "Actual temporary admin config: second-page endpoint disable/enable persisted, return command page 2, unknown id leaves file identical",
+        "Injected runtime reload failure message retained; key and unrelated settings preserved and secret not echoed",
+        "Actual handler/service with controlled upstream: balance success then 403 does not reuse previous amount; probe/models and full chat check receive 401 and pool is unhealthy",
+        "All probe/balance feedback retains endpoint page 2; refreshed page 2 does not expose fixture credentials or upstream diagnostic"
+      ],
+      "pending": [
+        "Actual external provider probe and balance behavior",
+        "Transport failure after actual endpoint config write",
+        "Real QQ display"
+      ]
+    },
+    "src/response/agent-chat/res.ts": {
+      "sourceHash": "73eab61c408645ea623f66fcf37c8c3beac26c459582884fc356ac60022cc376",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "f4803c960210a715c82edc2ee78fdf20a33970d3c8cbdb40cbf404fcb06a6507"
+      },
+      "covered": [
+        "Private empty question guidance",
+        "Group missing identity feedback; ordinary member/admin new-topic action matrix"
+      ],
+      "pending": [
+        "Normal generation and queue behavior via actual handler",
+        "Delivery failure and actual platform rendering"
+      ]
+    },
+    "src/response/agent-voice/res.ts": {
+      "sourceHash": "034edf92857ca24dbcebd7230d921d7fe6f82943e4575e25112ef6b42f402b94",
+      "tests": {
+        "test/setup-bubbles.test.mjs": "f4803c960210a715c82edc2ee78fdf20a33970d3c8cbdb40cbf404fcb06a6507"
+      },
+      "covered": [
+        "Private empty voice question describes text fallback",
+        "Missing identity feedback and invalid group config caught before scheduling"
+      ],
+      "pending": [
+        "Normal generation and queue behavior via actual handler",
+        "Delivery failure and actual platform rendering"
+      ]
+    },
+    "src/response/agent-scoped-persona/res.ts": {
+      "sourceHash": "8760a504ce4ed9aef00457aaf0452a6de98bd6edfbbcd0710c2eff59a8e695e7",
+      "tests": {
+        "test/command-rights.test.mjs": "fb8b2c89358558a458bfb407cce7452da646b3ee71b04b1e715e45d24c28d93a"
+      },
+      "covered": [
+        "字段列表分页与编辑权限",
+        "空编辑不写入、保存与详情返回原页",
+        "带多余内容的清空拒绝、恢复默认预览和确认"
+      ],
+      "pending": [
+        "恢复默认直接确认/跨用户与变化后确认边界",
+        "保存失败与长字段内容平台展示",
+        "真实QQ/OneBot展示"
+      ]
+    },
+    "src/response/history-clear/res.ts": {
+      "sourceHash": "ba2d08ab8009886666630eee6e75e6f7e51b4dfb18868177eb5eea3725aaca38",
+      "tests": {
+        "test/bubble-confirmations.test.mjs": "33e91d7253405d736f738aa453d7775fc456257a983e4d93e0cb1f18bfa8d030"
+      },
+      "covered": [
+        "预览/取消/过期/跨身份确认与严格语法",
+        "成员拒绝不显示确认操作"
+      ],
+      "pending": [
+        "确认后实际归档删除及其他会话保留",
+        "删除失败与投递失败",
+        "真实QQ/OneBot展示"
+      ]
+    },
+    "src/response/key-intake/res.ts": {
+      "sourceHash": "63642523a68770e0733a48c2e97aa2f83da841422899797370c78ff6865f4e50",
+      "tests": {
+        "test/key-intake.test.mjs": "617adceda59b24bc6f8d6e2f869e03b245ecc664dd15e809d8665979d488159d"
+      },
+      "covered": [
+        "私聊选择用途、群内拒绝与多Key拒绝",
+        "不回显密钥、正常消息下传、票据失效恢复"
+      ],
+      "pending": [
+        "处理函数通过真实Redis确认添加与重放",
+        "存储失败重试与实际平台点击",
+        "真实QQ/OneBot展示"
+      ]
+    }
+  },
+  "regression": {
+    "command": "npm test",
+    "node": {
+      "tests": 1108,
+      "passed": 1095,
+      "failed": 0,
+      "skipped": 13
+    },
+    "python": {
+      "tests": 46,
+      "passed": 46
+    },
+    "typecheck": "passed",
+    "build": "passed",
+    "eslint": "passed",
+    "note": "Full regression passing does not prove untested bubble branches or live client rendering."
+  },
+  "redisRegression": {
+    "command": "AGENT_LINK_TEST_REDIS_SERVER=<redis-server> node scripts/test-with-redis.mjs",
+    "node": {
+      "tests": 1175,
+      "passed": 1169,
+      "failed": 0,
+      "skipped": 6
+    },
+    "python": {
+      "passed": 46
+    },
+    "typecheck": "passed",
+    "build": "passed",
+    "eslint": "passed",
+    "isolation": "Disposable Unix socket Redis, persistence disabled, temporary config removed after suite",
+    "remainingSkips": [
+      "3 actual ffmpeg cases",
+      "Transition recovery / sandbox preflight integration",
+      "2 private history integration cases"
+    ]
+  },
+  "latestRegression": {
+    "command": "AGENT_LINK_TEST_REDIS_SERVER=<redis-server> node scripts/test-with-redis.mjs",
+    "status": "passed",
+    "node": {
+      "tests": 1204,
+      "passed": 1198,
+      "failed": 0,
+      "skipped": 6
+    },
+    "python": {
+      "passed": 46
+    },
+    "typecheck": "passed",
+    "build": "passed",
+    "eslint": "passed",
+    "note": "Current complete regression passed after explicit owner/cadence fixtures and voice rule assertions updated. Six external integration cases remain skipped; live QQ rendering and other pending review are not proved."
+  },
+  "regressionFollowups": {
+    "readingAndCadence": {
+      "tests": [
+        "test/agent-pool-lifecycle.test.mjs",
+        "test/daily-browse.test.mjs",
+        "test/proactive-activity.test.mjs",
+        "test/proactive-entitlement.test.mjs"
+      ],
+      "passed": 21,
+      "failed": 0,
+      "note": "Owner-only reading fixtures now declare actual platform owner. Cadence fixtures explicitly opt into ownKeyMax while asserting default stays false. Full regression not rerun yet; voice failures unresolved."
+    }
+  }
+}

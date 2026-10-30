@@ -1,3 +1,4 @@
+import { providerImageError } from '../dsh/provider-error';
 import { localRequestFailure } from '../dsh/errors';
 import { reasoningParameters, type IntelligenceLevel } from './intelligence';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -172,10 +173,12 @@ export const requestModelMessage = async (
       if (!response.ok) {
         const status = response.status;
         let detail = '';
+        let imageError: ReturnType<typeof providerImageError>;
 
         try {
           const payload = (await response.json()) as { error?: { message?: unknown; code?: unknown }; message?: unknown };
 
+          imageError = providerImageError(status, JSON.stringify(payload));
           detail = (String(payload.error?.code || '') + ' ' + String(payload.error?.message || payload.message || '')).trim().slice(0, 500);
         } catch {
           // Provider error bodies are best-effort diagnostics.
@@ -211,6 +214,7 @@ export const requestModelMessage = async (
 
         attempts.push({ endpoint, model, status });
         if (!canSwitch || !(await advance())) {
+          if (imageError) throw imageError;
           throw new Error(`模型服务返回 HTTP ${status}${detail ? `：${detail}` : ''}。`);
         }
         continue;
@@ -413,7 +417,7 @@ export const runToolChat = async (options: {
           {
             role: 'system',
             content: reading
-              ? '本次独立阅读的模型轮次已用完，所有工具已关闭。这轮不向用户发消息。只依据已有阅读回执及其evidence，用一两句写实际资料带来的看法；没有成功读取资料或依据不足时只输出 [沉默]。未拿到字幕不代表视频没有讲；不编未观察的画面声音，不将工具额度、失败提示或执行总结写成阅读感想，不使用|||分段。'
+              ? '本次独立阅读的模型轮次已用完，所有工具已关闭。这轮不向用户发消息。只依据已有阅读回执及其evidence，输出 JSON {"learned":"新认识","changed":"观点变化","unresolved":"未解决的问题"}，每项最多100字，没有变化或疑问用空串，不编造；没有成功读取资料或依据不足时只输出 [沉默]。未拿到字幕不代表视频没有讲；不编未观察的画面声音，不将工具额度、失败提示或执行总结写成阅读感想，不使用|||分段。'
               : '本次已用完允许的分段与静默续跑次数，所有工具已关闭。只根据已有回执回答本次问题，简要说明已获得的结果、失败或结果不明的操作，以及尚未完成的部分。未执行的请求不得说成成功，不得再调用工具或要求重做整项任务；也不得将工具上限解释为权限不足。'
           }
         ],

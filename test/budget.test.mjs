@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { ResultCode } from 'alemonjs';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -331,6 +332,7 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
             send: async ({ format }) => {
               assert.ok(format);
               sent++;
+              return [{ code: ResultCode.Ok, data: { id: 'budget-notice' } }];
             }
           }
         };
@@ -344,6 +346,11 @@ test('real Redis admission, usage settlement, failure retention, isolation and r
             })
           )
         );
+        const rejected = await respondToGroupBatch({ ...event, ChannelId: 'gate-rejected-notice' }, {
+          message: { send: async () => [{ code: ResultCode.Fail, data: null }] }
+        }, { budgetBlocked: true, mode: 'direct', anchor: { id: 'rejected' }, messages: [] });
+        assert.deepEqual(rejected, { delivered: false, completed: true });
+        assert.equal(await claimReplyGateBudgetNotice({ ...s, channelId: 'gate-rejected-notice' }), false);
         assert.equal(sent, 1);
         assert.equal(results.filter(result => result.delivered).length, 1);
         assert.match(replyGateExceededMessage, /不代表群聊天额度已用完|聊天额度单独计算/);

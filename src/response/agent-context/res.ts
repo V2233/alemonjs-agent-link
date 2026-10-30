@@ -3,7 +3,7 @@ import { conversationQueueScope } from '../../dsh/conversation-scope';
 import { commandBubble } from '../bubble';
 import { useEvent, useMessage } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
-import { buildRecentChatContext, getRecentMessages } from '@src/chat-context/store';
+import { compressRecentMessages, getRecentMessages } from '@src/chat-context/store';
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: ['message.create', 'private.message.create'] });
@@ -39,11 +39,13 @@ export default async (): Promise<void> => {
       event.MessageId,
       conversationQueueScope(config, { platform: event.Platform, botId: event.BotId })
     );
-    const previewBudget = Math.max(0, Math.min(config.recentChatSummaryMaxChars, config.maxMessageLength - 320));
-    const preview = buildRecentChatContext(recent, previewBudget);
+    const previewBudget = Math.max(0, Math.min(config.recentChatSummaryMaxChars, Math.max(80, config.maxMessageLength - 220)));
+    const preview = compressRecentMessages(recent, previewBudget)
+      .map(item => `· ${item.text}`)
+      .join('\n');
 
     await message.send({
-      format: commandBubble(preview ? `近期聊天参考\n${preview}` : '暂无近期聊天参考。', '近期聊天参考', {
+      format: commandBubble(preview ? `本群近期参考摘录（已压缩，并非完整聊天记录）\n${preview}` : '暂无近期聊天参考。', '近期聊天参考', {
         platform: event.Platform,
         actions: [
           { label: '刷新参考', command: '/聊天参考' },
@@ -52,6 +54,11 @@ export default async (): Promise<void> => {
       })
     });
   } catch {
-    await message.send({ format: commandBubble('聊天参考暂不可用，请稍后重试。', '近期聊天参考', { platform: event.Platform }) });
+    await message.send({
+      format: commandBubble('聊天参考暂不可用，请稍后重试。', '近期聊天参考', {
+        platform: event.Platform,
+        actions: [{ label: '重新查看', command: '/聊天参考' }]
+      })
+    });
   }
 };

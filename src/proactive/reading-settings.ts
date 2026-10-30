@@ -9,9 +9,7 @@ export const readingSettings = (config: DSHBridgeConfig, store: ProactiveStore, 
   const raw = config.modules?.settings?.bili || {};
   const managed = config.modules?.settings?.hobbies?.autonomous !== undefined;
   const hobbies = normalizeHobbies(config.modules?.settings?.hobbies);
-  const enabled = managed
-    ? hobbies.enabled && hobbies.autonomous && hobbies.bilibili && !config.modules?.disabled?.includes('hobbies')
-    : raw.dailyBrowse === true;
+  const enabled = managed ? hobbies.enabled && hobbies.autonomous && !config.modules?.disabled?.includes('hobbies') : raw.dailyBrowse === true;
   const scoped = store.dailyBrowseSettings(scope, enabled, browseWindow(raw.dailyBrowseWindow));
 
   return { ...scoped, managed, enabled: (!managed || enabled) && scoped.enabled };

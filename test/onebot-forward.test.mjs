@@ -46,7 +46,8 @@ test('forwarded records are read through the adapter, bounded, attributed and tr
   await runtimeScope.run(runtime, async () => {
     const rows = JSON.parse(await readCurrentForwards(event));
     assert.equal(rows[0].sender, '阿明');
-    assert.match(rows[0].text, /密钥已隐藏/);
+    assert.match(rows[0].text, /个人密钥管理消息已隐藏/);
+    assert.doesNotMatch(rows[0].text, /sk-/);
     assert.deepEqual(rows[0].attachments, ['image', 'forward']);
     assert.ok(rows.length <= 24);
     assert.ok(rows.reduce((sum, row) => sum + row.text.length, 0) <= 6000);

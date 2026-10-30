@@ -140,6 +140,33 @@ export const readingSupport = (sources: readonly ReadingSourceEvidence[]) => ({
   notEstablished: ['direct_listening', 'full_video_viewing', 'tutorial_actions', 'comment_absence', 'all_viewers_interest']
 });
 
+export type ReadingReflection = { learned: string; changed: string; unresolved: string };
+
+/** Subjective notes only; these fields never expand source evidence. */
+export const parseReadingReflection = (text: string): ReadingReflection | undefined => {
+  try {
+    const value = JSON.parse(text.trim());
+
+    if (!value || Array.isArray(value) || typeof value !== 'object') return;
+    const fields = ['learned', 'changed', 'unresolved'] as const;
+
+    if (fields.some(key => typeof value[key] !== 'string' || value[key].length > 300)) return;
+    if (!fields.some(key => value[key].trim())) return;
+
+    return Object.fromEntries(
+      fields.map(key => [
+        key,
+        Array.from(value[key] as string, char => (char.codePointAt(0) < 32 || char.codePointAt(0) === 127 ? ' ' : char))
+          .join('')
+          .trim()
+          .slice(0, 100)
+      ])
+    ) as ReadingReflection;
+  } catch {
+    // Legacy plain-text diaries remain readable without structured fields.
+  }
+};
+
 export type ReadingDiaryEntry = {
   id: string;
   at: number;
@@ -151,6 +178,7 @@ export type ReadingDiaryEntry = {
   readings?: { bvid: string; title: string }[];
   text: string;
   sourceEvidence?: ReadingSourceEvidence[];
+  reflection?: ReadingReflection;
 };
 
 export const readingDiary = (items: MemoryItem[], hours: number, now = Date.now()): ReadingDiaryEntry[] => {
@@ -198,7 +226,8 @@ export const readingDiary = (items: MemoryItem[], hours: number, now = Date.now(
         sourceReadingIds,
         readings,
         sourceEvidence: evidence,
-        text
+        text,
+        ...(type === 'reflection' && details.reflection ? { reflection: parseReadingReflection(JSON.stringify(details.reflection)) } : {})
       };
     })
     .sort((a, b) => b.at - a.at || a.id.localeCompare(b.id));
@@ -254,7 +283,7 @@ export const readingContinuity = (
   items: MemoryItem[],
   topic: string,
   now = Date.now()
-): { id: string; recordedAt: string; thought: string; bvid?: string; sourceEvidence?: ReadingSourceEvidence[] }[] => {
+): { id: string; recordedAt: string; thought: string; bvid?: string; sourceEvidence?: ReadingSourceEvidence[]; reflection?: ReadingReflection }[] => {
   const diary = readingDiary(items, 168, now).filter(item => item.type === 'reflection');
 
   return searchReadingDiary(diary, topic)
@@ -264,6 +293,7 @@ export const readingContinuity = (
       recordedAt: new Date(item.at).toISOString(),
       thought: item.text.slice(0, 200),
       bvid: item.bvid,
-      sourceEvidence: item.sourceEvidence
+      sourceEvidence: item.sourceEvidence,
+      ...(item.reflection ? { reflection: item.reflection } : {})
     }));
 };

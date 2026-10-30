@@ -26,7 +26,10 @@ export default async (): Promise<void> => {
     return;
   }
   if ((match[2] && !['状态', '取消'].includes(match[2])) || (match[1] === '退出' && match[2])) {
-    await reply('使用 /个人登录、/个人登录 状态、/个人登录 取消 或 /个人退出；请勿发送手机号或验证码。', [{ label: '登录', command: '/个人登录' }]);
+    await reply('个人登录通过二维码完成，不需要在这里填写手机号或验证码。请先查看状态，再选择登录或取消。', [
+      { label: '查看状态', command: '/个人登录 状态' },
+      { label: '开始登录', command: '/个人登录' }
+    ]);
 
     return;
   }
@@ -68,8 +71,10 @@ export default async (): Promise<void> => {
       await removeAccount(scope);
       await reply('该扫码账户的私聊、群聊钥匙及群授权副本已移除。', [{ label: '重新登录', command: '/个人登录' }]);
     } else if (match[2] === '取消') {
+      const pending = loginStatus(scope);
+
       await cancelLogin(scope);
-      await reply('已请求取消登录。', [
+      await reply(pending ? '登录流程已结束。已有账户授权不会因取消操作而退出，可查看状态确认。' : '当前没有正在进行的登录。取消不会退出已保存的账户。', [
         { label: '登录', command: '/个人登录' },
         { label: '状态', command: '/个人登录 状态' }
       ]);
@@ -100,9 +105,12 @@ export default async (): Promise<void> => {
         loginReply
       );
   } catch {
-    await reply('账户操作未完成；退出时若远端撤销失败，本地授权仍已移除，请在平台检查。', [
-      { label: '状态', command: '/个人登录 状态' },
-      { label: '重新登录', command: '/个人登录' }
-    ]);
+    await reply(
+      match[1] === '退出' ? '退出未能确认完成。请查看当前账户状态，并在 DeepSeek 平台检查登录授权。' : '这次账户操作未完成，请先查看状态，再决定是否重试。',
+      [
+        { label: '状态', command: '/个人登录 状态' },
+        { label: '重新登录', command: '/个人登录' }
+      ]
+    );
   }
 };

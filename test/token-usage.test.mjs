@@ -34,3 +34,33 @@ test('Python workspace and Node HTTP write the same independent totals',async()=
  const data=readTokenUsage(root,'all');assert.equal(data.total.input,12);assert.equal(data.total.output,6);assert.equal(data.total.requests,2);assert.equal(data.keys.length,1);
  }finally{await rm(root,{recursive:true,force:true});}
 });
+
+test('received SSE usage survives cancellation and upstream failure without inventing missing usage', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'token-interrupt-'));
+  const original = globalThis.fetch;
+  try {
+    for (const mode of ['cancel', 'failure', 'no-usage']) {
+      let reads = 0, cancelled = false;
+      const failure = new Error('upstream disconnected');
+      globalThis.fetch = async () => new Response(new ReadableStream({
+        pull(controller) {
+          if (reads++ === 0) controller.enqueue(new TextEncoder().encode(mode === 'no-usage'
+            ? 'data: {"choices":[]}\n\n'
+            : 'data: {"usage":{"prompt_tokens":13,"completion_tokens":7}}\n\n'));
+          else controller.error(failure);
+        },
+        cancel() { cancelled = true; }
+      }, {highWaterMark:0}), {headers:{'content-type':'text/event-stream'}});
+      const response = await tokenUsageFetch({dshHomeRoot:join(root,'homes')},new URL('https://example.com/chat/completions'),{headers:{Authorization:'Bearer secret'},body:'{"stream":true}'});
+      const reader = response.body.getReader();
+      assert.equal((await reader.read()).done,false);
+      if(mode === 'cancel') { await reader.cancel('user stopped'); assert.equal(cancelled,true); }
+      else await assert.rejects(reader.read(), /upstream disconnected/);
+    }
+    const result = readTokenUsage(root, 'all').total;
+    assert.equal(result.requests,3);
+    assert.equal(result.known,2);
+    assert.equal(result.input,26);
+    assert.equal(result.output,14);
+  } finally {globalThis.fetch=original;await rm(root,{recursive:true,force:true});}
+});

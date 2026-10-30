@@ -13,10 +13,11 @@ test('voice needs an intense event, not greetings, everyday sadness or a quoted 
   assert.ok(voiceMotivation(joy, 80) > 0);
   assert.ok(voiceMotivation({ ...joy, affinity: 80 }, 80) > voiceMotivation(joy, 80));
   assert.ok(voiceMotivation(joy, 80) > voiceMotivation({ ...joy, private: false }, 80));
-  assert.ok(voiceMotivation({ userText: '你这个笨蛋' }, 30) > 0);
-  assert.equal(voiceMotivation({ userText: '你这个笨蛋' }, 60), 0);
+  assert.equal(voiceMotivation({ userText: '你这个笨蛋' }, 30), 0);
+  assert.ok(voiceMotivation({ userText: '你这个废物' }, 30) > 0);
+  assert.equal(voiceMotivation({ userText: '你这个废物' }, 60), 0);
   assert.equal(voiceMotivation({ userText: '今天很难过' }, 30), 0, 'low mood is not anger');
-  assert.equal(voiceMotivation({ userText: '他说你这个笨蛋' }, 30), 0);
+  assert.equal(voiceMotivation({ userText: '他说你这个废物' }, 30), 0);
 });
 
 test('complaints and refusals are not explicit voice requests', () => {
@@ -44,8 +45,9 @@ test('automatic voice shares cooldown, text spacing and hourly cap within the co
 });
 
 test('a voice candidate still requires an emotionally spoken reply', () => {
-  assert.equal(emotionalVoiceReply('你这个笨蛋', '够了，别这样说我！'), true);
-  assert.equal(emotionalVoiceReply('你这个笨蛋', '你要查的资料在这里。'), false);
+  assert.equal(emotionalVoiceReply('你这个笨蛋','够了，别这样说我！'),false);
+  assert.equal(emotionalVoiceReply('你这个废物', '够了，别这样说我！'), true);
+  assert.equal(emotionalVoiceReply('你这个废物', '你要查的资料在这里。'), false);
   assert.equal(emotionalVoiceReply('终于考上了，太开心了', '好耶，恭喜！'), true);
   assert.equal(emotionalVoiceReply('终于考上了，太开心了', '建议准备下一阶段的资料。'), false);
 });

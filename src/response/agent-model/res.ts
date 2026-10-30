@@ -18,7 +18,7 @@ export default async (): Promise<void> => {
     await message.send({
       format: commandBubble('公共模型仅限机器人主人设置。', '当前模型', {
         platform: event.Platform,
-        actions: [{ label: '管理说明', command: '/帮助 管理' }]
+        actions: [{ label: '我的权限', command: '/我的权限' }]
       })
     });
 
@@ -29,22 +29,32 @@ export default async (): Promise<void> => {
 
   const config = getDSHConfig();
   const pool = getCredentialPool(config);
-  const poolRows = pool
-    ? pool.status.map(item => {
-        const state = item.disabled ? '停用' : item.cooldownUntil > Date.now() ? '冷却' : item.healthy === false ? '异常' : item.fallback ? '备用' : '正常';
 
-        return `| ${item.id} | ${state} | ${item.active} |`;
+  if (route.rawArgs.length > 1) {
+    await message.send({
+      format: commandBubble('一次只能指定一个模型名称。请先查看可用模型，再选择要配置的模型。', '当前模型', {
+        platform: event.Platform,
+        actions: [
+          { label: '模型列表', command: '/模型列表' },
+          { label: '返回状态', command: '/当前模型' }
+        ]
       })
-    : [];
+    });
+
+    return;
+  }
+  const rows = pool?.status || [];
   const poolText = pool
-    ? poolRows.length
-      ? ['| 端点 | 状态 | 在途 |', '| --- | --- | --- |', ...poolRows].join('\n')
-      : '端点池为空。'
-    : '未配置 modelPool，当前使用单 Key。';
+    ? rows.length
+      ? `额度轮转：共 ${rows.length} 个端点，当前 ${rows.reduce((sum, item) => sum + item.active, 0)} 个请求处理中。\n各端点的状态和操作请进入「额度轮转」查看。`
+      : '额度轮转暂时没有端点。'
+    : '当前使用配置中的单个密钥，未启用端点池。';
 
   await message.send({
     format: commandBubble(
-      requestedModel ? `请将配置中的 alemonjs-agent-link.model 改为 ${requestedModel}，保存即生效。` : `当前模型：${config.model}\n\n${poolText}`,
+      requestedModel
+        ? `尚未修改模型。\n请在配置文件中将 alemonjs-agent-link.model 改为 ${requestedModel}，保存后生效。`
+        : `当前模型：${config.model}\n\n${poolText}`,
       '当前模型',
       {
         platform: event.Platform,

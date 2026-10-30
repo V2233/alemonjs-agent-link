@@ -54,6 +54,7 @@ const runModuleTurnInner = async (options: {
   const intelligence = await turnIntelligence(config, context, context.userText, Boolean(context.autonomous));
 
   context.intelligenceLevel = intelligence.level;
+  context.personaEntitled = intelligence.entitled;
   const preparingAt = Date.now();
   const chatTask = createChatTaskCredentials();
   const lease = await (await getModuleRuntime(config)).acquire();
@@ -217,6 +218,9 @@ const runModuleTurnInner = async (options: {
       ) {
         throw new Error('回合工具上限无效。');
       }
+      // Independent reading has a bounded diary/search/read/summary workflow of its own.
+      // Ordinary proactive chat still uses the lightweight intelligence profile.
+      const roundBudget = context.autonomous && context.independentReading && limits ? limits.maxRounds : intelligence.maxRounds;
       const raw = await runToolChat({
         config: { ...config, defaultSystemPrompt: systemPrompt },
         credentials: (messages, requestTools) =>
@@ -232,7 +236,7 @@ const runModuleTurnInner = async (options: {
         tools,
         history: history ? await registry.privateHistory(history) : [],
         memoryContext: history?.memoryContext,
-        maxRounds: Math.min(intelligence.maxRounds, moduleConfig.maxToolRounds, limits?.maxRounds ?? moduleConfig.maxToolRounds),
+        maxRounds: Math.min(roundBudget, moduleConfig.maxToolRounds, limits?.maxRounds ?? moduleConfig.maxToolRounds),
         maxContinuations: Math.min(
           intelligence.maxContinuations,
           moduleConfig.maxToolContinuations,

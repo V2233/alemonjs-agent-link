@@ -10,14 +10,14 @@ import { SessionRegistry } from '@src/state/registry';
 import { getChatArchive, historyEnabled } from '../../history/store';
 
 const phaseMessage: Record<DSHSupervisorStatus['phase'], string> = {
-  idle: '尚未就绪，正在准备。',
+  idle: '尚未启动。',
   preparing: '正在准备。',
   installing: '正在准备，请稍候。',
   starting: '正在启动。',
   ready: '已就绪。',
   degraded: '聊天可用，网页暂不可用。',
   failed: '准备失败，请联系主人。',
-  stopped: '已停止，正在恢复。'
+  stopped: '已停止。'
 };
 
 export default async (): Promise<void> => {
@@ -30,6 +30,27 @@ export default async (): Promise<void> => {
   const [message] = useMessage();
   const [route] = useRoute();
   const event = eventContext.current;
+
+  if (!route.matched) return;
+  const args = route.rawArgs.map(String).join(' ').trim();
+
+  if ((args && args !== '详情') || (args === '详情' && !(event.IsPrivate && event.IsMaster))) {
+    await message.send({
+      format: commandBubble(
+        args === '详情' ? '运行详情仅机器人主人可在私聊查看。当前服务情况可从概览查看。' : '没有识别出这项状态查询。请先查看概览；主人私聊可进入详情。',
+        '服务状态',
+        {
+          platform: event.Platform,
+          actions: [
+            { label: '服务概览', command: '/状态' },
+            { label: '我的权限', command: '/我的权限' }
+          ]
+        }
+      )
+    });
+
+    return;
+  }
   let text = '';
   let sections: BubbleSection[] | undefined;
   let showBudget = false;
@@ -40,7 +61,6 @@ export default async (): Promise<void> => {
     const registry = new SessionRegistry(config);
     const storeReady = await registry.health();
     const supervisor = await ensureDSHSupervisor(config);
-    const policy = event.ChannelId && storeReady ? await registry.policy(event.ChannelId) : undefined;
 
     if (config.aiEnabled !== false && !['ready', 'degraded'].includes(supervisor.status().phase)) {
       void supervisor.start().catch(error => logger.error({ err: error }, 'DSH bridge status startup failed'));
@@ -79,7 +99,7 @@ export default async (): Promise<void> => {
           transport = `OneBot / ${result.data.state}`;
         }
       }
-      const detail = route.matched && route.rawArgs.map(String).includes('详情');
+      const detail = args === '详情';
 
       sections = [
         {
@@ -111,11 +131,9 @@ export default async (): Promise<void> => {
               { title: '平台', text: `平台：${transport}` },
               {
                 title: '本群权限',
-                text: policy
-                  ? `聊天${policy.chat ? '开' : '关'}、网页${policy.web ? '开' : '关'}、文件${policy.files ? '开' : '关'}`
-                  : '请在目标群使用 /工具策略 查看'
+                text: '请在需要管理的目标群使用 /工具策略 查看，私聊详情不代表任何群的权限。'
               },
-              { title: '边界', text: '媒体配置未实机验证；终端禁止。' }
+              { title: '边界', text: '媒体配置未实机验证；终端仅限主人私聊主动任务，需工作区就绪。' }
             ]
           : [
               {
@@ -153,14 +171,30 @@ export default async (): Promise<void> => {
   }
 
   if (sections) {
-    await message.send({ format: sectionBubble('服务状态', '', sections, { platform: event.Platform, layout: 'inline' }) });
+    const navigation = sections.filter(section => section.title === '更多').flatMap(section => section.actions ?? []);
+
+    await message.send({
+      format: sectionBubble(
+        '服务状态',
+        '',
+        sections.filter(section => section.title !== '更多'),
+        {
+          platform: event.Platform,
+          actions: [
+            { label: '刷新', command: route.rawArgs[0] === '详情' ? '/状态 详情' : '/状态' },
+            ...navigation,
+            ...(route.rawArgs[0] === '详情' ? [{ label: '返回概览', command: '/状态' }] : [])
+          ]
+        }
+      )
+    });
 
     return;
   }
   await message.send({
     format: commandBubble(text, '服务状态', {
       platform: event.Platform,
-      layout: 'keyboard',
+      layout: 'inline',
       actions: [{ label: '重新查看', command: '/状态' }, ...(showBudget ? [{ label: '今日额度', command: '/额度' }] : []), { label: '帮助', command: '/帮助' }]
     })
   });

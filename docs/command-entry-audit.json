@@ -1,0 +1,6101 @@
+{
+  "note": "Static command property inventory, including some non-bubble properties. Const aliases and both conditional branches are traced; any unresolved branch remains pending. A declared root proves only a matching registration exists; arguments, event scopes, permissions, execution and rendering are not verified. Dynamic builders require review.",
+  "roots": {
+    "agent": "router path",
+    "agentbind": "router path",
+    "agentcontext": "router path",
+    "agenthelp": "router path",
+    "agentmodel": "router path",
+    "agentmodels": "router path",
+    "agentmodules": "router path",
+    "agentpolicy": "router path",
+    "agentprivacy": "router path",
+    "agentpurge": "router path",
+    "agentstatus": "router path",
+    "agentunbind": "router path",
+    "apikey": "router loop",
+    "cancel": "router path",
+    "chat": "router path",
+    "groupapikey": "router loop",
+    "new": "router path",
+    "个人密钥": "router loop",
+    "个人登录": "personal-login event handler; runtime review required",
+    "个人退出": "personal-login event handler; runtime review required",
+    "主动搭话": "router path",
+    "人格": "router path",
+    "人设": "router path",
+    "关闭": "router path",
+    "取消": "router path",
+    "密钥配置": "router path",
+    "工具策略": "router path",
+    "帮助": "router path",
+    "广告列表": "router loop",
+    "广告详情": "router loop",
+    "开启": "router path",
+    "当前模型": "router path",
+    "心情": "router path",
+    "忘记": "router loop",
+    "忘记全部": "router loop",
+    "忘记群记忆": "router loop",
+    "恢复记忆": "router loop",
+    "我是主人": "router path",
+    "我的主人": "router path",
+    "我的权限": "router loop",
+    "我的钥匙": "router loop",
+    "授权记录": "router loop",
+    "授权钥匙": "router loop",
+    "提问": "router path",
+    "整理记忆": "router loop",
+    "新会话": "router path",
+    "智能程度": "router loop",
+    "模块状态": "router path",
+    "模型列表": "router path",
+    "添加钥匙": "key-intake event handler; actor-bound confirmation ticket",
+    "清除群数据": "router path",
+    "清除聊天记录": "router path",
+    "状态": "router path",
+    "用量": "router path",
+    "移除密钥": "router path",
+    "群密钥": "router loop",
+    "群记忆": "router loop",
+    "群设置": "router path",
+    "聊天参考": "router path",
+    "表情": "router path",
+    "记住": "router loop",
+    "记忆": "router loop",
+    "记忆来源": "router loop",
+    "记忆检索": "router loop",
+    "语音": "router path",
+    "语音引擎": "router path",
+    "赞助列表": "router path",
+    "过时记忆": "router loop",
+    "隐私说明": "router path",
+    "额度": "router path",
+    "额度轮转": "router path"
+  },
+  "paginationBases": [
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 283,
+      "command": "'/群设置 话题 候选'",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 853,
+      "command": "`/群设置 ${action} 查看`",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "line": 95,
+      "command": "'/记忆'",
+      "candidates": [
+        "记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 193,
+      "command": "'/人格 管理'",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 252,
+      "command": "'/我的钥匙'",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    }
+  ],
+  "entries": [
+    {
+      "file": "src/billing/help.ts",
+      "line": 22,
+      "command": "/我的钥匙 私聊",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/billing/help.ts",
+      "line": 23,
+      "command": "/我的钥匙 私聊 启用",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/billing/help.ts",
+      "line": 24,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/billing/help.ts",
+      "line": 25,
+      "command": "/额度 今日不再提醒",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/billing/help.ts",
+      "line": 28,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/billing/help.ts",
+      "line": 29,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/billing/help.ts",
+      "line": 30,
+      "command": "/额度 今日不再提醒",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-ads/res.ts",
+      "line": 20,
+      "command": "/广告列表",
+      "root": "广告列表",
+      "candidates": [
+        "广告列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-ads/res.ts",
+      "line": 21,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-ads/res.ts",
+      "line": 45,
+      "command": "`/广告列表 ${Math.floor(items.indexOf(ad) / 5) + 1}`",
+      "root": "广告列表",
+      "candidates": [
+        "广告列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-ads/res.ts",
+      "line": 61,
+      "command": "`/广告详情 ${ad.id}`",
+      "root": "广告详情",
+      "candidates": [
+        "广告详情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-ads/res.ts",
+      "line": 61,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-ads/res.ts",
+      "line": 77,
+      "command": "`/广告详情 ${ad.id}`",
+      "root": "广告详情",
+      "candidates": [
+        "广告详情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-ads/res.ts",
+      "line": 83,
+      "command": "`/广告列表 ${page - 1}`",
+      "root": "广告列表",
+      "candidates": [
+        "广告列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-ads/res.ts",
+      "line": 84,
+      "command": "`/广告列表 ${page + 1}`",
+      "root": "广告列表",
+      "candidates": [
+        "广告列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-ads/res.ts",
+      "line": 85,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-bind/res.ts",
+      "line": 20,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-bind/res.ts",
+      "line": 21,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-bind/res.ts",
+      "line": 34,
+      "command": "/我的钥匙 私聊",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-bind/res.ts",
+      "line": 35,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-bind/res.ts",
+      "line": 50,
+      "command": "/模型列表",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-bind/res.ts",
+      "line": 51,
+      "command": "/当前模型",
+      "root": "当前模型",
+      "candidates": [
+        "当前模型"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 15,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 16,
+      "command": "/额度 记录",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 17,
+      "command": "/我的钥匙 私聊",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 17,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 18,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 39,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 40,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 61,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 62,
+      "command": "/额度 今日不再提醒",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 68,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 78,
+      "command": "/额度 增加 ",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 79,
+      "command": "/额度 设置 ",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 80,
+      "command": "/额度 记录",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 110,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 111,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 140,
+      "command": "queryCommand",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 141,
+      "command": "historyCommand",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 142,
+      "command": "/额度 帮助",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 188,
+      "command": "`/额度 ${route.rawArgs.map(String).join(' ')}`",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 189,
+      "command": "queryCommand",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 190,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 219,
+      "command": "queryCommand",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 220,
+      "command": "historyCommand",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 221,
+      "command": "keyCommand",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 250,
+      "command": "/额度 帮助",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 253,
+      "command": "/赞助列表",
+      "root": "赞助列表",
+      "candidates": [
+        "赞助列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "line": 254,
+      "command": "/广告列表",
+      "root": "广告列表",
+      "candidates": [
+        "广告列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-cancel/res.ts",
+      "line": 28,
+      "command": "/提问",
+      "root": "提问",
+      "candidates": [
+        "提问"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-cancel/res.ts",
+      "line": 29,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-cancel/res.ts",
+      "line": 45,
+      "command": "/取消",
+      "root": "取消",
+      "candidates": [
+        "取消"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-cancel/res.ts",
+      "line": 46,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-cancel/res.ts",
+      "line": 77,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-cancel/res.ts",
+      "line": 78,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-chat/res.ts",
+      "line": 27,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-chat/res.ts",
+      "line": 28,
+      "command": "/新会话",
+      "root": "新会话",
+      "candidates": [
+        "新会话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-chat/res.ts",
+      "line": 49,
+      "command": "/提问",
+      "root": "提问",
+      "candidates": [
+        "提问"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-chat/res.ts",
+      "line": 50,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context-clear/res.ts",
+      "line": 20,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context-clear/res.ts",
+      "line": 26,
+      "command": "/聊天参考",
+      "root": "聊天参考",
+      "candidates": [
+        "聊天参考"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context-clear/res.ts",
+      "line": 37,
+      "command": "/聊天参考",
+      "root": "聊天参考",
+      "candidates": [
+        "聊天参考"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context-clear/res.ts",
+      "line": 37,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context-clear/res.ts",
+      "line": 52,
+      "command": "/聊天参考",
+      "root": "聊天参考",
+      "candidates": [
+        "聊天参考"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context-clear/res.ts",
+      "line": 53,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context-clear/res.ts",
+      "line": 59,
+      "command": "/聊天参考",
+      "root": "聊天参考",
+      "candidates": [
+        "聊天参考"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context/res.ts",
+      "line": 22,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context/res.ts",
+      "line": 49,
+      "command": "/聊天参考",
+      "root": "聊天参考",
+      "candidates": [
+        "聊天参考"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context/res.ts",
+      "line": 50,
+      "command": "/聊天参考 清除",
+      "root": "聊天参考",
+      "candidates": [
+        "聊天参考"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-context/res.ts",
+      "line": 55,
+      "command": "/聊天参考",
+      "root": "聊天参考",
+      "candidates": [
+        "聊天参考"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 70,
+      "command": "/群设置 安静",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 71,
+      "command": "/群设置 正常",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 72,
+      "command": "/群设置 活跃",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 79,
+      "command": "/群设置 静默 1-8",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 80,
+      "command": "/群设置 静默 关闭",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 87,
+      "command": "/群设置 唤醒词 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 88,
+      "command": "/群设置 禁语 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 94,
+      "command": "/群设置 语音 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 100,
+      "command": "/群设置 人设 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 101,
+      "command": "/群设置 人设 清空",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 102,
+      "command": "/群设置 记录",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 103,
+      "command": "/群设置 重置",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 104,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 126,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 141,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 142,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 185,
+      "command": "/群设置 帮助",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 213,
+      "command": "/群设置 话题 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 214,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 228,
+      "command": "`/群设置 话题 ${sub} `",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 244,
+      "command": "/群设置 话题 候选",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 254,
+      "command": "/群设置 话题 候选",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 259,
+      "command": "/群设置 话题 候选",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 279,
+      "command": "`/群设置 话题 候选详情 ${topic.id}`",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 283,
+      "command": "/群设置 话题 候选",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 299,
+      "command": "/群设置 话题 新闻 ",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 308,
+      "command": "/群设置 话题 候选",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 345,
+      "command": "/群设置 话题 定位 ",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 351,
+      "command": "/群设置 话题 标签 ",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 352,
+      "command": "/群设置 话题 禁忌 ",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 363,
+      "command": "`/群设置 话题 ${label} ${enabled ? '关闭' : '开启'}`",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 371,
+      "command": "/群设置 话题 候选",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 372,
+      "command": "/群设置 话题 采集",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 405,
+      "command": "/群设置 安静",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 406,
+      "command": "/群设置 正常",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 407,
+      "command": "/群设置 活跃",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 416,
+      "command": "/群设置 静默 1-8",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 417,
+      "command": "/群设置 静默 关闭",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 425,
+      "command": "/群设置 唤醒词 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 426,
+      "command": "/群设置 禁语 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 433,
+      "command": "/群设置 语音 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 434,
+      "command": "/群设置 话题 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 435,
+      "command": "/群设置 人设 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 436,
+      "command": "/群设置 帮助",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 467,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 485,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 515,
+      "command": "/群设置 重置 确认",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 516,
+      "command": "/群设置 重置 取消",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 527,
+      "command": "/群设置 重置",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 528,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 535,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 555,
+      "command": "/群设置 人设 设置 ",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 555,
+      "command": "/群设置 人设 清空",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 557,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 613,
+      "command": "/群设置 人设 清空 确认",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 614,
+      "command": "/群设置 人设 清空 取消",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 615,
+      "command": "/群设置 人设 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 626,
+      "command": "/群设置 人设 清空",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 627,
+      "command": "/群设置 人设 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 633,
+      "command": "/群设置 人设 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 661,
+      "command": "/群设置 人设 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 662,
+      "command": "/群设置 人设 清空",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 690,
+      "command": "/群设置 语音 开启",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 691,
+      "command": "/群设置 语音 关闭",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 700,
+      "command": "/群设置 语音 自动关闭",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 701,
+      "command": "/群设置 语音 自动开启",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 709,
+      "command": "/群设置 语音 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 710,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 730,
+      "command": "settings.voiceEnabled === false ? '/群设置 语音 开启' : '/群设置 语音 关闭'",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 734,
+      "command": "settings.voiceAuto === false ? '/群设置 语音 自动开启' : '/群设置 语音 自动关闭'",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 736,
+      "command": "/群设置 语音 恢复",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 739,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 748,
+      "command": "/群设置 语音 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 768,
+      "command": "/群设置 语音 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 769,
+      "command": "/群设置 语音 恢复",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 809,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 810,
+      "command": "/群设置 帮助",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 826,
+      "command": "`/群设置 ${action} 查看`",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 827,
+      "command": "`/群设置 ${action} 加 `",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 828,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 835,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 849,
+      "command": "`/群设置 ${action} 删 ${word}`",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 853,
+      "command": "`/群设置 ${action} 查看`",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 857,
+      "command": "`/群设置 ${action} 加 `",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 858,
+      "command": "`/群设置 ${action} 清空`",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 861,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 879,
+      "command": "`/群设置 ${action} 查看`",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 884,
+      "command": "`/群设置 ${action} 查看`",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 899,
+      "command": "`/群设置 ${action} 加 `",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 900,
+      "command": "`/群设置 ${action} 查看`",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 908,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 957,
+      "command": "`/群设置 ${action} 查看 ${returnPage}`",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 958,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 964,
+      "command": "/群设置 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "line": 965,
+      "command": "/群设置 帮助",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 67,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 67,
+      "command": "/模块状态",
+      "root": "模块状态",
+      "candidates": [
+        "模块状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 73,
+      "command": "/当前模型",
+      "root": "当前模型",
+      "candidates": [
+        "当前模型"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 73,
+      "command": "/模型列表",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 73,
+      "command": "/额度轮转",
+      "root": "额度轮转",
+      "candidates": [
+        "额度轮转"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 104,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 105,
+      "command": "/帮助 媒体",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 114,
+      "command": "/帮助 记忆",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 115,
+      "command": "isPrivate ? '/记忆' : '/群记忆'",
+      "root": "记忆",
+      "candidates": [
+        "记忆",
+        "群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 122,
+      "command": "/人格",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 123,
+      "command": "/帮助 人格",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 130,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 131,
+      "command": "/帮助 数据",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 139,
+      "command": "/帮助 管理",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 149,
+      "command": "/提问",
+      "root": "提问",
+      "candidates": [
+        "提问"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 150,
+      "command": "/新会话",
+      "root": "新会话",
+      "candidates": [
+        "新会话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 154,
+      "command": "isPrivate ? '/记忆' : '/群记忆'",
+      "root": "记忆",
+      "candidates": [
+        "记忆",
+        "群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 155,
+      "command": "/记忆检索",
+      "root": "记忆检索",
+      "candidates": [
+        "记忆检索"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 159,
+      "command": "/人格",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 160,
+      "command": "/心情",
+      "root": "心情",
+      "candidates": [
+        "心情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 163,
+      "command": "/群设置",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 166,
+      "command": "/语音",
+      "root": "语音",
+      "candidates": [
+        "语音"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 167,
+      "command": "/表情",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 172,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 173,
+      "command": "/个人登录",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 175,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 177,
+      "command": "/隐私说明",
+      "root": "隐私说明",
+      "candidates": [
+        "隐私说明"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 179,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 208,
+      "command": "`/帮助 ${row.key}`",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 216,
+      "command": "/帮助",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "line": 229,
+      "command": "/帮助",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 26,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 27,
+      "command": "/智能程度",
+      "root": "智能程度",
+      "candidates": [
+        "智能程度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 63,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 64,
+      "command": "/人设",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 65,
+      "command": "/智能程度 默认",
+      "root": "智能程度",
+      "candidates": [
+        "智能程度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 86,
+      "command": "`/智能程度 ${label}`",
+      "root": "智能程度",
+      "candidates": [
+        "智能程度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 87,
+      "command": "/智能程度 默认",
+      "root": "智能程度",
+      "candidates": [
+        "智能程度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 94,
+      "command": "/人设",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 94,
+      "command": "/人格",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 99,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 99,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 111,
+      "command": "/群设置",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 114,
+      "command": "/帮助 管理",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 115,
+      "command": "/用量",
+      "root": "用量",
+      "candidates": [
+        "用量"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 124,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 125,
+      "command": "/帮助",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "line": 139,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "line": 35,
+      "command": "event.IsPrivate ? '/记忆' : '/群记忆'",
+      "root": "记忆",
+      "candidates": [
+        "记忆",
+        "群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "line": 36,
+      "command": "/记忆检索",
+      "root": "记忆检索",
+      "candidates": [
+        "记忆检索"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "line": 37,
+      "command": "/帮助 记忆",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "line": 86,
+      "command": "`/记忆来源 ${note.id}`",
+      "root": "记忆来源",
+      "candidates": [
+        "记忆来源"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "line": 87,
+      "command": "`/忘记 ${note.id}`",
+      "root": "忘记",
+      "candidates": [
+        "忘记"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "line": 95,
+      "command": "/记忆",
+      "root": "记忆",
+      "candidates": [
+        "记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "line": 97,
+      "command": "/记住 ",
+      "root": "记住",
+      "candidates": [
+        "记住"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "line": 98,
+      "command": "/记忆检索 ",
+      "root": "记忆检索",
+      "candidates": [
+        "记忆检索"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "line": 99,
+      "command": "/帮助 记忆",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-model/res.ts",
+      "line": 21,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-model/res.ts",
+      "line": 35,
+      "command": "/模型列表",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-model/res.ts",
+      "line": 35,
+      "command": "/当前模型",
+      "root": "当前模型",
+      "candidates": [
+        "当前模型"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-model/res.ts",
+      "line": 55,
+      "command": "/模型列表",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-model/res.ts",
+      "line": 56,
+      "command": "/额度轮转",
+      "root": "额度轮转",
+      "candidates": [
+        "额度轮转"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-model/res.ts",
+      "line": 57,
+      "command": "/密钥配置",
+      "root": "密钥配置",
+      "candidates": [
+        "密钥配置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 23,
+      "command": "/我的钥匙 私聊",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 24,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 37,
+      "command": "/模型列表",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 52,
+      "command": "/当前模型",
+      "root": "当前模型",
+      "candidates": [
+        "当前模型"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 53,
+      "command": "/密钥配置",
+      "root": "密钥配置",
+      "candidates": [
+        "密钥配置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 54,
+      "command": "/模型列表",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 73,
+      "command": "`/模型列表 ${page - 1}`",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 74,
+      "command": "`/模型列表 ${page + 1}`",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 75,
+      "command": "`/模型列表 ${page}`",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 76,
+      "command": "/当前模型",
+      "root": "当前模型",
+      "candidates": [
+        "当前模型"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 92,
+      "command": "/密钥配置",
+      "root": "密钥配置",
+      "candidates": [
+        "密钥配置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "line": 93,
+      "command": "/模型列表",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "line": 18,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "line": 18,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "line": 27,
+      "command": "/模块状态",
+      "root": "模块状态",
+      "candidates": [
+        "模块状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "line": 54,
+      "command": "`/模块状态 ${page - 1}`",
+      "root": "模块状态",
+      "candidates": [
+        "模块状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "line": 55,
+      "command": "`/模块状态 ${page + 1}`",
+      "root": "模块状态",
+      "candidates": [
+        "模块状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "line": 56,
+      "command": "`/模块状态 ${page}`",
+      "root": "模块状态",
+      "candidates": [
+        "模块状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "line": 57,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "line": 71,
+      "command": "/模块状态",
+      "root": "模块状态",
+      "candidates": [
+        "模块状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "line": 72,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "line": 73,
+      "command": "/帮助",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "line": 22,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "line": 23,
+      "command": "/人格 帮助",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "line": 28,
+      "command": "/心情",
+      "root": "心情",
+      "candidates": [
+        "心情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "line": 36,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "line": 48,
+      "command": "/人格 帮助",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "line": 81,
+      "command": "/心情",
+      "root": "心情",
+      "candidates": [
+        "心情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "line": 82,
+      "command": "/人格",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "line": 83,
+      "command": "/人格 帮助",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "line": 91,
+      "command": "/心情",
+      "root": "心情",
+      "candidates": [
+        "心情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "line": 92,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-new/res.ts",
+      "line": 26,
+      "command": "/新会话",
+      "root": "新会话",
+      "candidates": [
+        "新会话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-new/res.ts",
+      "line": 26,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-new/res.ts",
+      "line": 38,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-new/res.ts",
+      "line": 38,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-new/res.ts",
+      "line": 49,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-new/res.ts",
+      "line": 62,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-new/res.ts",
+      "line": 63,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-new/res.ts",
+      "line": 68,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-new/res.ts",
+      "line": 68,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 88,
+      "command": "`/人格 ${action} ${mode}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 93,
+      "command": "/人格 帮助",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 94,
+      "command": "`/人格 ${action} 默认`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 129,
+      "command": "/人格",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 138,
+      "command": "/人设",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 145,
+      "command": "/人格 程度",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 145,
+      "command": "/人格 全局程度",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 154,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 161,
+      "command": "/智能程度",
+      "root": "智能程度",
+      "candidates": [
+        "智能程度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 161,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 170,
+      "command": "/人格 帮助",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 186,
+      "command": "`/人格 查看 ${row.id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 187,
+      "command": "`/人格 追加 ${row.id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 188,
+      "command": "`/人格 查看追加 ${row.id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 193,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 195,
+      "command": "/人设",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 196,
+      "command": "/人格 帮助",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 215,
+      "command": "`/人格 使用 ${row.id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 217,
+      "command": "/人格 使用 默认",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 217,
+      "command": "/人格 帮助",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 220,
+      "command": "`/人格 ${page - 1}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 221,
+      "command": "`/人格 ${page + 1}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 238,
+      "command": "/人格",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 239,
+      "command": "/人格 帮助",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 250,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 251,
+      "command": "/人格",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 257,
+      "command": "/人格",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 265,
+      "command": "/人格",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 272,
+      "command": "/人设",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 273,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 280,
+      "command": "/人设",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 280,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 286,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 292,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 301,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 310,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 318,
+      "command": "`/人格 ${action} ${id} 确认`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 319,
+      "command": "`/人格 ${action} ${id} 取消`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 328,
+      "command": "`/人格 ${action} ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 328,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 338,
+      "command": "`/人格 追加 ${id} `",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 339,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 344,
+      "command": "`/人格 查看追加 ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 349,
+      "command": "`/人格 查看追加 ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 355,
+      "command": "`/人格 追加 ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 356,
+      "command": "`/人格 清空追加 ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 357,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 362,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 367,
+      "command": "`/人格 保存 ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 368,
+      "command": "`/人格 删除 ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 369,
+      "command": "`/人格 追加 ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 370,
+      "command": "`/人格 查看追加 ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 371,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 375,
+      "command": "`/人格 保存 ${id} `",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 376,
+      "command": "/人设",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 377,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 385,
+      "command": "`/人格 查看 ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 385,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 390,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 398,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 401,
+      "command": "`/人格 查看 ${id}`",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 401,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 406,
+      "command": "/人格",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 406,
+      "command": "/人格 管理",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "line": 407,
+      "command": "/人格 帮助",
+      "root": "人格",
+      "candidates": [
+        "人格"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 27,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 33,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 33,
+      "command": "/群设置",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 48,
+      "command": "`/工具策略 ${name} ${enabled ? '关闭' : '开启'}`",
+      "root": "工具策略",
+      "candidates": [
+        "工具策略"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 71,
+      "command": "/工具策略 状态",
+      "root": "工具策略",
+      "candidates": [
+        "工具策略"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 72,
+      "command": "/群设置",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 87,
+      "command": "/工具策略 状态",
+      "root": "工具策略",
+      "candidates": [
+        "工具策略"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 97,
+      "command": "/工具策略 状态",
+      "root": "工具策略",
+      "candidates": [
+        "工具策略"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 111,
+      "command": "/工具策略 状态",
+      "root": "工具策略",
+      "candidates": [
+        "工具策略"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 122,
+      "command": "/工具策略 状态",
+      "root": "工具策略",
+      "candidates": [
+        "工具策略"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "line": 125,
+      "command": "/工具策略 状态",
+      "root": "工具策略",
+      "candidates": [
+        "工具策略"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-pool/res.ts",
+      "line": 15,
+      "command": "/额度轮转",
+      "root": "额度轮转",
+      "candidates": [
+        "额度轮转"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-pool/res.ts",
+      "line": 77,
+      "command": "`/额度轮转 ${row.disabled ? '启用' : '停用'} ${row.id}`",
+      "root": "额度轮转",
+      "candidates": [
+        "额度轮转"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-pool/res.ts",
+      "line": 78,
+      "command": "`/额度轮转 测活 ${row.id}`",
+      "root": "额度轮转",
+      "candidates": [
+        "额度轮转"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-pool/res.ts",
+      "line": 79,
+      "command": "`/额度轮转 查额度 ${row.id}`",
+      "root": "额度轮转",
+      "candidates": [
+        "额度轮转"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-pool/res.ts",
+      "line": 100,
+      "command": "`/额度轮转 ${view.page - 1}`",
+      "root": "额度轮转",
+      "candidates": [
+        "额度轮转"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-pool/res.ts",
+      "line": 101,
+      "command": "`/额度轮转 ${view.page + 1}`",
+      "root": "额度轮转",
+      "candidates": [
+        "额度轮转"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-pool/res.ts",
+      "line": 102,
+      "command": "`/额度轮转 ${view.page}`",
+      "root": "额度轮转",
+      "candidates": [
+        "额度轮转"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-pool/res.ts",
+      "line": 103,
+      "command": "/用量",
+      "root": "用量",
+      "candidates": [
+        "用量"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-privacy/res.ts",
+      "line": 28,
+      "command": "event.IsPrivate ? '/记忆' : '/群记忆'",
+      "root": "记忆",
+      "candidates": [
+        "记忆",
+        "群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-privacy/res.ts",
+      "line": 34,
+      "command": "/新会话",
+      "root": "新会话",
+      "candidates": [
+        "新会话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-privacy/res.ts",
+      "line": 35,
+      "command": "/清除聊天记录",
+      "root": "清除聊天记录",
+      "candidates": [
+        "清除聊天记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-privacy/res.ts",
+      "line": 36,
+      "command": "/帮助 数据",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-privacy/res.ts",
+      "line": 42,
+      "command": "/清除群数据",
+      "root": "清除群数据",
+      "candidates": [
+        "清除群数据"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 44,
+      "command": "route.rawArgs[0] === '阅读' ? '/主动搭话 阅读' : '/主动搭话 状态'",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 56,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 57,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 104,
+      "command": "`/主动搭话 阅读 ${reading.enabled ? '关闭' : '开启'}`",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 111,
+      "command": "/主动搭话 阅读 作息",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 117,
+      "command": "/主动搭话 阅读 日记",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 118,
+      "command": "/主动搭话 阅读 偏好",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 125,
+      "command": "/主动搭话 阅读 恢复默认",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 126,
+      "command": "/主动搭话 状态",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 133,
+      "command": "/主动搭话 阅读 作息 ",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 134,
+      "command": "/主动搭话 阅读",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 201,
+      "command": "/主动搭话 状态",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 202,
+      "command": "/主动搭话 关闭",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 207,
+      "command": "/主动搭话 状态",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 208,
+      "command": "/主动搭话 开启",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 215,
+      "command": "/主动搭话 开启",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 216,
+      "command": "/主动搭话 状态",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 225,
+      "command": "/主动搭话 暂停 60",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 226,
+      "command": "/主动搭话 恢复",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 238,
+      "command": "/主动搭话 状态",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 238,
+      "command": "/主动搭话 恢复",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 257,
+      "command": "/主动搭话 状态",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 283,
+      "command": "/主动搭话 关闭",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 283,
+      "command": "/主动搭话 开启",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 284,
+      "command": "/主动搭话 现在",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 295,
+      "command": "`/主动搭话 阅读 ${reading.enabled ? '关闭' : '开启'}`",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 296,
+      "command": "/主动搭话 阅读 偏好",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 297,
+      "command": "/主动搭话 阅读 日记",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 305,
+      "command": "/主动搭话 恢复",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 340,
+      "command": "/主动搭话 暂停 60",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 341,
+      "command": "/主动搭话 恢复",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 350,
+      "command": "/主动搭话 开启",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 351,
+      "command": "/主动搭话 状态",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 360,
+      "command": "/主动搭话 状态",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "line": 363,
+      "command": "/主动搭话 状态",
+      "root": "主动搭话",
+      "candidates": [
+        "主动搭话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "line": 23,
+      "command": "/隐私说明",
+      "root": "隐私说明",
+      "candidates": [
+        "隐私说明"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "line": 51,
+      "command": "/群设置",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "line": 52,
+      "command": "/隐私说明",
+      "root": "隐私说明",
+      "candidates": [
+        "隐私说明"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "line": 63,
+      "command": "/清除群数据",
+      "root": "清除群数据",
+      "candidates": [
+        "清除群数据"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "line": 80,
+      "command": "/清除群数据 确认",
+      "root": "清除群数据",
+      "candidates": [
+        "清除群数据"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "line": 81,
+      "command": "/清除群数据 取消",
+      "root": "清除群数据",
+      "candidates": [
+        "清除群数据"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "line": 94,
+      "command": "/清除群数据",
+      "root": "清除群数据",
+      "candidates": [
+        "清除群数据"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "line": 111,
+      "command": "/群设置",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "line": 112,
+      "command": "/隐私说明",
+      "root": "隐私说明",
+      "candidates": [
+        "隐私说明"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "line": 121,
+      "command": "/清除群数据",
+      "root": "清除群数据",
+      "candidates": [
+        "清除群数据"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 27,
+      "command": "/人设",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 32,
+      "command": "`/人设 编辑 ${field} `",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 33,
+      "command": "`/人设 查看 ${field}`",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 34,
+      "command": "`/人设 ${page}`",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 53,
+      "command": "/人设 恢复默认 确认",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 54,
+      "command": "/人设",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 85,
+      "command": "`/人设 查看 ${field}`",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 87,
+      "command": "`/人设 编辑 ${field} `",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 87,
+      "command": "`/人设 清空 ${field}`",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 100,
+      "command": "`/人设 ${page - 1}`",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 101,
+      "command": "`/人设 ${page + 1}`",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 102,
+      "command": "/人设 恢复默认",
+      "root": "人设",
+      "candidates": [
+        "人设"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "line": 103,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "line": 45,
+      "command": "/模块状态",
+      "root": "模块状态",
+      "candidates": [
+        "模块状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "line": 56,
+      "command": "/语音引擎 试听 你好",
+      "root": "语音引擎",
+      "candidates": [
+        "语音引擎"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "line": 57,
+      "command": "/语音引擎 安装",
+      "root": "语音引擎",
+      "candidates": [
+        "语音引擎"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "line": 58,
+      "command": "/语音引擎 状态",
+      "root": "语音引擎",
+      "candidates": [
+        "语音引擎"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "line": 58,
+      "command": "/帮助 媒体",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "line": 64,
+      "command": "/语音引擎 状态",
+      "root": "语音引擎",
+      "candidates": [
+        "语音引擎"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "line": 84,
+      "command": "/取消",
+      "root": "取消",
+      "candidates": [
+        "取消"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "line": 87,
+      "command": "/语音引擎 试听 你好",
+      "root": "语音引擎",
+      "candidates": [
+        "语音引擎"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "line": 88,
+      "command": "/语音引擎 状态",
+      "root": "语音引擎",
+      "candidates": [
+        "语音引擎"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "line": 112,
+      "command": "/语音引擎 状态",
+      "root": "语音引擎",
+      "candidates": [
+        "语音引擎"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sponsors/res.ts",
+      "line": 20,
+      "command": "`/赞助列表 ${page}`",
+      "root": "赞助列表",
+      "candidates": [
+        "赞助列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sponsors/res.ts",
+      "line": 31,
+      "command": "`/赞助列表 ${page - 1}`",
+      "root": "赞助列表",
+      "candidates": [
+        "赞助列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sponsors/res.ts",
+      "line": 32,
+      "command": "`/赞助列表 ${page + 1}`",
+      "root": "赞助列表",
+      "candidates": [
+        "赞助列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sponsors/res.ts",
+      "line": 33,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sponsors/res.ts",
+      "line": 44,
+      "command": "`/赞助列表 详情 ${item.id}`",
+      "root": "赞助列表",
+      "candidates": [
+        "赞助列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 41,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 41,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 107,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 112,
+      "command": "/模型列表",
+      "root": "模型列表",
+      "candidates": [
+        "模型列表"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 112,
+      "command": "/密钥配置",
+      "root": "密钥配置",
+      "candidates": [
+        "密钥配置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 114,
+      "command": "/帮助 媒体",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 119,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 135,
+      "command": "/状态 详情",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 136,
+      "command": "/帮助",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 176,
+      "command": "route.rawArgs[0] === '详情' ? '/状态 详情' : '/状态'",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 178,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 190,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 190,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "line": 190,
+      "command": "/帮助",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 30,
+      "command": "/表情",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 31,
+      "command": "/帮助 媒体",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 60,
+      "command": "/表情",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 66,
+      "command": "/表情",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 75,
+      "command": "/表情 导入",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 80,
+      "command": "/表情 同步",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 85,
+      "command": "/帮助 媒体",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 246,
+      "command": "`/表情 ${item.id}`",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 246,
+      "command": "`/表情 删除 ${item.id}`",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 249,
+      "command": "`/表情 列表 ${page - 1}`",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 250,
+      "command": "`/表情 列表 ${page + 1}`",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 251,
+      "command": "/表情",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "line": 252,
+      "command": "/表情 帮助",
+      "root": "表情",
+      "candidates": [
+        "表情"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-token-usage/res.ts",
+      "line": 19,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-token-usage/res.ts",
+      "line": 20,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-token-usage/res.ts",
+      "line": 26,
+      "command": "`/用量 ${label}`",
+      "root": "用量",
+      "candidates": [
+        "用量"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-token-usage/res.ts",
+      "line": 64,
+      "command": "/用量 帮助",
+      "root": "用量",
+      "candidates": [
+        "用量"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-token-usage/res.ts",
+      "line": 69,
+      "command": "/用量 帮助",
+      "root": "用量",
+      "candidates": [
+        "用量"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-unbind/res.ts",
+      "line": 19,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-unbind/res.ts",
+      "line": 20,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-unbind/res.ts",
+      "line": 33,
+      "command": "/我的钥匙 私聊",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-unbind/res.ts",
+      "line": 34,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-unbind/res.ts",
+      "line": 49,
+      "command": "/密钥配置",
+      "root": "密钥配置",
+      "candidates": [
+        "密钥配置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-unbind/res.ts",
+      "line": 50,
+      "command": "/当前模型",
+      "root": "当前模型",
+      "candidates": [
+        "当前模型"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-voice/res.ts",
+      "line": 24,
+      "command": "/帮助 媒体",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-voice/res.ts",
+      "line": 42,
+      "command": "/群设置 语音 查看",
+      "root": "群设置",
+      "candidates": [
+        "群设置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-voice/res.ts",
+      "line": 54,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/agent-voice/res.ts",
+      "line": 55,
+      "command": "/帮助 媒体",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/ai-switch/res.ts",
+      "line": 31,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/ai-switch/res.ts",
+      "line": 31,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/ai-switch/res.ts",
+      "line": 33,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/ai-switch/res.ts",
+      "line": 33,
+      "command": "/开启",
+      "root": "开启",
+      "candidates": [
+        "开启"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/ai-switch/res.ts",
+      "line": 33,
+      "command": "/帮助 管理",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/ai-switch/res.ts",
+      "line": 36,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/ai-switch/res.ts",
+      "line": 37,
+      "command": "/帮助 管理",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/ai-switch/res.ts",
+      "line": 40,
+      "command": "/开启",
+      "root": "开启",
+      "candidates": [
+        "开启"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/ai-switch/res.ts",
+      "line": 41,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/bubble.ts",
+      "line": 169,
+      "command": "`${options.page.command} ${page - 1}`",
+      "root": null,
+      "candidates": [],
+      "state": "dynamic-review-required"
+    },
+    {
+      "file": "src/response/bubble.ts",
+      "line": 170,
+      "command": "`${options.page.command} ${page + 1}`",
+      "root": null,
+      "candidates": [],
+      "state": "dynamic-review-required"
+    },
+    {
+      "file": "src/response/dsh/chat.ts",
+      "line": 162,
+      "command": "/帮助 额度",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/chat.ts",
+      "line": 318,
+      "command": "/提问",
+      "root": "提问",
+      "candidates": [
+        "提问"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/chat.ts",
+      "line": 318,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/res.ts",
+      "line": 59,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/res.ts",
+      "line": 59,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/res.ts",
+      "line": 75,
+      "command": "/新会话",
+      "root": "新会话",
+      "candidates": [
+        "新会话"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/res.ts",
+      "line": 93,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/res.ts",
+      "line": 93,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/res.ts",
+      "line": 108,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/res.ts",
+      "line": 109,
+      "command": "/帮助",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/res.ts",
+      "line": 156,
+      "command": "/提问",
+      "root": "提问",
+      "candidates": [
+        "提问"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/dsh/res.ts",
+      "line": 156,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/history-clear/res.ts",
+      "line": 17,
+      "command": "/隐私说明",
+      "root": "隐私说明",
+      "candidates": [
+        "隐私说明"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/history-clear/res.ts",
+      "line": 49,
+      "command": "/隐私说明",
+      "root": "隐私说明",
+      "candidates": [
+        "隐私说明"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/history-clear/res.ts",
+      "line": 54,
+      "command": "/清除聊天记录",
+      "root": "清除聊天记录",
+      "candidates": [
+        "清除聊天记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/history-clear/res.ts",
+      "line": 68,
+      "command": "/清除聊天记录 确认",
+      "root": "清除聊天记录",
+      "candidates": [
+        "清除聊天记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/history-clear/res.ts",
+      "line": 69,
+      "command": "/清除聊天记录 取消",
+      "root": "清除聊天记录",
+      "candidates": [
+        "清除聊天记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/history-clear/res.ts",
+      "line": 76,
+      "command": "/清除聊天记录",
+      "root": "清除聊天记录",
+      "candidates": [
+        "清除聊天记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/history-clear/res.ts",
+      "line": 86,
+      "command": "/清除聊天记录",
+      "root": "清除聊天记录",
+      "candidates": [
+        "清除聊天记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/history-clear/res.ts",
+      "line": 87,
+      "command": "/隐私说明",
+      "root": "隐私说明",
+      "candidates": [
+        "隐私说明"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/key-intake/res.ts",
+      "line": 44,
+      "command": "confirmation[1] === '私聊' ? '/我的钥匙 私聊' : '/我的钥匙 群聊'",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/key-intake/res.ts",
+      "line": 61,
+      "command": "`/添加钥匙 私聊 ${ticket}`",
+      "root": "添加钥匙",
+      "candidates": [
+        "添加钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/key-intake/res.ts",
+      "line": 62,
+      "command": "`/添加钥匙 群聊 ${ticket}`",
+      "root": "添加钥匙",
+      "candidates": [
+        "添加钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 35,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 42,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 69,
+      "command": "`/授权记录 ${returnPage}`",
+      "root": "授权记录",
+      "candidates": [
+        "授权记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 70,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 101,
+      "command": "`/授权记录 ${current[index].enabled ? '停用' : '启用'} ${item.id}`",
+      "root": "授权记录",
+      "candidates": [
+        "授权记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 102,
+      "command": "`/授权记录 上限 ${item.id}`",
+      "root": "授权记录",
+      "candidates": [
+        "授权记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 105,
+      "command": "`/授权记录 移除 ${item.id}`",
+      "root": "授权记录",
+      "candidates": [
+        "授权记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 112,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 120,
+      "command": "`/授权记录 ${page - 1}`",
+      "root": "授权记录",
+      "candidates": [
+        "授权记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 121,
+      "command": "`/授权记录 ${page + 1}`",
+      "root": "授权记录",
+      "candidates": [
+        "授权记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 122,
+      "command": "`/授权记录 ${page}`",
+      "root": "授权记录",
+      "candidates": [
+        "授权记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 123,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 136,
+      "command": "/我的钥匙 私聊",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 137,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 138,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 157,
+      "command": "`/我的钥匙 私聊 ${status.enabled ? '停用' : '启用'}`",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 158,
+      "command": "/我的钥匙 私聊 移除",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 159,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 162,
+      "command": "/我的钥匙 私聊 添加",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 163,
+      "command": "/个人登录",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 168,
+      "command": "/我的钥匙 群聊",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 172,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 184,
+      "command": "`/授权钥匙 ${item.id}`",
+      "root": "授权钥匙",
+      "candidates": [
+        "授权钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 204,
+      "command": "/我的钥匙 上限 取消",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 224,
+      "command": "`/我的钥匙 ${status.enabled ? '停用' : '启用'}`",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 225,
+      "command": "/我的钥匙 移除",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 236,
+      "command": "/我的钥匙 私聊",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 242,
+      "command": "/个人登录",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 243,
+      "command": "/我的钥匙 群聊 添加",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 244,
+      "command": "/授权记录",
+      "root": "授权记录",
+      "candidates": [
+        "授权记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 252,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 253,
+      "command": "/额度",
+      "root": "额度",
+      "candidates": [
+        "额度"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "line": 253,
+      "command": "/授权记录",
+      "root": "授权记录",
+      "candidates": [
+        "授权记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/master/res.ts",
+      "line": 14,
+      "command": "/我是主人",
+      "root": "我是主人",
+      "candidates": [
+        "我是主人"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/master/res.ts",
+      "line": 22,
+      "command": "/我的权限",
+      "root": "我的权限",
+      "candidates": [
+        "我的权限"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/master/res.ts",
+      "line": 22,
+      "command": "/帮助 管理",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/master/res.ts",
+      "line": 36,
+      "command": "/我的主人 ",
+      "root": "我的主人",
+      "candidates": [
+        "我的主人"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/master/res.ts",
+      "line": 37,
+      "command": "/我是主人",
+      "root": "我是主人",
+      "candidates": [
+        "我是主人"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/master/res.ts",
+      "line": 46,
+      "command": "/我的主人 ",
+      "root": "我的主人",
+      "candidates": [
+        "我的主人"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/master/res.ts",
+      "line": 47,
+      "command": "/我是主人",
+      "root": "我是主人",
+      "candidates": [
+        "我是主人"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 35,
+      "command": "event.IsPrivate ? '/记忆' : '/群记忆'",
+      "root": "记忆",
+      "candidates": [
+        "记忆",
+        "群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 36,
+      "command": "/过时记忆",
+      "root": "过时记忆",
+      "candidates": [
+        "过时记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 37,
+      "command": "/帮助 记忆",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 100,
+      "command": "`/记忆来源 ${item.id}`",
+      "root": "记忆来源",
+      "candidates": [
+        "记忆来源"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 102,
+      "command": "`/恢复记忆 ${item.id}`",
+      "root": "恢复记忆",
+      "candidates": [
+        "恢复记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 103,
+      "command": "`/忘记 ${item.id}`",
+      "root": "忘记",
+      "candidates": [
+        "忘记"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 104,
+      "command": "`/忘记群记忆 ${item.id}`",
+      "root": "忘记群记忆",
+      "candidates": [
+        "忘记群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 113,
+      "command": "event.IsPrivate ? '/记忆' : '/群记忆'",
+      "root": "记忆",
+      "candidates": [
+        "记忆",
+        "群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 114,
+      "command": "event.IsPrivate ? '/记忆' : '/群记忆'",
+      "root": "记忆",
+      "candidates": [
+        "记忆",
+        "群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 114,
+      "command": "/过时记忆",
+      "root": "过时记忆",
+      "candidates": [
+        "过时记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 115,
+      "command": "/帮助 记忆",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 162,
+      "command": "`/记忆来源 ${item.id} ${page - 1}`",
+      "root": "记忆来源",
+      "candidates": [
+        "记忆来源"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 163,
+      "command": "`/记忆来源 ${item.id} ${page + 1}`",
+      "root": "记忆来源",
+      "candidates": [
+        "记忆来源"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 164,
+      "command": "`/恢复记忆 ${item.id}`",
+      "root": "恢复记忆",
+      "candidates": [
+        "恢复记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 165,
+      "command": "event.IsPrivate ? '/记忆' : '/群记忆'",
+      "root": "记忆",
+      "candidates": [
+        "记忆",
+        "群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 166,
+      "command": "/过时记忆",
+      "root": "过时记忆",
+      "candidates": [
+        "过时记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 174,
+      "command": "/过时记忆",
+      "root": "过时记忆",
+      "candidates": [
+        "过时记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 192,
+      "command": "event.IsPrivate ? '/记忆' : '/群记忆'",
+      "root": "记忆",
+      "candidates": [
+        "记忆",
+        "群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 208,
+      "command": "/整理记忆",
+      "root": "整理记忆",
+      "candidates": [
+        "整理记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 242,
+      "command": "/整理记忆",
+      "root": "整理记忆",
+      "candidates": [
+        "整理记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 243,
+      "command": "event.IsPrivate ? '/记忆' : '/群记忆'",
+      "root": "记忆",
+      "candidates": [
+        "记忆",
+        "群记忆"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "line": 244,
+      "command": "/帮助 记忆",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 30,
+      "command": "/个人登录 状态",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 31,
+      "command": "/个人登录",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 40,
+      "command": "/个人登录 取消",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 41,
+      "command": "/个人登录 状态",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 45,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 46,
+      "command": "/授权记录",
+      "root": "授权记录",
+      "candidates": [
+        "授权记录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 50,
+      "command": "/个人登录 取消",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 51,
+      "command": "/个人登录 状态",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 55,
+      "command": "/个人退出",
+      "root": "个人退出",
+      "candidates": [
+        "个人退出"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 56,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 59,
+      "command": "/个人登录",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 61,
+      "command": "/个人登录",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 62,
+      "command": "/个人登录 状态",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 72,
+      "command": "/个人登录",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 78,
+      "command": "/个人登录",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 79,
+      "command": "/个人登录 状态",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 89,
+      "command": "/个人登录 取消",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 90,
+      "command": "/个人登录 状态",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 94,
+      "command": "/个人退出",
+      "root": "个人退出",
+      "candidates": [
+        "个人退出"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 95,
+      "command": "/我的钥匙",
+      "root": "我的钥匙",
+      "candidates": [
+        "我的钥匙"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 97,
+      "command": "/个人登录",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 109,
+      "command": "/个人登录 状态",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "line": 110,
+      "command": "/个人登录",
+      "root": "个人登录",
+      "candidates": [
+        "个人登录"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/private-chat/res.ts",
+      "line": 41,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/private-chat/res.ts",
+      "line": 42,
+      "command": "/密钥配置",
+      "root": "密钥配置",
+      "candidates": [
+        "密钥配置"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/response/private-chat/res.ts",
+      "line": 43,
+      "command": "/帮助 聊天",
+      "root": "帮助",
+      "candidates": [
+        "帮助"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/social/respond.ts",
+      "line": 150,
+      "command": "/提问",
+      "root": "提问",
+      "candidates": [
+        "提问"
+      ],
+      "state": "declared-root"
+    },
+    {
+      "file": "src/social/respond.ts",
+      "line": 151,
+      "command": "/状态",
+      "root": "状态",
+      "candidates": [
+        "状态"
+      ],
+      "state": "declared-root"
+    }
+  ]
+}

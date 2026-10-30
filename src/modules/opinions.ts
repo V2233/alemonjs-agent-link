@@ -1,3 +1,4 @@
+import { isFailureReply } from '../dsh/failure-reply';
 import { logger } from 'alemonjs';
 import type { AgentModule, TurnContext } from '../agent/types';
 import type { DSHBridgeConfig } from '../dsh/client';
@@ -20,7 +21,7 @@ export const opinionsModule = (config: DSHBridgeConfig): AgentModule => ({
     const scope = (context: TurnContext) => ({
       platform: context.platform,
       channelId: context.channelId,
-      personaId: String(getPersonaStore(config).selected(context) || config.modules?.settings?.persona?.defaultId || config.persona)
+      personaId: String(getPersonaStore(config).activeSelection(context) || config.modules?.settings?.persona?.defaultId || config.persona)
     });
 
     api.on('context', context => {
@@ -59,7 +60,7 @@ export const opinionsModule = (config: DSHBridgeConfig): AgentModule => ({
         context.signal.aborted ||
         active >= 2 ||
         !activity.output.trim() ||
-        /\[沉默\]|服务暂时不可用|网线断了|非常抱歉，我网卡没流量了|请稍后再试/.test(activity.output) ||
+        isFailureReply(activity.output) ||
         activity.input.trimStart().startsWith('/')
       )
         return;

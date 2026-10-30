@@ -1,0 +1,4048 @@
+{
+  "note": "回复点是去除 reply/send 包装器后的静态调用位置，附条件仅作分支定位；不是最终逻辑场景数。一点可因身份/平台/内容产生多种气泡，长内容还会分条。另列 text 赋值分支，避免钥匙等处理函数共用一个发送点却产生多类气泡被漏记；这些也不直接相加为场景数。未逐点验收前不计算完成百分比。完整范围另含普通聊天、主动投递、媒体与共享输出（见 bubble-audit.json）。",
+  "totals": {
+    "registeredPaths": 70,
+    "eventCommands": 3,
+    "allCommandEntries": 73,
+    "rootCommands": 71,
+    "handlerGroups": 37,
+    "replyPoints": 311,
+    "textAssignmentVariants": 29,
+    "currentPartial": 19,
+    "stalePartial": 18,
+    "noEvidence": 0,
+    "fullyAccepted": 0,
+    "allSourceSites": 536,
+    "allSourceFiles": 55,
+    "scenariosRegistered": 37,
+    "scenariosAutoVerified": 26,
+    "scenariosPending": 11,
+    "scenariosClientVerified": 0
+  },
+  "handlers": [
+    {
+      "file": "src/response/agent-ads/res.ts",
+      "commands": [
+        "/广告列表",
+        "/广告详情"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 70,
+          "kind": "sectionBubble",
+          "preview": "'广告列表'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "List works in private and group, stays silent when disabled",
+        "Second detail chunk delivery failure stops before reward step"
+      ],
+      "pending": [
+        "Real Redis credit success and idempotent retry",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/ads-commands.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-bind/res.ts",
+      "commands": [
+        "/agentbind",
+        "/密钥配置"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 17,
+          "kind": "commandBubble",
+          "preview": "'公共密钥的配置与移除请由机器人主人在私聊查看指引。群内请勿发送真实密钥。'",
+          "conditions": [
+            "!event.IsPrivate"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 31,
+          "kind": "commandBubble",
+          "preview": "`公共密钥仅限机器人主人配置。个人使用请按下面操作：\\n\\n${personalKeyGuide}`",
+          "conditions": [
+            "!event.IsMaster"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 44,
+          "kind": "commandBubble",
+          "preview": "'这里只提供配置说明，尚未修改公共密钥。\\n由主人在 alemon.config.yaml 的 alemonjs-agent-link 中填写 apiKey，可选填 baseUrl。保存后可查看当前模型核对，请勿在聊天中发送公共密钥。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Owner guide explicitly states no mutation; arguments not echoed",
+        "Personal member action; both group aliases reach private-entry guidance"
+      ],
+      "pending": [
+        "Real QQ display and config guidance click-through"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/router-leading-space.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-budget/res.ts",
+      "commands": [
+        "/额度"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 36,
+          "kind": "commandBubble",
+          "preview": "'额度配置暂不可用，请联系机器人主人核对服务配置。当前查询未能完成。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 53,
+          "kind": "sectionBubble",
+          "preview": "'额度怎么用'",
+          "conditions": [
+            "route.rawArgs.map(String).join(' ').trim() === '帮助'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 107,
+          "kind": "commandBubble",
+          "preview": "notice",
+          "conditions": [
+            "route.rawArgs.map(String).join(' ').trim() === '今日不再提醒'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 126,
+          "kind": "commandBubble",
+          "preview": "budgetHelp",
+          "conditions": [
+            "command.action === 'help'",
+            "budgetEnabled(config)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 169,
+          "kind": "commandBubble",
+          "preview": "`${targetDescription}：今天没有手动额度调整记录。`",
+          "conditions": [
+            "!rows.length",
+            "command.action === 'history'",
+            "budgetEnabled(config)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 185,
+          "kind": "sectionBubble",
+          "preview": "'额度记录'",
+          "conditions": [
+            "command.action === 'history'",
+            "budgetEnabled(config)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 257,
+          "kind": "sectionBubble",
+          "preview": "'今日额度'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 258,
+          "kind": "commandBubble",
+          "preview": "text",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [
+        {
+          "line": 243,
+          "preview": "[intro, ...details].join('\\n')",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 245,
+          "preview": "adjustmentReceipt\n        ? `${targetDescription}\\n${adjustmentReceipt}\\n调整已保存，但最新余额暂时无法读取。请先查询目标额度核对，不要重复增加。`\n        : error instanceof Error && error.message === budgetHelp\n          ? '没有识别出这次额度操作。请先查看额度帮助，再选择查询或调整。'\n          : toUserMessage(error)",
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "covered": [
+        "Structured budget help available even when protection is disabled",
+        "Owner-only adjustment actions; member help preserves reset and carryover facts",
+        "Budget parser and pricing regression; no fixed bar in help",
+        "Actual isolated Redis handler: private/group source sections, recharge adjustment and history, member mutation refusal, malformed amount recovery",
+        "Actual group-owner daily mute and recovery actions",
+        "Injected storage read failure hides diagnostics and offers help; invalid runtime config produces usable bubble",
+        "Actual Redis remote-group adjustment/history and remote-user query retain correct refresh target",
+        "Injected balance read failure after successful recharge retains adjustment receipt, warns against duplicate adds, and links exact target",
+        "After restoring reads, target wallet confirms the recharge persisted"
+      ],
+      "pending": [
+        "Bound-Key priority handler matrix",
+        "Group administrator versus ordinary member daily-mute handler matrix",
+        "Interrupted adjustment before manageBudget returns",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/budget-bubbles.integration.test.mjs",
+        "test/budget.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-cancel/res.ts",
+      "commands": [
+        "/cancel",
+        "/取消"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 35,
+          "kind": "reply",
+          "preview": "'无法识别当前会话或提问者，请重新发送。'",
+          "conditions": [
+            "!channelId || (!event.UserKey && !event.UserId)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 41,
+          "kind": "noticeBubble",
+          "preview": "'取消提问不需要附加内容。请使用下方入口；清除数据等操作须使用各自的取消入口。'",
+          "conditions": [
+            "route.rawArgs.length"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 70,
+          "kind": "reply",
+          "preview": "text",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 73,
+          "kind": "noticeBubble",
+          "preview": "'暂时无法确认是否取消成功。请先查看状态，再决定是否重新提问。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Invalid args do not abort an actual running queue job",
+        "Valid actor cancellation aborts the running signal; completed queue returns empty message",
+        "Missing identity returns guidance; no fixed bar"
+      ],
+      "pending": [
+        "Queued job cancellation and foreign-member denial through handler",
+        "Group pending/coordinator cancellation wording integration",
+        "Injected role/coordinator failure and real QQ client display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-chat/res.ts",
+      "commands": [
+        "/chat",
+        "/提问"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 20,
+          "kind": "noticeBubble",
+          "preview": "'无法识别提问者或当前会话，请重新发送。'",
+          "conditions": [
+            "!eventContext.current.Platform || !eventContext.current.UserId || (!eventContext.current.IsPrivate && !eventContext.current.ChannelId)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 34,
+          "kind": "noticeBubble",
+          "preview": "'想问什么？例如：/提问 帮我总结刚才的讨论。'",
+          "conditions": [
+            "!prompt && !eventContext.current.MessageMedia?.length && !eventContext.current.ReplyId && !eventContext.current.MessageContent?.replyReferenceId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 53,
+          "kind": "noticeBubble",
+          "preview": "'群聊消息暂时无法处理，请稍后重试。'",
+          "conditions": [
+            "eventContext.current.IsPrivate"
+          ],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Private empty question guidance",
+        "Group missing identity feedback; ordinary member/admin new-topic action matrix"
+      ],
+      "pending": [
+        "Normal generation and queue behavior via actual handler",
+        "Delivery failure and actual platform rendering"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-context-clear/res.ts",
+      "commands": [
+        "/agentcontext clear",
+        "/聊天参考 清除"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 20,
+          "kind": "noticeBubble",
+          "preview": "'请到需要清除参考的群里操作。这里只清除近期参考，不会删除正式对话。'",
+          "conditions": [
+            "event.IsPrivate || !event.ChannelId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 26,
+          "kind": "noticeBubble",
+          "preview": "'清除参考不需要填写内容。请先查看本群参考，再选择清除。'",
+          "conditions": [
+            "route.rawArgs.length"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 34,
+          "kind": "noticeBubble",
+          "preview": "'仅主人或群管理员可清除聊天参考。'",
+          "conditions": [
+            "!(await canManageConversation(event))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 48,
+          "kind": "noticeBubble",
+          "preview": "'本群近期聊天参考已清除，正式对话保留。新的群消息仍会形成新的参考。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 58,
+          "kind": "noticeBubble",
+          "preview": "'暂时无法确认是否已清除。请先查看本群参考，再决定是否重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Trailing arguments leave stored context unchanged",
+        "Scoped clear preserves other bot context; new-message behavior explained",
+        "Injected storage failure offers verification instead of claiming success"
+      ],
+      "pending": [
+        "Actual router clear path and role denial",
+        "Redis backend failure behavior",
+        "Real QQ client display"
+      ],
+      "tests": [
+        "test/list-detail-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-context/res.ts",
+      "commands": [
+        "/agentcontext",
+        "/聊天参考"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 20,
+          "kind": "commandBubble",
+          "preview": "'/聊天参考 仅可在群聊中使用。'",
+          "conditions": [
+            "event.IsPrivate || !event.ChannelId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 46,
+          "kind": "commandBubble",
+          "preview": "preview ? `本群近期参考摘录（已压缩，并非完整聊天记录）\\n${preview}` : '暂无近期聊天参考。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 55,
+          "kind": "commandBubble",
+          "preview": "'聊天参考暂不可用，请稍后重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Actual scoped context record appears in preview without model instructions"
+      ],
+      "pending": [
+        "Empty, failure and role matrix",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/list-detail-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-group-settings/res.ts",
+      "commands": [
+        "/群设置"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 140,
+          "kind": "reply",
+          "preview": "'请到需要调整的目标群使用 /群设置；设置只影响那个群。'",
+          "conditions": [
+            "event.IsPrivate || !event.ChannelId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 178,
+          "kind": "reply",
+          "preview": "'这项操作后有多余内容，尚未修改设置。请返回对应设置入口，再选择要执行的操作。'",
+          "conditions": [
+            "(fixedAction && args.length > 1 && !resetDecision) ||\n      (fixedSubAction && args.length > 2 && !personaDecision && !listPageDecision) ||\n      (['强度', '每小时', '每小时上限'].includes(action) && args.lengt"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 185,
+          "kind": "reply",
+          "preview": "'只有群管理员或机器人主人能改。设置可以看，改法可以问，但不会保存。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 192,
+          "kind": "reply",
+          "preview": "'缺少机器人身份，无法读取群话题档案。'",
+          "conditions": [
+            "!event.BotId",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 218,
+          "kind": "reply",
+          "preview": "'这项查看操作不需要附加内容。请返回话题设置选择入口。'",
+          "conditions": [
+            "(['查看', '帮助'].includes(sub) && value) || (sub === '候选' && value && (!/^[1-9]\\d*$/u.test(value) || !Number.isSafeInteger(Number(value))))",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 224,
+          "kind": "reply",
+          "preview": "sub === '定位'\n            ? '填写一句本群用途，例如“修仙游戏交流群”。发送后替换本群定位。'\n            : `填写本群${sub}，多个词用空格或逗号分隔；发送后整体替换，写“清空”移除。`",
+          "conditions": [
+            "['定位', '标签', '禁忌'].includes(sub) && !value",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 237,
+          "kind": "reply",
+          "preview": "'采集按本群标签检索，不需要附加内容。请返回话题设置重新选择。'",
+          "conditions": [
+            "value",
+            "sub === '采集'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 243,
+          "kind": "reply",
+          "preview": "`已按本群标签检索 B 站，新增 ${added} 条今日或昨日公开视频线索。仅有标题元数据，未核实观点；没有符合内容时不补造。不会自动发送。`",
+          "conditions": [
+            "sub === '采集'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 254,
+          "kind": "reply",
+          "preview": "'这个候选已过期、不再匹配本群，或编号无效。请查看当前候选。'",
+          "conditions": [
+            "!selected",
+            "sub === '候选详情'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 258,
+          "kind": "reply",
+          "preview": "`${selected.topic.summary}\\n来源：${selected.topic.origin === 'human-discussion' ? '已授权匿名讨论' : selected.topic.sourceUrl}`",
+          "conditions": [
+            "sub === '候选详情'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 270,
+          "kind": "sectionBubble",
+          "preview": "'本群话题候选'",
+          "conditions": [
+            "sub === '候选'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 292,
+          "kind": "reply",
+          "preview": "'请先配置群定位、标签并开启冒泡意愿。'",
+          "conditions": [
+            "!profile.enabled || !profile.tags.length",
+            "sub === '新闻'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 297,
+          "kind": "reply",
+          "preview": "'录入一条新闻候选\\n按顺序填写：HTTPS 原文链接、发布日期（YYYY-MM-DD）、逗号分隔的标签、事实摘要。\\n仅接受北京时间今天或昨天的新闻，摘要最多1200字。请先核实原文与日期；录入后进入公共候选池，不会立即发送。'",
+          "conditions": [
+            "args.length < 6",
+            "sub === '新闻'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 307,
+          "kind": "reply",
+          "preview": "added ? '已录入公共新闻候选池。可用 /群设置 话题 候选 检查本群匹配；尚未接通自动发送。' : '该来源已在候选池中，未重复录入。'",
+          "conditions": [
+            "sub === '新闻'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 319,
+          "kind": "reply",
+          "preview": "'请填写标签，以空格或逗号分隔；写“清空”移除。'",
+          "conditions": [
+            "!value",
+            "sub === '标签' || sub === '禁忌'",
+            "sub === '定位' && value",
+            "sub !== '查看' && sub !== '帮助'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 328,
+          "kind": "reply",
+          "preview": "'请先设置群定位和标签，再开启权限。'",
+          "conditions": [
+            "value === '开启' && (profile.positioning === '尚未设置' || !profile.tags.length)",
+            "['冒泡', '输出', '接收'].includes(sub) && ['开启', '关闭'].includes(value)",
+            "sub === '标签' || sub === '禁忌'",
+            "sub === '定位' && value",
+            "sub !== '查看' && sub !== '帮助'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 334,
+          "kind": "reply",
+          "preview": "'没有识别出话题操作。请返回话题设置，选择要修改的项目。'",
+          "conditions": [
+            "['冒泡', '输出', '接收'].includes(sub) && ['开启', '关闭'].includes(value)",
+            "sub === '标签' || sub === '禁忌'",
+            "sub === '定位' && value",
+            "sub !== '查看' && sub !== '帮助'",
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 341,
+          "kind": "sectionBubble",
+          "preview": "'本群话题设置'",
+          "conditions": [
+            "action === '话题'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 442,
+          "kind": "sectionBubble",
+          "preview": "'本群设置'",
+          "conditions": [
+            "action === '查看' || action === '状态' || action === '菜单'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 465,
+          "kind": "sectionBubble",
+          "preview": "'本群设置 · 指令说明'",
+          "conditions": [
+            "action === '帮助' || action === '说明' || action === '指令'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 485,
+          "kind": "reply",
+          "preview": "text",
+          "conditions": [
+            "action === '记录'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 492,
+          "kind": "reply",
+          "preview": "'无法确认平台或操作者，请重新发送。'",
+          "conditions": [
+            "!platform || !event.UserId",
+            "action === '重置'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 501,
+          "kind": "reply",
+          "preview": "'已取消恢复默认，本群设置未修改。'",
+          "conditions": [
+            "args[1] === '取消'",
+            "action === '重置'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 507,
+          "kind": "reply",
+          "preview": "'待确认操作较多，请稍后重试。'",
+          "conditions": [
+            "resetConfirmations.size >= 1000",
+            "!args[1]",
+            "action === '重置'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 512,
+          "kind": "reply",
+          "preview": "'恢复本群设置默认值\\n将清除本群保存的说话频率、免打扰、上限、兴趣词、补充唤醒词、禁语和语音设置，回到配置默认。\\n人设补充、钥匙授权、聊天记录与记忆保留。请本人在60秒内确认。'",
+          "conditions": [
+            "!args[1]",
+            "action === '重置'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 526,
+          "kind": "reply",
+          "preview": "'确认已失效或本群设置已变化。请重新查看恢复范围，再决定是否执行。'",
+          "conditions": [
+            "pending?.snapshot !== JSON.stringify(settings)",
+            "action === '重置'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 535,
+          "kind": "reply",
+          "preview": "'已恢复群设置默认值；人设补充和钥匙授权保持原状。下一条消息生效。'",
+          "conditions": [
+            "action === '重置'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 551,
+          "kind": "reply",
+          "preview": "`${current ? `本群人设补充（${Array.from(current).length} 字）：\\n${current}` : '本群还没有人设补充。'}\\n${personaAccess.canEdit ? '填写新内容会整体替换原补充，下一轮生效。' : '仅机器人主人，或已启用 Key 权益的群管理员可编辑。'}`",
+          "conditions": [
+            "!operation || ['查看', '状态'].includes(operation)",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 564,
+          "kind": "reply",
+          "preview": "[\n            '人设补充只改表达，不改能力、权限和身份。',\n            '/群设置 人设 群里说话随意点，可以叫我阿鱼。',\n            '/群设置 人设 查看 — 看当前内容',\n            '/群设置 人设 清空 — 删掉',\n            '',\n            '只有一个输入位：重新发送会整体替换上一次，不是累加。'\n          ].join('\\n')",
+          "conditions": [
+            "['帮助', '怎么用', '说明', '用法'].includes(operation)",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 579,
+          "kind": "reply",
+          "preview": "'本群需启用 Key 权益后，由群管理员编辑人设；机器人主人可直接编辑。查看 /我的权限 了解当前权益。'",
+          "conditions": [
+            "!personaAccess.canEdit",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 585,
+          "kind": "reply",
+          "preview": "'无法确认平台或操作者，请重新发送。'",
+          "conditions": [
+            "!platform || !event.UserId",
+            "operation === '清空' || operation === '删除' || operation === '移除'",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 594,
+          "kind": "reply",
+          "preview": "'已取消清空，本群人设补充未修改。'",
+          "conditions": [
+            "args[2] === '取消'",
+            "operation === '清空' || operation === '删除' || operation === '移除'",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 600,
+          "kind": "reply",
+          "preview": "'本群没有人设补充，无需清空。'",
+          "conditions": [
+            "!current",
+            "!args[2]",
+            "operation === '清空' || operation === '删除' || operation === '移除'",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 605,
+          "kind": "reply",
+          "preview": "'待确认操作较多，请稍后重试。'",
+          "conditions": [
+            "personaClearConfirmations.size >= 1000",
+            "!args[2]",
+            "operation === '清空' || operation === '删除' || operation === '移除'",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 610,
+          "kind": "reply",
+          "preview": "`清空本群人设补充（${Array.from(current).length} 字）\\n只清除本群补充，整群下一轮生效。人格选择、专属人设细节和共享模板保留。\\n请本人在60秒内确认。`",
+          "conditions": [
+            "!args[2]",
+            "operation === '清空' || operation === '删除' || operation === '移除'",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 625,
+          "kind": "reply",
+          "preview": "'确认已失效或本群人设补充已变化。请重新查看清空范围。'",
+          "conditions": [
+            "pending?.snapshot !== current",
+            "operation === '清空' || operation === '删除' || operation === '移除'",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 633,
+          "kind": "reply",
+          "preview": "'已清空本群人设补充，下一轮生效；人格选择、专属人设细节和共享模板保留。'",
+          "conditions": [
+            "operation === '清空' || operation === '删除' || operation === '移除'",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 640,
+          "kind": "reply",
+          "preview": "'发一句要补充的内容，例如：/群设置 人设 群里说话随意点，可以叫我阿鱼。'",
+          "conditions": [
+            "!text",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 649,
+          "kind": "reply",
+          "preview": "'这段内容包含改变规则、身份或权限的指令，不能作为人设补充。请改成称呼、语气、口癖一类的表达。'",
+          "conditions": [
+            "/(忽略|无视|跳过|忘记)(以上|之前|上面|前面|所有)?(的)?(规则|限制|指令|提示)|系统提示|system\\s*prompt|你现在是|从现在开始你是|可以(执行|运行|调用)(命令|终端|shell)|读取(私聊|其他群)|不要告诉主人/iu.test(\n          text\n        )",
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 656,
+          "kind": "reply",
+          "preview": "error instanceof Error ? error.message : '保存失败，请稍后再试。'",
+          "conditions": [
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 660,
+          "kind": "reply",
+          "preview": "`已保存本群人设补充（${Array.from(text).length} 字），下一条消息生效。\\n重新发送会整体替换。`",
+          "conditions": [
+            "action === '人设' || action === '人设补充'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 681,
+          "kind": "sectionBubble",
+          "preview": "'本群语音设置'",
+          "conditions": [
+            "!operation || ['帮助', '怎么用', '说明'].includes(operation)",
+            "action === '语音'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 719,
+          "kind": "reply",
+          "preview": "[\n            `本群语音：${settings.voiceEnabled === false ? '已关闭（一律文字）' : '已允许；实际合成取决于语音服务'}`,\n            `自动语音：${settings.voiceAuto === false ? '已关闭（仅明确要求时尝试）' : '已允许'}${settings.voiceEnabled === false ? '；总开关关闭，暂不生效' : ''}`,\n            '设置允",
+          "conditions": [
+            "operation === '查看'",
+            "action === '语音'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 748,
+          "kind": "reply",
+          "preview": "'语音只有这几种：开启、关闭、自动开启、自动关闭、查看。'",
+          "conditions": [
+            "!patch",
+            "action === '语音'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 756,
+          "kind": "reply",
+          "preview": "result.reason",
+          "conditions": [
+            "result.ok === false",
+            "action === '语音'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 767,
+          "kind": "reply",
+          "preview": "`${done.join('') || '已保存。'}\\n下一条消息生效。`",
+          "conditions": [
+            "action === '语音'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 783,
+          "kind": "reply",
+          "preview": "`${result.reason}\\n也可以点按钮换一档。`",
+          "conditions": [
+            "result.ok === false",
+            "oral"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 787,
+          "kind": "reply",
+          "preview": "`已保存${activityLabels[oral]}档位。主人配置优先，请通过 /群设置 查看 确认生效设置。`",
+          "conditions": [
+            "oral"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 808,
+          "kind": "reply",
+          "preview": "'没有识别出要调整的设置。请从设置菜单选择说话频率、免打扰、词表或语音。'",
+          "conditions": [
+            "!field"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 821,
+          "kind": "reply",
+          "preview": "field === 'wakeNames'\n          ? '补充本群叫机器人的词，不替换全局唤醒词。可以添加新词，或从词表选择要删除的项目。'\n          : '禁语仅过滤机器人自己的输出。可以添加新词，或从词表选择要删除的项目。'",
+          "conditions": [
+            "askingHelp && listField"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 835,
+          "kind": "reply",
+          "preview": "helpFor[field]",
+          "conditions": [
+            "askingHelp"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 843,
+          "kind": "sectionBubble",
+          "preview": "`本群${listName}`",
+          "conditions": [
+            "listField && operation === '查看'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 879,
+          "kind": "reply",
+          "preview": "'请从词表找到目标词，再选择删除此词。'",
+          "conditions": [
+            "!word",
+            "listField && (operation === '删' || operation === '删除' || operation === '移除')",
+            "listField && (operation === '清空' || operation === '全部清空')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 884,
+          "kind": "reply",
+          "preview": "`${listName}里没有「${word}」，可能已被删除。请先查看当前词表。`",
+          "conditions": [
+            "!current.includes(word)",
+            "listField && (operation === '删' || operation === '删除' || operation === '移除')",
+            "listField && (operation === '清空' || operation === '全部清空')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 898,
+          "kind": "reply",
+          "preview": "`添加本群${listName}\\n在指令后填写新词，多个词用逗号分隔，会合并到已有词表。\\n例如：/群设置 ${action} 加 小鱼`",
+          "conditions": [
+            "!text",
+            "listField",
+            "listField && (operation === '删' || operation === '删除' || operation === '移除')",
+            "listField && (operation === '清空' || operation === '全部清空')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 908,
+          "kind": "reply",
+          "preview": "helpFor[field]",
+          "conditions": [
+            "!parsed",
+            "listField",
+            "listField && (operation === '删' || operation === '删除' || operation === '移除')",
+            "listField && (operation === '清空' || operation === '全部清空')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 925,
+          "kind": "reply",
+          "preview": "`每小时上限只能往下调，当前档位最多 ${ceiling} 次。\\n想更活跃，先发 /群设置 活跃。`",
+          "conditions": [
+            "typeof value === 'number' && value > ceiling",
+            "field === 'maxPerHour'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 937,
+          "kind": "reply",
+          "preview": "result.reason",
+          "conditions": [
+            "result.ok === false"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 956,
+          "kind": "reply",
+          "preview": "`${done[field]}\\n仅影响本群。`",
+          "conditions": [
+            "listField"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 963,
+          "kind": "reply",
+          "preview": "`${done[field] || '已保存。'}\\n主人配置优先，群钥匙权益可能调整参与上限，请查看当前生效设置。`",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 968,
+          "kind": "reply",
+          "preview": "`${error instanceof Error ? error.message : '设置暂时保存不了，请稍后再试。'}\\n发 /群设置 帮助 看全部指令。`",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Invalid trailing args in voice, activity alias, reset, word clear, persona clear, hourly limit and read query preserve stored settings",
+        "Public persona view has no edit/clear actions; editable view offers input entry",
+        "Private misuse and unknown action have usable navigation; existing voice/list help role checks",
+        "Local group settings and rights plus isolated Redis grant tests regression",
+        "Group voice structured help; actual close/automatic-on/status/reopen handler journey",
+        "Voice permission is not advertised as tested synthesis; automatic permission explicitly inactive while voice disabled",
+        "Restore action label matches actual behavior of enabling both permissions",
+        "Reset preview preserves saved settings; cancellation and direct confirmation do not reset",
+        "Cross-user reset confirmation refused; changes after preview invalidate confirmation",
+        "Fresh confirmation resets local settings and cannot replay",
+        "Group persona clear: preserved-scope preview, direct/cancelled confirmation rejection, changed-content guard, successful clear and empty state",
+        "Wake/banned list handler: 12 entries across three pages, overflow clamp, invalid page rejection",
+        "Word-specific delete and add entries hidden from ordinary member; deletion updates only selected list",
+        "List intros distinguish extra wake words and bot-output-only filtering",
+        "Word help/add/delete journey: empty add preserves state, missing deletion returns list, delete last item on page returns preceding page, actual add merges list",
+        "Group topic structured profile and toggles, owner-only edit/candidate/collect actions",
+        "Empty positioning guide, actual positioning save and malformed read argument rejection",
+        "Five actual news candidates across two pages; overflow clamp, bounded preview, full-detail preservation, missing candidate recovery",
+        "News empty form describes fields/recency/length and supplies input entry; public sources use HTTPS link action",
+        "Added topic-candidate paginator route round-trip; actual news add and duplicate response preserve candidate navigation",
+        "Four destructive operations: actual handler rejects confirmations after 61 seconds, different bot and separate workspace with identical seeded data; templates/additions/group settings remain intact"
+      ],
+      "pending": [
+        "Other group field success/failure and history branches",
+        "Maximum-length word and persona content platform serialization",
+        "Actual group administrator authorization and QQ display",
+        "Topic candidate/news/collection complete bubble journeys and actual upstream collection",
+        "New topic paginator actual router round-trip",
+        "News successful ingestion/duplicate error bubble and real upstream collection"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/command-rights.test.mjs",
+        "test/group-settings.test.mjs",
+        "test/group-topics.test.mjs",
+        "test/bubble-pagination-router.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-help/res.ts",
+      "commands": [
+        "/agenthelp",
+        "/agent",
+        "/帮助"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 202,
+          "kind": "sectionBubble",
+          "preview": "'大肥鱼 · 帮助指南(内测版)'",
+          "conditions": [
+            "!topic"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 216,
+          "kind": "sectionBubble",
+          "preview": "`大肥鱼 · ${topic}`",
+          "conditions": [
+            "sections.length"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 226,
+          "kind": "commandBubble",
+          "preview": "content",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Seven topic role and context matrix",
+        "QQ serialization and OneBot text fallback",
+        "No fixed keyboard bar and topic length bound"
+      ],
+      "pending": [
+        "End-to-end click-through of every help action",
+        "Real QQ client display"
+      ],
+      "tests": [
+        "test/bubble-copy.test.mjs",
+        "test/command-bubble.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-intelligence/res.ts",
+      "commands": [
+        "/智能程度",
+        "/我的权限"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 20,
+          "kind": "commandBubble",
+          "preview": "queryOnly ? '查看权限不需要附加内容，也不会改变设置。要调整智能程度，请进入对应设置。' : '没有识别出这个档位。请打开智能程度设置，再选择适合的档位。'",
+          "conditions": [
+            "(queryOnly && value) || (!queryOnly && value && !['状态', '默认', ...intelligenceLevels].includes(value))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 57,
+          "kind": "commandBubble",
+          "preview": "`范围：${identity.private ? '本人私聊' : '当前群聊'}\\n${value === '默认' ? '已恢复自动选择' : '已保存智能程度'}：${level}\\n下一轮对话生效，仍受服务上限约束。`",
+          "conditions": [
+            "route.key !== '我的权限' && value && value !== '状态'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 75,
+          "kind": "sectionBubble",
+          "preview": "'我的权限'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 132,
+          "kind": "commandBubble",
+          "preview": "error instanceof Error && error.message === '本人绑定 Key 后可设置；群内需本群绑定 Key 且由管理员设置。'\n          ? error.message\n          : '查询或设置暂时无法确认完成。请先查看权限，核对当前档位后再决定是否重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Permission query arguments explicitly rejected without changing intelligence setting",
+        "Invalid level input offers settings; owner menu explains all levels and consumption implications",
+        "Identity/config/role exceptions enter recovery bubble; missing identity hides internal diagnostic",
+        "Existing intelligence limits, default inheritance and permission regression"
+      ],
+      "pending": [
+        "Bound Key owner and group admin handler matrix with actual Redis credentials",
+        "Injected settings persistence failure",
+        "Real QQ client display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/command-rights.test.mjs",
+        "test/intelligence.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-memory/res.ts",
+      "commands": [
+        "/记忆",
+        "/记住",
+        "/忘记",
+        "/忘记全部"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 51,
+          "kind": "reply",
+          "preview": "'当前未开放此私聊。'",
+          "conditions": [
+            "!(await canPrivateChatWithKey(event, config.privateChatAccess))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 58,
+          "kind": "reply",
+          "preview": "'无法识别当前会话。'",
+          "conditions": [
+            "!channelId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 70,
+          "kind": "reply",
+          "preview": "'请用下方入口查看记忆，再选择对应条目的操作。'",
+          "conditions": [
+            "args && !/^[1-9]\\d*$/u.test(args)",
+            "command === '/记忆'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 78,
+          "kind": "reply",
+          "preview": "'我还没有保存长期记忆。\\n想让我记住什么偏好？可以这样发：\\n/记住 回答时先说结论\\n保存后用 /记忆 查看；不想保留时用 /忘记 编号 删除。'",
+          "conditions": [
+            "!notes.length",
+            "command === '/记忆'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 93,
+          "kind": "sectionBubble",
+          "preview": "'我的记忆'",
+          "conditions": [
+            "command === '/记忆'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 108,
+          "kind": "reply",
+          "preview": "`想让我记住什么？发 /记住 内容 就行，最多 ${privateMemoryTextLimit} 字。`",
+          "conditions": [
+            "command === '/记住' && (!args || Array.from(args).length > privateMemoryTextLimit)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 113,
+          "kind": "reply",
+          "preview": "'想删掉哪条记忆？发 /忘记 编号；编号可以用 /记忆 查看。'",
+          "conditions": [
+            "command === '/忘记' && !/^[a-f0-9]{8}(?:[a-f0-9]{4})?$/u.test(args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 120,
+          "kind": "reply",
+          "preview": "'没有识别出这项记忆操作。请先查看记忆，再选择要修改的条目。'",
+          "conditions": [
+            "!action || (command === '/忘记全部' && args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 136,
+          "kind": "reply",
+          "preview": "status === 'full'\n        ? '已经记满 20 条了。先用 /忘记 编号 删掉不再需要的，再记新的吧。'\n        : status === 'missing'\n          ? '我没找到这条记忆，用 /记忆 核对一下编号吧。'\n          : status === 'exists'\n            ? '这条之前就记下了，不用重复记。当前会话已经切到新话题了。'\n            : action === 'ad",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 148,
+          "kind": "reply",
+          "preview": "'这次操作没能完成，先用 /记忆 核对一下，必要时再发 /新会话。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Private list: 13 records across 3 pages, overflow page clamp, invalid page input"
+      ],
+      "pending": [
+        "Empty state and actual mutations",
+        "Very long explicit note values",
+        "Real QQ client display"
+      ],
+      "tests": [
+        "test/memory-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-model/res.ts",
+      "commands": [
+        "/agentmodel",
+        "/当前模型"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 19,
+          "kind": "commandBubble",
+          "preview": "'公共模型仅限机器人主人设置。'",
+          "conditions": [
+            "!event.IsMaster"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 34,
+          "kind": "commandBubble",
+          "preview": "'一次只能指定一个模型名称。请先查看可用模型，再选择要配置的模型。'",
+          "conditions": [
+            "route.rawArgs.length > 1"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 48,
+          "kind": "commandBubble",
+          "preview": "requestedModel ? `尚未修改模型。\\n请在配置文件中将 alemonjs-agent-link.model 改为 ${requestedModel}，保存后生效。` : `当前模型：${config.model}\\n\\n${poolText}`",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Ordinary user denied with rights navigation",
+        "Default single-key overview without table",
+        "Read-only model configuration guidance explicitly not applied",
+        "Extra arguments rejected"
+      ],
+      "pending": [
+        "Pool status with multiple endpoint states",
+        "Configuration failure branch",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-models/res.ts",
+      "commands": [
+        "/agentmodels",
+        "/模型列表"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 20,
+          "kind": "commandBubble",
+          "preview": "'公共模型列表仅限机器人主人查看。个人钥匙和权益可从下方入口查看。'",
+          "conditions": [
+            "!event.IsMaster"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 35,
+          "kind": "commandBubble",
+          "preview": "'没有识别出页码。请返回模型列表，再使用翻页入口。'",
+          "conditions": [
+            "args && (!/^[1-9]\\d*$/u.test(args) || !Number.isSafeInteger(Number(args)))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 49,
+          "kind": "commandBubble",
+          "preview": "'尚未配置模型密钥，请查看 /密钥配置。'",
+          "conditions": [
+            "!credentials"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 81,
+          "kind": "sectionBubble",
+          "preview": "'模型列表'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 89,
+          "kind": "commandBubble",
+          "preview": "'模型列表读取失败，请检查密钥和服务地址。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Invalid page inputs rejected before network; member recovery actions",
+        "Existing provider model list unit regression",
+        "Actual handler with controlled provider: 17 models across 3 pages, overflow clamped",
+        "Empty response distinguished from provider 403 and malformed payload; no sensitive diagnostic echoed",
+        "Current model recovery action available on successful and empty lists"
+      ],
+      "pending": [
+        "Actual external provider and QQ client rendering"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/dsh-bridge.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-modules/res.ts",
+      "commands": [
+        "/agentmodules",
+        "/模块状态"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 17,
+          "kind": "commandBubble",
+          "preview": "'模块管理仅限机器人主人私聊使用。其他成员可以查看服务状态。'",
+          "conditions": [
+            "!event.IsPrivate || !event.IsMaster"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 26,
+          "kind": "commandBubble",
+          "preview": "'没有识别出页码。请返回模块列表，再使用翻页入口。'",
+          "conditions": [
+            "args && !/^[1-9]\\d*$/u.test(args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 51,
+          "kind": "sectionBubble",
+          "preview": "'模块状态'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 67,
+          "kind": "commandBubble",
+          "preview": "text",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [
+        {
+          "line": 64,
+          "preview": "'模块配置或目录不可用，请检查服务端配置和文件权限。'",
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "covered": [
+        "Owner/private enforcement and invalid page inputs",
+        "First and overflow pages; both aliases reach group guidance through router"
+      ],
+      "pending": [
+        "Module load failure detail and empty registry",
+        "Real QQ client display"
+      ],
+      "tests": [
+        "test/policy-bubbles.test.mjs",
+        "test/router-leading-space.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-mood/res.ts",
+      "commands": [
+        "/心情"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 28,
+          "kind": "reply",
+          "preview": "'心情仅供查看，不通过指令修改数值。请使用下方入口查看当前状态。'",
+          "conditions": [
+            "route.rawArgs.length"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 36,
+          "kind": "reply",
+          "preview": "'当前未开放此私聊。可先查看个人 Key 与额度说明。'",
+          "conditions": [
+            "event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 43,
+          "kind": "reply",
+          "preview": "'无法识别当前会话，请重新发送。'",
+          "conditions": [
+            "!channelId || !event.Platform"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 48,
+          "kind": "reply",
+          "preview": "'心情功能目前没有开启。'",
+          "conditions": [
+            "config.modules?.disabled?.includes('mood')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 73,
+          "kind": "sectionBubble",
+          "preview": "'当前心情'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 90,
+          "kind": "reply",
+          "preview": "'心情暂时无法读取，请稍后重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Seeded mood history displays timestamp and delta as readable rows without table",
+        "Invalid mood arguments are read-only guidance; owner scope visible",
+        "Explicit owner-only private access yields denial guidance; disabled module avoids history view",
+        "Invalid runtime config returns status recovery; existing history/context display regression"
+      ],
+      "pending": [
+        "Actual mood database failure and missing-identity handler branches",
+        "Group/admin and private bound-Key entitlement matrix",
+        "Real QQ client layout"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/list-detail-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-new/res.ts",
+      "commands": [
+        "/new",
+        "/新会话"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 26,
+          "kind": "reply",
+          "preview": "'开始新话题不需要附加内容。请先发送下方指令，收到成功提示后再发送新问题。'",
+          "conditions": [
+            "route.rawArgs.length"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 32,
+          "kind": "reply",
+          "preview": "'无法识别当前会话。'",
+          "conditions": [
+            "!channelId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 38,
+          "kind": "reply",
+          "preview": "'在群里开始新会话，需要管理员或机器人主人来操作。'",
+          "conditions": [
+            "!event.IsPrivate && !(await canManageConversation(event))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 49,
+          "kind": "reply",
+          "preview": "'当前未开放此私聊。'",
+          "conditions": [
+            "event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 54,
+          "kind": "reply",
+          "preview": "commandExpression(\n        config,\n        { platform: event.Platform, channelId },\n        event.IsPrivate ? '好，我们换个话题聊。长期记忆和聊天记录都还在。' : '好，群里接下来从新话题聊起。长期记忆和聊天记录都还在。',\n        event.IsPrivate ? '已开始新话题，长期记忆和聊天记录保留。' : '本群已开始新话题，长期记忆和聊天记录保留",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 68,
+          "kind": "reply",
+          "preview": "toUserMessage(error)",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Attached questions rejected before reset with separate new-topic and question guidance"
+      ],
+      "pending": [
+        "Successful reset and failed reset behavior",
+        "Private access and group-role denial through actual router",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-persona/res.ts",
+      "commands": [
+        "/人格"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 43,
+          "kind": "reply",
+          "preview": "'当前未开放此私聊。'",
+          "conditions": [
+            "event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 50,
+          "kind": "reply",
+          "preview": "'无法识别当前会话。'",
+          "conditions": [
+            "!channelId || !event.Platform"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 55,
+          "kind": "reply",
+          "preview": "'人格模块已停用。'",
+          "conditions": [
+            "config.modules?.disabled?.includes('persona')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 82,
+          "kind": "sectionBubble",
+          "preview": "'说话方式'",
+          "conditions": [
+            "!value",
+            "/^(?:程度|全局程度)(?:\\s|$)/u.test(args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 103,
+          "kind": "reply",
+          "preview": "global ? '全局程度只能由主人在私聊修改。' : '只有机器人主人能修改当前会话的表达程度。'",
+          "conditions": [
+            "!event.IsMaster || (global && !event.IsPrivate)",
+            "/^(?:程度|全局程度)(?:\\s|$)/u.test(args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 108,
+          "kind": "reply",
+          "preview": "'可选程度：活跃、个性、工作、专业；“默认”用于恢复继承。'",
+          "conditions": [
+            "rest.length || (!personaModes.includes(value as PersonaMode) && value !== '默认')",
+            "/^(?:程度|全局程度)(?:\\s|$)/u.test(args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 113,
+          "kind": "reply",
+          "preview": "`${global ? '全局默认' : '当前会话'}程度已设为${store.expressionMode(global ? undefined : scope)}，下一轮生效。${global ? '已单独设置的会话保留原值。' : ''}`",
+          "conditions": [
+            "/^(?:程度|全局程度)(?:\\s|$)/u.test(args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 122,
+          "kind": "sectionBubble",
+          "preview": "'怎么调整人格'",
+          "conditions": [
+            "args === '帮助'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 170,
+          "kind": "reply",
+          "preview": "'共享模板仅机器人主人可在私聊管理。'",
+          "conditions": [
+            "!event.IsMaster || !event.IsPrivate",
+            "/^管理(?:\\s+\\d+)?$/u.test(args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 177,
+          "kind": "sectionBubble",
+          "preview": "'共享人格模板'",
+          "conditions": [
+            "/^管理(?:\\s+\\d+)?$/u.test(args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 225,
+          "kind": "sectionBubble",
+          "preview": "'人格'",
+          "conditions": [
+            "!args || args === '列表' || /^\\d+$/u.test(args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 237,
+          "kind": "reply",
+          "preview": "'没有识别出这项操作。想换性格，请从列表中选择；其他调整可查看人格帮助。'",
+          "conditions": [
+            "!match || (match[2] !== '默认' && !validPersonaId(match[2]))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 249,
+          "kind": "reply",
+          "preview": "event.IsPrivate ? '绑定自己的 Key 后可以切换人格。' : '切换本群人格需要机器人主人，或本群启用 Key 权益后的群管理员。'",
+          "conditions": [
+            "!access.canEdit",
+            "action === '使用'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 257,
+          "kind": "reply",
+          "preview": "'一次只能选择一个人格。请在列表中点击想使用的人格。'",
+          "conditions": [
+            "body",
+            "action === '使用'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 265,
+          "kind": "reply",
+          "preview": "'好，接下来就按这个人设聊。当前会话也已经切到新话题了。'",
+          "conditions": [
+            "action === '使用'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 271,
+          "kind": "reply",
+          "preview": "'补充共享模板仅机器人主人可在私聊操作。只想调整当前会话的称呼、语气和习惯，请进入人设细节。'",
+          "conditions": [
+            "['追加', '查看追加', '清空追加'].includes(action) && !(event.IsMaster && event.IsPrivate)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 279,
+          "kind": "reply",
+          "preview": "'共享人格模板仅机器人主人可在私聊管理。调整当前会话请进入人设细节。'",
+          "conditions": [
+            "!event.IsMaster || !event.IsPrivate"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 286,
+          "kind": "reply",
+          "preview": "'请先选择一个具体模板，再进行管理。'",
+          "conditions": [
+            "id === '默认'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 292,
+          "kind": "reply",
+          "preview": "'这个模板仍被配置为默认人格。请先修改服务端配置中的 persona.defaultId，再删除。'",
+          "conditions": [
+            "action === '删除' && body !== '取消' && config.modules?.settings?.persona?.defaultId === id",
+            "['删除', '清空追加'].includes(action) && (!body || ['确认', '取消'].includes(body))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 301,
+          "kind": "reply",
+          "preview": "'已取消，模板和补充设定未修改。'",
+          "conditions": [
+            "body === '取消'",
+            "['删除', '清空追加'].includes(action) && (!body || ['确认', '取消'].includes(body))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 310,
+          "kind": "reply",
+          "preview": "'待确认操作过多，请稍后重试。'",
+          "conditions": [
+            "templateConfirmations.size >= 1000",
+            "!body",
+            "['删除', '清空追加'].includes(action) && (!body || ['确认', '取消'].includes(body))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 315,
+          "kind": "reply",
+          "preview": "action === '删除'\n          ? `删除共享模板「${persona.name}」\\n使用它的会话将恢复默认，并开始新话题；该模板的补充设定也会清除。内置模板的自定义文件删除后，会恢复内置原设定。\\n请本人在60秒内确认。`\n          : `清空「${persona.name}」的补充设定\\n使用这个共享模板的所有会话都会受影响，下一轮生效。基础模板保留。\\n请本人在60秒内确认。`",
+          "conditions": [
+            "!body",
+            "['删除', '清空追加'].includes(action) && (!body || ['确认', '取消'].includes(body))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 328,
+          "kind": "reply",
+          "preview": "'确认已失效或模板内容已变化。请重新查看影响范围，再决定是否执行。'",
+          "conditions": [
+            "pending?.snapshot !== snapshot",
+            "['删除', '清空追加'].includes(action) && (!body || ['确认', '取消'].includes(body))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 337,
+          "kind": "reply",
+          "preview": "`给「${persona.name}」补充设定\\n在指令后写一句希望增加的性格或习惯，会影响使用这个模板的会话。\\n例如：/人格 追加 ${id} 回答时先说结论`",
+          "conditions": [
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 344,
+          "kind": "reply",
+          "preview": "'补充设定累计最多 4000 字符。请先查看已有补充，再决定是否清空。'",
+          "conditions": [
+            "store.additions(id).length + body.trim().length + 1 > 4000",
+            "action === '追加' && body",
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 349,
+          "kind": "reply",
+          "preview": "`已追加到 ${id}，使用该人格的会话下一轮生效。`",
+          "conditions": [
+            "action === '追加' && body",
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 354,
+          "kind": "reply",
+          "preview": "additions || '这个人格还没有补充设定。'",
+          "conditions": [
+            "action === '查看追加' && !body",
+            "action === '追加' && body",
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 362,
+          "kind": "reply",
+          "preview": "'追加设定已清空，原人设保留；下一轮生效。'",
+          "conditions": [
+            "action === '清空追加' && !body",
+            "action === '查看追加' && !body",
+            "action === '追加' && body",
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 366,
+          "kind": "reply",
+          "preview": "`${persona.name}\\n${persona.prompt}`",
+          "conditions": [
+            "action === '查看' && !body",
+            "action === '清空追加' && !body",
+            "action === '查看追加' && !body",
+            "action === '追加' && body",
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 374,
+          "kind": "reply",
+          "preview": "`编辑共享模板「${id}」\\n请填写模板名称和完整设定，中间用 | 分开。保存会替换这个模板的原设定，使用它的会话都会受到影响。\\n例如：/人格 保存 ${id} 小鱼|回答简洁，先说结论\\n只改称呼和习惯，可以进入人设细节。`",
+          "conditions": [
+            "action === '保存' && (!body || !body.includes('|') || !body.slice(0, body.indexOf('|')).trim() || !body.slice(body.indexOf('|') + 1).trim())",
+            "action === '查看' && !body",
+            "action === '清空追加' && !body",
+            "action === '查看追加' && !body",
+            "action === '追加' && body",
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 384,
+          "kind": "reply",
+          "preview": "`共享模板「${body.slice(0, split).trim()}」已保存，使用它的会话下一轮生效。`",
+          "conditions": [
+            "action === '保存' && body?.includes('|')",
+            "action === '保存' && (!body || !body.includes('|') || !body.slice(0, body.indexOf('|')).trim() || !body.slice(body.indexOf('|') + 1).trim())",
+            "action === '查看' && !body",
+            "action === '清空追加' && !body",
+            "action === '查看追加' && !body",
+            "action === '追加' && body",
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 390,
+          "kind": "reply",
+          "preview": "'这个模板仍被配置为默认人格。请先修改服务端配置中的 persona.defaultId，再删除。'",
+          "conditions": [
+            "config.modules?.settings?.persona?.defaultId === id",
+            "action === '删除' && !body",
+            "action === '保存' && body?.includes('|')",
+            "action === '保存' && (!body || !body.includes('|') || !body.slice(0, body.indexOf('|')).trim() || !body.slice(body.indexOf('|') + 1).trim())",
+            "action === '查看' && !body",
+            "action === '清空追加' && !body",
+            "action === '查看追加' && !body",
+            "action === '追加' && body",
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 398,
+          "kind": "reply",
+          "preview": "'人格文件已删除，相关会话恢复默认；内置人格恢复原设定。'",
+          "conditions": [
+            "action === '删除' && !body",
+            "action === '保存' && body?.includes('|')",
+            "action === '保存' && (!body || !body.includes('|') || !body.slice(0, body.indexOf('|')).trim() || !body.slice(body.indexOf('|') + 1).trim())",
+            "action === '查看' && !body",
+            "action === '清空追加' && !body",
+            "action === '查看追加' && !body",
+            "action === '追加' && body",
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 400,
+          "kind": "reply",
+          "preview": "'这项操作不需要附加内容。请先查看模板，再选择对应操作。'",
+          "conditions": [
+            "action === '删除' && !body",
+            "action === '保存' && body?.includes('|')",
+            "action === '保存' && (!body || !body.includes('|') || !body.slice(0, body.indexOf('|')).trim() || !body.slice(body.indexOf('|') + 1).trim())",
+            "action === '查看' && !body",
+            "action === '清空追加' && !body",
+            "action === '查看追加' && !body",
+            "action === '追加' && body",
+            "action === '追加' && !body"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 405,
+          "kind": "reply",
+          "preview": "'这次操作未能确认完成。请先查看当前人格或模板列表，核对结果后再重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Owner help and ordinary group help",
+        "Input errors and associated recovery actions",
+        "Existing persona additions and rights regression",
+        "Shared-template save journey: incomplete fields preserve original prompt; successful save returns to details",
+        "Trailing delete content rejected without mutation; missing-template read offers recovery",
+        "QQ serialized help commands and OneBot copyable help output",
+        "Shared template destructive preview, cancellation, fresh one-shot confirmation and changed-content rejection; real local deletion and additions clear",
+        "Four destructive operations: actual handler rejects confirmations after 61 seconds, different bot and separate workspace with identical seeded data; templates/additions/group settings remain intact"
+      ],
+      "pending": [
+        "Every template management success and error branch",
+        "Long template output",
+        "Real QQ client display",
+        "Delete with active conversation reset; configured default deletion refusal; cross-user confirmation"
+      ],
+      "tests": [
+        "test/bubble-copy.test.mjs",
+        "test/persona-additions.test.mjs",
+        "test/command-rights.test.mjs",
+        "test/setup-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-policy/res.ts",
+      "commands": [
+        "/agentpolicy",
+        "/工具策略"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 27,
+          "kind": "commandBubble",
+          "preview": "'请到需要管理的目标群里使用 /工具策略。'",
+          "conditions": [
+            "event.IsPrivate"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 33,
+          "kind": "commandBubble",
+          "preview": "'本群工具策略由机器人主人管理。可以查看自己的权限，或进入群设置。'",
+          "conditions": [
+            "!event.ChannelId || !event.IsMaster"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 51,
+          "kind": "sectionBubble",
+          "preview": "'本群工具权限'",
+          "conditions": [
+            "requested === 'status' && route.rawArgs.length <= 1"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 85,
+          "kind": "commandBubble",
+          "preview": "'没有识别出要修改的权限。请打开本群工具状态，在对应项目下选择开启或关闭。'",
+          "conditions": [
+            "route.rawArgs.length !== 2 || !['chat', 'web', 'files', 'terminal'].includes(requested) || !['on', 'off'].includes(enabled)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 95,
+          "kind": "commandBubble",
+          "preview": "'终端禁止。文件操作仅限本群隔离目录。'",
+          "conditions": [
+            "requested === 'terminal'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 108,
+          "kind": "commandBubble",
+          "preview": "'本群使用自带 Key，网页与文件已自动开放，无法在群内关闭。\\n需要取消自动开放，请在本群配置中设置 boundKeyTools: false，再关闭对应工具权限。'",
+          "conditions": [
+            "await toolsEntitled(event.Platform, event.ChannelId)",
+            "enabled === 'off' && (requested === 'web' || requested === 'files')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 122,
+          "kind": "commandBubble",
+          "preview": "`本群${capabilityNames[requested]}已${enabled === 'on' ? '开启' : '关闭'}，已开始新话题。`",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 125,
+          "kind": "commandBubble",
+          "preview": "'本次操作未能确认完成。若刚才修改过权限，请先查看当前状态，再决定是否重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Malformed mutations and terminal requests leave local permissions unchanged",
+        "Private scope and non-owner guidance; only opposite state toggle shown"
+      ],
+      "pending": [
+        "Successful mutation and reset failure branches",
+        "Bound Key automatic entitlement in Redis integration",
+        "Real QQ client display"
+      ],
+      "tests": [
+        "test/policy-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-pool/res.ts",
+      "commands": [
+        "/额度轮转"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 32,
+          "kind": "reply",
+          "preview": "'额度轮转仅限机器人主人查看。'",
+          "conditions": [
+            "!event.IsMaster"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 45,
+          "kind": "reply",
+          "preview": "'没有识别出页码或端点操作。请返回额度轮转列表，在对应端点下选择操作。'",
+          "conditions": [
+            "!endpointActions.includes(action) && (args.length > 1 || (action && (!/^[1-9]\\d*$/u.test(action) || !Number.isSafeInteger(Number(action)))))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 56,
+          "kind": "reply",
+          "preview": "'还没有选择端点。打开额度轮转，在对应端点下点击要执行的操作。'",
+          "conditions": [
+            "!id",
+            "['启用', '停用', '测活', '通测', '测试', '查额度'].includes(action)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 63,
+          "kind": "reply",
+          "preview": "'这个端点已不存在或编号不完整。请重新打开列表选择端点。'",
+          "conditions": [
+            "endpointIndex < 0",
+            "['启用', '停用', '测活', '通测', '测试', '查额度'].includes(action)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 71,
+          "kind": "reply",
+          "preview": "`${id} 的${action}设置${updated.message}。请核对当前运行状态。`",
+          "conditions": [
+            "action === '启用' || action === '停用'",
+            "['启用', '停用', '测活', '通测', '测试', '查额度'].includes(action)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 75,
+          "kind": "reply",
+          "preview": "`${id}：${balances[id]?.text || '额度未知'}`",
+          "conditions": [
+            "action === '查额度'",
+            "action === '启用' || action === '停用'",
+            "['启用', '停用', '测活', '通测', '测试', '查额度'].includes(action)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 78,
+          "kind": "reply",
+          "preview": "`${id} 已执行${action}。是否可用请查看该端点的最新状态，本提示不代表检测通过。`",
+          "conditions": [
+            "action === '查额度'",
+            "action === '启用' || action === '停用'",
+            "['启用', '停用', '测活', '通测', '测试', '查额度'].includes(action)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 124,
+          "kind": "sectionBubble",
+          "preview": "'额度轮转'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 140,
+          "kind": "reply",
+          "preview": "'读取或操作结果暂时无法确认。若刚才执行过端点启停，请先核对当前页状态，再决定是否重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Malformed page input rejected before configuration/provider access",
+        "Non-owner denial exposes public status/rights entries",
+        "Existing credential lifecycle round/reservation regression",
+        "Actual temporary admin config: second-page endpoint disable/enable persisted, return command page 2, unknown id leaves file identical",
+        "Injected runtime reload failure message retained; key and unrelated settings preserved and secret not echoed",
+        "Actual handler/service with controlled upstream: balance success then 403 does not reuse previous amount; probe/models and full chat check receive 401 and pool is unhealthy",
+        "All probe/balance feedback retains endpoint page 2; refreshed page 2 does not expose fixture credentials or upstream diagnostic"
+      ],
+      "pending": [
+        "Actual external provider probe and balance behavior",
+        "Transport failure after actual endpoint config write",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/agent-pool-lifecycle.test.mjs",
+        "test/pool-bubble-settings.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-privacy/res.ts",
+      "commands": [
+        "/agentprivacy",
+        "/隐私说明"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 47,
+          "kind": "sectionBubble",
+          "preview": "'大肥鱼 · 数据与隐私'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Private/group owner/member action matrix; scoped memory navigation",
+        "Destructive actions open preview only; no confirmation commands exposed",
+        "OneBot copyable instruction and QQ input guidance; compact-message length budget"
+      ],
+      "pending": [
+        "Group administrator role lookup and failure injection",
+        "Every privacy action through actual router",
+        "Real QQ client layout"
+      ],
+      "tests": [
+        "test/bubble-copy.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-proactive/res.ts",
+      "commands": [
+        "/主动搭话"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 55,
+          "kind": "reply",
+          "preview": "'请在自己的私聊管理聊天偏好。'",
+          "conditions": [
+            "event.IsBot"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 63,
+          "kind": "reply",
+          "preview": "'缺少明确的平台、机器人或私聊身份。'",
+          "conditions": [
+            "!event.Platform || !event.BotId || !event.UserId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 97,
+          "kind": "sectionBubble",
+          "preview": "'独立阅读'",
+          "conditions": [
+            "!readingArgs || readingArgs === '状态' || readingArgs === '帮助'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 132,
+          "kind": "reply",
+          "preview": "'希望在哪段时间阅读？填写开始和结束整点（0–23）。例如：\\n/主动搭话 阅读 作息 18 22\\n表示18点开始、22点结束；也支持跨过零点。'",
+          "conditions": [
+            "readingArgs === '作息'",
+            "!readingArgs || readingArgs === '状态' || readingArgs === '帮助'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 138,
+          "kind": "reply",
+          "preview": "readingArgs === '开启'\n            ? readingSettings(config, store, scope).enabled\n              ? '本私聊的独立阅读已开启；需保持主动聊天开启状态，遵守暂停、免打扰和每日次数限制。'\n              : '本私聊已允许阅读，但全局爱好开关尚未启用，暂不执行。'\n            : '本私聊的独立阅读已关闭，正在阅读的任务已取消。'",
+          "conditions": [
+            "readingArgs === '开启' || readingArgs === '关闭'",
+            "readingArgs === '作息'",
+            "!readingArgs || readingArgs === '状态' || readingArgs === '帮助'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 152,
+          "kind": "reply",
+          "preview": "'阅读作息需要两个不同的 0–23 整点，例如“/主动搭话 阅读 作息 18 22”。'",
+          "conditions": [
+            "Number(windowMatch[1]) > 23 ||\n          Number(windowMatch[2]) > 23 ||\n          windowMatch[1] === windowMatch[2] ||\n          Number(windowMatch[1]) === Number(windowMatch[2])",
+            "windowMatch",
+            "readingArgs === '开启' || readingArgs === '关闭'",
+            "readingArgs === '作息'",
+            "!readingArgs || readingArgs === '状态' || readingArgs === '帮助'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 159,
+          "kind": "reply",
+          "preview": "`阅读作息已保存：${window[0]}:00–${window[1]}:00（${options.timezone}），结束时间不包含在窗口内。`",
+          "conditions": [
+            "windowMatch",
+            "readingArgs === '开启' || readingArgs === '关闭'",
+            "readingArgs === '作息'",
+            "!readingArgs || readingArgs === '状态' || readingArgs === '帮助'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 162,
+          "kind": "reply",
+          "preview": "'阅读开关和作息已恢复跟随全局配置。'",
+          "conditions": [
+            "readingArgs === '恢复默认'",
+            "windowMatch",
+            "readingArgs === '开启' || readingArgs === '关闭'",
+            "readingArgs === '作息'",
+            "!readingArgs || readingArgs === '状态' || readingArgs === '帮助'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 165,
+          "kind": "reply",
+          "preview": "'记忆模块已停用，暂不能查看阅读日记。'",
+          "conditions": [
+            "!memoryEnabled(config)",
+            "/^日记(?:\\s+[1-7](?:\\s+.{1,80})?)?$/u.test(readingArgs)",
+            "readingArgs === '恢复默认'",
+            "windowMatch",
+            "readingArgs === '开启' || readingArgs === '关闭'",
+            "readingArgs === '作息'",
+            "!readingArgs || readingArgs === '状态' || readingArgs === '帮助'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 178,
+          "kind": "reply",
+          "preview": "(query ? `关键词：${query}（字面匹配）\\n` : '') +\n            formatReadingDiary(entries, days * 24, options.timezone) +\n            (records.length >= 2000 ? '\\n仅检查最近 2000 条机器人记录，更早内容可能未包含。' : '')",
+          "conditions": [
+            "/^日记(?:\\s+[1-7](?:\\s+.{1,80})?)?$/u.test(readingArgs)",
+            "readingArgs === '恢复默认'",
+            "windowMatch",
+            "readingArgs === '开启' || readingArgs === '关闭'",
+            "readingArgs === '作息'",
+            "!readingArgs || readingArgs === '状态' || readingArgs === '帮助'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 187,
+          "kind": "reply",
+          "preview": "`当前有效阅读偏好\\n多看：${effective.topics.join('、') || '未指定，按人格兴趣选题'}\\n避开：${effective.exclude.join('、') || '未指定'}\\n已合并全局配置与本私聊反馈，避雷优先。可说“以后多看独立游戏”“以后别看恐怖”或“恢复推荐恐怖”；恢复推荐不会移除全局避雷词。`",
+          "conditions": [
+            "readingArgs === '偏好'",
+            "/^日记(?:\\s+[1-7](?:\\s+.{1,80})?)?$/u.test(readingArgs)",
+            "readingArgs === '恢复默认'",
+            "windowMatch",
+            "readingArgs === '开启' || readingArgs === '关闭'",
+            "readingArgs === '作息'",
+            "!readingArgs || readingArgs === '状态' || readingArgs === '帮助'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 191,
+          "kind": "reply",
+          "preview": "'没有识别出阅读操作。请返回阅读设置，选择开关、时段、日记或偏好。'",
+          "conditions": [
+            "readingArgs === '偏好'",
+            "/^日记(?:\\s+[1-7](?:\\s+.{1,80})?)?$/u.test(readingArgs)",
+            "readingArgs === '恢复默认'",
+            "windowMatch",
+            "readingArgs === '开启' || readingArgs === '关闭'",
+            "readingArgs === '作息'",
+            "!readingArgs || readingArgs === '状态' || readingArgs === '帮助'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 195,
+          "kind": "reply",
+          "preview": "'主动搭话模块或总设置已停用，请在配置中启用后再恢复主动聊天。'",
+          "conditions": [
+            "!proactiveEnabled(config)",
+            "args === '开启'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 200,
+          "kind": "reply",
+          "preview": "'主动搭话已开启，遵守免打扰与次数限制。'",
+          "conditions": [
+            "args === '开启'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 206,
+          "kind": "reply",
+          "preview": "'主动搭话已关闭，待发送消息已取消。'",
+          "conditions": [
+            "args === '关闭'",
+            "args === '开启'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 214,
+          "kind": "reply",
+          "preview": "subscription ? '主动聊天已关闭。请先恢复主动聊天，再调整暂停状态。' : '尚未建立自动聊天记录，请先开启主动搭话。'",
+          "conditions": [
+            "!subscription?.enabled",
+            "args === '恢复' || /^暂停\\s+\\d{1,5}$/u.test(args)",
+            "args === '关闭'",
+            "args === '开启'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 224,
+          "kind": "reply",
+          "preview": "'暂停时长为 1–10080 分钟；想解除暂停，请选择恢复。'",
+          "conditions": [
+            "args !== '恢复' && (minutes < 1 || minutes > 10080)",
+            "args === '恢复' || /^暂停\\s+\\d{1,5}$/u.test(args)",
+            "args === '关闭'",
+            "args === '开启'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 232,
+          "kind": "reply",
+          "preview": "args === '恢复'\n          ? proactiveEnabled(config)\n            ? '本私聊已解除暂停，继续遵守作息与次数限制。'\n            : '本私聊已解除暂停，但主动搭话模块或总设置仍停用，暂不会发送。'\n          : `本私聊已暂停 ${minutes} 分钟，待发送消息已取消。`",
+          "conditions": [
+            "args === '恢复' || /^暂停\\s+\\d{1,5}$/u.test(args)",
+            "args === '关闭'",
+            "args === '开启'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 257,
+          "kind": "reply",
+          "preview": "labels[result]",
+          "conditions": [
+            "args === '现在'",
+            "args === '恢复' || /^暂停\\s+\\d{1,5}$/u.test(args)",
+            "args === '关闭'",
+            "args === '开启'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 357,
+          "kind": "sectionBubble",
+          "preview": "'主动搭话'",
+          "conditions": [
+            "!args || args === '状态'",
+            "args === '现在'",
+            "args === '恢复' || /^暂停\\s+\\d{1,5}$/u.test(args)",
+            "args === '关闭'",
+            "args === '开启'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 360,
+          "kind": "reply",
+          "preview": "'没有识别出这次操作。请查看聊天设置状态，再选择开启、暂停或恢复。'",
+          "conditions": [
+            "!args || args === '状态'",
+            "args === '现在'",
+            "args === '恢复' || /^暂停\\s+\\d{1,5}$/u.test(args)",
+            "args === '关闭'",
+            "args === '开启'",
+            "args.startsWith('阅读')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 363,
+          "kind": "reply",
+          "preview": "'操作结果暂时无法确认。请先核对状态，再决定是否重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Handler no-subscription/closed-subscription resume guidance; closed subscription not reported restored",
+        "Pause 0 and 10081 rejected, valid 60-minute pause and resume journey",
+        "Member rejection exposes public recovery entries only",
+        "Existing proactive scheduling, delivery and reading worker regression",
+        "Own diary readable by ordinary user with same identity; different user sees no stored diary; no model requests"
+      ],
+      "pending": [
+        "Handler global-disabled resume wording after changing configuration",
+        "Reading settings and diary full handler matrix",
+        "Actual proactive delivery client and QQ display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/proactive.test.mjs",
+        "test/bubble-copy.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-purge/res.ts",
+      "commands": [
+        "/agentpurge",
+        "/清除群数据"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 21,
+          "kind": "commandBubble",
+          "preview": "'请到需要清理的目标群里使用 /清除群数据。'",
+          "conditions": [
+            "event.IsPrivate"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 31,
+          "kind": "commandBubble",
+          "preview": "'仅机器人主人可清除群数据。'",
+          "conditions": [
+            "!event.ChannelId || !event.IsMaster"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 37,
+          "kind": "commandBubble",
+          "preview": "'无法确认身份与平台，请重新发送。'",
+          "conditions": [
+            "!event.Platform || !event.UserId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 48,
+          "kind": "commandBubble",
+          "preview": "'已取消本次清理，群数据未删除。'",
+          "conditions": [
+            "input === '取消'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 61,
+          "kind": "commandBubble",
+          "preview": "'没有识别出确认操作，请重新查看清理范围。'",
+          "conditions": [
+            "input && !['confirm', '确认'].includes(input)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 71,
+          "kind": "commandBubble",
+          "preview": "'等待确认的操作较多，请稍后重试。'",
+          "conditions": [
+            "confirmations.size >= 1000",
+            "!input"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 77,
+          "kind": "commandBubble",
+          "preview": "`清理群编号：${event.ChannelId}\\n将永久删除此群编号的会话、文件、聊天记录、记忆、相关问答、人格选择、表达方式与心情等状态，无法恢复。\\n范围包括本服务中其他平台或机器人身份下的相同群编号。全局人格模板、人设细节、群设置及钥匙授权保留。\\n请本人在60秒内确认，不确定可取消。`",
+          "conditions": [
+            "!input"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 92,
+          "kind": "commandBubble",
+          "preview": "'确认已过期或不匹配。请先重新发送 /清除群数据。'",
+          "conditions": [
+            "(confirmations.get(key) ?? 0) <= Date.now()"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 108,
+          "kind": "commandBubble",
+          "preview": "'此群编号的会话数据已清除。群设置、人设细节、钥匙授权及全局人格模板保留。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 119,
+          "kind": "commandBubble",
+          "preview": "'清理未完成，部分数据可能已经删除。请核对范围后重新发起清理。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Preview states raw channel identifier scope across bot/platform variants",
+        "Cancel, expiry, actor scope and strict confirmation grammar",
+        "Preview length and action labels"
+      ],
+      "pending": [
+        "Actual full purge command against isolated bridge and stores",
+        "Partial purge failure recovery",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/bubble-copy.test.mjs",
+        "test/bubble-confirmations.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-scoped-persona/res.ts",
+      "commands": [
+        "/人设"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 93,
+          "kind": "sectionBubble",
+          "preview": "'专属人设'",
+          "conditions": [
+            "field && personaDetailFields.includes(field as (typeof personaDetailFields)[number])",
+            "match",
+            "args === '恢复默认'",
+            "args === '恢复默认 确认'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 120,
+          "kind": "commandBubble",
+          "preview": "chars.slice(offset, offset + limit).join('')",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [
+        {
+          "line": 49,
+          "preview": "'已清除本会话的专属人设细节，后续沿用当前人格模板。人格选择和群人设补充未修改。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 51,
+          "preview": "`范围：${identity.private ? '本人私聊' : '当前群聊'}\\n将清除 ${Object.keys(details).length} 项专属人设细节，沿用当前人格模板。人格选择和群人设补充不变。\\n确认：/人设 恢复默认 确认`",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 64,
+          "preview": "`编辑「${field}」 · ${identity.private ? '本人私聊' : '当前群聊'}\\n当前：${details[field] || '未单独设置，沿用模板'}\\n在下列指令后填写新内容，发送后替换本字段；最多 1200 字符。\\n/人设 编辑 ${field} 新内容`",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 69,
+          "preview": "`${identity.private ? '本人私聊' : '当前群聊'} · 「${field}」已${action === '编辑' ? '保存' : '清空'}\\n${action === '编辑' ? `当前：${details[field]}` : '后续沿用人格模板中的此项设置。'}\\n下一轮对话生效。`",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 76,
+          "preview": "`${identity.private ? '本人私聊' : '当前群聊'} · ${field}${access.entitled ? '' : '（权益未启用，保存内容暂不生效）'}\\n${details[field] || '未单独设置，沿用模板'}`",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 113,
+          "preview": "error instanceof Error ? error.message : '操作失败'",
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "covered": [
+        "字段列表分页与编辑权限",
+        "空编辑不写入、保存与详情返回原页",
+        "带多余内容的清空拒绝、恢复默认预览和确认"
+      ],
+      "pending": [
+        "恢复默认直接确认/跨用户与变化后确认边界",
+        "保存失败与长字段内容平台展示",
+        "真实QQ/OneBot展示"
+      ],
+      "tests": [
+        "test/command-rights.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-speech/res.ts",
+      "commands": [
+        "/语音引擎"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 30,
+          "kind": "reply",
+          "preview": "'语音引擎仅限主人私聊管理。'",
+          "conditions": [
+            "!event.IsMaster"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 40,
+          "kind": "reply",
+          "preview": "'无法识别当前私聊，请重新发送。'",
+          "conditions": [
+            "!channelId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 45,
+          "kind": "reply",
+          "preview": "'语音模块已停用。启用后才能安装或试听。'",
+          "conditions": [
+            "config.modules?.disabled?.includes('voice')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 55,
+          "kind": "sectionBubble",
+          "preview": "'语音引擎'",
+          "conditions": [
+            "!args || ['状态', '帮助'].includes(args)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 64,
+          "kind": "reply",
+          "preview": "'没有识别出这项语音操作。请先查看引擎状态，再选择安装或试听。'",
+          "conditions": [
+            "args !== '安装' && args !== '试听' && !args.startsWith('试听 ')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 79,
+          "kind": "reply",
+          "preview": "'语音模块已停用。'",
+          "conditions": [
+            "config.modules?.disabled?.includes('voice')"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 84,
+          "kind": "reply",
+          "preview": "'正在安装语音组件，最长约5分钟。'",
+          "conditions": [
+            "args === '安装'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 86,
+          "kind": "reply",
+          "preview": "'语音组件已安装，建议试听确认收发。'",
+          "conditions": [
+            "args === '安装'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 112,
+          "kind": "reply",
+          "preview": "error instanceof SpeechError ? error.detail : '语音处理未完成，请检查引擎或稍后试听。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Owner/private permission check",
+        "Read-only status without model configuration",
+        "Invalid install arguments do not start installation",
+        "Disabled module links to module status"
+      ],
+      "pending": [
+        "Engine installation success/failure",
+        "Real audio delivery and fallback",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-sponsors/res.ts",
+      "commands": [
+        "/赞助列表"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 22,
+          "kind": "detailBubbles",
+          "preview": "item ? `${item.title}\\n${item.content}` : '该赞助条目不存在或已下架，请返回列表重新选择。'",
+          "conditions": [
+            "route.rawArgs[0] === '详情'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 37,
+          "kind": "sectionBubble",
+          "preview": "'赞助列表'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Six long sponsor records keep list previews bounded",
+        "Full detail is chunked, external link preserved, return goes to original page",
+        "Missing sponsor detail returns to list"
+      ],
+      "pending": [
+        "Empty, disabled and invalid page cases",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/list-detail-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-status/res.ts",
+      "commands": [
+        "/agentstatus",
+        "/状态"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 38,
+          "kind": "commandBubble",
+          "preview": "args === '详情'\n      ? '运行详情仅机器人主人可在私聊查看。当前服务情况可从概览查看。'\n      : '没有识别出这项状态查询。请先查看概览；主人私聊可进入详情。'",
+          "conditions": [
+            "(args && args !== '详情') || (args === '详情' && !(event.IsPrivate && event.IsMaster))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 169,
+          "kind": "sectionBubble",
+          "preview": "'服务状态'",
+          "conditions": [
+            "sections"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 187,
+          "kind": "commandBubble",
+          "preview": "text",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [
+        {
+          "line": 142,
+          "preview": "config.aiEnabled === false\n          ? `${aiDisabledMessage(config)}`\n          : !credentials\n            ? '模型尚未配置，请联系主人。'\n            : !storeReady\n              ? '会话存储暂不可用，请联系主人。'\n              : status.phase !== 'ready' && (status.chatReady || status.phase === 'degraded')\n                ? '聊天",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 162,
+          "preview": "'服务暂时不可用，请稍后再试。'",
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "covered": [
+        "Malformed status args rejected before runtime initialization",
+        "Details limited to owner private chat with public recovery actions",
+        "Owner overview size and diagnostic opt-in regression"
+      ],
+      "pending": [
+        "Real supervisor startup and OneBot connection errors",
+        "Actual owner details rendering with group-permission guidance",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/bubble-copy.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-sticker/res.ts",
+      "commands": [
+        "/表情"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 43,
+          "kind": "reply",
+          "preview": "'无法识别当前会话。'",
+          "conditions": [
+            "!channelId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 48,
+          "kind": "reply",
+          "preview": "'当前未开放此私聊。可发送 /帮助 额度 查看个人 Key 的使用方式。'",
+          "conditions": [
+            "event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 56,
+          "kind": "sectionBubble",
+          "preview": "'表情怎么用'",
+          "conditions": [
+            "query === '帮助'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 107,
+          "kind": "reply",
+          "preview": "'仅主人可导入 QQ 收藏表情。'",
+          "conditions": [
+            "!event.IsMaster",
+            "query === '导入' || query === '导入收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 112,
+          "kind": "reply",
+          "preview": "'仅 OneBot 支持导入 QQ 收藏表情。'",
+          "conditions": [
+            "event.Platform !== 'onebot'",
+            "query === '导入' || query === '导入收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 117,
+          "kind": "reply",
+          "preview": "'尚未配置表情素材目录。'",
+          "conditions": [
+            "!settings.stickerRoot",
+            "query === '导入' || query === '导入收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 124,
+          "kind": "reply",
+          "preview": "'读取 QQ 收藏失败，网关可能不支持该接口。'",
+          "conditions": [
+            "!urls",
+            "query === '导入' || query === '导入收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 129,
+          "kind": "reply",
+          "preview": "'QQ 收藏里暂时没有能导入的表情。'",
+          "conditions": [
+            "!urls.length",
+            "query === '导入' || query === '导入收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 139,
+          "kind": "reply",
+          "preview": "'这次导入超时或中断了，已经导入的表情还在素材库里。'",
+          "conditions": [
+            "query === '导入' || query === '导入收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 143,
+          "kind": "reply",
+          "preview": "`读取到 ${urls.length} 张，本次处理 ${imported.total} 张：新增 ${imported.added} 张，已有 ${imported.existing} 张${\n                imported.failed ? `，${imported.failed} 张失败` : ''\n              }。`",
+          "conditions": [
+            "query === '导入' || query === '导入收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 157,
+          "kind": "reply",
+          "preview": "'仅主人可同步 QQ 收藏表情。'",
+          "conditions": [
+            "!event.IsMaster",
+            "action === '同步' || action === '同步收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 162,
+          "kind": "reply",
+          "preview": "'仅 OneBot 支持同步 QQ 收藏表情。'",
+          "conditions": [
+            "event.Platform !== 'onebot'",
+            "action === '同步' || action === '同步收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 169,
+          "kind": "reply",
+          "preview": "'未找到要同步的表情。'",
+          "conditions": [
+            "selector && !targetItem",
+            "action === '同步' || action === '同步收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 203,
+          "kind": "reply",
+          "preview": "`同步完成：新增收藏 ${added} 张，更新名称 ${renamed} 张${failed ? `，${failed} 张失败` : ''}。${selector ? '' : '单次最多处理 20 张。'}`",
+          "conditions": [
+            "action === '同步' || action === '同步收藏'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 211,
+          "kind": "reply",
+          "preview": "'仅主人可删除表情。'",
+          "conditions": [
+            "!event.IsMaster",
+            "action === '删除' || action === '移除'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 218,
+          "kind": "reply",
+          "preview": "'我没找到要删除的表情，先用 /表情 核对一下编号或名称吧。'",
+          "conditions": [
+            "!target",
+            "action === '删除' || action === '移除'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 225,
+          "kind": "reply",
+          "preview": "removed\n                ? `已从素材库移除${target.name ? `「${target.name}」` : ` ${target.id}`}${target.emojiId ? (removedFromQQ ? '，并删除 QQ 收藏。' : '，但 QQ 收藏删除未确认。') : '。'}`\n                : '未找到该表情编号。'",
+          "conditions": [
+            "action === '删除' || action === '移除'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 235,
+          "kind": "reply",
+          "preview": "'表情库里还没有素材，添加后才能发出来。'",
+          "conditions": [
+            "!items.length",
+            "listing"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 257,
+          "kind": "sectionBubble",
+          "preview": "'表情素材'",
+          "conditions": [
+            "!items.length",
+            "listing"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 270,
+          "kind": "reply",
+          "preview": "'我这里没找到这个表情，可以用 /表情 看看有哪些。'",
+          "conditions": [
+            "!selected"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 293,
+          "kind": "reply",
+          "preview": "error instanceof MediaError ? error.message : toUserMessage(error)",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Owner versus ordinary group member help; QQ transport hides OneBot favorites"
+      ],
+      "pending": [
+        "List with concrete assets",
+        "Live favorite import, sync and delete",
+        "Permission failure and media delivery failure",
+        "Real QQ client display"
+      ],
+      "tests": [
+        "test/bubble-copy.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-token-usage/res.ts",
+      "commands": [
+        "/用量"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 18,
+          "kind": "reply",
+          "preview": "'全局用量仅机器人主人私聊可查。当前账本按 Key 汇总，暂不提供个人或群用量查询。'",
+          "conditions": [
+            "!event.IsMaster || !event.IsPrivate"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 29,
+          "kind": "sectionBubble",
+          "preview": "'怎样查看用量'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 62,
+          "kind": "reply",
+          "preview": "`范围：全局 · ${period === 'all' ? '累计' : period}（北京时间）\\n${Number(total.requests) === 0 ? '这个时间范围暂无调用记录。\\n' : ''}输入：${input} Token\\n输出：${output} Token\\n合计：${input + output} Token\\n缓存命中：${total.cached} Token（已含在输入中）\\n请求：${total.requests} 次；用量已返回 ",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 67,
+          "kind": "reply",
+          "preview": "'查询失败，可能是日期无效或账本暂不可用。请先尝试今日用量；需要历史日期时可查看查询说明。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Owner private day/month/year/all and explicit calendar period queries",
+        "Public denial with no totals or key id; structured help and no fixed bar",
+        "Empty date has explicit no-calls message; invalid date and extra arguments return recovery or help",
+        "Durable usage ledger and key deletion regression"
+      ],
+      "pending": [
+        "Actual database unavailable branch and rendered QQ/OneBot navigation",
+        "Per-key frontend and live platform usage comparison"
+      ],
+      "tests": [
+        "test/token-usage-command.test.mjs",
+        "test/token-usage.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-unbind/res.ts",
+      "commands": [
+        "/agentunbind",
+        "/移除密钥"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 16,
+          "kind": "commandBubble",
+          "preview": "'公共密钥的配置与移除请由机器人主人在私聊查看指引。群内请勿发送真实密钥。'",
+          "conditions": [
+            "!event.IsPrivate"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 30,
+          "kind": "commandBubble",
+          "preview": "'公共密钥仅限机器人主人移除。管理自己的钥匙，请进入个人钥匙列表。'",
+          "conditions": [
+            "!event.IsMaster"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 43,
+          "kind": "commandBubble",
+          "preview": "'这里只提供移除说明，尚未删除任何密钥。\\n由主人删除配置中的 alemonjs-agent-link.apiKey 并保存，再查看当前模型核对。个人钥匙与群授权需在各自的钥匙列表管理。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Owner guide explicitly states no deletion and distinguishes personal keys",
+        "Personal member action; both group aliases reach private-entry guidance"
+      ],
+      "pending": [
+        "Real QQ display and config guidance click-through"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/router-leading-space.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/agent-voice/res.ts",
+      "commands": [
+        "/语音"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 21,
+          "kind": "noticeBubble",
+          "preview": "'无法识别提问者或当前会话，请重新发送。'",
+          "conditions": [
+            "!context.current.Platform || !context.current.UserId || (!context.current.IsPrivate && !context.current.ChannelId)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 35,
+          "kind": "noticeBubble",
+          "preview": "'想让我用语音回答什么？在指令后写下问题，例如：\\n/语音 今天适合做些什么？\\n语音不可用时会用文字回答。'",
+          "conditions": [
+            "!text && !context.current.MessageMedia?.length && !context.current.ReplyId && !context.current.MessageContent?.replyReferenceId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 55,
+          "kind": "noticeBubble",
+          "preview": "'本群已关闭语音，这次用文字回答。'",
+          "conditions": [
+            "!voice.allowed",
+            "context.current.IsPrivate"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 65,
+          "kind": "noticeBubble",
+          "preview": "'群聊消息暂时无法处理，请稍后重试。'",
+          "conditions": [
+            "context.current.IsPrivate"
+          ],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Private empty voice question describes text fallback",
+        "Missing identity feedback and invalid group config caught before scheduling"
+      ],
+      "pending": [
+        "Normal generation and queue behavior via actual handler",
+        "Delivery failure and actual platform rendering"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/ai-switch/res.ts",
+      "commands": [
+        "/关闭",
+        "/开启"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 27,
+          "kind": "noticeBubble",
+          "preview": "text",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [
+        {
+          "line": 18,
+          "preview": "setAIEnabled(event.IsMaster === true, enabled, route.rawArgs.join(' '))",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 21,
+          "preview": "error instanceof Error && (error.message.startsWith('只有') || error.message.startsWith('关闭原因') || error.message.startsWith('恢复 AI'))\n        ? error.message\n        : 'AI 开关未能保存，请检查服务器配置文件。'",
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "covered": [
+        "Owner-only switch errors use neutral title; ordinary members receive public actions only",
+        "Invalid enable args and oversized disable reason do not claim success",
+        "Underlying AI-switch persistence, unrelated settings preservation and request blocking regression"
+      ],
+      "pending": [
+        "Rendered success bubble after real config save",
+        "Injected write failure and real QQ display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs",
+        "test/ai-switch.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/history-clear/res.ts",
+      "commands": [
+        "/清除聊天记录"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 27,
+          "kind": "reply",
+          "preview": "'仅可清除自己的私聊记录；群归档需由机器人主人清除。'",
+          "conditions": [
+            "event.IsPrivate ? !(await canPrivateChatWithKey(event, config.privateChatAccess)) : !event.IsMaster"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 34,
+          "kind": "reply",
+          "preview": "'无法识别当前会话。'",
+          "conditions": [
+            "!channelId || !event.Platform || !event.UserId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 49,
+          "kind": "reply",
+          "preview": "'已取消这次清除，聊天记录未删除。'",
+          "conditions": [
+            "input === '取消'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 54,
+          "kind": "reply",
+          "preview": "'没有识别出确认操作。请重新查看清除范围，再选择确认或取消。'",
+          "conditions": [
+            "input && !['confirm', '确认'].includes(input)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 60,
+          "kind": "reply",
+          "preview": "'请求过多，请稍后重试。'",
+          "conditions": [
+            "confirmations.size >= 1000",
+            "!input"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 65,
+          "kind": "reply",
+          "preview": "`范围：${event.IsPrivate ? '本人私聊' : '当前群聊'}\\n将永久删除聊天归档，保留长期记忆和当前对话。新消息仍会继续记录。\\n请本人在60秒内确认；不确定可以取消。`",
+          "conditions": [
+            "!input"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 76,
+          "kind": "reply",
+          "preview": "'这次确认已失效。请重新查看清除范围，再于60秒内确认。'",
+          "conditions": [
+            "(confirmations.get(key) ?? 0) <= Date.now()"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 83,
+          "kind": "reply",
+          "preview": "'聊天记录已清除，新消息仍会记录。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 85,
+          "kind": "reply",
+          "preview": "'归档删除失败，请稍后重新查看清除范围再试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "预览/取消/过期/跨身份确认与严格语法",
+        "成员拒绝不显示确认操作"
+      ],
+      "pending": [
+        "确认后实际归档删除及其他会话保留",
+        "删除失败与投递失败",
+        "真实QQ/OneBot展示"
+      ],
+      "tests": [
+        "test/bubble-confirmations.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/key-intake/res.ts",
+      "commands": [
+        "/添加钥匙"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 32,
+          "kind": "reply",
+          "preview": "'请私聊发送 Key，群里不接收密钥。'",
+          "conditions": [
+            "!event.IsPrivate || !event.Platform || !event.UserId || event.IsBot"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 42,
+          "kind": "reply",
+          "preview": "confirmation[1] === '私聊' ? '已添加本人钥匙，用于本人私聊及本人触发的群回复。' : '已存入群聊钥匙库，尚未分享。请到目标群通过 /我的钥匙 选择授权。'",
+          "conditions": [
+            "confirmation"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 47,
+          "kind": "reply",
+          "preview": "'添加未完成或操作已失效，请稍后重试；也可重新发送 Key 选择用途。'",
+          "conditions": [
+            "confirmation"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 53,
+          "kind": "reply",
+          "preview": "keys.length > 1 ? '识别到多把不同的 Key，请一次只发送一把。' : '这次添加已失效，请重新私聊发送 Key。'",
+          "conditions": [
+            "keys.length !== 1"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 60,
+          "kind": "reply",
+          "preview": "'已识别 Key，请选择用途（5 分钟内有效）。\\n私聊：用于本人，会替换当前个人钥匙。\\n群聊：存入钥匙库，之后由你在目标群授权。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 65,
+          "kind": "reply",
+          "preview": "'暂时无法准备添加，请稍后重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "私聊选择用途、群内拒绝与多Key拒绝",
+        "不回显密钥、正常消息下传、票据失效恢复"
+      ],
+      "pending": [
+        "处理函数通过真实Redis确认添加与重放",
+        "存储失败重试与实际平台点击",
+        "真实QQ/OneBot展示"
+      ],
+      "tests": [
+        "test/key-intake.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/keyring/res.ts",
+      "commands": [
+        "/我的钥匙",
+        "/授权钥匙",
+        "/授权记录",
+        "/个人密钥",
+        "/apikey",
+        "/群密钥",
+        "/groupapikey"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 40,
+          "kind": "commandBubble",
+          "preview": "'旧密钥入口已停用，请使用 /我的钥匙；群授权通过 /授权钥匙 编号，私聊 /授权记录 可撤销。'",
+          "conditions": [
+            "['/个人密钥', '/apikey', '/群密钥', '/groupapikey'].includes(command)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 117,
+          "kind": "sectionBubble",
+          "preview": "'授权记录'",
+          "conditions": [
+            "!args.length || (args.length === 1 && /^\\d+$/u.test(args[0]))",
+            "args.length === 2 && args[0] === '移除'",
+            "args.length === 2 && ['启用', '停用'].includes(args[0])",
+            "args.length === 3 && args[0] === '上限'",
+            "args.length === 2 && args[0] === '上限'",
+            "command === '/授权记录'",
+            "command === '/我的钥匙' && !event.IsPrivate && args.length === 1 && args[0] === '移除'",
+            "command === '/我的钥匙' && !event.IsPrivate && args.length === 1 && ['启用', '停用'].includes(args[0])",
+            "command === '/我的钥匙' && !event.IsPrivate && args.length === 2 && args[0] === '上限'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 250,
+          "kind": "sectionBubble",
+          "preview": "'我的钥匙'",
+          "conditions": [
+            "!args.length || (args.length === 1 && /^\\d+$/u.test(args[0])) || (event.IsPrivate && args.length === 1 && args[0] === '群聊')",
+            "event.IsPrivate && args[0] === '群聊' && args[1] === '添加' && args.length === 3",
+            "event.IsPrivate && args[0] === '群聊' && args[1] === '添加' && args.length === 2",
+            "event.IsPrivate && args[0] === '私聊'",
+            "command === '/授权钥匙'",
+            "command === '/授权记录'",
+            "command === '/我的钥匙' && !event.IsPrivate && args.length === 1 && args[0] === '移除'",
+            "command === '/我的钥匙' && !event.IsPrivate && args.length === 1 && ['启用', '停用'].includes(args[0])",
+            "command === '/我的钥匙' && !event.IsPrivate && args.length === 2 && args[0] === '上限'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 262,
+          "kind": "commandBubble",
+          "preview": "text",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [
+        {
+          "line": 51,
+          "preview": "args[1] === '取消' ? '已取消群管理员设置的上限；提供者上限仍然有效，当日用量保留。' : '群共享池每日总上限已保存；每次分享的上限独立计量。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 55,
+          "preview": "changed\n        ? `本群钥匙已${args[0]}。${args[0] === '停用' ? '后续使用发言人的个人钥匙，再使用额度。' : '后续优先使用本群钥匙。'}`\n        : '本群尚未授权钥匙。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 61,
+          "preview": "removed ? '本群钥匙已移除，后续使用发言人的个人钥匙，再使用额度；已发出的请求可能继续完成。' : '本群尚未授权钥匙。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 76,
+          "preview": "`范围：群 ${grant.channelId} · 授权 ${grant.id}\\n填写这次分享的每日上限（0–10000 元），不修改其他分享。\\n/授权记录 上限 ${grant.id} 金额`",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 79,
+          "preview": "'授权每日上限已保存，群管理员不能提高此上限。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 82,
+          "preview": "`授权 ${args[1]} 已${args[0]}，用量保留；启用后会在调用时重新校验。`",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 85,
+          "preview": "`授权 ${args[1]} 已移除，对应群副本已撤销；本人钥匙及其他群授权保留。已发出的请求可能继续完成。`",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 133,
+          "preview": "'本群钥匙已授权，已加入共享池，供全群使用。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 141,
+          "preview": "'直接在本私聊发送真实 Key，然后点击「添加到私聊」。不用填写指令或示例文字；已有个人钥匙将被替换。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 144,
+          "preview": "'个人钥匙已保存，用于本人私聊及本人触发的群回复，不分享给其他群友。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 148,
+          "preview": "changed ? `本人私聊钥匙已${args[1]}，影响本人私聊及本人触发的群回复；已分享给群的授权不变。` : '暂无私聊钥匙。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 154,
+          "preview": "`剩余额度：${balance}\\n${status.bound ? `私聊钥匙 1：${credentialStateLabel(status)}` : '暂无私聊钥匙'}\\n添加或更换：私聊直接发送真实 Key，再选择「添加到私聊」。`",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 167,
+          "preview": "'直接在本私聊发送真实 Key，然后点击「添加到群聊」。先存入自己的钥匙库，之后再到目标群选择授权。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 171,
+          "preview": "'群聊钥匙已保存，请到目标群查看 /我的钥匙 并授权。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 258,
+          "preview": "'请使用 /我的钥匙；密钥只在私聊添加。'",
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 260,
+          "preview": "error instanceof DSHError ? error.message : '钥匙操作失败，请稍后重试。'",
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "covered": [
+        "Actual isolated Redis grant pagination, limit guide preserves page, last-page deletion clamps return page; all record assertions inspect built message contents"
+      ],
+      "pending": [
+        "Other keyring command branch matrix",
+        "Actual QQ display"
+      ],
+      "tests": [
+        "test/command-rights.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/master/res.ts",
+      "commands": [
+        "/我是主人",
+        "/我的主人"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 25,
+          "kind": "reply",
+          "preview": "'你已经是机器人主人，无需再次验证。'",
+          "conditions": [
+            "event.IsMaster || isMaster(event.UserId, event.Platform)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 35,
+          "kind": "reply",
+          "preview": "'验证码已写入服务端日志，5 分钟有效。\\n读取日志中的六位数字，点击「填写验证码」，在指令后填入数字并发送。\\n重新获取会使旧码失效。'",
+          "conditions": [
+            "route.key === '我是主人' && route.rawArgs.length === 0"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 45,
+          "kind": "reply",
+          "preview": "'请填写服务端日志中的六位数字，不要把“六位验证码”这几个字发过来。'",
+          "conditions": [
+            "route.key !== '我的主人' || route.rawArgs.length !== 1 || !/^\\d{6}$/.test(code)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 53,
+          "kind": "reply",
+          "preview": "'验证码无效（最多尝试5次）。可发送 /我是主人 重新申请。'",
+          "conditions": [
+            "!masterVerification.verify(identity, code)"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 69,
+          "kind": "reply",
+          "preview": "'验证码已验证，但主人配置保存失败。请检查服务端日志，再发送 /我是主人 重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 73,
+          "kind": "reply",
+          "preview": "'验证通过，你已成为机器人主人。可以查看自己的权限，或进入管理说明。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Owner status offers management instead of re-verification",
+        "Malformed verification input, strict issue-command grammar",
+        "Valid identity-bound challenge grants owner in isolated test configuration"
+      ],
+      "pending": [
+        "Code issuance and delivery failure",
+        "Configuration save failure",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/memory-tools/res.ts",
+      "commands": [
+        "/记忆检索",
+        "/记忆来源",
+        "/过时记忆",
+        "/恢复记忆",
+        "/整理记忆",
+        "/群记忆",
+        "/忘记群记忆"
+      ],
+      "status": "局部证据有效",
+      "points": [
+        {
+          "line": 53,
+          "kind": "reply",
+          "preview": "'当前未开放此私聊。'",
+          "conditions": [
+            "event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 60,
+          "kind": "reply",
+          "preview": "'无法识别当前会话。'",
+          "conditions": [
+            "!channelId || !event.Platform || !event.UserId"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 70,
+          "kind": "reply",
+          "preview": "'群记忆整理和修改需要管理员或机器人主人。'",
+          "conditions": [
+            "writing && !event.IsPrivate && !canManage"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 80,
+          "kind": "reply",
+          "preview": "'想找哪方面的记忆？在指令后写关键词。\\n例如：/记忆检索 饮食偏好'",
+          "conditions": [
+            "command === '/记忆检索' && !args",
+            "command === '/群记忆' || command === '/过时记忆' || command === '/记忆检索'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 85,
+          "kind": "reply",
+          "preview": "'请用下方入口查看记忆，再选择对应条目的操作。'",
+          "conditions": [
+            "command !== '/记忆检索' && args && !/^[1-9]\\d*$/u.test(args)",
+            "command === '/群记忆' || command === '/过时记忆' || command === '/记忆检索'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 95,
+          "kind": "reply",
+          "preview": "'未找到相关记忆。'",
+          "conditions": [
+            "!items.length",
+            "command === '/群记忆' || command === '/过时记忆' || command === '/记忆检索'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 120,
+          "kind": "sectionBubble",
+          "preview": "command === '/记忆检索' ? '记忆检索' : command === '/过时记忆' ? '过时记忆' : '群记忆'",
+          "conditions": [
+            "command === '/群记忆' || command === '/过时记忆' || command === '/记忆检索'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 141,
+          "kind": "reply",
+          "preview": "'当前会话没有找到这条记忆。请返回列表，在对应条目旁选择「全文与来源」。'",
+          "conditions": [
+            "!item",
+            "command === '/记忆来源'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 151,
+          "kind": "reply",
+          "preview": "[\n          `记忆内容：${item.text}`,\n          `状态：${item.status === 'active' ? '当前使用' : '已过时'}；记录方式：${origin}`,\n          `资料所属：${item.subjectName || item.subjectId}；更新时间：${formatTime(item.updatedAt)}`,\n          source\n            ? `聊天来源 ${p",
+          "conditions": [
+            "command === '/记忆来源'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 174,
+          "kind": "reply",
+          "preview": "'请先找到要恢复的旧记忆，再点击该条目的「恢复」。'",
+          "conditions": [
+            "!/^[a-f0-9]{12}$/u.test(args)",
+            "command === '/恢复记忆'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 185,
+          "kind": "reply",
+          "preview": "restored ? '旧记忆已恢复，冲突版本已标记过时；已开始新话题。' : '没有找到可恢复的旧记忆。'",
+          "conditions": [
+            "command === '/恢复记忆'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 191,
+          "kind": "reply",
+          "preview": "event.IsPrivate ? '这里是私聊，请到自己的记忆列表选择要忘记的条目。' : '请在群记忆列表中找到要删除的条目，再点击「忘记」。'",
+          "conditions": [
+            "event.IsPrivate || !/^(?:全部|[a-f0-9]{12})$/u.test(args)",
+            "command === '/忘记群记忆'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 202,
+          "kind": "reply",
+          "preview": "status === 'ok' ? '群记忆及相关版本已删除，旧记录不会自动重新提取；已开始新话题。' : '没有找到这个群记忆编号。'",
+          "conditions": [
+            "command === '/忘记群记忆'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 208,
+          "kind": "reply",
+          "preview": "'整理记忆无需填写其他内容，只会处理当前会话尚未整理的聊天归档。'",
+          "conditions": [
+            "args",
+            "command === '/整理记忆'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 235,
+          "kind": "reply",
+          "preview": "result.status === 'completed'\n            ? `本次新增或更新 ${result.added} 条记忆。${result.hasMore ? '还有未处理记录，可再次整理。' : '当前可用记录已处理。'}`\n            : result.status === 'stale'\n              ? '整理期间记忆发生修改，旧结果未写入。请重新整理。'\n              : '记忆整理暂不可用或正在执行，",
+          "conditions": [
+            "command === '/整理记忆'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 254,
+          "kind": "reply",
+          "preview": "'记忆操作未完成，请核对后重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Group active and outdated list pagination",
+        "Complete source text, all 4 sources reachable, invalid input and foreign conversation denied",
+        "Owner versus ordinary group member restore actions"
+      ],
+      "pending": [
+        "Consolidation failure and stale runtime branches",
+        "Search ranking and input guidance",
+        "Actual restore and forget command writes",
+        "Real QQ client display"
+      ],
+      "tests": [
+        "test/memory-bubbles.test.mjs"
+      ]
+    },
+    {
+      "file": "src/response/personal-login/res.ts",
+      "commands": [
+        "/个人登录",
+        "/个人退出"
+      ],
+      "status": "有改动，需复核证据",
+      "points": [
+        {
+          "line": 24,
+          "kind": "reply",
+          "preview": "'请在本人私聊使用个人登录。'",
+          "conditions": [
+            "!event.IsPrivate || !event.Platform || !event.UserId || event.IsBot"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 29,
+          "kind": "reply",
+          "preview": "'个人登录通过二维码完成，不需要在这里填写手机号或验证码。请先查看状态，再选择登录或取消。'",
+          "conditions": [
+            "(match[2] && !['状态', '取消'].includes(match[2])) || (match[1] === '退出' && match[2])"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 65,
+          "kind": "reply",
+          "preview": "text",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 72,
+          "kind": "reply",
+          "preview": "'该扫码账户的私聊、群聊钥匙及群授权副本已移除。'",
+          "conditions": [
+            "match[1] === '退出'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 77,
+          "kind": "reply",
+          "preview": "pending ? '登录流程已结束。已有账户授权不会因取消操作而退出，可查看状态确认。' : '当前没有正在进行的登录。取消不会退出已保存的账户。'",
+          "conditions": [
+            "match[2] === '取消'",
+            "match[1] === '退出'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 85,
+          "kind": "reply",
+          "preview": "pending || (account ? '已保存账户授权；实际有效性将在调用时确认。' : '尚未登录。')",
+          "conditions": [
+            "match[2] === '状态'",
+            "match[2] === '取消'",
+            "match[1] === '退出'"
+          ],
+          "acceptance": "未逐点验收"
+        },
+        {
+          "line": 108,
+          "kind": "reply",
+          "preview": "match[1] === '退出' ? '退出未能确认完成。请查看当前账户状态，并在 DeepSeek 平台检查登录授权。' : '这次账户操作未完成，请先查看状态，再决定是否重试。'",
+          "conditions": [],
+          "acceptance": "未逐点验收"
+        }
+      ],
+      "textVariants": [],
+      "covered": [
+        "Invalid input provides QR login entry",
+        "Cancel with no active task does not claim logout"
+      ],
+      "pending": [
+        "Live QR lifecycle",
+        "Redis account status and mutations",
+        "Account failures before versus after local deletion",
+        "Real QQ display"
+      ],
+      "tests": [
+        "test/setup-bubbles.test.mjs"
+      ]
+    }
+  ]
+}

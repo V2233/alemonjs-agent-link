@@ -13,7 +13,9 @@ test('proactive defaults to the active cadence for a most-active dafeiyu', () =>
   assert.equal(options.nudgeChance, 0.6);
   assert.equal(options.maxNudgesPerDay, 6);
   assert.equal(options.maxUnanswered, 3);
-  assert.equal(entitledProactiveOptions(options).flexible, true);
+  assert.equal(options.ownKeyMax, false);
+  assert.deepEqual(entitledProactiveOptions(options), options);
+  assert.equal(entitledProactiveOptions({...options,ownKeyMax:true}).flexible, true);
 });
 
 test('quiet cadence and explicit numeric overrides are respected', () => {

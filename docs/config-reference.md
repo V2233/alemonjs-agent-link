@@ -376,7 +376,7 @@
 | `quietHours`                                | [number, number] | `[23, 8]`       | 0–23                  | 免打扰时段                                             |
 | `timezone`                                  | string           | `Asia/Shanghai` | IANA 时区             | 时段计算时区                                           |
 | `maxChars`                                  | number           | `300`           | 40–1000               | 单条主动消息长度上限                                   |
-| `ownKeyMax`                                 | boolean          | `true`          | —                     | 绑定个人 Key 的私聊是否自动拉满频率                    |
+| `ownKeyMax`                                 | boolean          | `false`         | —                     | 是否显式启用个人 Key 私聊高频模式                      |
 
 `quiet` 预设：空闲 90 分钟、间隔 180–360 分钟、每天 2 次、追问 1 次；`balanced` 为旧默认（40 分钟 / 60–180 / 4 次 / 2 次）。显式数字字段优先于预设。
 

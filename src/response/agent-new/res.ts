@@ -1,5 +1,5 @@
 import { commandExpression } from '../../companion/command-expression';
-import { logger, useEvent, useMessage } from 'alemonjs';
+import { logger, useEvent, useMessage, useRoute } from 'alemonjs';
 import { noticeBubble } from '../bubble';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { canManageConversation, getSessionId, getConversationId, canPrivateChatWithKey } from '@src/response/dsh/util';
@@ -7,8 +7,9 @@ import { resetGroupSession } from '@src/dsh/orchestrator';
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: ['message.create', 'private.message.create'] });
+  const [route] = useRoute();
 
-  if (!eventContext.match.selects) {
+  if (!eventContext.match.selects || !route.matched) {
     return;
   }
 
@@ -21,6 +22,15 @@ export default async (): Promise<void> => {
 
   const channelId = getConversationId(event);
 
+  if (route.rawArgs.length) {
+    await reply('开始新话题不需要附加内容。请先发送下方指令，收到成功提示后再发送新问题。', [
+      { label: '开始新话题', command: '/新会话' },
+      { label: '聊天说明', command: '/帮助 聊天' }
+    ]);
+
+    return;
+  }
+
   if (!channelId) {
     await reply('无法识别当前会话。');
 
@@ -28,7 +38,10 @@ export default async (): Promise<void> => {
   }
 
   if (!event.IsPrivate && !(await canManageConversation(event))) {
-    await reply('在群里开始新会话，需要管理员或机器人主人来操作。');
+    await reply('在群里开始新会话，需要管理员或机器人主人来操作。', [
+      { label: '我的权限', command: '/我的权限' },
+      { label: '聊天说明', command: '/帮助 聊天' }
+    ]);
 
     return;
   }
@@ -39,7 +52,7 @@ export default async (): Promise<void> => {
     const config = getDSHConfig();
 
     if (event.IsPrivate && !(await canPrivateChatWithKey(event, config.privateChatAccess))) {
-      await reply('仅机器人主人可在私聊中使用 Agent。');
+      await reply('当前未开放此私聊。', [{ label: '个人 Key 说明', command: '/帮助 额度' }]);
 
       return;
     }
@@ -58,6 +71,9 @@ export default async (): Promise<void> => {
     );
   } catch (error) {
     logger.error({ err: error, sessionId }, 'DSH session clear failed');
-    await reply(toUserMessage(error));
+    await reply(toUserMessage(error), [
+      { label: '服务状态', command: '/状态' },
+      { label: '聊天说明', command: '/帮助 聊天' }
+    ]);
   }
 };

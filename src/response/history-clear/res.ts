@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, type BubbleAction } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
 import { canPrivateChatWithKey, getConversationId } from '../dsh/util';
@@ -14,14 +14,11 @@ export default async (): Promise<void> => {
     return;
   }
   const event = context.current;
-  const reply = (text: string) =>
+  const reply = (text: string, actions: BubbleAction[] = [{ label: '隐私说明', command: '/隐私说明' }]) =>
     message.send({
       format: commandBubble(text, '清除聊天记录', {
         platform: event.Platform,
-        actions: [
-          { label: '清除聊天记录', command: '/清除聊天记录' },
-          { label: '隐私说明', command: '/隐私说明' }
-        ]
+        actions
       })
     });
   const config = getDSHConfig();
@@ -45,19 +42,38 @@ export default async (): Promise<void> => {
       confirmations.delete(id);
     }
   }
-  if (route.rawArgs[0] !== 'confirm') {
+  const input = route.rawArgs.map(String).join(' ').trim();
+
+  if (input === '取消') {
+    confirmations.delete(key);
+    await reply('已取消这次清除，聊天记录未删除。', [{ label: '隐私说明', command: '/隐私说明' }]);
+
+    return;
+  }
+  if (input && !['confirm', '确认'].includes(input)) {
+    await reply('没有识别出确认操作。请重新查看清除范围，再选择确认或取消。', [{ label: '查看清除范围', command: '/清除聊天记录' }]);
+
+    return;
+  }
+  if (!input) {
     if (confirmations.size >= 1000) {
       await reply('请求过多，请稍后重试。');
 
       return;
     }
     confirmations.set(key, Date.now() + 60000);
-    await reply('将永久删除当前会话的聊天记录，保留记忆和当前对话。\n60秒内发送 /清除聊天记录 confirm 确认。');
+    await reply(
+      `范围：${event.IsPrivate ? '本人私聊' : '当前群聊'}\n将永久删除聊天归档，保留长期记忆和当前对话。新消息仍会继续记录。\n请本人在60秒内确认；不确定可以取消。`,
+      [
+        { label: '确认删除归档', command: '/清除聊天记录 确认' },
+        { label: '取消清除', command: '/清除聊天记录 取消' }
+      ]
+    );
 
     return;
   }
   if ((confirmations.get(key) ?? 0) <= Date.now()) {
-    await reply('请先发送 /清除聊天记录，再于60秒内确认。');
+    await reply('这次确认已失效。请重新查看清除范围，再于60秒内确认。', [{ label: '重新查看范围', command: '/清除聊天记录' }]);
 
     return;
   }
@@ -66,6 +82,9 @@ export default async (): Promise<void> => {
     getChatArchive(config).purge({ platform: event.Platform, channelId, botId: event.BotId || '' });
     await reply('聊天记录已清除，新消息仍会记录。');
   } catch {
-    await reply('归档删除失败，请稍后重试。');
+    await reply('归档删除失败，请稍后重新查看清除范围再试。', [
+      { label: '重新查看范围', command: '/清除聊天记录' },
+      { label: '隐私说明', command: '/隐私说明' }
+    ]);
   }
 };

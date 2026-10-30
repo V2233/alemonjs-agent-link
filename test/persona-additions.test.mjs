@@ -92,3 +92,22 @@ test('default persona keeps the old-member, low-energy and anti-immersion constr
   }
   assert.doesNotMatch(dafeiyuPrompt, /\{\{nickname\}\}/, 'runtime placeholders must not leak literally');
 });
+
+test('expired entitlement ignores legacy choices and group additions without deleting them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'persona-entitlement-'));
+  const store = new PersonaStore(root);
+  const config = resolveDSHConfig({});
+  const scope = {platform:'qq-bot',channelId:'g',private:false,owner:false};
+  try {
+    await store.select(scope, 'assistant');
+    store.setScopeAdditions(scope, '专属暗号蓝鲸', 'admin');
+    const entitled = await store.systemPrompt(config,{...scope,personaEntitled:true});
+    assert.match(entitled, /专属暗号蓝鲸/);
+    const fallback = await store.systemPrompt(config,{...scope,personaEntitled:false});
+    assert.doesNotMatch(fallback,/专属暗号蓝鲸/);
+    assert.ok(fallback.startsWith(config.defaultSystemPrompt));
+    assert.equal(store.selected(scope),'assistant');
+    assert.equal(store.scopeAdditions(scope),'专属暗号蓝鲸');
+    assert.equal(await store.systemPrompt(config,{...scope,personaEntitled:true}),entitled);
+  } finally { store.close(); await rm(root,{recursive:true,force:true}); }
+});

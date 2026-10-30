@@ -511,6 +511,7 @@ export const createBiliClient = (
         title: strip(row?.title, 300),
         author: clip(row?.author, 120),
         description: strip(row?.description, 300),
+        publishedAt: Number.isFinite(Number(row?.pubdate)) && Number(row.pubdate) > 0 ? Number(row.pubdate) * 1000 : undefined,
         views: count(row?.play)
       }))
       .filter((item: { bvid: string }) => item.bvid);

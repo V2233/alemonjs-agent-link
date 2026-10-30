@@ -262,8 +262,9 @@ test('opt-in proactive turn searches and reads Bilibili with per-turn bounds and
     if (address.includes('/reply/')) return ok({ replies: [] });
     const request = JSON.parse(init.body);
     modelCalls++;
-    const names = request.tools.map(tool => tool.function.name);
-    assert.ok(names.includes('bili_search') && names.includes('bili_watch'));
+    const names = (request.tools || []).map(tool => tool.function.name);
+    if (modelCalls <= 2) assert.ok(names.includes('bili_search') && names.includes('bili_watch'));
+    else assert.equal(names.length, 0, 'final summary must have tools disabled');
     assert.equal(names.includes('bili_comment'), false);
     if (modelCalls === 1)
       return Response.json({

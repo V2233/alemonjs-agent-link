@@ -5,7 +5,7 @@ export const normalizeHobbies = (raw: unknown) => {
 
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new AdminInputError('爱好设置必须为对象');
   const data = value as Record<string, unknown>;
-  const keys = ['enabled', 'douyin', 'bilibili', 'qzone', 'interests', 'autonomous', 'intervalMinutes', 'maxPerDay', 'maxReads'];
+  const keys = ['enabled', 'douyin', 'bilibili', 'qzone', 'interests', 'autonomous', 'intervalMinutes', 'maxPerDay', 'maxReads', 'publicSources'];
 
   if (Object.keys(data).some(key => !keys.includes(key))) throw new AdminInputError('未知的爱好设置');
   for (const key of ['enabled', 'douyin', 'bilibili', 'qzone', 'autonomous']) {
@@ -13,6 +13,14 @@ export const normalizeHobbies = (raw: unknown) => {
   }
   if (data.interests !== undefined && (typeof data.interests !== 'string' || data.interests.length > 1000)) throw new AdminInputError('兴趣描述最多 1000 字');
 
+  const publicSources = data.publicSources ?? ['douyin.com', 'weibo.com', 'bilibili.com'];
+
+  if (
+    !Array.isArray(publicSources) ||
+    publicSources.length > 10 ||
+    publicSources.some(host => typeof host !== 'string' || !/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(host) || /(^|\.)(qq\.com|qzone\.com|localhost)$/i.test(host))
+  )
+    throw new AdminInputError('公开来源应为最多 10 个域名，不能包含 QQ 空间');
   const number = (key: string, fallback: number, min: number, max: number) => {
     const value = data[key] ?? fallback;
 
@@ -22,6 +30,7 @@ export const normalizeHobbies = (raw: unknown) => {
   };
 
   return {
+    publicSources: publicSources as string[],
     autonomous: data.autonomous === true,
     intervalMinutes: number('intervalMinutes', 120, 15, 1440),
     maxPerDay: number('maxPerDay', 3, 1, 20),

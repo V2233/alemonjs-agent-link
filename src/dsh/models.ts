@@ -21,11 +21,9 @@ export const listAvailableModels = async (credentials: DSHCredentials): Promise<
     }
 
     const payload = (await response.json()) as { data?: Array<{ id?: unknown }> };
-    const models = payload.data?.map(item => (typeof item.id === 'string' ? item.id.trim() : '')).filter(Boolean) ?? [];
 
-    if (models.length === 0) {
-      throw new Error('model list is empty');
-    }
+    if (!payload || !Array.isArray(payload.data)) throw new Error('invalid model list response');
+    const models = payload.data.map(item => (item && typeof item.id === 'string' ? item.id.trim() : '')).filter(Boolean);
 
     return [...new Set(models)].sort((left, right) => left.localeCompare(right));
   } finally {

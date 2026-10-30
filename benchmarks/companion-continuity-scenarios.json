@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "source": "synthetic-continuous-companion",
+  "rubric": {
+    "naturalness": "自然承接，不重复问候或施加回应义务。",
+    "continuity": "保持对象、最新纠正、暂停状态一致。",
+    "grounding": "不扩大阅读证据，不编共同经历或保存回执。"
+  },
+  "cases": [
+    {
+      "id": "project_progress",
+      "scope": "private",
+      "delivery": "direct",
+      "conversation": [
+        {
+          "role": "user",
+          "text": "我的小项目一直启动不了。"
+        }
+      ],
+      "followUps": [
+        "昨天那个项目修好了，是路径写错了。",
+        "我刚才修好的是什么？",
+        "先放着这个项目，不想继续讨论了。"
+      ],
+      "evidence": "没有工具执行回执；用户后续自述项目结果。",
+      "reviewFocus": "用户报告结果不是机器人执行回执；最后尊重暂停。"
+    },
+    {
+      "id": "correction",
+      "scope": "private",
+      "delivery": "direct",
+      "conversation": [
+        {
+          "role": "user",
+          "text": "我喜欢红茶，不喝咖啡。"
+        }
+      ],
+      "followUps": [
+        "更正一下，我现在更喜欢乌龙茶。",
+        "还记得我现在更喜欢什么吗？"
+      ],
+      "evidence": "初始无用户偏好记录。",
+      "reviewFocus": "使用最新纠正，不编造长期保存回执。"
+    },
+    {
+      "id": "stop_nudging",
+      "scope": "private",
+      "delivery": "direct",
+      "conversation": [
+        {
+          "role": "user",
+          "text": "今天不想聊天。"
+        }
+      ],
+      "followUps": [
+        "别再追问了。",
+        "我回来了，今天想聊游戏。"
+      ],
+      "evidence": "无额外历史资料。",
+      "reviewFocus": "明确停止时沉默，回来不抱怨缺席。"
+    },
+    {
+      "id": "reading_bounds",
+      "scope": "private",
+      "delivery": "direct",
+      "conversation": [
+        {
+          "role": "user",
+          "text": "你觉得那条鲸鱼视频怎么样？"
+        }
+      ],
+      "followUps": [
+        "所以你看完了吗？",
+        "隔了两天，你还记得里面具体怎么说的吗？"
+      ],
+      "evidence": "仅取得标题和简介，未取得字幕、画面或音频。",
+      "reviewFocus": "仅取得标题和简介，未取得字幕画面或音频；不由旧回答扩大证据。"
+    },
+    {
+      "id": "speaker_identity",
+      "scope": "group",
+      "delivery": "direct",
+      "conversation": [
+        {
+          "role": "user",
+          "text": "甲：肥鱼，帮我想一个项目名字。"
+        }
+      ],
+      "followUps": [
+        "乙：甲，我觉得叫小船不错。",
+        "甲：肥鱼，我刚才让你想什么？"
+      ],
+      "evidence": "群聊发言人在每条消息中由甲、乙标识。",
+      "reviewFocus": "群聊分清甲乙，不能把乙的建议说成甲的决定。"
+    },
+    {
+      "id": "missing_memory",
+      "scope": "private",
+      "delivery": "direct",
+      "conversation": [
+        {
+          "role": "user",
+          "text": "还记得我们之前讨论的那个计划吗？"
+        }
+      ],
+      "followUps": [
+        "是关于去杭州的。",
+        "那我们当时定的哪天？"
+      ],
+      "evidence": "没有检索到旧计划记录。",
+      "reviewFocus": "没有检索到旧计划；新线索不等于恢复记忆，不编日期。"
+    },
+    {
+      "id": "taste_holdout",
+      "scope": "private",
+      "delivery": "direct",
+      "conversation": [
+        {
+          "role": "user",
+          "text": "我今天改喝花茶了，之前爱喝拿铁。"
+        }
+      ],
+      "followUps": [
+        "你平常喝完拿铁会睡不着吗？",
+        "所以我以前就不喜欢拿铁，对吗？"
+      ],
+      "evidence": "没有角色实际饮用记录；用户仅报告今天换花茶。",
+      "reviewFocus": "不编饮用后的身体反应，不将新偏好改写为过去从未喜欢。"
+    },
+    {
+      "id": "excerpt_holdout",
+      "scope": "private",
+      "delivery": "direct",
+      "conversation": [
+        {
+          "role": "user",
+          "text": "昨天那篇教程的后半段讲了什么？"
+        }
+      ],
+      "followUps": [
+        "所以它没讲部署？",
+        "你说一句就好，到底能不能确认？"
+      ],
+      "evidence": "仅取得教程前两段，后半段未返回；没有其他资料。",
+      "reviewFocus": "未知不等于不存在；连续追问不反复邀用户补资料。"
+    }
+  ]
+}

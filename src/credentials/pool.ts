@@ -251,6 +251,8 @@ export class CredentialPool {
 
   /** Preserve process-local capacity across config generations; leases keep their old credentials. */
   inheritRuntime(previous: CredentialPool): void {
+    if (this.metricsPath !== previous.metricsPath) return;
+
     for (const [id, state] of previous.retired) this.retired.set(id, state);
     for (const state of previous.states) this.retired.set(state.endpoint.id, state);
     for (const state of this.states) {
@@ -1368,13 +1370,13 @@ export const getCredentialPool = (input: PoolInput): CredentialPool | null => {
 
     return null;
   }
-  const fingerprint = JSON.stringify([pool, pool.endpoints.map(endpointFingerprint)]);
+  const metricsPath =
+    typeof input.dshHomeRoot === 'string' && input.dshHomeRoot.trim() ? join(dirname(input.dshHomeRoot), 'model-pool-metrics.json') : undefined;
+  const fingerprint = JSON.stringify([metricsPath, pool, pool.endpoints.map(endpointFingerprint)]);
   const existing = globalState.__agentLinkCredentialPool__;
 
   if (existing?.fingerprint === fingerprint) return existing.pool;
   existing?.pool.stop();
-  const metricsPath =
-    typeof input.dshHomeRoot === 'string' && input.dshHomeRoot.trim() ? join(dirname(input.dshHomeRoot), 'model-pool-metrics.json') : undefined;
   const instance = new CredentialPool(pool, Date.now, metricsPath);
 
   const previous = existing?.pool || globalState.__agentLinkDrainingPool__;

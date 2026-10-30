@@ -1,4 +1,4 @@
-import { commandBubble } from '../bubble';
+import { commandBubble, type BubbleAction } from '../bubble';
 import { createUserHashKey, getConfig, isMaster, logger, useEvent, useMessage, useRoute } from 'alemonjs';
 import { masterVerification } from '@src/state/master-verification';
 
@@ -11,19 +11,21 @@ export default async (): Promise<void> => {
   }
   const event = context.current;
   const [message] = useMessage();
-  const reply = (text: string) =>
+  const reply = (text: string, actions: BubbleAction[] = [{ label: '重新获取验证码', command: '/我是主人' }]) =>
     message.send({
       format: commandBubble(text, '主人验证', {
         platform: event.Platform,
-        actions: [
-          { label: '获取验证码', command: '/我是主人' },
-          { label: '帮助', command: '/帮助 管理' }
-        ]
+        actions
       })
     });
 
+  const ownerActions = [
+    { label: '我的权限', command: '/我的权限' },
+    { label: '管理说明', command: '/帮助 管理' }
+  ];
+
   if (event.IsMaster || isMaster(event.UserId, event.Platform)) {
-    await reply('你已经是机器人主人。');
+    await reply('你已经是机器人主人，无需再次验证。', ownerActions);
 
     return;
   }
@@ -33,14 +35,20 @@ export default async (): Promise<void> => {
     const code = masterVerification.issue(identity);
 
     logger.info({ platform: event.Platform, userId: event.UserId, code }, 'AgentLink 主人验证码（5 分钟有效）');
-    await reply('验证码已写入服务端日志，5分钟有效。\n回复 /我的主人 六位验证码。重新发送 /我是主人 会使旧码失效。');
+    await reply('验证码已写入服务端日志，5 分钟有效。\n读取日志中的六位数字，点击「填写验证码」，在指令后填入数字并发送。\n重新获取会使旧码失效。', [
+      { label: '填写验证码', command: '/我的主人 ' },
+      { label: '重新获取', command: '/我是主人' }
+    ]);
 
     return;
   }
   const code = String(route.rawArgs[0] ?? '');
 
-  if (route.rawArgs.length !== 1 || !/^\d{6}$/.test(code)) {
-    await reply('格式：/我的主人 六位验证码');
+  if (route.key !== '我的主人' || route.rawArgs.length !== 1 || !/^\d{6}$/.test(code)) {
+    await reply('请填写服务端日志中的六位数字，不要把“六位验证码”这几个字发过来。', [
+      { label: '填写验证码', command: '/我的主人 ' },
+      { label: '获取验证码', command: '/我是主人' }
+    ]);
 
     return;
   }
@@ -65,5 +73,5 @@ export default async (): Promise<void> => {
 
     return;
   }
-  await reply('验证通过，你已成为机器人主人。');
+  await reply('验证通过，你已成为机器人主人。可以查看自己的权限，或进入管理说明。', ownerActions);
 };

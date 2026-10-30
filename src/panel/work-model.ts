@@ -62,7 +62,7 @@ export const saveWorkModel = async (input: unknown) => {
 
   return projectWorkModel(saved);
 };
-export const requestWorkModel = async (instruction: string, text: unknown) => {
+export const requestWorkModel = async (instruction: string, text: unknown, signal?: AbortSignal) => {
   if (typeof text !== 'string' || !text.trim() || text.length > 20000) throw new AdminInputError('请输入 1～20000 字的文本');
   const app = getAppConfig<Record<string, unknown>>().value;
   const credentials = validateWorkModel(Object.fromEntries(fields.map(key => [key, app[key]])));
@@ -78,7 +78,7 @@ export const requestWorkModel = async (instruction: string, text: unknown) => {
       { role: 'user', content: text }
     ],
     [],
-    AbortSignal.timeout(30000),
+    signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
     undefined,
     { sensitiveInput: true }
   );

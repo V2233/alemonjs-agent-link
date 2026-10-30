@@ -192,11 +192,17 @@ test('pooled reply gate records dedicated outcome statistics and releases reserv
   const { classifyGroupReply } = await import('../lib/social/reply-gate.js');
   const { getCredentialPool, stopCredentialPool } = await import('../lib/credentials/pool.js');
   const { getDSHConfig } = await import('../lib/dsh/runtime-config.js');
+  const { mkdtemp, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'reply-gate-stats-'));
   const previous = globalThis.__config;
   const previousFetch = globalThis.fetch;
   globalThis.__config = {
     value: {
       'alemonjs-agent-link': {
+        dshHomeRoot: join(root, 'homes'),
+        workspaceRoot: join(root, 'work'),
         modelPool: {
           probeIntervalSeconds: 0,
           endpoints: [
@@ -226,6 +232,7 @@ test('pooled reply gate records dedicated outcome statistics and releases reserv
     stopCredentialPool();
     globalThis.__config = previous;
     globalThis.fetch = previousFetch;
+    await rm(root, { recursive: true, force: true });
   }
 });
 

@@ -18,7 +18,7 @@ const setup = async () => {
     dshHomeRoot: join(root, 'home'),
     runtimeMode: 'chat-only',
     stateBackend: 'local',
-    modules: { settings: { proactive: { quietHours: [0, 0] } } }
+    modules: { settings: { proactive: { quietHours: [0, 0], ownKeyMax: true } } }
   });
   let now = base;
   const store = new ProactiveStore(
@@ -37,9 +37,12 @@ const setup = async () => {
   };
 };
 
-test('绑定个人 Key 的私聊把主动搭话拉满，配置可关闭', () => {
+test('显式开启 ownKeyMax 后绑定 Key 的私聊提频，默认不提频且可关闭', () => {
   const config = getDSHConfig({ workspaceRoot: '/tmp/work', dshHomeRoot: '/tmp/home', stateBackend: 'local' });
-  const base = proactiveOptions(config);
+  const defaults = proactiveOptions(config);
+  assert.equal(defaults.ownKeyMax,false);
+  assert.deepEqual(entitledProactiveOptions(defaults),defaults);
+  const base = proactiveOptions({...config,modules:{settings:{proactive:{ownKeyMax:true}}}});
   const entitled = entitledProactiveOptions(base);
 
   assert.equal(base.ownKeyMax, true);

@@ -18,6 +18,7 @@ export async function saveAccount(scope: BudgetScope, token: string): Promise<nu
 
   if (ring.account) throw new Error('account-already-prepared');
   const make = async (aad: string): Promise<RecordValue> => ({
+    owner: { platform: scope.platform, userId: scope.userId },
     encrypted: await encryptStoredKey(aad, token),
     auth: 'account',
     accountId: owner,

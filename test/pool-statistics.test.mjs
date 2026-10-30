@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { CredentialPool } from '../lib/credentials/pool.js';
+import { CredentialPool, getCredentialPool } from '../lib/credentials/pool.js';
 import { parseModelPool } from '../lib/model-pool/config.js';
 
 test('call statistics count outcomes once, exclude inspection, and survive reload across days', async () => {
@@ -163,4 +163,26 @@ test('local pricing errors are distinct from network errors', async () => {
  assert.equal(localRequestFailure(new DSHError('budget', '额度不足')), 'local-budget');
  assert.equal(localRequestFailure(new DSHError('disabled', '关闭')), 'local-disabled');
  assert.equal(localRequestFailure(new TypeError('fetch failed')), undefined);
+});
+
+
+test('singleton pool isolates data roots but restores each roots saved statistics', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'pool-root-isolation-'));
+  const config = root => ({ dshHomeRoot: join(directory, root, 'homes'), provider: 'test', baseUrl: 'https://example.com/v1', model: 'fixture', modelPool: { probeIntervalSeconds: 0, endpoints: [{ id: 'same', apiKey: 'fixture-key', model: 'fixture', rpm: 1 }] } });
+  try {
+    const first = getCredentialPool(config('a'));
+    first.select().report({ ok: true, status: 200 });
+    assert.equal(first.status[0].totalCalls, 1);
+    const second = getCredentialPool(config('b'));
+    assert.notEqual(second, first);
+    assert.equal(second.status[0].totalCalls, 0);
+    const lease = second.select();
+    assert.ok(lease, 'the other root must not inherit the one-request rate limit');
+    lease.report({ ok: true, status: 200 });
+    const restored = getCredentialPool(config('a'));
+    assert.equal(restored.status[0].totalCalls, 1, 'read statistics from root a, not root b');
+  } finally {
+    getCredentialPool({});
+    await rm(directory, { recursive: true, force: true });
+  }
 });

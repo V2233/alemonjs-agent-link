@@ -1,3 +1,5 @@
+import { createTestApp } from 'alemonjs/testing';
+import { runDSHChat as frameworkChat } from '../lib/response/dsh/chat.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, symlink, stat, mkdir } from 'node:fs/promises';
@@ -1034,7 +1036,6 @@ test('unaddressed conversation does not invalidate a pending direct mood judgmen
 
 test('social sequence uses a sticker for greeting, text for facts, occasional angry speech, then text after apology', () =>
   fixture(async ({ root }) => {
-    const { runDSHChat } = await import('../lib/response/dsh/chat.js');
     const { ResultCode } = await import('alemonjs');
     const stickerRoot = join(root, 'sequence-stickers');
     await mkdir(stickerRoot);
@@ -1057,7 +1058,6 @@ test('social sequence uses a sticker for greeting, text for facts, occasional an
       }
     });
     let reply = '在呢';
-    const sent = [];
     let ttsCalls = 0;
     globalThis.fetch = async url => {
       if (String(url).endsWith('/audio/speech')) {
@@ -1066,34 +1066,37 @@ test('social sequence uses a sticker for greeting, text for facts, occasional an
       }
       return Response.json({ choices: [{ message: { content: reply } }] });
     };
-    const transport = {
-      message: {
-        send: async () => {
-          sent.push('text');
-          return [{ code: ResultCode.Ok, data: { id: 'text' } }];
-        }
-      },
-      media: {
-        send: async value => {
-          sent.push(value.type);
-          return { code: ResultCode.Ok, data: { id: 'media' } };
-        }
-      }
-    };
-    const event = { Platform: 'qq', UserId: 'one', IsPrivate: true, IsMaster: true };
+    const app = createTestApp({ config: globalThis.__config.value });
+    app.actions.on('mention.get', () => [{ code: ResultCode.Ok, data: [] }]);
+    app.actions.on('media.send', () => [{ code: ResultCode.Ok, data: { id: 'media-receipt' } }]);
     const turn = async (MessageId, input, answer, expected) => {
       reply = answer;
-      sent.length = 0;
-      await runDSHChat({ ...event, MessageId }, input, { transport });
-      assert.deepEqual(sent, [expected], input);
+      const event = app.events.privateMessage(
+        {},
+        { Platform: 'qq', BotId: 'fish', UserId: 'one', UserKey: 'one', IsMaster: true, MessageId, MessageText: input }
+      );
+      const result = await app.runHandler(event => frameworkChat(event, input), event, 'alemonjs-agent-link');
+      assert.deepEqual(result.errors, []);
+      const sends = result.actions.filter(action => action.name === 'message.send' || action.name === 'media.send');
+      assert.deepEqual(
+        sends.map(action => (action.name === 'message.send' ? 'text' : action.request.payload.params.type)),
+        [expected],
+        input
+      );
+      for (const action of sends) assert.ok(action.results.some(result => result.code === ResultCode.Ok && result.data?.id));
+      if (expected === 'text') assert.ok(result.messages[0].nodes.length > 0);
     };
-    await turn('sequence-greeting', '肥鱼在吗', '在呢', 'image');
-    await turn('sequence-facts', '帮我看服务器报错', '需要先提供日志。', 'text');
-    await turn('sequence-calm', '你这个笨蛋', '先把问题说清楚。', 'text');
-    await turn('audio-one', '你这个笨蛋', '够了，别这样说我！', 'audio');
-    await turn('sequence-apology', '对不起，刚才说重了', '好，这事就过去了。', 'text');
-    await turn('sequence-task', '那继续看报错吧', '把日志发来。', 'text');
-    assert.equal(ttsCalls, 1);
+    try {
+      await turn('sequence-greeting', '肥鱼在吗', '在呢', 'image');
+      await turn('sequence-facts', '帮我看服务器报错', '需要先提供日志。', 'text');
+      await turn('sequence-calm', '你这个笨蛋', '先把问题说清楚。', 'text');
+      await turn('audio-one', '你这个废物', '够了，别这样说我！', 'audio');
+      await turn('sequence-apology', '对不起，刚才说重了', '好，这事就过去了。', 'text');
+      await turn('sequence-task', '那继续看报错吧', '把日志发来。', 'text');
+      assert.equal(ttsCalls, 1);
+    } finally {
+      await app.dispose();
+    }
   }));
 
 test('mood judgment accepts JSON fences and explanation fields but validates scoring', () => {

@@ -18,7 +18,7 @@ export type ProactiveOptions = {
   quietHours: [number, number];
   timezone: string;
   maxChars: number;
-  /** 绑定个人 Key 的私聊是否自动拉满；配置里设为 false 可关闭。 */
+  /** 是否显式选择个人 Key 高频模式；默认关闭，频率优先遵循用户设置。 */
   ownKeyMax: boolean;
   /** 运行时派生：拉满时不再等待下一次随机间隔，空闲达标即可搭话。 */
   flexible?: boolean;
@@ -72,7 +72,7 @@ export const proactiveOptions = (config: DSHBridgeConfig): ProactiveOptions => {
     quietHours: raw.quietHours ?? [23, 8],
     timezone: raw.timezone ?? 'Asia/Shanghai',
     maxChars: raw.maxChars ?? 300,
-    ownKeyMax: raw.ownKeyMax ?? true,
+    ownKeyMax: raw.ownKeyMax ?? false,
     ...proactiveActivityPresets[activity],
     ...raw,
     activity

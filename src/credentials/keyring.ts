@@ -6,7 +6,7 @@ import { groupStorageKey, resolveGrantScope, credentialStateLabel } from './grou
 
 type Entry = { id: number; value: RecordValue };
 type Grant = { id: number; keyId: number; channelId: string; token: string };
-type Ring = { account?: RecordValue; next: number; keys: Entry[]; grants: Grant[] };
+type Ring = { owner?: { platform: string; userId: string }; account?: RecordValue; next: number; keys: Entry[]; grants: Grant[] };
 export const keyringStorageKey = (scope: BudgetScope) => {
   if (!scope.platform || !scope.userId) throw new DSHError('budget', '无法确认账号。');
 
@@ -18,7 +18,11 @@ export const keyringStorageKey = (scope: BudgetScope) => {
 export const readKeyring = async (scope: BudgetScope) => {
   const raw = await (await budgetRedis()).get(keyringStorageKey(scope));
 
-  return { raw: raw || '', ring: raw ? (JSON.parse(raw) as Ring) : ({ next: 1, keys: [], grants: [] } as Ring) };
+  const ring = raw ? (JSON.parse(raw) as Ring) : ({ next: 1, keys: [], grants: [] } as Ring);
+
+  ring.owner = { platform: scope.platform, userId: scope.userId };
+
+  return { raw: raw || '', ring };
 };
 export const changeKeyring = async (scope: BudgetScope, action: 'add' | 'grant' | 'revoke', input: string) => {
   if (['add', 'revoke'].includes(action) && scope.channelId !== `private:${JSON.stringify([scope.platform, scope.userId])}`)

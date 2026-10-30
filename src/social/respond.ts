@@ -15,19 +15,29 @@ import { randomUUID } from 'node:crypto';
 import { currentVoiceTranscript } from '../media/onebot-transcript';
 import { readCurrentForwards } from './onebot-forward';
 import { resolveCurrentImages } from '../media/onebot-images';
+import { assertMessageDelivered } from '../dsh/output';
 
 type Transport = NonNullable<Parameters<typeof runDSHChat>[2]>['transport'];
 
 export const respondToGroupBatch = async (event: ChatEvent, transport: Transport, batch: GroupBatch): Promise<GroupBatchResult> => {
   if (batch.budgetBlocked) {
     if (await claimReplyGateBudgetNotice({ platform: event.Platform || '', channelId: event.ChannelId || '' })) {
-      await transport.message.send({
-        format: noticeBubble(replyGateExceededMessage, {
-          platform: event.Platform,
-          title: '额度不足',
-          actions: budgetNoticeActions(false)
-        })
-      });
+      try {
+        assertMessageDelivered(
+          await transport.message.send({
+            format: noticeBubble(replyGateExceededMessage, {
+              platform: event.Platform,
+              title: '额度不足',
+              actions: budgetNoticeActions(false)
+            })
+          })
+        );
+      } catch {
+        logger.warn('Group budget notice could not be delivered');
+
+        // Keep the daily claim consumed; delivery failures must not cause repeated reminders.
+        return { delivered: false, completed: true };
+      }
 
       return { delivered: true, completed: true };
     }

@@ -1,3 +1,7 @@
+import { getGroupTopicStore, groupTopicId, type GroupTopicProfile } from './group-topics/store';
+import { collectGroupVideoTopics } from './group-topics/collect';
+import { newsCandidate } from './group-topics/news';
+import { readKeyList } from './panel/key-list';
 import { readSponsorsSettings, saveSponsorsSettings } from './panel/sponsors-settings';
 import { readTokenUsage, rememberTokenKey, tokenKeyId } from './billing/token-usage';
 import { dirname } from 'node:path';
@@ -294,6 +298,21 @@ apiRouter.post('/personas', async ctx => {
   await getPersonaStore(getDSHConfig()).save(body);
   success(ctx, null, '人设已保存');
 });
+apiRouter.get('/faq', ctx => success(ctx, getQAStore(getDSHConfig()).questionNotes()));
+apiRouter.post('/faq/process', ctx => {
+  const body = ctx.request.body as { id: string; updatedAt: number; action: string; question?: string; answer?: string; global?: boolean };
+
+  if (
+    !body ||
+    typeof body.id !== 'string' ||
+    !Number.isSafeInteger(body.updatedAt) ||
+    !['dismiss', 'publish'].includes(body.action) ||
+    (body.global !== undefined && typeof body.global !== 'boolean')
+  )
+    ctx.throw(400);
+  getQAStore(getDSHConfig()).processQuestion(body);
+  success(ctx, null);
+});
 apiRouter.get('/knowledge', ctx => {
   const store = getQAStore(getDSHConfig());
   const platform = String(ctx.query.platform || '');
@@ -311,6 +330,7 @@ apiRouter.post('/knowledge', ctx => {
 
   success(ctx, getQAStore(getDSHConfig()).addExplicit(target, body), '问答已保存');
 });
+apiRouter.get('/keys', async ctx => success(ctx, await readKeyList()));
 apiRouter.get('/token-usage', ctx => {
   const config = getDSHConfig();
   const root = dirname(config.dshHomeRoot);
@@ -392,3 +412,55 @@ apiRouter.get('/sponsors', async ctx => success(ctx, await readSponsorsSettings(
 apiRouter.post('/sponsors', async ctx => success(ctx, await saveSponsorsSettings(ctx.request.body)));
 
 export default apiRouter;
+
+apiRouter.get('/group-topics', ctx => {
+  const store = getGroupTopicStore(getDSHConfig());
+
+  success(ctx, {
+    profiles: store.profiles().map(profile => ({ ...profile, activity: store.activity(profile.id), runs: store.runs(profile.id) })),
+    topics: store.topics()
+  });
+});
+apiRouter.post('/group-topics/profile', ctx => {
+  const body = ctx.request.body as GroupTopicProfile;
+
+  if (
+    !body ||
+    ![body.platform, body.botId, body.channelId, body.positioning].every(value => typeof value === 'string' && value.trim()) ||
+    !Array.isArray(body.tags) ||
+    !Array.isArray(body.blockedTags)
+  )
+    throw new AdminInputError('请填写完整群身份、定位与标签');
+  const profile = { ...body, id: groupTopicId(body.platform, body.botId, body.channelId) };
+
+  if ((profile.enabled || profile.shareOut || profile.receiveShared) && !profile.tags.length) throw new AdminInputError('开启权限前请填写标签');
+  getGroupTopicStore(getDSHConfig()).saveProfile(profile);
+  success(ctx, profile);
+});
+apiRouter.post('/group-topics/remove', ctx => {
+  const body = ctx.request.body as { id?: string; kind?: string };
+
+  if (!body || typeof body.id !== 'string' || !['profile', 'topic'].includes(body.kind || '')) throw new AdminInputError('删除目标无效');
+  const store = getGroupTopicStore(getDSHConfig());
+
+  if (body.kind === 'profile') store.purgeGroup(body.id);
+  else store.removeTopic(body.id);
+  success(ctx, null);
+});
+apiRouter.post('/group-topics/collect', async ctx => {
+  const body = ctx.request.body as { id?: string };
+
+  if (typeof body?.id !== 'string') throw new AdminInputError('请选择群档案');
+  success(ctx, { added: await collectGroupVideoTopics(getDSHConfig(), body.id) });
+});
+apiRouter.get('/group-topics/candidates', ctx => {
+  if (typeof ctx.query.id !== 'string') throw new AdminInputError('请选择群档案');
+  success(ctx, getGroupTopicStore(getDSHConfig()).candidates(ctx.query.id));
+});
+apiRouter.post('/group-topics/news', ctx => {
+  const body = ctx.request.body as { url: string; date: string; tags: string[]; summary: string };
+
+  if (!body || ![body.url, body.date, body.summary].every(value => typeof value === 'string') || !Array.isArray(body.tags))
+    throw new AdminInputError('新闻字段无效');
+  success(ctx, { added: getGroupTopicStore(getDSHConfig()).addTopic(newsCandidate(body.url, body.date, body.tags, body.summary)) });
+});

@@ -212,3 +212,26 @@ test('private memory tools require current-user intent, enforce scope and write 
     await rm(f.root, { recursive: true, force: true });
   }
 });
+
+test('persona fallback keeps the prompt and affinity tools on the same active character', async () => {
+  const f = await fixture();
+  const { personaModule } = await import('../lib/modules/persona.js');
+  const { affinityModule } = await import('../lib/modules/affinity.js');
+  const { getPersonaStore } = await import('../lib/companion/personas.js');
+  const config = {...f.config,persona:'assistant',defaultSystemPrompt:'默认助手'};
+  const store = getPersonaStore(config);
+  const runtime = new ModuleRuntime(config,[personaModule(config),affinityModule(config)]);
+  try {
+    await store.select(turn(),'dafeiyu');
+    const lease = await runtime.acquire();
+    const enabled = turn({personaEntitled:true});
+    const disabled = turn({personaEntitled:false});
+    assert.ok(lease.tools(enabled).some(t=>t.name==='get_affinity'));
+    assert.ok(!lease.tools(disabled).some(t=>t.name==='get_affinity'));
+    assert.match(await lease.context(enabled),/好感度/);
+    assert.doesNotMatch(await lease.context(disabled),/好感度/);
+    assert.match(await lease.system(config.defaultSystemPrompt,disabled),/^默认助手/);
+    assert.equal(store.selected(disabled),'dafeiyu');
+    await lease.release();
+  } finally {await runtime.close();store.close();await rm(f.root,{recursive:true,force:true});}
+});

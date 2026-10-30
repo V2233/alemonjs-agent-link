@@ -1,3 +1,4 @@
+import { extractApiKeys } from './key-intake';
 import { getConfigValue } from 'alemonjs';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -7,10 +8,12 @@ import { DSHError } from '../dsh/errors';
 import { balanceWasConfirmed, confirmBalance } from './balance-scope';
 
 export const isPersonalKeyCommand = (text: unknown): boolean =>
-  /^(?:\/(?:我的钥匙|授权钥匙|授权记录|apikey|个人密钥|群密钥|groupapikey)|[#/]个人(?:登录|退出))(?:\s|$)/iu.test(String(text ?? '').trimStart());
+  /^(?:\/(?:添加钥匙|我的钥匙|授权钥匙|授权记录|apikey|个人密钥|群密钥|groupapikey)|[#/]个人(?:登录|退出))(?:\s|$)/iu.test(String(text ?? '').trimStart()) ||
+  extractApiKeys(String(text ?? '')).length > 0;
 const keyFile = () => resolve(process.env.AGENT_LINK_PERSONAL_KEY_FILE || '.data/agent-link/personal-key.key');
 
 export type RecordValue = {
+  owner?: { platform: string; userId: string };
   auth?: 'account';
   accountId?: string;
   encrypted: string;
@@ -79,7 +82,18 @@ export const bindPersonalKey = async (scope: BudgetScope, apiKey: string): Promi
   if (!/^sk-[A-Za-z0-9_-]{8,240}$/u.test(apiKey)) throw new DSHError('budget', 'Key 格式无效，请使用 DeepSeek 官方 API Key。');
   const encrypted = await encryptStoredKey(storageKey, apiKey);
 
-  await (await budgetRedis()).set(storageKey, JSON.stringify({ encrypted, enabled: true, revision: randomUUID(), reason: '' } satisfies RecordValue));
+  await (
+    await budgetRedis()
+  ).set(
+    storageKey,
+    JSON.stringify({
+      owner: { platform: scope.platform, userId: scope.userId },
+      encrypted,
+      enabled: true,
+      revision: randomUUID(),
+      reason: ''
+    } satisfies RecordValue)
+  );
 };
 export const personalKeyStatus = async (scope: BudgetScope) => {
   const value = await recordFor(scope);

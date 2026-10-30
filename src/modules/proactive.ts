@@ -1,3 +1,4 @@
+import { GroupTopicWorker } from '../group-topics/worker';
 import type { AgentModule } from '../agent/types';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { proactiveOptions } from '../proactive/options';
@@ -11,14 +12,17 @@ export const proactiveModule = (config: DSHBridgeConfig): AgentModule => ({
   setup(api) {
     proactiveOptions(config);
     const worker = new ProactiveWorker(config);
+    const topics = new GroupTopicWorker(config);
     const timer = setInterval(() => {
       void worker.tick().catch(logProactiveFailure);
+      void topics.tick().catch(logProactiveFailure);
     }, 60000);
 
     timer.unref();
     api.onDispose(() => {
       clearInterval(timer);
       worker.stop();
+      topics.stop();
     });
   }
 });

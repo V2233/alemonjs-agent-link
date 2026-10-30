@@ -372,7 +372,12 @@ export class MemoryStore {
     return [...groups.values()]
       .sort((a, b) => b.score - a.score || b.item.updatedAt - a.item.updatedAt)
       .slice(0, Math.max(1, Math.min(20, limit)))
-      .map(({ item, score }) => ({ ...item, match: score > 0 ? 'topic' : 'recent' }));
+      .map(({ item, score }) => ({
+        ...item,
+        match: score > 0 ? 'topic' : 'recent',
+        // Terminal conversational states remain recallable, but are not open questions.
+        followUpEligible: item.state === 'discussed' || item.state === 'agreed'
+      }));
   }
 
   sharedThreadHistory(scope: MemoryScope, subjectId: string, id: string) {

@@ -46,7 +46,7 @@ export const keywordMoodDelta = (text: string): number => {
     .replace(/^(?:大肥鱼|小肥鱼|肥鱼|小鲸鱼)[，,：:\s]*/u, '')
     .replace(/[，,\s]*(?:大肥鱼|小肥鱼|肥鱼|小鲸鱼)[！!。\s]*$/u, '');
 
-  if (/^(?:你(?:这个|真是|就是)?(?:笨蛋|废物|傻逼)|闭嘴|滚开)[！!。，,\s]*$/u.test(addressed)) {
+  if (/^(?:你(?:这个|真是|就是)?(?:废物|傻逼)|滚开)[！!。，,\s]*$/u.test(addressed)) {
     return -6;
   }
   if (/^(?:谢谢你|谢谢|你真棒|你太棒了|辛苦你了|喜欢你|你真可爱|谢谢你帮我|有你真好|抱抱你|抱抱)[！!。，,呀啊呢\s]*$/u.test(addressed)) {
@@ -59,7 +59,7 @@ export const keywordMoodDelta = (text: string): number => {
 
   return 0;
 };
-export const parseMoodJudgment = (content: string | null | undefined): { delta: number } | { reason: string } => {
+export const parseMoodJudgment = (content: string | null | undefined, input?: string): { delta: number } | { reason: string } => {
   if (!content?.trim()) return { reason: 'empty-content' };
   let parsed: unknown;
 
@@ -69,11 +69,16 @@ export const parseMoodJudgment = (content: string | null | undefined): { delta: 
     return { reason: 'invalid-json' };
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { reason: 'invalid-object' };
-  const { delta, confidence } = parsed as Record<string, unknown>;
+  const { delta, confidence, evidence, impact } = parsed as Record<string, unknown>;
 
   if (typeof delta !== 'number' || !Number.isInteger(delta) || Math.abs(delta) > 6) return { reason: 'invalid-delta' };
   if (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) return { reason: 'invalid-confidence' };
   if (confidence < 0.8) return { reason: 'low-confidence' };
+
+  if (input !== undefined && delta !== 0) {
+    if (typeof evidence !== 'string' || !evidence.trim() || !input.includes(evidence)) return { reason: 'missing-evidence' };
+    if (delta < 0 && impact !== 'direct_insult') return { reason: 'not-direct-insult' };
+  }
 
   return { delta };
 };

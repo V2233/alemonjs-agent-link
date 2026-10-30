@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import BiliDiagnostics from './BiliDiagnostics';
-import { Alert, App, Button, Card, Form, Input, InputNumber, Layout, Space, Switch, Table, Typography } from 'antd';
+import { Alert, App, Button, Card, Form, Input, InputNumber, Layout, Space, Switch, Select, Table, Typography } from 'antd';
 
 const request = async (path: string, body?: unknown) => {
   const response = await fetch('./api/admin/hobbies' + path, {
@@ -44,8 +44,8 @@ export default function HobbiesPage() {
     <Layout.Content className='workspace-content'>
       <Typography.Title level={2}>爱好设置</Typography.Title>
       <Typography.Paragraph type='secondary'>
-        开启自主活动后，肥鱼会在已订阅的主人私聊范围内定时阅读 B 站资料，遵守主动搭话的免打扰时间和暂停状态。 需要启用 B 站模块及
-        allowProactiveBrowse。阅读结果进入现有记忆机制；本轮不会直接发消息、点赞或评论。 抖音和 QQ 空间目前保留为兴趣偏好，尚未接入自主浏览。
+        肥鱼根据兴趣匿名探索公开网络，网站仅作为内容来源，不需要登录平台账号。QQ 空间属于私密能力，不参与游玩。
+        搜索和网页可能受平台限制；只记录真实取得的文字资料，不代表观看完整视频。遵守现有免打扰、暂停和每日限额。
       </Typography.Paragraph>
       {error && <Alert type='error' showIcon title={error} style={{ marginBottom: 16 }} />}
       <Card title='爱好与控制开关'>
@@ -65,16 +65,10 @@ export default function HobbiesPage() {
           <Form.Item name='enabled' label='启用爱好' valuePropName='checked'>
             <Switch />
           </Form.Item>
-          <Form.Item name='douyin' label='刷抖音' valuePropName='checked'>
-            <Switch />
+          <Form.Item name='publicSources' label='公开来源（可添加域名，清空则搜索整个公开网络）'>
+            <Select mode='tags' tokenSeparators={[',', ' ']} options={['douyin.com', 'weibo.com', 'bilibili.com'].map(value => ({ value, label: value }))} />
           </Form.Item>
-          <Form.Item name='bilibili' label='刷 bilibili' valuePropName='checked'>
-            <Switch />
-          </Form.Item>
-          <Form.Item name='qzone' label='刷 QQ 空间' valuePropName='checked'>
-            <Switch />
-          </Form.Item>
-          <Form.Item name='autonomous' label='开启自主阅读活动（目前支持 B 站）' valuePropName='checked'>
+          <Form.Item name='autonomous' label='开启公开网络游玩' valuePropName='checked'>
             <Switch />
           </Form.Item>
           <Form.Item name='intervalMinutes' label='活动间隔（分钟）'>
@@ -83,7 +77,7 @@ export default function HobbiesPage() {
           <Form.Item name='maxPerDay' label='每个会话每日最多尝试轮数'>
             <InputNumber min={1} max={20} />
           </Form.Item>
-          <Form.Item name='maxReads' label='每轮最多读取视频数'>
+          <Form.Item name='maxReads' label='每轮最多读取页面数'>
             <InputNumber min={1} max={3} />
           </Form.Item>
           <Form.Item name='interests' label='兴趣描述 / 其他爱好'>
@@ -117,7 +111,7 @@ export default function HobbiesPage() {
                   running: '执行中 / 中断待恢复',
                   recorded: '已保存阅读经历',
                   completed: '已结束，未确认新增经历',
-                  unavailable: 'B 站能力未开启',
+                  unavailable: '所选平台未接入或能力不可用',
                   cancelled: '已取消',
                   failed: '执行失败'
                 })[value] || value

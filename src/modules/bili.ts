@@ -1,5 +1,5 @@
 import { normalizeHobbies } from '../companion/hobbies';
-import { readingDiary, searchReadingDiary } from '../bili/diary';
+import { readingDiary, searchReadingDiary, parseReadingReflection } from '../bili/diary';
 import { getProactiveStore } from '../proactive/store';
 import { proactiveChannel } from '../proactive/control';
 import { browsePreferences, excludedBrowseTopic, rankBrowseCandidates, mergeBrowseFeedback } from '../bili/preferences';
@@ -72,6 +72,8 @@ export const biliModule = (runtime?: DSHBridgeConfig): AgentModule => ({
       const reflection = normalizeBubbleText(output);
 
       if (!runtime || !reading || !reflection || reflection === '[沉默]' || context.signal.aborted) return;
+      const structured = context.independentReading ? parseReadingReflection(output) : undefined;
+      const thought = structured ? [structured.learned, structured.changed, structured.unresolved].filter(Boolean).join('；') : reflection;
       const current = getDSHConfig();
 
       if (
@@ -93,7 +95,8 @@ export const biliModule = (runtime?: DSHBridgeConfig): AgentModule => ({
             bvid: reading.reads.length === 1 ? reading.reads[0].bvid : undefined,
             title: reading.reads.length === 1 ? reading.reads[0].title.slice(0, 50) : '多条资料的综合想法',
             readings: reading.reads.length > 1 ? reading.reads.map(item => ({ bvid: item.bvid, title: item.title.slice(0, 20) })) : undefined,
-            thought: Array.from(reflection, char => (char.codePointAt(0) < 32 || char.codePointAt(0) === 127 ? ' ' : char))
+            reflection: structured,
+            thought: Array.from(thought, char => (char.codePointAt(0) < 32 || char.codePointAt(0) === 127 ? ' ' : char))
               .join('')
               .slice(0, 160)
           })}`,

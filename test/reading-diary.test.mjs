@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readingDiary, formatReadingDiary, readingSupport } from '../lib/bili/diary.js';
+import { readingDiary, formatReadingDiary, readingSupport, parseReadingReflection, readingContinuity } from '../lib/bili/diary.js';
 const now = Date.parse('2026-10-29T12:00:00+08:00');
 const entry = changes => ({
   id: 'a',
@@ -198,4 +198,19 @@ test('malformed and unavailable frame evidence never becomes observed video', ()
   for (const text of ['null', '[]', '{bad']) {
     assert.equal(readingDiary([entry({ text })], 24, now)[0].sourceEvidence[0].contentBasis, 'unknown');
   }
+});
+
+
+test('structured reading thoughts carry unresolved questions with their original evidence bounds', () => {
+  const reflection = { learned: '只拿到介绍', changed: '', unresolved: '鲸鱼如何交流？' };
+  assert.deepEqual(parseReadingReflection(JSON.stringify(reflection)), reflection);
+  for (const raw of ['[]', '{}', '普通旧日记', '{"learned":1}', JSON.stringify({...reflection, changed:'字'.repeat(301)})]) {
+    assert.equal(parseReadingReflection(raw), undefined);
+  }
+  const source = entry({ id:'abcdef123456', subjectId:'fish', text:JSON.stringify({title:'鲸鱼',contentBasis:'metadata',visualStatus:'disabled',audioObserved:false}) });
+  const thought = entry({id:'note',subjectId:'fish',origin:'diary',kind:'diary',tags:['B站','reading:abcdef123456'],text:JSON.stringify({title:'鲸鱼',thought:'只拿到介绍，想知道鲸鱼如何交流',reflection})});
+  const result = readingContinuity([source,thought], '鲸鱼', now);
+  assert.deepEqual(result[0].reflection, reflection);
+  assert.equal(result[0].sourceEvidence[0].contentBasis, 'metadata');
+  assert.equal(result[0].sourceEvidence[0].audioScope, 'not_observed');
 });

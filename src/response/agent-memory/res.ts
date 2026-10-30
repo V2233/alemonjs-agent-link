@@ -46,9 +46,9 @@ export default async (): Promise<void> => {
   try {
     const config = getDSHConfig();
 
-    maxLength = config.maxMessageLength;
+    maxLength = Math.min(900, config.maxMessageLength);
     if (!(await canPrivateChatWithKey(event, config.privateChatAccess))) {
-      await reply('仅机器人主人可在私聊中使用 Agent。');
+      await reply('当前未开放此私聊。');
 
       return;
     }
@@ -66,8 +66,13 @@ export default async (): Promise<void> => {
     const command = event.MessageText.trim().split(/\s+/u)[0];
 
     if (command === '/记忆') {
+      if (args && !/^[1-9]\d*$/u.test(args)) {
+        await reply('请用下方入口查看记忆，再选择对应条目的操作。');
+
+        return;
+      }
       await synchronizeExplicitMemory(config, scope, event.UserId);
-      const notes = getMemoryStore(config).list(scope, { status: 'active', limit: 10 });
+      const notes = getMemoryStore(config).list(scope, { status: 'active', limit: 10020 });
 
       if (!notes.length) {
         await reply('我还没有保存长期记忆。\n想让我记住什么偏好？可以这样发：\n/记住 回答时先说结论\n保存后用 /记忆 查看；不想保留时用 /忘记 编号 删除。');
@@ -76,24 +81,24 @@ export default async (): Promise<void> => {
       }
       const sections = notes.map(note => ({
         title: `${note.id}${note.origin === 'explicit' ? ' · 手动' : ' · 自动'}`,
-        text: `${note.text.slice(0, 60)}${note.text.length > 60 ? '…' : ''}`,
+        text: `${Array.from(note.text).slice(0, 60).join('')}${Array.from(note.text).length > 60 ? '…' : ''}`,
         actions: [
-          { label: '来源', command: `/记忆来源 ${note.id}` },
+          { label: '全文与来源', command: `/记忆来源 ${note.id}` },
           { label: '忘记', command: `/忘记 ${note.id}` }
         ]
       }));
 
-      sections.push({
-        title: '继续',
-        text: '',
-        actions: [
-          { label: '检索', command: '/记忆检索' },
-          { label: '帮助', command: '/帮助 记忆' }
-        ]
-      });
       assertMessageDelivered(
         await message.send({
-          format: sectionBubble('我的记忆', '最近 10 条；点按钮只填入指令。删除记忆不会同时删除聊天记录。', sections, { platform: event.Platform })
+          format: sectionBubble('我的记忆', `共 ${notes.length} 条；全文与来源可查看完整内容。删除记忆不会同时删除聊天记录。`, sections, {
+            platform: event.Platform,
+            page: { current: Number(args) || 1, size: 5, command: '/记忆' },
+            actions: [
+              { label: '记住偏好', command: '/记住 ' },
+              { label: '检索', command: '/记忆检索 ' },
+              { label: '帮助', command: '/帮助 记忆' }
+            ]
+          })
         })
       );
 
@@ -112,7 +117,7 @@ export default async (): Promise<void> => {
     const action = command === '/记住' ? 'add' : command === '/忘记' ? 'remove' : command === '/忘记全部' ? 'clear' : null;
 
     if (!action || (command === '/忘记全部' && args)) {
-      await reply('用法：/记忆、/记住 内容、/忘记 编号、/忘记全部。');
+      await reply('没有识别出这项记忆操作。请先查看记忆，再选择要修改的条目。');
 
       return;
     }

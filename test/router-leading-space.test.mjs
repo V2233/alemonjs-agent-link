@@ -61,7 +61,7 @@ test('a leading space never changes how a group slash command is routed', async 
       assert.deepEqual(reply, first, 'leading whitespace must not change the reply set');
     }
     assert.equal(first.length, 1, `a routed command answers exactly once, got: ${JSON.stringify(first)}`);
-    assert.ok(first[0].includes('管理说明请主人私聊发送 /帮助 管理。'), `group reply must include the owner-private hint, got: ${JSON.stringify(first)}`);
+    assert.ok(first[0].includes('请机器人主人私聊查看管理说明。'), `group reply must include the owner-private hint, got: ${JSON.stringify(first)}`);
   } finally {
     await app.unmount('main');
   }
@@ -113,4 +113,29 @@ test('text without a command prefix stays out of the command router even when pa
   } finally {
     await app.unmount('main');
   }
+});
+
+test('module commands in a group reach the private-owner guidance instead of falling through', async () => {
+  const app = await mountRouter();
+  try {
+    for (const command of ['/模块状态', '/agentmodules']) {
+      const result = await app.dispatch(groupEvent(command, command));
+      assert.equal(result.errors.length, 0);
+      const replies = texts(result);
+      assert.equal(replies.length, 1);
+      assert.match(replies[0], /模块管理仅限机器人主人私聊/);
+    }
+  } finally { await app.dispose(); }
+});
+
+test('public key guidance aliases in groups explain the private entry', async () => {
+  const app = await mountRouter();
+  try {
+    for (const key of ['密钥配置', '移除密钥', 'agentbind', 'agentunbind']) {
+      const result = await app.dispatch(groupEvent(`/${key}`, key));
+      assert.equal(result.errors.length, 0);
+      assert.equal(result.messages.length, 1);
+      assert.match(texts(result).join(''), /私聊查看指引/);
+    }
+  } finally { await app.dispose(); }
 });

@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CredentialPool } from '../lib/credentials/pool.js';
@@ -69,10 +72,12 @@ test('bound task fails admission rather than migrate when its endpoint cools dow
 test('task factory keeps the same endpoint across rounds and disables transparent retries', async () => {
   const { createChatTaskCredentials, getSandboxCredentials } = await import('../lib/dsh/credentials.js');
   const { getCredentialPool, stopCredentialPool } = await import('../lib/credentials/pool.js');
+  const root = await mkdtemp(join(tmpdir(), 'task-balancing-'));
   const previous = globalThis.__config;
   globalThis.__config = {
     value: {
       'alemonjs-agent-link': {
+        dshHomeRoot: join(root, 'homes'),
         apiKey: 'legacy-must-not-bypass-capacity',
         modelPool: {
           probeIntervalSeconds: 0,
@@ -114,6 +119,7 @@ test('task factory keeps the same endpoint across rounds and disables transparen
     task.close();
     stopCredentialPool();
     globalThis.__config = previous;
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -137,8 +143,10 @@ test('late success preserves concurrent cooldown, auth disable and operator stop
 test('queue expiry admits fallback; closing a waiting task cancels allocation', async () => {
   const { getChatCredentials, createChatTaskCredentials } = await import('../lib/dsh/credentials.js');
   const { getCredentialPool, stopCredentialPool } = await import('../lib/credentials/pool.js');
+  const root = await mkdtemp(join(tmpdir(), 'task-balancing-'));
   const previous = globalThis.__config;
   const config = {
+    dshHomeRoot: join(root, 'homes'),
     modelPool: {
       queueMaxWaitMs: 60,
       probeIntervalSeconds: 0,
@@ -183,6 +191,7 @@ test('queue expiry admits fallback; closing a waiting task cancels allocation', 
     busy.report({ ok: true });
     stopCredentialPool();
     globalThis.__config = previous;
+    await rm(root, { recursive: true, force: true });
   }
 });
 

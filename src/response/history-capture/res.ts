@@ -1,3 +1,4 @@
+import { observeGroupTopics } from '../../group-topics/observe';
 import { isPersonalKeyCommand } from '../../credentials/personal';
 import { messageReferences } from '../../social/references';
 import { logger, useEvent } from 'alemonjs';
@@ -14,6 +15,11 @@ export default async (): Promise<void> => {
 
   try {
     if (context.match.selects && !isPersonalKeyCommand(context.current.MessageText)) {
+      try {
+        observeGroupTopics(getDSHConfig(), context.current);
+      } catch {
+        logger.warn('Group topic observation failed');
+      }
       rememberRecentMedia(context.current);
       try {
         ensureProactiveSubscription(getDSHConfig(), context.current);

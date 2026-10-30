@@ -204,3 +204,39 @@ test('holdout samples can be summarized with their own corpus and cannot be mixe
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('continuous sampling feeds actual earlier replies forward and preserves failed-turn evidence', async () => {
+  const continuous = {
+    cases: [
+      {
+        id: 'sequence',
+        scope: 'private',
+        conversation: [{ role: 'user', text: '项目启动不了' }],
+        followUps: ['修好了', '别再追问了', '继续聊'],
+        evidence: '无工具回执'
+      }
+    ]
+  };
+  const inputs = [];
+  const result = await sampleCompanion({
+    corpus: continuous,
+    persona: '肥鱼',
+    model: 'fixture',
+    endpointLabel: 'fixture',
+    complete: async ({ messages }) => {
+      inputs.push(messages);
+      if (inputs.length === 1) return { text: '报错是什么？', truncated: false };
+      if (inputs.length === 2) return { text: '原来是路径问题。', truncated: true };
+      if (inputs.length === 3) return { text: '[沉默]', truncated: false };
+      throw new Error('private provider body');
+    }
+  });
+  assert.equal(inputs[1].at(-2).content, '报错是什么？');
+  assert.equal(inputs[2].at(-2).content, '原来是路径问题。');
+  assert.ok(!inputs[3].some(row => row.content === '[沉默]'));
+  assert.equal(result.responses[0].turns.length, 3);
+  assert.equal(result.responses[0].turns[1].truncated, true);
+  assert.equal(result.responses[0].sampleFailure.category, 'request_failed');
+  assert.ok(!JSON.stringify(result).includes('private provider body'));
+  assert.equal(result.sampling.status, 'failed');
+});

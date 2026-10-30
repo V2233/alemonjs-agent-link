@@ -126,7 +126,8 @@ test('command cards always use inline Markdown; only link or choice keeps the ke
     platform: 'qq-bot',
     actions: [{ label: '打开官网', url: 'https://example.com' }]
   });
-  assert.deepEqual(commandsOf(linkCard), ['https://example.com']);
+  assert.deepEqual(commandsOf(linkCard), []);
+  assert.match(createMarkdownText(linkCard.value[0].value, 'group'), /https:\/\/example.com/);
   assert.doesNotMatch(createMarkdownText(linkCard.value[0].value, 'group'), /qqbot-cmd-input/);
 
   const choiceCard = commandBubble('第一行\n第二行', '标题', {
@@ -136,8 +137,8 @@ test('command cards always use inline Markdown; only link or choice keeps the ke
       { label: '取消', command: '/取消', choice: 'binary' }
     ]
   });
-  assert.deepEqual(commandsOf(choiceCard), ['/确认', '/取消']);
-  assert.doesNotMatch(createMarkdownText(choiceCard.value[0].value, 'group'), /qqbot-cmd-input/);
+  assert.deepEqual(commandsOf(choiceCard), []);
+  assert.match(createMarkdownText(choiceCard.value[0].value, 'group'), /qqbot-cmd-input/);
 
   const plain = commandBubble('第一行\n第二行', '标题', { platform: 'onebot', actions: [{ label: '额度', command: '/额度' }] });
 
@@ -172,7 +173,8 @@ test('declared command actions are deduplicated and inline-capped', () => {
     platform: 'qq-bot',
     actions: Array.from({ length: 14 }, (_, index) => ({ label: `链接${index}`, url: `https://example.com/${index}` }))
   });
-  assert.equal(commandsOf(links).length, 10, 'link keyboard is capped at 10');
+  assert.equal(commandsOf(links).length, 0);
+  assert.equal((createMarkdownText(links.value[0].value, 'group').match(/https:\/\/example.com/gu)||[]).length, 10);
 });
 
 test('keyboard short names stay within one to four characters', () => {
@@ -203,7 +205,7 @@ test('budget-exceeded notices offer exactly the commands their copy tells users 
       assert.ok(rendered.includes(`qqbot-cmd-input text="${action.command}"`), `inline must expose ${action.command}`);
       assert.ok(Array.from(action.label).length <= 4, `label ${action.label} stays short`);
     }
-    assert.ok(rendered.includes(`qqbot-cmd-input text="${isPrivate ? '/我的钥匙 私聊 添加' : '/我的钥匙'}"`), 'the first step is one tap away');
+    assert.ok(rendered.includes(`qqbot-cmd-input text="${isPrivate ? '/我的钥匙 私聊' : '/我的钥匙'}"`), 'the first step is one tap away');
   }
 
   const plain = noticeBubble(insufficientBudgetHelp(false), { platform: 'onebot', title: '额度不足', actions: budgetNoticeActions(false) });
@@ -232,6 +234,54 @@ test('section cards inline commands but keep link and choice keyboards', () => {
   const link = sectionBubble('标题', '说明', [{ title: '第一项', text: '', actions: [{ label: '打开官网', url: 'https://example.com' }] }], {
     platform: 'qq-bot'
   });
-  assert.deepEqual(commandsOf(link), ['https://example.com']);
+  assert.deepEqual(commandsOf(link), []);
   assert.doesNotMatch(createMarkdownText(link.value[0].value, 'group'), /qqbot-cmd-input/);
+});
+
+test('mixed links and commands stay with their own item, without any keyboard bar', () => {
+  const card = sectionBubble('列表','',[
+    {title:'第一项',text:'第一项说明',actions:[{label:'详情',command:'/详情 一'},{label:'官网',url:'https://example.com/one'}]},
+    {title:'第二项',text:'第二项说明',actions:[{label:'编辑',command:'/编辑 二',choice:'binary'}]}
+  ],{platform:'qq-bot',actions:[{label:'返回',command:'/帮助'}]});
+  const output=createMarkdownText(card.value[0].value,'group');
+  assert.deepEqual(keyboardOf(card),[]);
+  assert.ok(output.indexOf('/详情 一') < output.indexOf('第二项说明'));
+  assert.ok(output.indexOf('example.com/one') < output.indexOf('第二项说明'));
+  assert.ok(output.indexOf('/编辑 二') > output.indexOf('第二项说明'));
+  assert.ok(output.indexOf('/帮助') > output.indexOf('/编辑 二'));
+});
+
+test('plain platforms retain copyable actions and paginated lists keep all items reachable', () => {
+  const sections=Array.from({length:12},(_,i)=>({title:`条目${i+1}`,text:'内容',actions:[{label:'详情',command:`/详情 ${i+1}`}]}));
+  const card=sectionBubble('列表','',sections,{platform:'onebot',page:{current:2,size:5,command:'/列表'}});
+  const output=createMarkdownText(card.value[0].value,'group');
+  assert.match(output,/第 2\/3 页/);
+  assert.match(output,/详情：\/详情 6/);
+  assert.match(output,/上一页：\/列表 1/);
+  assert.match(output,/下一页：\/列表 3/);
+  assert.doesNotMatch(output,/条目11|qqbot-cmd-input/);
+  assert.deepEqual(keyboardOf(card),[]);
+  const last=sectionBubble('列表','',sections,{platform:'qq-bot',page:{current:999,size:5,command:'/列表'}});
+  assert.match(createMarkdownText(last.value[0].value,'group'),/条目12/);
+});
+
+test('every help topic uses readable sections and respects private owner boundaries', () => {
+  for (const isPrivate of [false, true]) {
+    for (const owner of [false, true]) {
+      for (const topic of ['聊天', '记忆', '人格', '群设置', '媒体', '数据', '管理']) {
+        const format = helpFormat(isPrivate, owner, topic);
+        const markdown = createMarkdownText(format.value[0].value, isPrivate ? 'private' : 'group');
+        assert.equal(format.value.length, 1);
+        assert.ok(markdown.length < 4000, `${topic} must fit a readable topic card`);
+        assert.doesNotMatch(markdown, /开启\|关闭|名称\|提示词|\[页码\]|编号等字样/);
+        assert.match(markdown, /qqbot-cmd-input text="\/帮助"/);
+        assert.deepEqual(keyboardOf(format), []);
+        if (!owner) assert.doesNotMatch(markdown, /\/语音引擎|\/表情 帮助|\/清除群数据/);
+        if (!(isPrivate && owner)) assert.doesNotMatch(markdown, /\/主动搭话|\/额度轮转/);
+        const plain = helpFormat(isPrivate, owner, topic, 'onebot').value;
+        assert.equal(plain[0].type, 'Text');
+        assert.doesNotMatch(plain[0].value, /开启\|关闭|名称\|提示词|\[页码\]/);
+      }
+    }
+  }
 });

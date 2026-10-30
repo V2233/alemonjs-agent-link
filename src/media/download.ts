@@ -41,7 +41,13 @@ export const attachmentUrl = (source: string, allowedHosts: string[]): URL => {
 
   return url;
 };
-export const downloadAttachment = async (source: string, config: MediaConfig, signal: AbortSignal, headers: Record<string, string> = {}): Promise<Buffer> => {
+export const downloadAttachment = async (
+  source: string,
+  config: MediaConfig,
+  signal: AbortSignal,
+  headers: Record<string, string> = {},
+  policy?: { redirects: number; validate: (url: string) => string; textOnly?: boolean }
+): Promise<Buffer> => {
   const url = attachmentUrl(source, config.allowedHosts);
   const addresses = await new Promise<{ address: string; family: number }[]>((resolve, reject) => {
     const abort = (): void => reject(signal.reason);
@@ -81,6 +87,28 @@ export const downloadAttachment = async (source: string, config: MediaConfig, si
         }
       },
       response => {
+        if (policy && [301, 302, 303, 307, 308].includes(response.statusCode || 0) && response.headers.location) {
+          response.destroy();
+          try {
+            if (policy.redirects <= 0) throw new MediaError('公开页面跳转次数过多。');
+            const next = policy.validate(new URL(response.headers.location, url).href);
+
+            resolve(downloadAttachment(next, config, signal, headers, { ...policy, redirects: policy.redirects - 1 }));
+          } catch (error) {
+            reject(error);
+          }
+
+          return;
+        }
+        if (
+          policy?.textOnly &&
+          !/^(text\/(html|plain|xml)|application\/(rss\+xml|atom\+xml|xml|xhtml\+xml))(?:;|$)/i.test(response.headers['content-type'] || '')
+        ) {
+          response.destroy();
+          reject(new MediaError('公开读取仅支持文本页面。'));
+
+          return;
+        }
         if (response.statusCode !== 200) {
           response.destroy();
           reject(new MediaError('附件下载失败或发生重定向。'));

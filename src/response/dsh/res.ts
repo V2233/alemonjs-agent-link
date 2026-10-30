@@ -3,7 +3,6 @@ import { aiDisabledMessage } from '../../dsh/ai-switch';
 import { readMessageContext } from '../../social/message-context';
 import { logger, useEvent, useMessage, useMedia } from 'alemonjs';
 import { noticeBubble } from '../bubble';
-import { budgetNoticeActions } from '../../billing/help';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { extractPrompt, extractWakePrompt, startsWithAddressName } from '@src/response/dsh/util';
 import { groupConversations, scopedGroupPolicy } from '../../social/groups';
@@ -48,11 +47,19 @@ export default async (): Promise<void> => {
       prompt = event.MessageText || '用户引用了你的消息，请结合原文回应。';
     }
   } catch (error) {
+    if (!messageContext.mentionedSelf && !mentionedBot && !references.quotedBot) {
+      await Promise.resolve(next());
+
+      return;
+    }
     await message.send({
       format: noticeBubble(toUserMessage(error), {
         platform: event.Platform,
         title: '服务提示',
-        actions: [{ label: '密钥配置', command: '/密钥配置' }, ...budgetNoticeActions(false)]
+        actions: [
+          { label: '服务状态', command: '/状态' },
+          { label: '聊天说明', command: '/帮助 聊天' }
+        ]
       })
     });
 
@@ -80,7 +87,22 @@ export default async (): Promise<void> => {
 
     return;
   }
-  const config = getDSHConfig();
+  let config: ReturnType<typeof getDSHConfig>;
+
+  try {
+    config = getDSHConfig();
+  } catch {
+    if (prompt !== null) {
+      await reply('服务配置暂不可用，这次提问尚未开始。请联系机器人主人核对配置。', [
+        { label: '服务状态', command: '/状态' },
+        { label: '聊天说明', command: '/帮助 聊天' }
+      ]);
+    } else {
+      await Promise.resolve(next());
+    }
+
+    return;
+  }
 
   if (config.aiEnabled === false) {
     if (await new SessionRegistry(config).claimDisabledNotice(event.Platform || '', event.ChannelId, false)) {
@@ -90,7 +112,7 @@ export default async (): Promise<void> => {
           title: 'AI 已关闭',
           actions: [
             { label: '服务状态', command: '/状态' },
-            { label: '管理说明', command: '/帮助 管理' }
+            { label: '帮助', command: '/帮助' }
           ]
         })
       });
@@ -137,7 +159,10 @@ export default async (): Promise<void> => {
   } catch (error) {
     logger.warn({ err: error }, 'Group conversation scheduling failed');
     if (prompt !== null) {
-      await reply('糟糕，网线断了。');
+      await reply('这次消息未能进入处理流程，请稍后重新提问。', [
+        { label: '重新提问', command: '/提问' },
+        { label: '服务状态', command: '/状态' }
+      ]);
     } else {
       await Promise.resolve(next());
     }

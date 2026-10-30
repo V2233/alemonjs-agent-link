@@ -5,6 +5,7 @@ import { App, Alert, Button, Form, Input, Modal, Layout, Select, InputNumber, Sp
 type Voice = { id: string; name: string; enabled?: boolean; speech: Record<string, unknown>; ttsVoice?: string; balanceUrl?: string; probeUrl?: string };
 type Settings = {
   legacyAvailable?: boolean;
+  originalSpeech?: { engine: string; edgeVoice?: string; systemVoice?: string; fallback: boolean };
   localSpeech: { enabled: boolean; fallback: boolean; voice?: string };
   revision: string;
   activeVoice: string;
@@ -73,7 +74,7 @@ export default function VoicesPage() {
     void run(refresh);
   }, []);
   const save = async (next: Settings) => {
-    const { legacyAvailable: _legacyAvailable, ...payload } = next;
+    const { legacyAvailable: _legacyAvailable, originalSpeech: _originalSpeech, ...payload } = next;
     const result = await request('/settings', payload);
     setSettings(result.data);
     message.success(result.message);
@@ -113,11 +114,23 @@ export default function VoicesPage() {
   return (
     <Layout.Content className='workspace-content'>
       <Typography.Title level={2}>音色库</Typography.Title>
+      {settings && (
+        <Alert
+          type='info'
+          showIcon
+          title={`当前使用：${settings.activeVoice ? settings.voices.find(v => v.id === settings.activeVoice)?.name || settings.activeVoice : '配置文件 speech'}`}
+          description={
+            settings.activeVoice
+              ? `音色库默认项优先。直接修改 media.speech 不会覆盖它；原始 speech 当前引擎：${settings.originalSpeech?.engine || 'auto'}${settings.originalSpeech?.edgeVoice ? ' / ' + settings.originalSpeech.edgeVoice : ''}。`
+              : `直接使用 media.speech：${settings.originalSpeech?.engine || 'auto'}${settings.originalSpeech?.edgeVoice ? ' / ' + settings.originalSpeech.edgeVoice : ''}`
+          }
+        />
+      )}
       {settings?.legacyAvailable && (
         <Alert
           type='info'
-          title='检测到已配置的原有语音引擎，尚未迁入音色列表'
-          description='迁移会保留密钥、音色和语气参数，并设为默认音色。'
+          title='配置文件 speech 中的音色尚未收录到列表'
+          description='可追加到音色列表并设为默认，已有音色会保留。'
           action={
             <Button
               disabled={busy}
@@ -148,21 +161,21 @@ export default function VoicesPage() {
       {settings && (
         <Form layout='vertical' style={{ marginTop: 16 }}>
           <Space wrap align='start'>
-            <Form.Item label='启用本地音色'>
+            <Form.Item label='启用本机系统 TTS（system）'>
               <Switch
                 checked={settings.localSpeech.enabled}
                 disabled={busy}
                 onChange={enabled => run(() => save({ ...settings, localSpeech: { ...settings.localSpeech, enabled } }))}
               />
             </Form.Item>
-            <Form.Item label='允许本地音色兜底'>
+            <Form.Item label='允许降级到系统 TTS'>
               <Switch
                 checked={settings.localSpeech.fallback}
                 disabled={busy || !settings.localSpeech.enabled}
                 onChange={fallback => run(() => save({ ...settings, localSpeech: { ...settings.localSpeech, fallback } }))}
               />
             </Form.Item>
-            <Form.Item label='本地系统音色名称（留空沿用引擎默认）'>
+            <Form.Item label='系统 TTS 的声音名称（可留空）'>
               <Input.Search
                 key={settings.revision}
                 defaultValue={settings.localSpeech.voice || ''}
@@ -174,7 +187,8 @@ export default function VoicesPage() {
             </Form.Item>
           </Space>
           <Typography.Paragraph type='secondary'>
-            关闭本地音色后，不会直接使用或降级到系统 TTS；仅关闭兜底时，仍可选用 system 音色。名称必须是运行机器已安装的系统音色，保存不代表已安装。
+            此区域只管理 system 引擎：使用运行机器安装的声音（例如 macOS 的 Tingting）。Edge 使用下方独立的 Edge 音色项，例如 zh-TW-HsiaoChenNeural，不受 system
+            启停开关控制。
           </Typography.Paragraph>
         </Form>
       )}
@@ -215,6 +229,8 @@ export default function VoicesPage() {
           onChange={setFilter}
           options={[
             { value: 'all', label: '全部音色' },
+            { value: 'edge', label: 'Edge 音色' },
+            { value: 'system', label: '系统音色' },
             { value: 'enabled', label: '已启用' },
             { value: 'disabled', label: '已停用' },
             { value: 'exhausted', label: '额度不足' }
@@ -227,10 +243,30 @@ export default function VoicesPage() {
           disabled={busy || !settings}
           onChange={value => settings && run(() => save({ ...settings, activeVoice: value }))}
           options={[
-            { value: '', label: '原有语音配置' },
+            { value: '', label: `使用配置文件 speech（${settings?.originalSpeech?.engine || 'auto'}）` },
             ...(settings?.voices || []).map(v => ({ value: v.id, label: v.name + (v.enabled === false ? '（已停用）' : ''), disabled: v.enabled === false }))
           ]}
         />
+      </Space>
+      <Space wrap style={{ marginBottom: 16 }}>
+        <Button
+          disabled={busy || !settings}
+          onClick={() => {
+            open(null);
+            form.setFieldsValue({ name: 'Edge 晓臻（台湾）', speech: { engine: 'edge', fallback: true, edgeVoice: 'zh-TW-HsiaoChenNeural' } });
+          }}
+        >
+          新增 Edge 音色
+        </Button>
+        <Button
+          disabled={busy || !settings}
+          onClick={() => {
+            open(null);
+            form.setFieldsValue({ name: '本机系统音色', speech: { engine: 'system', fallback: false } });
+          }}
+        >
+          新增系统音色
+        </Button>
       </Space>
       <Table
         rowKey='id'
@@ -241,11 +277,13 @@ export default function VoicesPage() {
           .filter(
             v =>
               filter === 'all' ||
-              (filter === 'enabled'
-                ? v.enabled !== false
-                : filter === 'disabled'
-                  ? v.enabled === false
-                  : rows.find(r => r.id === v.id)?.balance?.status === 'exhausted')
+              (filter === 'edge' || filter === 'system'
+                ? v.speech.engine === filter
+                : filter === 'enabled'
+                  ? v.enabled !== false
+                  : filter === 'disabled'
+                    ? v.enabled === false
+                    : rows.find(r => r.id === v.id)?.balance?.status === 'exhausted')
           )}
         columns={[
           {
@@ -256,6 +294,11 @@ export default function VoicesPage() {
                 <br />
                 <Typography.Text type='secondary'>
                   {v.id} · {String(v.speech.engine || 'auto')}
+                  {v.speech.engine === 'edge'
+                    ? ` · ${String(v.speech.edgeVoice || 'zh-CN-XiaoyiNeural')}`
+                    : v.speech.engine === 'system'
+                      ? ` · ${String(settings?.localSpeech.voice || v.speech.systemVoice || '系统默认')}`
+                      : ''}
                 </Typography.Text>
               </>
             )
@@ -385,8 +428,8 @@ export default function VoicesPage() {
             </Form.Item>
           )}
           {engine === 'edge' && (
-            <Form.Item name={['speech', 'edgeVoice']} label='Edge 音色名称'>
-              <Input placeholder='zh-CN-XiaoyiNeural' />
+            <Form.Item name={['speech', 'edgeVoice']} label='Edge 声音 ID（支持自定义）' rules={[{ required: true, whitespace: true }]}>
+              <Input placeholder='例如 zh-TW-HsiaoChenNeural（台湾晓臻）' />
             </Form.Item>
           )}
           {['breeze', 'cosyvoice', 'gptsovits'].includes(engine) && (

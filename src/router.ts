@@ -7,6 +7,9 @@ const router = Router.create();
 
 router.res({ events: [...contextEvents] }, () => import('@src/response/platform-events/res'));
 
+// Capture pasted credentials before history, commands and model input.
+router.res({ events: ['message.create', 'private.message.create'] }, () => import('@src/response/key-intake/res'));
+
 router.res({ events: ['message.create', 'private.message.create'] }, () => import('@src/response/personal-login/res'));
 
 // Capture before command and wake handlers consume the event.
@@ -42,6 +45,8 @@ for (const path of ['广告列表', '广告详情']) commandGroup.use({ path, de
 for (const path of ['智能程度', '我的权限'])
   commandGroup.use({ path, description: '查看权益与设置当前会话智能程度' }, () => import('@src/response/agent-intelligence/res'));
 
+commandGroup.use({ path: '用量', description: '主人私聊查询日、月、年及累计 Token 用量' }, () => import('@src/response/agent-token-usage/res'));
+
 commandGroup.use({ path: '额度', description: '查询今日额度；主人可手动增加、设置、查看调整记录' }, () => import('@src/response/agent-budget/res'));
 
 commandGroup.use({ path: '人设', description: '编辑本人或本群专属人设细节' }, () => import('@src/response/agent-scoped-persona/res'));
@@ -71,10 +76,7 @@ commandGroup.use(
 );
 
 commandGroup.use({ path: 'agentpolicy', description: '主人管理当前群 Agent 工具策略' }, () => import('@src/response/agent-policy/res'));
-commandGroup.use(
-  { path: 'agentmodules', events: ['private.message.create'], description: '主人查看模块加载状态并检查更新' },
-  () => import('@src/response/agent-modules/res')
-);
+commandGroup.use({ path: 'agentmodules', description: '主人私聊查看模块加载状态并检查更新' }, () => import('@src/response/agent-modules/res'));
 commandGroup.use({ path: 'agentpurge', description: '主人清除当前群 Agent 数据' }, () => import('@src/response/agent-purge/res'));
 
 commandGroup.use(
@@ -131,7 +133,6 @@ commandGroup.use(
 commandGroup.use(
   {
     path: 'agentbind',
-    events: ['private.message.create'],
     description: '主人私聊查看模型 API Key 配置指引'
   },
   () => import('@src/response/agent-bind/res')
@@ -140,7 +141,6 @@ commandGroup.use(
 commandGroup.use(
   {
     path: 'agentunbind',
-    events: ['private.message.create'],
     description: '主人私聊查看模型 API Key 移除指引'
   },
   () => import('@src/response/agent-unbind/res')
@@ -193,9 +193,9 @@ commandGroup.use(
 
 commandGroup.use({ path: '聊天参考 清除', description: '清除近期聊天参考' }, () => import('@src/response/agent-context-clear/res'));
 commandGroup.use({ path: '清除群数据', description: '主人清除当前群 Agent 数据' }, () => import('@src/response/agent-purge/res'));
-commandGroup.use({ path: '模块状态', events: ['private.message.create'], description: '主人查看模块状态' }, () => import('@src/response/agent-modules/res'));
-commandGroup.use({ path: '密钥配置', events: ['private.message.create'], description: '主人查看密钥配置指引' }, () => import('@src/response/agent-bind/res'));
-commandGroup.use({ path: '移除密钥', events: ['private.message.create'], description: '主人查看密钥移除指引' }, () => import('@src/response/agent-unbind/res'));
+commandGroup.use({ path: '模块状态', description: '主人私聊查看模块状态' }, () => import('@src/response/agent-modules/res'));
+commandGroup.use({ path: '密钥配置', description: '主人查看密钥配置指引' }, () => import('@src/response/agent-bind/res'));
+commandGroup.use({ path: '移除密钥', description: '主人查看密钥移除指引' }, () => import('@src/response/agent-unbind/res'));
 
 commandGroup.use({ path: '语音', description: '使用 AI 合成语音回答，不可用时回退文字' }, () => import('@src/response/agent-voice/res'));
 commandGroup.use(

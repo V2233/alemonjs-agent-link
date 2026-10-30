@@ -6,7 +6,7 @@ import { getProactiveStore } from './store';
 import { proactiveOptions } from './options';
 
 const scope = (event: ChatEvent) =>
-  event.IsPrivate && event.IsMaster && !event.IsBot && event.Platform && event.BotId && event.UserId
+  event.IsPrivate && !event.IsBot && event.Platform && event.BotId && event.UserId
     ? { platform: event.Platform, botId: event.BotId, userId: event.UserId }
     : undefined;
 
@@ -20,7 +20,7 @@ export const observeProactiveInput = (config: DSHBridgeConfig, event: ChatEvent)
     const store = getProactiveStore(config);
     const options = proactiveOptions(config);
 
-    // A verified owner private message is enough to opt in; the explicit
+    // A human private message is enough to opt in; the explicit
     // “别主动找我” phrase still opts out immediately below.
     if (options.autoSubscribe && !store.get(recipient)) {
       store.subscribe(recipient, true, options);

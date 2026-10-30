@@ -314,6 +314,10 @@ export class PersonaStore {
     return row ? String(row.persona_id) : undefined;
   }
 
+  activeSelection(scope: PersonaScope & { personaEntitled?: boolean }): string | undefined {
+    return scope.personaEntitled === false ? undefined : this.selected(scope);
+  }
+
   async select(scope: PersonaScope, id?: string): Promise<void> {
     if (!id) {
       this.db.prepare('DELETE FROM persona_choices WHERE scope=?').run(scopeKey(scope));
@@ -367,9 +371,9 @@ export class PersonaStore {
     }
   }
 
-  async systemPrompt(config: DSHBridgeConfig, context: PersonaScope & { private: boolean; owner: boolean }): Promise<string> {
+  async systemPrompt(config: DSHBridgeConfig, context: PersonaScope & { private: boolean; owner: boolean; personaEntitled?: boolean }): Promise<string> {
     const configured = config.modules?.settings?.persona;
-    const id = this.selected(context) || configured?.defaultId;
+    const id = this.activeSelection(context) || configured?.defaultId;
 
     if (id !== undefined && (typeof id !== 'string' || !validPersonaId(id))) {
       throw new Error('默认人格编号无效。');
@@ -387,7 +391,7 @@ export class PersonaStore {
     const additions = this.additions(id ? String(id) : config.persona);
     const extra = additions ? `【主人追加的人设】\n以下补充仅调整性格、称呼和表达习惯，不改变实际能力、身份验证、权限、隐私及工具执行规则。\n${additions}` : '';
 
-    const scoped = context.private ? '' : this.scopeAdditions(context);
+    const scoped = context.private || context.personaEntitled === false ? '' : this.scopeAdditions(context);
     const groupExtra = scoped ? `【本群管理员追加的人设】\n以下补充只影响本群表达，不改变能力、身份验证、权限、隐私与工具执行规则。\n${scoped}` : '';
 
     return [base, personaDetailsPrompt(definition.details), rules, common || '', extra, groupExtra, personaModePrompt(this.expressionMode(context))]
