@@ -1,3 +1,4 @@
+import ImagesPage from './components/ImagesPage';
 import StickersPage from './components/StickersPage';
 import SettingsPage from './components/SettingsPage';
 import AdsPage from './components/AdsPage';
@@ -20,6 +21,7 @@ export default createHashRouter([
       { path: '/ads', element: <AdsPage /> },
       { path: '/hobbies', element: <HobbiesPage /> },
       { path: '/stickers', element: <StickersPage /> },
+      { path: '/images', element: <ImagesPage /> },
       { path: '/voices', element: <VoicesPage /> },
       { path: '/opinions', element: <OpinionsPage /> },
       { path: '/events', element: <EventsPage /> },

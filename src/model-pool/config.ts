@@ -208,7 +208,7 @@ export const parseModelPool = (raw: unknown, defaults: ModelPoolDefaults): Model
   const source = keys === undefined ? value.endpoints : keys;
 
   if (!Array.isArray(source) || source.length === 0) return undefined;
-  if (source.length > 20) throw new Error('modelPool.endpoints 最多 20 个。');
+  // if (source.length > 50) throw new Error('modelPool.endpoints 最多 20 个。');
 
   const ids = new Set<string>();
   const endpoints = source.map((entry, index): ModelPoolEndpoint => {

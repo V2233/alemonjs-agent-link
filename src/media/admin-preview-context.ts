@@ -6,3 +6,5 @@ const preview = new AsyncLocalStorage<boolean>();
 
 export const isAdminSpeechPreview = (): boolean => preview.getStore() === true;
 export const withAdminSpeechPreview = <T>(run: () => Promise<T>): Promise<T> => preview.run(true, run);
+
+export const withAdminMediaPreview = withAdminSpeechPreview;

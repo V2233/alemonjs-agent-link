@@ -6,7 +6,10 @@ import { speechOptions, type SpeechOptions } from './speech-config';
 
 export type MediaProvider = { baseUrl: string; apiKey: string; model: string; voice?: string };
 export type ImageGenerationProvider = MediaProvider & { size: string; stylePrompt: string; ownerOnly: boolean };
+export type ImagePreset = { id: string; name: string; enabled: boolean; provider: ImageGenerationProvider };
 export type MediaConfig = {
+  imageLibrary?: ImagePreset[];
+  activeImage?: string;
   voices?: VoicePreset[];
   activeVoice?: string;
   localSpeech?: LocalSpeech;
@@ -91,6 +94,8 @@ const imageProvider = (value: unknown): ImageGenerationProvider | undefined => {
 export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppConfigValue()): MediaConfig => {
   const raw = value?.media ?? {};
   const config: MediaConfig = {
+    imageLibrary: imageLibrary(raw.imageLibrary),
+    activeImage: raw.activeImage,
     voices: voiceLibrary(raw.voices),
     activeVoice: raw.activeVoice,
     localSpeech: localSpeechOptions(raw.localSpeech),
@@ -132,5 +137,39 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
   if (config.activeVoice !== undefined && typeof config.activeVoice !== 'string') throw new MediaError('音色ID无效。');
   selectVoice(config, true);
 
+  if (config.activeImage !== undefined && typeof config.activeImage !== 'string') throw new MediaError('生图配置ID无效');
+  if (config.activeImage) {
+    const selected = config.imageLibrary?.find(item => item.id === config.activeImage);
+
+    if (!selected) throw new MediaError('所选生图配置不存在');
+    config.imageGen = selected.enabled ? selected.provider : undefined;
+  }
+
   return config;
+};
+
+export const imageLibrary = (value: unknown): ImagePreset[] => {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 100) throw new MediaError('生图库最多100项');
+  const ids = new Set<string>();
+
+  return value.map(item => {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      !/^[a-zA-Z0-9_-]{1,64}$/u.test(item.id) ||
+      ids.has(item.id) ||
+      typeof item.name !== 'string' ||
+      !item.name.trim() ||
+      item.name.length > 80 ||
+      typeof item.enabled !== 'boolean'
+    )
+      throw new MediaError('生图配置名称、ID或状态无效');
+    ids.add(item.id);
+    const parsed = imageProvider(item.provider);
+
+    if (!parsed) throw new MediaError('需要生图服务配置');
+
+    return { id: item.id, name: item.name.trim(), enabled: item.enabled, provider: parsed };
+  });
 };

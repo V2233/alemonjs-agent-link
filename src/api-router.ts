@@ -1,3 +1,5 @@
+import { readImageSettings, saveImageSettings, migrateImageSettings, previewImage } from './panel/image-service';
+import { imageMime } from './media/download';
 import { stickerAssets, stickerImage, saveStickerAsset, uploadStickerAsset } from './panel/sticker-service';
 import { readScopedPersona, saveScopedPersona } from './agent/scoped-persona';
 import { readIntelligenceLevel, saveIntelligenceLevel } from './agent/intelligence';
@@ -108,6 +110,24 @@ apiRouter.post('/stickers/edit', async ctx => {
 apiRouter.post('/stickers/remove', async ctx => {
   await saveStickerAsset(ctx.request.body, true);
   success(ctx, null);
+});
+apiRouter.get('/images/settings', async ctx => success(ctx, await readImageSettings()));
+apiRouter.post('/images/settings', async ctx => {
+  const result = await saveImageSettings(ctx.request.body);
+
+  success(ctx, result.data, result.message);
+});
+apiRouter.post('/images/migrate', async ctx => {
+  const result = await migrateImageSettings(ctx.request.body);
+
+  success(ctx, result.data, result.message);
+});
+apiRouter.post('/images/preview', async ctx => {
+  const data = await previewImage(ctx.request.body);
+
+  ctx.type = imageMime(data)!;
+  ctx.set('X-Content-Type-Options', 'nosniff');
+  ctx.body = data;
 });
 apiRouter.get('/dictionary', ctx => success(ctx, getDictionaryStore(getDSHConfig()).list()));
 apiRouter.post('/dictionary', ctx => success(ctx, getDictionaryStore(getDSHConfig()).save(ctx.request.body as Partial<Word>)));
