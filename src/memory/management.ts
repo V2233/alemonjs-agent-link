@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../dsh/conversation-scope';
 import type { DSHBridgeConfig } from '../dsh/client';
 import { SessionRegistry } from '../state/registry';
 import { getChatArchive } from '../history/store';
@@ -7,7 +8,7 @@ export const synchronizeExplicitMemory = async (config: DSHBridgeConfig, scope: 
   if (!scope.channelId.startsWith('private:')) {
     return;
   }
-  const notes = await new SessionRegistry(config).privateMemories(scope.channelId);
+  const notes = await new SessionRegistry(config).privateMemories(scope.channelId, conversationQueueScope(config, scope));
 
   getMemoryStore(config).syncExplicit(scope, userId, notes);
 };
@@ -21,7 +22,7 @@ export const forgetMemory = async (config: DSHBridgeConfig, scope: MemoryScope, 
 
   if (!id) {
     if (scope.channelId.startsWith('private:')) {
-      await registry.changePrivateMemory(scope.channelId, 'clear');
+      await registry.changePrivateMemory(scope.channelId, 'clear', '', undefined, conversationQueueScope(config, scope));
     }
     store.clear(scope, checkpoint);
 
@@ -30,10 +31,10 @@ export const forgetMemory = async (config: DSHBridgeConfig, scope: MemoryScope, 
   const item = store.get(scope, id);
 
   if (item?.origin === 'explicit') {
-    const notes = await registry.privateMemories(scope.channelId);
+    const notes = await registry.privateMemories(scope.channelId, conversationQueueScope(config, scope));
 
     for (const note of notes.filter(entry => memoryTextKey(entry.text) === memoryTextKey(item.text))) {
-      const removed = await registry.changePrivateMemory(scope.channelId, 'remove', note.id);
+      const removed = await registry.changePrivateMemory(scope.channelId, 'remove', note.id, undefined, conversationQueueScope(config, scope));
 
       if (removed.status !== 'ok') {
         throw new Error('明确资料删除未完成。');

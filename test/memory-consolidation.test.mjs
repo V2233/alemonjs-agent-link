@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../lib/dsh/conversation-scope.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -176,17 +177,17 @@ test('explicit memory deletion clears canonical duplicates in both stores and ca
   fixture(async f => {
     const privateScope = { platform: 'qq', channelId: 'private:one' };
     const registry = new SessionRegistry(f.config);
-    await registry.changePrivateMemory(privateScope.channelId, 'add', '喜欢喝茶');
-    await registry.changePrivateMemory(privateScope.channelId, 'add', '喜欢喝茶！');
+    await registry.changePrivateMemory(privateScope.channelId, 'add', '喜欢喝茶', undefined, conversationQueueScope(f.config, privateScope));
+    await registry.changePrivateMemory(privateScope.channelId, 'add', '喜欢喝茶！', undefined, conversationQueueScope(f.config, privateScope));
     await synchronizeExplicitMemory(f.config, privateScope, 'one');
     const store = getMemoryStore(f.config);
     const id = store.list(privateScope)[0].id;
     assert.equal(store.list(privateScope).length, 2);
     assert.equal(await forgetMemory(f.config, privateScope, 'one', id), 'ok');
-    assert.deepEqual(await registry.privateMemories(privateScope.channelId), []);
+    assert.deepEqual(await registry.privateMemories(privateScope.channelId, conversationQueueScope(f.config, privateScope)), []);
     await synchronizeExplicitMemory(f.config, privateScope, 'one');
     assert.deepEqual(store.list(privateScope), []);
-    await registry.changePrivateMemory(privateScope.channelId, 'add', '新偏好');
+    await registry.changePrivateMemory(privateScope.channelId, 'add', '新偏好', undefined, conversationQueueScope(f.config, privateScope));
     await synchronizeExplicitMemory(f.config, privateScope, 'one');
     getChatArchive(f.config).append(privateScope, { id: 'source', text: '新偏好', speakerId: 'one', speaker: 'one', role: 'user' });
     const before = store.state(privateScope);

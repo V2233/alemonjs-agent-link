@@ -186,7 +186,7 @@ test('model reads the actual Bilibili result through a normal tool turn', async 
     assert.equal(calls, 2);
     assert.equal(answer, '标题是真实标题，未获取到字幕。');
     const store = getMemoryStore(config);
-    const scope = { platform: 'onebot', channelId: 'private:test' };
+    const scope = { platform: 'onebot', botId: '900', channelId: 'private:test' };
     const experiences = store.list(scope, { status: 'active', subjectId: '900' });
     assert.equal(experiences.length, 1);
     assert.equal(experiences[0].origin, 'event');
@@ -316,7 +316,7 @@ test('opt-in proactive turn searches and reads Bilibili with per-turn bounds and
     assert.equal(modelCalls, 3);
     assert.equal(searches, 1);
     assert.equal(watched, 1);
-    const events = getMemoryStore(config).list({ platform: 'onebot', channelId: 'private:owner' }, { subjectId: '900' });
+    const events = getMemoryStore(config).list({ platform: 'onebot', botId: '900', channelId: 'private:owner' }, { subjectId: '900' });
     assert.equal(events.length, 2);
     const reading = events.find(item => item.tags.includes('资料'));
     const reflection = events.find(item => item.tags.includes('阅读感想'));
@@ -330,7 +330,7 @@ test('opt-in proactive turn searches and reads Bilibili with per-turn bounds and
     assert.match(reflection.text, /标题挺有意思/);
     // Continue through production memory tools and runtime context after an actual
     // bili_watch execution (HTTP is a deterministic fixture, not a real account).
-    const scope = { platform: 'onebot', channelId: 'private:owner' };
+    const scope = { platform: 'onebot', botId: '900', channelId: 'private:owner' };
     const store = getMemoryStore(config);
     const item = store.recordSharedThread(scope, '100', {
       text: '一起了解鲸鱼生态资料',

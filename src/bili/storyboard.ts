@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import { attachmentUrl, downloadAttachment } from '../media/download';
 import type { MediaConfig } from '../media/config';
 import { videoSampleTimes, type VideoFrame } from './visual';
+import { visualCropRequest, cropPixels, type VideoCrop } from './crop';
 
 const maxPixels = 32 * 1024 * 1024;
 
@@ -21,9 +22,13 @@ export const extractStoryboardFrames = async (
   media: MediaConfig,
   signal: AbortSignal,
   download = downloadAttachment,
-  requestedTimes?: readonly number[]
+  requestedTimes?: readonly number[],
+  cropRequest?: VideoCrop
 ): Promise<VideoFrame[]> => {
   signal.throwIfAborted();
+  const crop = visualCropRequest(cropRequest);
+
+  if (crop && !requestedTimes) throw new Error('局部预览读取需要指定采样位置。');
   videoSampleTimes(duration);
   const requested = requestedTimes === undefined ? undefined : videoSampleTimes(duration, requestedTimes);
 
@@ -43,12 +48,17 @@ export const extractStoryboardFrames = async (
   if (!Array.isArray(snapshot.image) || !snapshot.image.length || snapshot.image.length > 200) throw new Error('预览图列表无效。');
   const images = snapshot.image.map(storyboardUrl);
   const headers = { 'User-Agent': 'Mozilla/5.0', Referer: 'https://www.bilibili.com/' };
+  let downloadedBytes = 0;
   const fetchBytes = async (url: URL, maxBytes: number): Promise<Buffer> => {
     signal.throwIfAborted();
-    const bytes = await download(url.toString(), { ...media, allowedHosts: [url.hostname], maxBytes: Math.min(media.maxBytes, maxBytes) }, signal, headers);
+    const limit = Math.min(media.maxBytes, maxBytes, 32 * 1024 * 1024 - downloadedBytes);
+
+    if (limit <= 0) throw new Error('预览图总下载超限。');
+    const bytes = await download(url.toString(), { ...media, allowedHosts: [url.hostname], maxBytes: limit }, signal, headers);
 
     signal.throwIfAborted();
-    if (bytes.length > Math.min(media.maxBytes, maxBytes)) throw new Error('预览图下载超限。');
+    if (bytes.length > limit) throw new Error('预览图下载超限。');
+    downloadedBytes += bytes.length;
 
     return bytes;
   };
@@ -75,7 +85,7 @@ export const extractStoryboardFrames = async (
   const end = entries.at(-1).seconds;
   const selected = new Map<number, (typeof entries)[number]>();
 
-  for (const target of requested || (end > 0 ? videoSampleTimes(end) : [0])) {
+  for (const target of requested || (end > 0 ? videoSampleTimes(end, undefined, 9) : [0])) {
     const closest = entries.reduce((best, entry) => (Math.abs(entry.seconds - target) < Math.abs(best.seconds - target) ? entry : best));
 
     selected.set(closest.seconds, closest);
@@ -104,15 +114,18 @@ export const extractStoryboardFrames = async (
       sheets.set(sheetIndex, sheet);
     }
     const tile = entry.index % capacity;
-    const bytes = await sharp(sheet, { limitInputPixels: maxPixels })
+    const fullTile = await sharp(sheet, { limitInputPixels: maxPixels })
       .extract({ left: (tile % columns) * width, top: Math.floor(tile / columns) * height, width, height })
-      .resize({ width: 640, height: 640, fit: 'inside', withoutEnlargement: true })
       .png()
       .toBuffer();
+    const image = sharp(fullTile, { limitInputPixels: width * height });
+
+    if (crop) image.extract(cropPixels(width, height, crop));
+    const bytes = await image.resize({ width: 640, height: 640, fit: 'inside', withoutEnlargement: true }).png().toBuffer();
 
     signal.throwIfAborted();
     if (bytes.length > 2 * 1024 * 1024) throw new Error('预览帧超限。');
-    frames.push({ seconds: entry.seconds, data: bytes, source: 'storyboard' });
+    frames.push({ seconds: entry.seconds, data: bytes, source: 'storyboard', ...(crop ? { region: 'crop' as const, crop } : {}) });
   }
 
   return frames;

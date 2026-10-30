@@ -226,7 +226,7 @@ test('coordinated turn executes memory tools and stores the transformed reply on
     const meta = await registry.meta(channelId);
     const history = { channelId, generation: meta.generation, scope: conversationQueueScope(config, { platform: event.Platform, botId: event.BotId }) };
     assert.deepEqual(await registry.privateHistory(history), []);
-    assert.equal((await registry.privateMemories(channelId))[0].text, '喜欢茶');
+    assert.equal((await registry.privateMemories(channelId, history.scope))[0].text, '喜欢茶');
     deliver();
     const result = await pending;
     await result.confirmDelivery();

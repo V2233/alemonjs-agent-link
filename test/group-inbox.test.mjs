@@ -119,6 +119,7 @@ test('receipt expiry and bounded receipt history reject stale acknowledgments', 
   }));
 
 test('the model reads real scoped archive sources and acknowledges only the returned snapshot', async () => {
+  const scope = { platform: 'qq', botId: 'bot', channelId: 'group' };
   const root = await mkdtemp(join(tmpdir(), 'group-inbox-turn-'));
   const previous = { config: globalThis.__config, fetch: globalThis.fetch };
   globalThis.__config = {

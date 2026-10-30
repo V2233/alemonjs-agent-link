@@ -449,7 +449,10 @@ test('proactive delivery can browse a real tool result and remember the actual r
       assert.equal(searchCalls, 1);
       assert.equal(watchCalls, 1);
       assert.equal(f.nativeCalls.filter(item => item.action === 'send_private_msg').length, 1);
-      const events = getMemoryStore(config).list({ platform: scope.platform, channelId: proactiveChannel(scope) }, { subjectId: scope.botId });
+      const events = getMemoryStore(config).list(
+        { platform: scope.platform, botId: scope.botId, channelId: proactiveChannel(scope) },
+        { subjectId: scope.botId }
+      );
       assert.equal(events.length, 2);
       assert.match(events.find(item => item.tags.includes('资料')).text, /研究鲸鱼的歌声/);
       assert.match(events.find(item => item.tags.includes('阅读感想')).text, /标题有点意思/);
@@ -506,7 +509,10 @@ test('incoming owner message cancels in-flight proactive browsing without a mess
       });
       assert.equal(await pending, 'cancelled');
       assert.equal(f.nativeCalls.filter(item => item.action === 'send_private_msg').length, 0);
-      assert.deepEqual(getMemoryStore(config).list({ platform: scope.platform, channelId: proactiveChannel(scope) }, { subjectId: scope.botId }), []);
+      assert.deepEqual(
+        getMemoryStore(config).list({ platform: scope.platform, botId: scope.botId, channelId: proactiveChannel(scope) }, { subjectId: scope.botId }),
+        []
+      );
     } finally {
       worker.stop();
     }
@@ -516,7 +522,7 @@ test('real delivery pipeline uses owner persona and history readers without writ
   pipeline(async f => {
     const personas = getPersonaStore(f.config);
     await personas.save({ id: 'companion', name: '茶友', prompt: '用自然简短的中文回应。', privateRules: '保持主人的私聊称呼。', socialRules: '公共称呼。' });
-    await personas.select({ platform: scope.platform, channelId: proactiveChannel(scope) }, 'companion');
+    await personas.select({ platform: scope.platform, botId: scope.botId, channelId: proactiveChannel(scope) }, 'companion');
     let response = '今天有空喝茶吗？';
     let requests = 0;
     globalThis.fetch = async (_url, init) => {
@@ -545,13 +551,15 @@ test('real delivery pipeline uses owner persona and history readers without writ
     assert.equal(f.nativeCalls[0].params.user_id, 100);
     assert.deepEqual(f.nativeCalls[0].params.message, [{ type: 'text', data: { text: '今天有空喝茶吗？' } }]);
     const archive = getChatArchive(f.config);
-    const rows = archive.search({ platform: scope.platform, channelId: proactiveChannel(scope) }).items;
+    const rows = archive.search({ platform: scope.platform, botId: scope.botId, channelId: proactiveChannel(scope) }).items;
     assert.equal(rows.filter(row => row.role === 'user').length, 0);
     assert.equal(rows.filter(row => row.role === 'assistant').length, 1);
     const registry = new SessionRegistry(f.config);
     const channelId = proactiveChannel(scope);
     const meta = await registry.meta(channelId);
-    assert.deepEqual(await registry.privateHistory({ channelId, generation: meta.generation, scope: conversationQueueScope(f.config, scope) }), [{ role: 'assistant', content: '今天有空喝茶吗？' }]);
+    assert.deepEqual(await registry.privateHistory({ channelId, generation: meta.generation, scope: conversationQueueScope(f.config, scope) }), [
+      { role: 'assistant', content: '今天有空喝茶吗？' }
+    ]);
     assert.equal(f.store.get(scope).unanswered, 1);
     response = '[沉默]';
     observeProactiveInput(f.config, {
@@ -1128,26 +1136,49 @@ test('old hobby activity tables migrate without resetting day or attempt counts'
   }
 });
 
-
-test('group wake uses actual chat/delivery pipeline with group-scoped readonly tools, no automatic mention and no fake user history', () => pipeline(async f => {
-  const plan = { namespace: groupWakeNamespace(f.config), platform: scope.platform, botId: scope.botId, channelId: '200', userId: scope.userId, id: 'test-group-wake', reason: '刚才谈到的猫', createdAt: Date.now() - 60000, dueAt: Date.now() };
-  let requests = 0, checks = 0;
-  globalThis.fetch = async (_url, init) => {
-    const body = JSON.parse(init.body); requests++;
-    assert.match(body.messages[0].content, /只可读取当前会话范围内的资料/u);
-    assert.doesNotMatch(body.messages[0].content, /只可读取当前私聊资料/u);
-    const tools = body.tools.map(tool => tool.function.name);
-    assert.ok(tools.includes('search_chat_history'));
-    for (const denied of ['set_group_wake', 'set_group_wait', 'remember_private_fact', 'manage_group', 'poke_speaker', 'agent_workspace']) assert.equal(tools.includes(denied), false);
-    assert.match(JSON.stringify(body.messages.at(-1).content), /系统群聊唤醒，不是群友的新消息/u);
-    return Response.json({ choices: [{ message: { content: '猫这种生物，光看着就挺解压的。' } }] });
-  };
-  const result = await deliverGroupWake(plan, { signal: new AbortController().signal, beforeSend: async () => { checks++; return true; } });
-  assert.equal(result.delivered, true); assert.equal(requests, 1); assert.ok(checks >= 1);
-  const sends = f.nativeCalls.filter(item => item.action === 'send_group_msg');
-  assert.equal(sends.length, 1); assert.equal(sends[0].params.group_id, 200);
-  assert.ok(f.nativeCalls.every(item => item.action === 'send_group_msg' || item.action.startsWith('get_')));
-  assert.deepEqual(sends[0].params.message, [{ type: 'text', data: { text: '猫这种生物，光看着就挺解压的。' } }]);
-  const rows = getChatArchive(f.config).search({ platform: scope.platform, channelId: '200' }).items;
-  assert.equal(rows.filter(row => row.role === 'user').length, 0); assert.equal(rows.filter(row => row.role === 'assistant').length, 1);
-}));
+test('group wake uses actual chat/delivery pipeline with group-scoped readonly tools, no automatic mention and no fake user history', () =>
+  pipeline(async f => {
+    const plan = {
+      namespace: groupWakeNamespace(f.config),
+      platform: scope.platform,
+      botId: scope.botId,
+      channelId: '200',
+      userId: scope.userId,
+      id: 'test-group-wake',
+      reason: '刚才谈到的猫',
+      createdAt: Date.now() - 60000,
+      dueAt: Date.now()
+    };
+    let requests = 0,
+      checks = 0;
+    globalThis.fetch = async (_url, init) => {
+      const body = JSON.parse(init.body);
+      requests++;
+      assert.match(body.messages[0].content, /只可读取当前会话范围内的资料/u);
+      assert.doesNotMatch(body.messages[0].content, /只可读取当前私聊资料/u);
+      const tools = body.tools.map(tool => tool.function.name);
+      assert.ok(tools.includes('search_chat_history'));
+      for (const denied of ['set_group_wake', 'set_group_wait', 'remember_private_fact', 'manage_group', 'poke_speaker', 'agent_workspace'])
+        assert.equal(tools.includes(denied), false);
+      assert.match(JSON.stringify(body.messages.at(-1).content), /系统群聊唤醒，不是群友的新消息/u);
+      return Response.json({ choices: [{ message: { content: '猫这种生物，光看着就挺解压的。' } }] });
+    };
+    const result = await deliverGroupWake(plan, {
+      signal: new AbortController().signal,
+      beforeSend: async () => {
+        checks++;
+        return true;
+      }
+    });
+    assert.equal(result.delivered, true);
+    assert.equal(requests, 1);
+    assert.ok(checks >= 1);
+    const sends = f.nativeCalls.filter(item => item.action === 'send_group_msg');
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].params.group_id, 200);
+    assert.ok(f.nativeCalls.every(item => item.action === 'send_group_msg' || item.action.startsWith('get_')));
+    assert.deepEqual(sends[0].params.message, [{ type: 'text', data: { text: '猫这种生物，光看着就挺解压的。' } }]);
+    const rows = getChatArchive(f.config).search({ platform: scope.platform, botId: scope.botId, channelId: '200' }).items;
+    assert.equal(rows.filter(row => row.role === 'user').length, 0);
+    assert.equal(rows.filter(row => row.role === 'assistant').length, 1);
+  }));

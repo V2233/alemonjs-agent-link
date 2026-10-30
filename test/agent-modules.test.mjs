@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../lib/dsh/conversation-scope.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
@@ -204,7 +205,7 @@ test('private memory tools require current-user intent, enforce scope and write 
     assert.equal((await executeTool(save, { text: '推测' }, turn({ userText: '今天聊点什么' }))).ok, false);
     await assert.rejects(executeTool(save, { text: '越权' }, turn({ private: false, channelId: 'group' })), /权限/);
     await assert.rejects(executeTool(save, { text: '鲸'.repeat(201) }, turn()), /参数/);
-    assert.equal((await registry.privateMemories('private:one')).length, 1);
+    assert.equal((await registry.privateMemories('private:one', conversationQueueScope(f.config, turn()))).length, 1);
     await lease.release();
   } finally {
     await runtime.close();

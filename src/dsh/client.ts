@@ -1,3 +1,4 @@
+import { bridgeConversationIdentity, bridgeSessionHash, type BridgeConversationIdentity } from './conversation-scope';
 import { checkedBoundCredential, disableBoundCredential } from '../credentials/scoped';
 import { assertAIEnabled } from './ai-switch';
 import { withToolUsePolicy } from '../agent/tool-use-policy';
@@ -116,7 +117,10 @@ export const streamChat = async (
   privateHistory?: PrivateHistoryContext,
   onCompleted?: (signal: AbortSignal) => Promise<void>,
   framework?: { url: string; token: string },
-  workspace?: DSHCredentials
+  workspace?: DSHCredentials,
+  conversation: BridgeConversationIdentity | undefined = privateHistory?.scope
+    ? bridgeConversationIdentity(privateHistory.channelId, privateHistory.scope)
+    : undefined
 ): Promise<void> => {
   capabilities = { ...capabilities, terminal: false };
   assertAIEnabled(config);
@@ -140,7 +144,7 @@ export const streamChat = async (
     if (!hasDSHBridgeOverride()) {
       await supervisor.prepareForChat();
       signal.throwIfAborted();
-      if (!supervisor.useSandbox(sessionId)) {
+      if (!supervisor.useSandbox(sessionId, conversation)) {
         await supervisor.chatDirect(message, signal, onEvent, privateHistory, onCompleted);
 
         return;
@@ -164,6 +168,7 @@ export const streamChat = async (
       headers: { ...getHeaders(bridge.token), 'X-Agent-Link-User': userId },
       body: JSON.stringify({
         sessionId,
+        ...(conversation ? { conversation } : {}),
         message: withInputContext(message, privateHistory?.memoryContext || ''),
         systemPrompt: config.defaultSystemPrompt,
         stream: true,
@@ -237,10 +242,10 @@ export const streamChat = async (
 };
 
 export const clearSession = async (config: DSHBridgeConfig, sessionId: string): Promise<void> => {
-  await deleteBridgeResource(config, `/v1/session/${encodeURIComponent(sessionId)}`, '无法清除 DSH 会话');
+  await deleteBridgeResource(config, `/v1/session-hash/${bridgeSessionHash(sessionId)}`, '无法清除 DSH 会话', sessionId);
 };
 
-const deleteBridgeResource = async (config: DSHBridgeConfig, path: string, failureMessage: string): Promise<void> => {
+const deleteBridgeResource = async (config: DSHBridgeConfig, path: string, failureMessage: string, resetSessionId?: string): Promise<void> => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
 
@@ -252,20 +257,16 @@ const deleteBridgeResource = async (config: DSHBridgeConfig, path: string, failu
     if (!hasDSHBridgeOverride()) {
       await supervisor.prepareForChat();
       if (supervisor.status().phase !== 'ready') {
-        if (path.startsWith('/v1/session/')) {
-          const session = decodeURIComponent(path.slice('/v1/session/'.length));
-
-          supervisor.queueSessionReset(session);
-          supervisor.resetTransport(session);
+        if (resetSessionId !== undefined) {
+          supervisor.queueSessionReset(resetSessionId);
+          supervisor.resetTransport(resetSessionId);
 
           return;
         } // Direct chat stores no SDK sessions.
         throw new DSHError('http', '纯聊天模式无法删除旧沙箱数据；请恢复 Bridge 后重试清理。');
       }
     }
-    if (path.startsWith('/v1/session/')) {
-      supervisor.resetTransport(decodeURIComponent(path.slice('/v1/session/'.length)));
-    }
+    if (resetSessionId !== undefined) supervisor.resetTransport(resetSessionId);
     const bridge = await getDSHBridge();
     const response = await fetch(`${bridge.url}${path}`, {
       method: 'DELETE',
@@ -296,7 +297,7 @@ const deleteBridgeResource = async (config: DSHBridgeConfig, path: string, failu
 };
 
 export const purgeSessionData = async (config: DSHBridgeConfig, sessionId: string): Promise<void> => {
-  await deleteBridgeResource(config, `/v1/group/${encodeURIComponent(sessionId)}`, '无法清除 DSH 群数据');
+  await deleteBridgeResource(config, `/v1/group-hash/${bridgeSessionHash(sessionId)}`, '无法清除 DSH 群数据');
 };
 
 export const purgeGroupHashData = async (config: DSHBridgeConfig, groupHash: string): Promise<void> => {

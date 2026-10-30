@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../../dsh/conversation-scope';
 import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
@@ -59,7 +60,7 @@ export default async (): Promise<void> => {
       return;
     }
     const registry = new SessionRegistry(config);
-    const scope = { platform: event.Platform, channelId };
+    const scope = { platform: event.Platform, channelId, botId: event.BotId || '' };
     const args = route.rawArgs.join(' ').trim();
     // The route name is derived from the original text, never from model output.
     const command = event.MessageText.trim().split(/\s+/u)[0];
@@ -119,7 +120,7 @@ export default async (): Promise<void> => {
 
     await resetGroupSession(channelId, config, async () => {
       if (action === 'add') {
-        const changed = await registry.changePrivateMemory(channelId, action, args);
+        const changed = await registry.changePrivateMemory(channelId, action, args, undefined, conversationQueueScope(config, scope));
 
         status = changed.status;
         getMemoryStore(config).syncExplicit(scope, event.UserId, changed.notes);

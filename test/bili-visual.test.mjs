@@ -81,7 +81,7 @@ test('local extraction uses argument arrays, bounded decoding and removes tempor
   });
   assert.deepEqual(
     frames.map(frame => frame.seconds),
-    [3, 10, 17]
+    [1.111, 3.333, 5.556, 7.778, 10, 12.222, 14.444, 16.667, 18.889]
   );
   assert.equal((await sharp(frames[0].data).metadata()).format, 'png');
   await assert.rejects(access(directory));
@@ -104,7 +104,7 @@ test('scene selection spreads cuts over thirds and preserves fallback positions 
   assert.deepEqual(videoSceneSampleTimes(30, 'pts_time:9.999 pts_time:9.999 pts_time:29.9999'), [9.999, 15, 29.9999]);
 });
 
-test('scene probing changes actual seek positions without increasing the three image budget', async () => {
+test('scene probing spreads nine actual seek positions across the video', async () => {
   const seeks = [];
   let probes = 0;
   const frames = await extractVideoFrames(mp4, 30, signal(), async (_command, args, options) => {
@@ -118,7 +118,7 @@ test('scene probing changes actual seek positions without increasing the three i
     await writeFile(args.at(-1), await png());
   });
   assert.equal(probes, 1);
-  assert.deepEqual(seeks, [2.1, 15.1, 27.1]);
+  assert.deepEqual(seeks, [2.1, 5, 8.333, 11.667, 15.1, 18.333, 21.667, 25, 27.1]);
   assert.deepEqual(
     frames.map(frame => frame.seconds),
     seeks
@@ -132,7 +132,7 @@ test('failed scene probe falls back but cancellation never starts frame decoding
     seeks.push(Number(args[args.indexOf('-ss') + 1]));
     await writeFile(args.at(-1), await png());
   });
-  assert.deepEqual(seeks, [3, 10, 17]);
+  assert.deepEqual(seeks, [1.111, 3.333, 5.556, 7.778, 10, 12.222, 14.444, 16.667, 18.889]);
   const controller = new AbortController();
   let directory;
   let calls = 0;
@@ -259,7 +259,7 @@ test('vision provider receives frames with positions and returns bounded text vi
   }
 });
 
-test('real ffmpeg decodes a generated MP4 into three distinct sampled frames', { skip: !process.env.AGENT_LINK_TEST_FFMPEG }, async () => {
+test('real ffmpeg decodes nine observations with distinct scenes across the video', { skip: !process.env.AGENT_LINK_TEST_FFMPEG }, async () => {
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const { mkdtemp, readFile, rm } = await import('node:fs/promises');
@@ -270,14 +270,14 @@ test('real ffmpeg decodes a generated MP4 into three distinct sampled frames', {
   const root = await mkdtemp(join(tmpdir(), 'agent-link-video-native-'));
   try {
     const path = join(root, 'fixture.mp4');
-    const generate = colors =>
+    const generate = (colors, rate = 10) =>
       run(
         executable,
         [
           '-nostdin',
           '-loglevel',
           'error',
-          ...colors.flatMap(([color, duration]) => ['-f', 'lavfi', '-i', `color=${color}:s=64x64:r=10:d=${duration}`]),
+          ...colors.flatMap(([color, duration]) => ['-f', 'lavfi', '-i', `color=${color}:s=64x64:r=${rate}:d=${duration}`]),
           '-filter_complex',
           '[0:v][1:v][2:v]concat=n=3:v=1:a=0[out]',
           '-map',
@@ -300,15 +300,15 @@ test('real ffmpeg decodes a generated MP4 into three distinct sampled frames', {
       frames.map(frame => frame.seconds),
       // Red/green have similar luma: the coarse scene filter misses that cut,
       // so the middle third keeps its fallback. The blue cut is detected.
-      [0.45, 1.5, 2.1]
+      [0.167, 0.5, 0.833, 1.167, 1.5, 1.833, 2.1, 2.5, 2.833]
     );
     for (const [index, frame] of frames.entries()) {
       const { data, info } = await sharp(frame.data).raw().toBuffer({ resolveWithObject: true });
       assert.ok(info.width <= 640 && info.height <= 640);
       const rgb = [...data.subarray(0, 3)];
-      assert.equal(rgb.indexOf(Math.max(...rgb)), index);
+      assert.equal(rgb.indexOf(Math.max(...rgb)), Math.floor(index / 3));
     }
-    // Fixed 15/50/85% positions miss the white scene entirely (6–7 seconds).
+    // The former 15/50/85% positions missed the white scene (6–7 seconds).
     // The scene-selected middle frame must actually contain white pixels.
     await generate([
       ['red', 6],
@@ -318,10 +318,20 @@ test('real ffmpeg decodes a generated MP4 into three distinct sampled frames', {
     const changed = await extractVideoFrames(await readFile(path), 10, signal(), (_command, args, options) => run(executable, args, options));
     assert.deepEqual(
       changed.map(frame => frame.seconds),
-      [1.5, 6.1, 7.1]
+      [0.556, 1.667, 2.778, 3.889, 5, 6.1, 7.1, 8.333, 9.444]
     );
-    const white = await sharp(changed[1].data).raw().toBuffer();
+    const white = await sharp(changed[5].data).raw().toBuffer();
     assert.ok([...white.subarray(0, 3)].every(channel => channel > 230));
+    await generate(
+      [
+        ['red', 1],
+        ['green', 1],
+        ['blue', 1]
+      ],
+      1
+    );
+    const beyondLastFrame = await extractVideoFrames(await readFile(path), 3, signal(), (_command, args, options) => run(executable, args, options), [2.9]);
+    assert.deepEqual(beyondLastFrame, []);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

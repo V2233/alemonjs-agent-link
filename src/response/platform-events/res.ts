@@ -52,7 +52,7 @@ export default async (): Promise<void> => {
       if (channelId && event.Platform && historyEnabled(config)) {
         const id = event.MessageContent?.referenceId || event.MessageId;
 
-        if (id) getChatArchive(config).invalidate({ platform: event.Platform, channelId }, id);
+        if (id) getChatArchive(config).invalidate({ platform: event.Platform, channelId, botId: event.BotId || '' }, id);
         if (event.name.endsWith('.update')) archiveIncoming(config, event, event.IsPrivate && (await canPrivateChatWithKey(event, config.privateChatAccess)));
       }
       if (channelId) {

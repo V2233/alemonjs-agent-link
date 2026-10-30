@@ -40,6 +40,7 @@ test('old database migrates without losing history and repeated reopening is saf
 });
 
 test('receipts and reference aliases preserve direct reply vs batch source, including media and missing receipt IDs', async () => {
+  const scope = { platform: 'test', botId: 'fish', channelId: 'group' };
   const root = await mkdtemp(join(tmpdir(), 'history-receipt-'));
   const config = { dshHomeRoot: join(root, 'homes'), retentionDays: 30, modules: { disabled: ['memory'] } };
   const archive = getChatArchive(config);
@@ -73,6 +74,7 @@ test('receipts and reference aliases preserve direct reply vs batch source, incl
 });
 
 test('fresh reference cache recovers persisted replies but respects disabled history, scope and deletion', async () => {
+  const scope = { platform: 'test', botId: 'fish', channelId: 'group' };
   const root = await mkdtemp(join(tmpdir(), 'history-reference-'));
   const original = globalThis.__config;
   const settings = {

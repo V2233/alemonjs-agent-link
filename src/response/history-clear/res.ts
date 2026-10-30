@@ -38,7 +38,7 @@ export default async (): Promise<void> => {
 
     return;
   }
-  const key = JSON.stringify([event.Platform, channelId, event.UserId]);
+  const key = JSON.stringify([event.Platform, event.BotId || '', channelId, event.UserId]);
 
   for (const [id, expires] of confirmations) {
     if (expires <= Date.now()) {
@@ -63,7 +63,7 @@ export default async (): Promise<void> => {
   }
   confirmations.delete(key);
   try {
-    getChatArchive(config).purge({ platform: event.Platform, channelId });
+    getChatArchive(config).purge({ platform: event.Platform, channelId, botId: event.BotId || '' });
     await reply('聊天记录已清除，新消息仍会记录。');
   } catch {
     await reply('归档删除失败，请稍后重试。');

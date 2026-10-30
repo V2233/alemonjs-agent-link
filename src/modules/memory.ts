@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../dsh/conversation-scope';
 import { consolidateSharedDialogue, sharedExtractionInstruction } from '../memory/shared-consolidation';
 import { getDSHCredentials } from '../dsh/credentials';
 import { requestModelMessage } from '../agent/tool-chat';
@@ -29,7 +30,13 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
       canCommit: () => {
         const current = getDSHConfig();
 
-        return current.workspaceRoot === config.workspaceRoot && memoryEnabled(current) && historyEnabled(current) && memoryOptions(current).automatic;
+        return (
+          current.workspaceRoot === config.workspaceRoot &&
+          current.dshHomeRoot === config.dshHomeRoot &&
+          memoryEnabled(current) &&
+          historyEnabled(current) &&
+          memoryOptions(current).automatic
+        );
       }
     });
     const previousQueries = new MemoryQueryContext();
@@ -72,7 +79,7 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
       }
       store.observe(context);
       if (context.private) {
-        const notes = await registry.privateMemories(context.channelId);
+        const notes = await registry.privateMemories(context.channelId, conversationQueueScope(config, context));
 
         context.signal.throwIfAborted();
         store.syncExplicit(context, context.userId, notes);
@@ -332,7 +339,7 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
       available: context => context.private,
       execute: async (_args, context) => ({
         ok: true,
-        notes: await registry.privateMemories(context.channelId),
+        notes: await registry.privateMemories(context.channelId, conversationQueueScope(config, context)),
         notice: '这里只是当前私聊用户现在的明确保存列表；空列表不代表从未保存或说过，也不代表聊天归档和其他记忆都不存在。'
       })
     });
@@ -350,7 +357,7 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
         if (!requestedMemorySave(context.userText)) {
           return { ok: false, persistence: { state: 'not_saved' }, message: '本次没有保存：当前文字不是明确的资料保存请求。不要把当前线索说成已经长期记住。' };
         }
-        const result = await registry.changePrivateMemory(context.channelId, 'add', String(text));
+        const result = await registry.changePrivateMemory(context.channelId, 'add', String(text), undefined, conversationQueueScope(config, context));
 
         context.signal.throwIfAborted();
         if (context.platform) {
@@ -411,7 +418,13 @@ export const memoryModule = (config: DSHBridgeConfig): AgentModule => ({
         ) {
           return { ok: false, message: '请明确要求更正记忆并提供新内容；不能将推测写入资料。' };
         }
-        const result = await registry.changePrivateMemory(context.channelId, 'replace', value, { id: String(id), expectedText: String(expectedText) });
+        const result = await registry.changePrivateMemory(
+          context.channelId,
+          'replace',
+          value,
+          { id: String(id), expectedText: String(expectedText) },
+          conversationQueueScope(config, context)
+        );
 
         if (context.platform) store.syncExplicit(context, context.userId, result.notes);
 

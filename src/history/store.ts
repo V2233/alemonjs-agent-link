@@ -1,3 +1,4 @@
+import { conversationDataKey, conversationDataNamespace } from '../dsh/conversation-scope';
 import { rankMemories } from '../memory/retrieval';
 import { GroupInbox } from './inbox';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
@@ -7,7 +8,7 @@ import { createHash } from 'node:crypto';
 import type { MessageContext } from '../social/message-context';
 import type { DSHBridgeConfig } from '../dsh/client';
 
-export type HistoryScope = { platform: string; channelId: string };
+export type HistoryScope = { platform: string; channelId: string; botId?: string };
 export type ArchivedMessage = {
   id: string;
   speakerId: string;
@@ -39,24 +40,43 @@ const decodeRow = (row: Record<string, any>, compact = false): Record<string, an
   return { ...fields, context, contextTruncated, platformIdKnown: details.platformIdKnown === true };
 };
 const hash = (value: string): string => createHash('sha256').update(value).digest('hex');
-const scopeKey = (scope: HistoryScope): string => {
+const scopeKey = (scope: HistoryScope, namespace?: string): string => {
   if (!scope.platform || !scope.channelId) {
     throw new Error('聊天归档缺少平台或会话标识');
   }
 
-  return hash(JSON.stringify([scope.platform, scope.channelId]));
+  return conversationDataKey(scope, namespace);
 };
 
 export const historyEnabled = (config: DSHBridgeConfig): boolean => !config.modules?.disabled?.includes('chat-history');
 
 export class ChatArchive {
   private db: DatabaseSync;
+  private scopeId(scope: HistoryScope): string {
+    return scopeKey(scope, this.dataNamespace);
+  }
+  private get namespaceCondition(): string {
+    return this.dataNamespace === undefined ? "(data_namespace IS NULL OR data_namespace='')" : 'data_namespace=?';
+  }
+  private get namespaceArgs(): string[] {
+    return this.dataNamespace === undefined ? [] : [this.dataNamespace];
+  }
+  private registerScope(scope: HistoryScope): string {
+    const key = this.scopeId(scope);
+
+    this.db
+      .prepare('INSERT OR IGNORE INTO history_scopes(scope,group_hash,data_namespace) VALUES(?,?,?)')
+      .run(key, hash(scope.channelId), this.dataNamespace ?? (scope.botId !== undefined ? '' : null));
+
+    return key;
+  }
   private lastCleanup = 0;
   private readonly insertMessage: StatementSync;
   private readonly inbox: GroupInbox;
   constructor(
     path: string,
-    private readonly days = 30
+    private readonly days = 30,
+    private readonly dataNamespace?: string
   ) {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(path);
@@ -93,18 +113,25 @@ export class ChatArchive {
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`
     );
     this.inbox = new GroupInbox(this.db);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS history_scopes(scope TEXT PRIMARY KEY,group_hash TEXT NOT NULL,data_namespace TEXT);
+      CREATE INDEX IF NOT EXISTS history_namespace ON history_scopes(data_namespace,group_hash);
+      INSERT OR IGNORE INTO history_scopes SELECT scope,group_hash,NULL FROM messages;
+      INSERT OR IGNORE INTO history_scopes SELECT scope,group_hash,NULL FROM group_inbox_offsets;
+      INSERT OR IGNORE INTO history_scopes SELECT scope,group_hash,NULL FROM group_inbox_receipts;`);
     this.cleanup();
   }
   close(): void {
     this.db.close();
   }
   cleanup(): void {
-    this.db.prepare('DELETE FROM messages WHERE timestamp < ?').run(Date.now() - this.days * 86400000);
+    this.db
+      .prepare(`DELETE FROM messages WHERE timestamp < ? AND scope IN (SELECT scope FROM history_scopes WHERE ${this.namespaceCondition})`)
+      .run(Date.now() - this.days * 86400000, ...this.namespaceArgs);
     this.db.prepare('DELETE FROM group_inbox_receipts WHERE issued_at < ?').run(Date.now() - 15 * 60000);
     this.lastCleanup = Date.now();
   }
   append(scope: HistoryScope, message: ArchivedMessage): void {
-    const key = scopeKey(scope);
+    const key = this.registerScope(scope);
 
     if (!message.id || !message.text.trim()) {
       return;
@@ -138,7 +165,7 @@ export class ChatArchive {
       WHERE scope=? AND speaker_id=? AND role='user' AND timestamp>=? AND timestamp<=?
       AND text<>? AND seq>? AND substr(ltrim(text),1,1)<>'/' ORDER BY seq DESC LIMIT 1000`
       )
-      .all(scopeKey(scope), subjectId, now - this.days * 86400000, now, excludeText, after);
+      .all(this.scopeId(scope), subjectId, now - this.days * 86400000, now, excludeText, after);
     const documents = rows.map(row => ({
       id: String(row.seq),
       seq: Number(row.seq),
@@ -169,7 +196,7 @@ export class ChatArchive {
     scope: HistoryScope,
     options: { keyword?: string; messageId?: string; speakerId?: string; from?: number; to?: number; before?: number; limit?: number } = {}
   ) {
-    const key = scopeKey(scope);
+    const key = this.scopeId(scope);
     const limit = Math.min(20, Math.max(1, options.limit ?? 10));
     const from = Math.max(options.from ?? 0, Date.now() - this.days * 86400000);
     const rows = this.db
@@ -208,7 +235,7 @@ export class ChatArchive {
     };
   }
   context(scope: HistoryScope, seq: number) {
-    const key = scopeKey(scope);
+    const key = this.scopeId(scope);
     const cutoff = Date.now() - this.days * 86400000;
     const target = this.db
       .prepare('SELECT seq,message_id,reference_id,reply_to_id FROM messages WHERE scope=? AND seq=? AND timestamp>=?')
@@ -256,30 +283,37 @@ export class ChatArchive {
       source_message_id AS sourceMessageId,metadata,speaker_id AS speakerId,speaker,role,text,timestamp,truncated
       FROM messages WHERE scope=? AND (message_id=? OR reference_id=?) AND timestamp>=? ORDER BY seq DESC LIMIT 1`
       )
-      .get(scopeKey(scope), id, id, Date.now() - this.days * 86400000);
+      .get(this.scopeId(scope), id, id, Date.now() - this.days * 86400000);
 
     return row ? decodeRow(row) : undefined;
   }
   invalidate(scope: HistoryScope, id: string): void {
     this.mutateSources(() => {
-      this.inbox.invalidate(scopeKey(scope));
-      this.db.prepare('DELETE FROM messages WHERE scope=? AND (message_id=? OR reference_id=?)').run(scopeKey(scope), id, id);
+      this.inbox.invalidate(this.scopeId(scope));
+      this.db.prepare('DELETE FROM messages WHERE scope=? AND (message_id=? OR reference_id=?)').run(this.scopeId(scope), id, id);
     });
   }
   purgeHash(groupHash: string): void {
     this.mutateSources(() => {
-      this.inbox.purge('group_hash', groupHash);
-      this.db.prepare('DELETE FROM messages WHERE group_hash=?').run(groupHash);
+      const scopes = this.db
+        .prepare(`SELECT scope FROM history_scopes WHERE group_hash=? AND ${this.namespaceCondition}`)
+        .all(groupHash, ...this.namespaceArgs);
+
+      for (const row of scopes) {
+        this.inbox.purge('scope', String(row.scope));
+        this.db.prepare('DELETE FROM messages WHERE scope=?').run(String(row.scope));
+      }
+      this.db.prepare(`DELETE FROM history_scopes WHERE group_hash=? AND ${this.namespaceCondition}`).run(groupHash, ...this.namespaceArgs);
     });
   }
   latestSeq(scope: HistoryScope): number {
-    return Number(this.db.prepare('SELECT coalesce(max(seq),0) AS seq FROM messages WHERE scope=?').get(scopeKey(scope)).seq);
+    return Number(this.db.prepare('SELECT coalesce(max(seq),0) AS seq FROM messages WHERE scope=?').get(this.scopeId(scope)).seq);
   }
   readGroupInbox(scope: HistoryScope, botId: string, limit = 20, previousReceipt?: string) {
-    return this.inbox.read(scopeKey(scope), hash(scope.channelId), botId, limit, previousReceipt);
+    return this.inbox.read(this.registerScope(scope), hash(scope.channelId), botId, limit, previousReceipt);
   }
   acknowledgeGroupInbox(scope: HistoryScope, botId: string, receipt: string) {
-    return this.inbox.acknowledge(scopeKey(scope), botId, receipt);
+    return this.inbox.acknowledge(this.scopeId(scope), botId, receipt);
   }
   recallDialogues(scope: HistoryScope, speakerId: string, query: string, excludeText = '') {
     const rows = this.db
@@ -292,7 +326,7 @@ export class ChatArchive {
         AND u.timestamp>=? AND substr(ltrim(u.text),1,1)<>'/'
       ORDER BY a.seq DESC LIMIT 100`
       )
-      .all(scopeKey(scope), speakerId, excludeText, Date.now() - this.days * 86400000);
+      .all(this.scopeId(scope), speakerId, excludeText, Date.now() - this.days * 86400000);
     const terms = [
       ...new Set(
         (query.match(/[a-zA-Z0-9_]{2,}|[\p{Script=Han}]{2,}/gu) || []).flatMap(term =>
@@ -339,7 +373,7 @@ export class ChatArchive {
       FROM messages WHERE scope=? AND seq>? AND seq<=? AND timestamp>=?
       ORDER BY seq LIMIT ?`
       )
-      .all(scopeKey(scope), after, upper, Date.now() - this.days * 86400000, limit + 1);
+      .all(this.scopeId(scope), after, upper, Date.now() - this.days * 86400000, limit + 1);
     const sources = rows.slice(0, limit).map(row => ({
       seq: Number(row.seq),
       messageId: String(row.messageId),
@@ -368,7 +402,7 @@ export class ChatArchive {
   }
 
   memoryBatch(scope: HistoryScope, after: number, limit = 40) {
-    const key = scopeKey(scope);
+    const key = this.scopeId(scope);
     const upper = this.latestSeq(scope);
     const rows = this.db
       .prepare(
@@ -390,8 +424,8 @@ export class ChatArchive {
   }
   purge(scope: HistoryScope): void {
     this.mutateSources(() => {
-      this.inbox.purge('scope', scopeKey(scope));
-      this.db.prepare('DELETE FROM messages WHERE scope=?').run(scopeKey(scope));
+      this.inbox.purge('scope', this.scopeId(scope));
+      this.db.prepare('DELETE FROM messages WHERE scope=?').run(this.scopeId(scope));
     });
   }
   private mutateSources(operation: () => void): void {
@@ -410,11 +444,13 @@ const archives = (state.__agentLinkArchives ??= new Map<string, ChatArchive>());
 
 export const getChatArchive = (config: DSHBridgeConfig): ChatArchive => {
   const path = join(dirname(config.dshHomeRoot), 'chat-history.sqlite');
-  let archive = archives.get(path);
+  const namespace = conversationDataNamespace(config);
+  const cacheKey = JSON.stringify([path, namespace, config.retentionDays]);
+  let archive = archives.get(cacheKey);
 
   if (!archive) {
-    archive = new ChatArchive(path, config.retentionDays);
-    archives.set(path, archive);
+    archive = new ChatArchive(path, config.retentionDays, namespace);
+    archives.set(cacheKey, archive);
   }
 
   return archive;

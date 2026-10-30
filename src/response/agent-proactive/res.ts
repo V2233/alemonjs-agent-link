@@ -112,7 +112,7 @@ export default async (): Promise<void> => {
         const days = Number(dayText || 1);
         const query = words.join(' ');
         const records = getMemoryStore(config).list(
-          { platform: scope.platform, channelId: proactiveChannel(scope) },
+          { platform: scope.platform, channelId: proactiveChannel(scope), botId: scope.botId },
           { subjectId: scope.botId, status: 'active', limit: 2000 }
         );
         const entries = searchReadingDiary(readingDiary(records, days * 24), query);

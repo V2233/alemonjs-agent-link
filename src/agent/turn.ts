@@ -1,3 +1,4 @@
+import { bridgeConversationIdentity, conversationQueueScope } from '../dsh/conversation-scope';
 import { assertAIEnabled } from '../dsh/ai-switch';
 import { bufferUnavailableMemorySave, resolveUnavailableMemoryEcho } from '../memory/save-reply';
 import { startFrameworkMcp } from '../platform/mcp';
@@ -173,7 +174,8 @@ const runModuleTurnInner = async (options: {
                 undefined,
                 undefined,
                 framework.endpoint,
-                workspaceCredentials || undefined
+                workspaceCredentials || undefined,
+                bridgeConversationIdentity(context.channelId, conversationQueueScope(config, context))
               );
             } finally {
               framework.close();
@@ -261,7 +263,10 @@ const runModuleTurnInner = async (options: {
         context.signal,
         context.capabilities,
         history,
-        onCompleted
+        onCompleted,
+        undefined,
+        undefined,
+        bridgeConversationIdentity(context.channelId, conversationQueueScope(config, context))
       );
     }
     context.signal.throwIfAborted();

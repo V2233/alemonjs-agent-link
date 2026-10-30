@@ -1,3 +1,5 @@
+import { readBounded } from '../media/http';
+import { bridgeSessionHash, type BridgeConversationIdentity } from './conversation-scope';
 import { preparePython } from './python-bootstrap';
 import { type ChatInput } from './input';
 import type { PrivateHistoryContext } from '@src/state/registry';
@@ -85,7 +87,7 @@ export class DSHSupervisor {
   private preparation: AbortController | null = null;
   private actualPort: number;
   private nextRetryAt = 0;
-  private readonly directSessions = new Set<string>();
+  private readonly directSessions = new Map<string, { sessionId: string; groupKey?: string }>();
   private readonly pendingResets = new Set<string>();
 
   constructor(
@@ -169,8 +171,10 @@ export class DSHSupervisor {
     void this.start().catch(() => undefined);
   }
 
-  useSandbox(sessionId: string): boolean {
-    if (this.directSessions.has(sessionId)) {
+  useSandbox(sessionId: string, conversation?: BridgeConversationIdentity): boolean {
+    const key = JSON.stringify([sessionId, conversation?.groupKey || '', conversation?.scopeKey || '']);
+
+    if (this.directSessions.has(key)) {
       return false;
     }
     if (this.statusValue.phase === 'ready') {
@@ -178,7 +182,7 @@ export class DSHSupervisor {
     }
     // Keep a conversation on its original backend until /new, preserving its
     // history while the optional sandbox finishes preparation in the background.
-    this.directSessions.add(sessionId);
+    this.directSessions.set(key, { sessionId, groupKey: conversation?.groupKey });
 
     return false;
   }
@@ -193,7 +197,7 @@ export class DSHSupervisor {
     while (this.pendingResets.size) {
       signal.throwIfAborted();
       const id = this.pendingResets.values().next().value;
-      const response = await fetch(`http://127.0.0.1:${this.actualPort}/v1/session/${encodeURIComponent(id)}`, {
+      const response = await fetch(`http://127.0.0.1:${this.actualPort}/v1/session-hash/${bridgeSessionHash(id)}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${this.token}` },
         signal: AbortSignal.any([signal, AbortSignal.timeout(this.config.startupTimeoutMs)])
@@ -209,10 +213,11 @@ export class DSHSupervisor {
   }
 
   resetTransport(sessionId: string): void {
-    for (const id of this.directSessions) {
-      if (id === sessionId || id.startsWith(`${sessionId}:v`)) {
-        this.directSessions.delete(id);
-      }
+    const groupKey = bridgeSessionHash(sessionId);
+
+    for (const [key, item] of this.directSessions) {
+      if (item.groupKey ? item.groupKey === groupKey : item.sessionId === sessionId || item.sessionId.startsWith(`${sessionId}:v`))
+        this.directSessions.delete(key);
     }
   }
 
@@ -529,6 +534,14 @@ export class DSHSupervisor {
         continue;
       }
       if (response.ok) {
+        try {
+          const value = JSON.parse((await readBounded(response, 8192)).toString('utf8'));
+
+          if (value.status !== 'ready' || value.sandbox !== true || value.conversationScopes !== 1) throw new Error('incompatible');
+        } catch {
+          throw new Error('DSH bridge does not support conversation scope protocol v1');
+        }
+
         return;
       }
       if (response.status === 503) {
@@ -608,7 +621,7 @@ export class DSHSupervisor {
 export const configureDSHSupervisor = (config: DSHBridgeConfig, credentials: DSHCredentials | null = null): DSHSupervisor => {
   installShutdownHook();
   const fingerprint = createHash('sha256')
-    .update(`${fingerprintConfig(config)}:${fingerprintCredentials(credentials)}`)
+    .update(`conversation-scope-v1:${fingerprintConfig(config)}:${fingerprintCredentials(credentials)}`)
     .digest('hex');
 
   if (processState.supervisor && processState.fingerprint === fingerprint) {

@@ -1,3 +1,4 @@
+import { sessionBaseId } from '../../dsh/conversation-scope';
 import { groupAdminStatus, type MemberRoleEvent } from '../../platform/member-role';
 
 export type BotMention = {
@@ -5,8 +6,7 @@ export type BotMention = {
   UserName?: string;
 };
 
-export const getSessionId = (channelId: string): string =>
-  channelId.startsWith('private:') ? `dsh:qq:private:${channelId.slice('private:'.length)}` : `dsh:qq:group:${channelId}`;
+export const getSessionId = sessionBaseId;
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

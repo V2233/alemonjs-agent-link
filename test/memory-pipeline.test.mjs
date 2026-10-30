@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../lib/dsh/conversation-scope.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -217,7 +218,7 @@ test('explicit correction tool requires current user consent and refreshes persi
     const { SessionRegistry } = await import('../lib/state/registry.js');
     const registry = new SessionRegistry(f.config);
     const channelId = 'private:alice';
-    const initial = await registry.changePrivateMemory(channelId, 'add', '我住杭州');
+    const initial = await registry.changePrivateMemory(channelId, 'add', '我住杭州', undefined, conversationQueueScope(f.config, { platform: 'qq' }));
     const args = { id: initial.notes[0].id, expectedText: '我住杭州', text: '我住苏州' };
     const tools = [];
     const disposals = [];
@@ -238,7 +239,7 @@ test('explicit correction tool requires current user consent and refreshes persi
       assert.equal((await tool.execute({ ...args, text: '我住北京' }, context)).ok, false);
       assert.equal((await tool.execute(args, { ...context, private: false })).ok, false);
       assert.equal((await tool.execute(args, context)).ok, true);
-      assert.equal((await registry.privateMemories(channelId))[0].text, '我住苏州');
+      assert.equal((await registry.privateMemories(channelId, conversationQueueScope(f.config, context)))[0].text, '我住苏州');
       assert.equal(f.store.get(context, args.id).text, '我住苏州');
       assert.equal((await tool.execute(args, context)).status, 'stale');
     } finally {

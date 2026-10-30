@@ -1,3 +1,4 @@
+import { conversationDataKey, conversationDataNamespace } from '../dsh/conversation-scope';
 import { DatabaseSync } from 'node:sqlite';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -6,7 +7,7 @@ import type { DSHBridgeConfig } from '../dsh/client';
 import { tokenizeMemory, rankMemories, rankMemoriesHybrid } from './retrieval';
 import type { EmbeddingClient } from './embedding';
 
-export type MemoryScope = { platform: string; channelId: string };
+export type MemoryScope = { platform: string; channelId: string; botId?: string };
 export type MemorySource = { seq: number; speakerId: string; speaker: string; text: string; timestamp: number };
 export type MemoryKind = 'fact' | 'insight' | 'style' | 'event' | 'diary';
 export type MemoryItem = {
@@ -47,12 +48,12 @@ const normalize = (text: string): string =>
     .replace(/[\p{P}\p{Z}\s]/gu, '');
 
 export const experienceMemoryId = (key: string): string => hash(JSON.stringify(['experience', key])).slice(0, 12);
-const scopeKey = (scope: MemoryScope): string => {
+const scopeKey = (scope: MemoryScope, namespace?: string): string => {
   if (!scope.platform || !scope.channelId) {
     throw new Error('记忆缺少平台或会话标识。');
   }
 
-  return hash(JSON.stringify([scope.platform, scope.channelId]));
+  return conversationDataKey(scope, namespace);
 };
 
 const connectedMemoryIds = (items: MemoryItem[], target: MemoryItem, includeEvidence: boolean): Set<string> => {
@@ -109,10 +110,20 @@ const connectedMemoryIds = (items: MemoryItem[], target: MemoryItem, includeEvid
 
 export class MemoryStore {
   private readonly db: DatabaseSync;
+  private scopeId(scope: MemoryScope): string {
+    return scopeKey(scope, this.dataNamespace);
+  }
+  private get namespaceCondition(): string {
+    return this.dataNamespace === undefined ? "(data_namespace IS NULL OR data_namespace='')" : 'data_namespace=?';
+  }
+  private get namespaceArgs(): string[] {
+    return this.dataNamespace === undefined ? [] : [this.dataNamespace];
+  }
 
   constructor(
     path: string,
-    private readonly now = Date.now
+    private readonly now = Date.now,
+    private readonly dataNamespace?: string
   ) {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(path);
@@ -143,6 +154,16 @@ export class MemoryStore {
       CREATE TABLE IF NOT EXISTS memory_recalls (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, scope TEXT NOT NULL REFERENCES memory_scopes(scope) ON DELETE CASCADE,
         at INTEGER NOT NULL, ids TEXT NOT NULL);`);
+    const scopeColumns = new Set(
+      this.db
+        .prepare('PRAGMA table_info(memory_scopes)')
+        .all()
+        .map(row => String(row.name))
+    );
+
+    if (!scopeColumns.has('bot_id')) this.db.exec('ALTER TABLE memory_scopes ADD COLUMN bot_id TEXT');
+    if (!scopeColumns.has('data_namespace')) this.db.exec('ALTER TABLE memory_scopes ADD COLUMN data_namespace TEXT');
+    this.db.exec('CREATE INDEX IF NOT EXISTS memory_namespace ON memory_scopes(data_namespace,last_run)');
     const columns = new Set(
       this.db
         .prepare('PRAGMA table_info(memories)')
@@ -188,7 +209,7 @@ export class MemoryStore {
   }
 
   observe(scope: MemoryScope): void {
-    const key = scopeKey(scope);
+    const key = this.scopeId(scope);
     const previous = this.db.prepare('SELECT active_at FROM memory_scopes WHERE scope=?').get(key);
 
     if (previous && Number(previous.active_at) < this.now() - 30 * 86400000) {
@@ -196,16 +217,25 @@ export class MemoryStore {
     }
     this.db
       .prepare(
-        `INSERT INTO memory_scopes(scope,platform,channel_id,group_hash,epoch,active_at) VALUES(?,?,?,?,?,?)
+        `INSERT INTO memory_scopes(scope,platform,channel_id,group_hash,epoch,active_at,bot_id,data_namespace) VALUES(?,?,?,?,?,?,?,?)
       ON CONFLICT(scope) DO UPDATE SET active_at=excluded.active_at`
       )
-      .run(key, scope.platform, scope.channelId, hash(scope.channelId), randomUUID(), this.now());
+      .run(
+        key,
+        scope.platform,
+        scope.channelId,
+        hash(scope.channelId),
+        randomUUID(),
+        this.now(),
+        this.dataNamespace !== undefined || scope.botId !== undefined ? (scope.botId ?? '') : null,
+        this.dataNamespace ?? (scope.botId !== undefined ? '' : null)
+      );
   }
 
   state(scope: MemoryScope): (MemoryGuard & { checkpoint: number; lastRun: number; retryAfter: number }) | undefined {
     const row = this.db
       .prepare('SELECT epoch,revision,checkpoint,last_run AS lastRun,retry_after AS retryAfter FROM memory_scopes WHERE scope=?')
-      .get(scopeKey(scope));
+      .get(this.scopeId(scope));
 
     return row ? (row as unknown as MemoryGuard & { checkpoint: number; lastRun: number; retryAfter: number }) : undefined;
   }
@@ -213,17 +243,18 @@ export class MemoryStore {
   due(intervalMs: number, limit = 4): MemoryScope[] {
     return this.db
       .prepare(
-        `SELECT platform,channel_id AS channelId FROM memory_scopes WHERE last_run<=? AND retry_after<=?
-      ORDER BY last_run,active_at DESC LIMIT ?`
+        `SELECT platform,channel_id AS channelId,bot_id AS botId FROM memory_scopes
+      WHERE last_run<=? AND retry_after<=? AND ${this.namespaceCondition} ORDER BY last_run,active_at DESC LIMIT ?`
       )
-      .all(this.now() - intervalMs, this.now(), limit) as unknown as MemoryScope[];
+      .all(this.now() - intervalMs, this.now(), ...this.namespaceArgs, limit)
+      .map(row => ({ platform: String(row.platform), channelId: String(row.channelId), ...(row.botId === null ? {} : { botId: String(row.botId) }) }));
   }
 
   fallbackAfter(scope: MemoryScope, subjectId: string): number {
     return Number(
       this.db
         .prepare("SELECT coalesce(max(skip_through),0) AS n FROM memory_fallback_barriers WHERE scope=? AND subject_id IN ('',?)")
-        .get(scopeKey(scope), subjectId).n
+        .get(this.scopeId(scope), subjectId).n
     );
   }
 
@@ -233,7 +264,7 @@ export class MemoryStore {
         `INSERT INTO memory_fallback_barriers(scope,subject_id,skip_through) VALUES(?,?,?)
       ON CONFLICT(scope,subject_id) DO UPDATE SET skip_through=max(skip_through,excluded.skip_through)`
       )
-      .run(scopeKey(scope), subjectId, through);
+      .run(this.scopeId(scope), subjectId, through);
   }
 
   private decode(row: Record<string, unknown>): MemoryItem {
@@ -264,7 +295,7 @@ export class MemoryStore {
       AND created_at<=? ORDER BY created_at DESC,id LIMIT ?`
       )
       .all(
-        scopeKey(scope),
+        this.scopeId(scope),
         options.status || '',
         options.status || '',
         options.subjectId || '',
@@ -277,18 +308,18 @@ export class MemoryStore {
   }
 
   get(scope: MemoryScope, id: string): MemoryItem | undefined {
-    const row = this.db.prepare('SELECT * FROM memories WHERE scope=? AND id=?').get(scopeKey(scope), id);
+    const row = this.db.prepare('SELECT * FROM memories WHERE scope=? AND id=?').get(this.scopeId(scope), id);
 
     return row ? this.decode(row) : undefined;
   }
 
   sharedCheckpoint(scope: MemoryScope, userId: string): number {
-    return Number(this.db.prepare('SELECT seq FROM shared_checkpoints WHERE scope=? AND subject_id=?').get(scopeKey(scope), userId)?.seq || 0);
+    return Number(this.db.prepare('SELECT seq FROM shared_checkpoints WHERE scope=? AND subject_id=?').get(this.scopeId(scope), userId)?.seq || 0);
   }
   advanceSharedCheckpoint(scope: MemoryScope, userId: string, seq: number): void {
     this.db
       .prepare('INSERT INTO shared_checkpoints(scope,subject_id,seq) VALUES(?,?,?) ON CONFLICT(scope,subject_id) DO UPDATE SET seq=max(seq,excluded.seq)')
-      .run(scopeKey(scope), userId, seq);
+      .run(this.scopeId(scope), userId, seq);
   }
 
   commitSharedBatch(
@@ -317,14 +348,14 @@ export class MemoryStore {
       AND t.revision=(SELECT max(revision) FROM shared_threads WHERE scope=t.scope AND id=t.id)
       ORDER BY t.updated_at DESC LIMIT 10`
       )
-      .all(scopeKey(scope), subjectId)
+      .all(this.scopeId(scope), subjectId)
       .map(row => JSON.parse(String(row.payload)));
   }
 
   recallSharedThreads(scope: MemoryScope, subjectId: string, query: string, limit = 5) {
     const rows = this.db
       .prepare('SELECT payload FROM shared_threads WHERE scope=? AND subject_id=? ORDER BY revision DESC LIMIT 10000')
-      .all(scopeKey(scope), subjectId)
+      .all(this.scopeId(scope), subjectId)
       .map(row => JSON.parse(String(row.payload)));
     const tokens = new Set(tokenizeMemory(query));
     const groups = new Map<string, { item: (typeof rows)[number]; score: number }>();
@@ -347,7 +378,7 @@ export class MemoryStore {
   sharedThreadHistory(scope: MemoryScope, subjectId: string, id: string) {
     return this.db
       .prepare('SELECT payload FROM shared_threads WHERE scope=? AND subject_id=? AND id=? ORDER BY revision DESC LIMIT 20')
-      .all(scopeKey(scope), subjectId, id)
+      .all(this.scopeId(scope), subjectId, id)
       .map(row => JSON.parse(String(row.payload)));
   }
 
@@ -382,7 +413,7 @@ export class MemoryStore {
       if (input.id && old?.revision !== input.expectedRevision) throw new Error('事项版本已变化，请重新读取。');
       if (old && Math.max(...input.sources.map(source => source.seq)) <= Math.max(...old.sources.map(source => source.seq)))
         throw new Error('更新事项必须提供更新的聊天证据。');
-      const count = this.db.prepare('SELECT count(*) AS n FROM shared_threads WHERE scope=?').get(scopeKey(scope));
+      const count = this.db.prepare('SELECT count(*) AS n FROM shared_threads WHERE scope=?').get(this.scopeId(scope));
 
       if (Number(count.n) >= 10000) throw new Error('共同经历版本容量已满。');
       const duplicate = this.sharedThreads(scope, subjectId).find(item => item.text === input.text.trim() && item.state === input.state);
@@ -402,7 +433,7 @@ export class MemoryStore {
 
       this.db
         .prepare('INSERT INTO shared_threads(scope,id,subject_id,revision,payload,updated_at) VALUES(?,?,?,?,?,?)')
-        .run(scopeKey(scope), id, subjectId, item.revision, JSON.stringify(item), item.updatedAt);
+        .run(this.scopeId(scope), id, subjectId, item.revision, JSON.stringify(item), item.updatedAt);
 
       return item;
     });
@@ -428,7 +459,7 @@ export class MemoryStore {
 
       this.db
         .prepare('INSERT INTO shared_threads(scope,id,subject_id,revision,payload,updated_at) VALUES(?,?,?,?,?,?)')
-        .run(scopeKey(scope), id, subjectId, item.revision, JSON.stringify(item), item.updatedAt);
+        .run(this.scopeId(scope), id, subjectId, item.revision, JSON.stringify(item), item.updatedAt);
 
       return item;
     });
@@ -467,7 +498,7 @@ export class MemoryStore {
     this.observe(scope);
 
     return this.transaction(() => {
-      const key = scopeKey(scope);
+      const key = this.scopeId(scope);
       const state = this.state(scope);
 
       if (guard && (state?.epoch !== guard.epoch || state?.revision !== guard.revision)) return false;
@@ -525,7 +556,7 @@ export class MemoryStore {
       embedding=NULL,embedding_model=NULL,embedding_hash=NULL`
       )
       .run(
-        scopeKey(scope),
+        this.scopeId(scope),
         item.id,
         item.subjectId,
         item.subjectName,
@@ -550,7 +581,7 @@ export class MemoryStore {
     }
     this.observe(scope);
     this.transaction(() => {
-      const key = scopeKey(scope);
+      const key = this.scopeId(scope);
       const existing = this.db.prepare("SELECT id,text FROM memories WHERE scope=? AND origin='explicit' AND subject_id=?").all(key, subjectId);
       const ids = new Set(notes.map(note => note.id));
       const changed = existing.length !== notes.length || notes.some(note => !existing.some(row => row.id === note.id && row.text === note.text));
@@ -591,7 +622,7 @@ export class MemoryStore {
   private activeDocuments(scope: MemoryScope): (MemoryItem & { embedding?: Buffer; embeddingModel?: string; embeddingHash?: string })[] {
     return this.db
       .prepare("SELECT * FROM memories WHERE scope=? AND status='active'")
-      .all(scopeKey(scope))
+      .all(this.scopeId(scope))
       .map(row => ({
         ...this.decode(row),
         ...(row.embedding instanceof Uint8Array ? { embedding: Buffer.from(row.embedding) } : {}),
@@ -601,7 +632,7 @@ export class MemoryStore {
   }
 
   private finishRanked(scope: MemoryScope, ranked: (MemoryItem & { score: number })[], limit: number, record: boolean): (MemoryItem & { score: number })[] {
-    const key = scopeKey(scope);
+    const key = this.scopeId(scope);
     const unique = new Set<string>();
     const hits: (MemoryItem & { score: number })[] = [];
     // Match slice's integer limit semantics, including NaN producing no hits.
@@ -720,7 +751,7 @@ export class MemoryStore {
       if (missing.length && vectors.size === selected.length) {
         this.transaction(() => {
           const statement = this.db.prepare("UPDATE memories SET embedding=?,embedding_model=?,embedding_hash=? WHERE scope=? AND id=? AND status='active'");
-          const key = scopeKey(scope);
+          const key = this.scopeId(scope);
 
           for (const item of missing) {
             const vector = vectors.get(item.id);
@@ -768,7 +799,7 @@ export class MemoryStore {
   recalls(scope: MemoryScope): { at: number; ids: string[] }[] {
     return this.db
       .prepare('SELECT at,ids FROM memory_recalls WHERE scope=? ORDER BY seq DESC LIMIT 20')
-      .all(scopeKey(scope))
+      .all(this.scopeId(scope))
       .map(row => ({ at: Number(row.at), ids: JSON.parse(String(row.ids)) }));
   }
 
@@ -787,7 +818,7 @@ export class MemoryStore {
         return { applied: false, added: 0 };
       }
       const allowed = new Map(sources.map(source => [source.seq, source]));
-      const key = scopeKey(scope);
+      const key = this.scopeId(scope);
       let added = 0;
 
       for (const change of changes) {
@@ -885,7 +916,7 @@ export class MemoryStore {
   failed(scope: MemoryScope, guard: MemoryGuard): void {
     this.db
       .prepare('UPDATE memory_scopes SET retry_after=? WHERE scope=? AND epoch=? AND revision=? AND (?=-1 OR checkpoint=?)')
-      .run(this.now() + 1800000, scopeKey(scope), guard.epoch, guard.revision, guard.checkpoint ?? -1, guard.checkpoint ?? -1);
+      .run(this.now() + 1800000, this.scopeId(scope), guard.epoch, guard.revision, guard.checkpoint ?? -1, guard.checkpoint ?? -1);
   }
 
   trace(scope: MemoryScope, id: string, limit = 10) {
@@ -941,7 +972,7 @@ export class MemoryStore {
 
   forget(scope: MemoryScope, id: string, skipThrough: number): boolean {
     return this.transaction(() => {
-      const key = scopeKey(scope);
+      const key = this.scopeId(scope);
       const all = this.list(scope, { limit: 10020 });
       const target = all.find(item => item.id === id);
 
@@ -974,7 +1005,7 @@ export class MemoryStore {
   clear(scope: MemoryScope, skipThrough: number): void {
     this.observe(scope);
     this.transaction(() => {
-      const key = scopeKey(scope);
+      const key = this.scopeId(scope);
 
       this.suppressFallback(scope, '', skipThrough);
       this.db.prepare('DELETE FROM memories WHERE scope=?').run(key);
@@ -987,7 +1018,7 @@ export class MemoryStore {
 
   restore(scope: MemoryScope, id: string): boolean {
     return this.transaction(() => {
-      const key = scopeKey(scope);
+      const key = this.scopeId(scope);
       const all = this.list(scope, { limit: 10020 });
       const item = all.find(entry => entry.id === id && entry.status === 'outdated');
 
@@ -1014,13 +1045,20 @@ export class MemoryStore {
   }
 
   purgeHash(groupHash: string): void {
-    this.db.prepare('DELETE FROM shared_threads WHERE scope IN (SELECT scope FROM memory_scopes WHERE group_hash=?)').run(groupHash);
-    this.db.prepare('DELETE FROM memory_scopes WHERE group_hash=?').run(groupHash);
+    this.transaction(() => {
+      const scopes = `SELECT scope FROM memory_scopes WHERE group_hash=? AND ${this.namespaceCondition}`;
+
+      this.db.prepare(`DELETE FROM shared_threads WHERE scope IN (${scopes})`).run(groupHash, ...this.namespaceArgs);
+      this.db.prepare(`DELETE FROM shared_checkpoints WHERE scope IN (${scopes})`).run(groupHash, ...this.namespaceArgs);
+      this.db.prepare(`DELETE FROM memory_scopes WHERE group_hash=? AND ${this.namespaceCondition}`).run(groupHash, ...this.namespaceArgs);
+    });
   }
 
   cleanup(days = 30): void {
-    this.db.prepare('DELETE FROM shared_threads WHERE updated_at<?').run(this.now() - days * 86400000);
-    this.db.prepare('DELETE FROM memory_scopes WHERE active_at<?').run(this.now() - days * 86400000);
+    const scopes = `SELECT scope FROM memory_scopes WHERE ${this.namespaceCondition}`;
+
+    this.db.prepare(`DELETE FROM shared_threads WHERE updated_at<? AND scope IN (${scopes})`).run(this.now() - days * 86400000, ...this.namespaceArgs);
+    this.db.prepare(`DELETE FROM memory_scopes WHERE active_at<? AND ${this.namespaceCondition}`).run(this.now() - days * 86400000, ...this.namespaceArgs);
   }
 }
 
@@ -1031,11 +1069,13 @@ export { normalize as memoryTextKey };
 
 export const getMemoryStore = (config: DSHBridgeConfig): MemoryStore => {
   const path = join(config.workspaceRoot ? dirname(config.workspaceRoot) : dirname(config.dshHomeRoot), 'memories.sqlite');
-  let store = stores.get(path);
+  const namespace = conversationDataNamespace(config);
+  const cacheKey = JSON.stringify([path, namespace]);
+  let store = stores.get(cacheKey);
 
   if (!store) {
-    store = new MemoryStore(path);
-    stores.set(path, store);
+    store = new MemoryStore(path, Date.now, namespace);
+    stores.set(cacheKey, store);
   }
 
   return store;

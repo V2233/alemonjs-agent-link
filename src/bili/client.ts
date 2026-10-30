@@ -5,11 +5,12 @@ import { browseWindow } from '../proactive/browse-schedule';
 import { createHash } from 'node:crypto';
 import { readBounded } from '../media/providers';
 import { biliVisionSource, describeBiliFrames } from './vision';
-import { extractVideoFrames, videoDownloadUrl, visualSampleRequest, videoSampleTimes, type VideoVisual } from './visual';
+import { extractVideoFrames, packVideoFrames, videoDownloadUrl, visualSampleRequest, videoSampleTimes, type VideoVisual } from './visual';
 import { downloadAttachment } from '../media/download';
 import { getMediaConfig } from '../media/config';
 import { extractSubtitleStrips } from './subtitle-visual';
 import { extractStoryboardFrames } from './storyboard';
+import { visualCropRequest, type VideoCrop } from './crop';
 import { ffmpegAvailable } from './ffmpeg';
 import { windowSampleTimes, type VideoTimeWindow } from './time-window';
 import { extractAudioExcerpt, type VideoAudioTranscript } from './audio';
@@ -237,10 +238,15 @@ export const createBiliClient = (
     signal: AbortSignal,
     visualFocus: 'frames' | 'subtitles' = 'frames',
     visualAt?: readonly number[],
-    questionWindow?: VideoTimeWindow
+    questionWindow?: VideoTimeWindow,
+    cropRequest?: VideoCrop,
+    visualOnly = false
   ) => {
     if (!['frames', 'subtitles'].includes(visualFocus)) throw new Error('画面读取方式无效。');
     let requested = visualSampleRequest(visualAt);
+    const crop = visualCropRequest(cropRequest);
+
+    if (crop && (visualFocus !== 'frames' || !requested)) throw new Error('局部画面读取仅限frames，且需要visualAt指定1–3个采样位置。');
     const info = await video(input, signal);
     let window: { start: number; end: number } | undefined;
     let windowFailed = false;
@@ -268,13 +274,13 @@ export const createBiliClient = (
       ...(window ? { requestedWindow: window, samplingReason: 'question_window' as const } : {}),
       ...(requested ? { requestedTimestamps: requested } : {})
     };
-    let audio: VideoAudioTranscript = { status: options.audioRead ? 'unavailable' : 'disabled', text: '' };
+    let audio: VideoAudioTranscript = { status: options.audioRead ? (visualOnly ? 'not_needed' : 'unavailable') : 'disabled', text: '' };
     const mediaSignal = AbortSignal.any([signal, AbortSignal.timeout(45000)]);
     let videoBytes: Promise<Buffer> | undefined;
     let mediaFailureStage: 'playback' | 'download' = 'playback';
     const getVideoBytes = (settings: ReturnType<typeof getMediaConfig>): Promise<Buffer> => {
       videoBytes ??= (async () => {
-        const play = await signed('/x/player/wbi/playurl', { bvid, cid, qn: 16, fnval: 1, platform: 'html5' }, mediaSignal);
+        const play = await signed('/x/player/wbi/playurl', { bvid, cid, qn: crop && options.visualRead ? 64 : 16, fnval: 1, platform: 'html5' }, mediaSignal);
 
         if (!Array.isArray(play?.durl) || play.durl.length !== 1) throw new Error('视频不是单段MP4。');
         const url = videoDownloadUrl(play.durl[0]?.url);
@@ -386,7 +392,8 @@ export const createBiliClient = (
               duration,
               visualSignal,
               undefined,
-              requested
+              requested,
+              crop
             );
             if (!frames.length) throw new Error('未解码出视频帧。');
           } catch {
@@ -395,10 +402,11 @@ export const createBiliClient = (
             if (visualFocus !== 'frames') throw new Error('硬字幕读取不能用低清预览图代替。');
             const snapshot = await request(`${base}/x/player/videoshot?bvid=${bvid}&cid=${cid}&index=1`, visualSignal);
 
-            frames = await extractStoryboardFrames(snapshot, duration, settings, visualSignal, download, requested);
+            frames = await extractStoryboardFrames(snapshot, duration, settings, visualSignal, download, requested, crop);
             source = 'storyboard';
           }
           if (!frames.length) return;
+          if (visualFocus === 'frames' && !crop) frames = await packVideoFrames(frames, visualSignal);
           visual.failedAt = 'vision';
           const description = await visualServices.describe(frames, settings, visualSignal);
 
@@ -411,7 +419,13 @@ export const createBiliClient = (
             ...(requested ? { requestedTimestamps: requested } : {}),
             timestamps: frames.flatMap(frame => frame.positions || [frame.seconds]),
             description,
-            ...(visualFocus === 'subtitles' ? { region: 'bottom_band' as const } : {})
+            ...(crop
+              ? { crop, region: 'crop' as const }
+              : visualFocus === 'subtitles'
+                ? { region: 'bottom_band' as const }
+                : frames.some(frame => frame.region === 'frame_grid')
+                  ? { region: 'frame_grid' as const }
+                  : {})
           };
         } catch {
           signal.throwIfAborted();
@@ -424,7 +438,7 @@ export const createBiliClient = (
       ...sources,
       (async () => {
         await sources[0];
-        if (!options.audioRead) return;
+        if (!options.audioRead || visualOnly) return;
         if (subtitles.status === 'available' && subtitles.text.trim()) {
           audio.status = 'not_needed';
 

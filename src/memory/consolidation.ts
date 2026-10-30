@@ -191,7 +191,7 @@ export class MemoryConsolidator {
       return { status: 'stale', added: 0 };
     }
     if (budgetEnabled(this.config) && !userId) return { status: 'budget-user-required', added: 0 };
-    const key = JSON.stringify([scope.platform, scope.channelId]);
+    const key = JSON.stringify([scope.platform, scope.botId ?? '', scope.channelId]);
 
     if (this.running.has(key) || jobs.active >= 2) {
       return { status: 'busy', added: 0 };

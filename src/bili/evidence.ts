@@ -1,4 +1,5 @@
 import type { VideoAudioTranscript } from './audio';
+import { visualCropRequest, type VideoCrop } from './crop';
 
 export type BiliEvidence = {
   basis: 'subtitles' | 'subtitle_excerpt' | 'metadata' | 'sampled_frames' | 'audio_excerpt';
@@ -7,7 +8,8 @@ export type BiliEvidence = {
   audienceCommentScope: 'returned_subset' | 'empty_response' | 'unavailable';
   visualObserved: boolean;
   sampledTimestamps: number[];
-  visualRegion?: 'bottom_band';
+  visualRegion?: 'bottom_band' | 'frame_grid' | 'crop';
+  visualCrop?: VideoCrop;
   visualSource?: 'storyboard';
   audioObserved: false;
   audioTranscribed: boolean;
@@ -19,15 +21,31 @@ export type BiliEvidence = {
 export const biliEvidence = (
   subtitles: { status: string; text: string; truncated?: boolean },
   comments: { status: string; items: { text: string }[] },
-  visual?: { status: string; timestamps: number[]; description: string; region?: 'bottom_band'; source?: 'storyboard' },
+  visual?: {
+    status: string;
+    timestamps: number[];
+    description: string;
+    region?: 'bottom_band' | 'frame_grid' | 'crop';
+    crop?: VideoCrop;
+    source?: 'storyboard';
+  },
   audio?: VideoAudioTranscript
 ): BiliEvidence => {
   const hasSubtitleText = subtitles.status === 'available' && Boolean(subtitles.text.trim());
+  let crop: VideoCrop | undefined;
+
+  try {
+    crop = visualCropRequest(visual?.crop);
+  } catch {
+    /* Invalid provenance cannot certify an observation. */
+  }
   const visualObserved =
     visual?.status === 'available' &&
     Boolean(visual.description.trim()) &&
+    (visual.region !== 'crop' || Boolean(crop)) &&
+    (crop === undefined || visual.region === 'crop') &&
     visual.timestamps.length > 0 &&
-    visual.timestamps.length <= (visual.region === 'bottom_band' ? 12 : 3) &&
+    visual.timestamps.length <= (visual.region === 'bottom_band' ? 12 : visual.region === 'frame_grid' ? 9 : 3) &&
     visual.timestamps.every(time => Number.isFinite(time) && time >= 0);
   const audioTranscribed =
     audio?.status === 'available' &&
@@ -59,7 +77,8 @@ export const biliEvidence = (
     audienceCommentScope,
     visualObserved,
     sampledTimestamps: visualObserved ? visual.timestamps.slice() : [],
-    ...(visualObserved && visual.region === 'bottom_band' ? { visualRegion: 'bottom_band' as const } : {}),
+    ...(visualObserved && visual.region ? { visualRegion: visual.region } : {}),
+    ...(visualObserved && crop ? { visualCrop: crop } : {}),
     ...(visualObserved && visual.source === 'storyboard' ? { visualSource: 'storyboard' as const } : {}),
     audioObserved: false,
     audioTranscribed,
@@ -71,7 +90,9 @@ export const biliEvidence = (
         ? (visual.source === 'storyboard' ? '来自B站第1分P的低清预览故事板；时间为预览索引近似位置，不能当作原视频精确帧或字幕原文。' : '') +
           (visual.region === 'bottom_band'
             ? '仅提供画面底部25%的字幕带采样，不含完整画面；裁剪处可能没有字幕，也可能漏字或误读，不能拼成全片台词或音频转写。'
-            : '') +
+            : visual.region === 'crop'
+              ? '仅提供visualCrop指定的局部，边界可能有像素舍入；没有观察框外画面，不能据此推断整个界面或其他设置。'
+              : '') +
           '视觉模型只描述了 sampledTimestamps 所列位置的采样静帧，描述可能出错；不能推断帧间过程、未采样情节、音频或全片质量。字幕若截断也只能讨论返回部分；评论仅为观众观点。'
         : hasSubtitleText
           ? subtitles.truncated

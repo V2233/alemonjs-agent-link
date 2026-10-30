@@ -70,7 +70,7 @@ export default async (): Promise<void> => {
 
       return;
     }
-    const scope = { platform: event.Platform, channelId };
+    const scope = { platform: event.Platform, channelId, botId: event.BotId || '' };
     const store = getMemoryStore(config);
 
     await synchronizeExplicitMemory(config, scope, event.UserId);

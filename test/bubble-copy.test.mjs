@@ -266,7 +266,7 @@ test('reading diary command returns persisted evidence without a model request a
   const { proactiveChannel } = await import('../lib/proactive/control.js');
   const config = getDSHConfig();
   const store = getMemoryStore(config);
-  const scope = { platform: 'qq-bot', channelId: proactiveChannel({ platform: 'qq-bot', botId: '900', userId: '100' }) };
+  const scope = { platform: 'qq-bot', botId: '900', channelId: proactiveChannel({ platform: 'qq-bot', botId: '900', userId: '100' }) };
   store.recordExperience(scope, {
     key: 'reading',
     subjectId: '900',

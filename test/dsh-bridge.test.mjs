@@ -1,3 +1,4 @@
+import { bridgeSessionHash } from '../lib/dsh/conversation-scope.js';
 import { withToolUsePolicy } from '../lib/agent/tool-use-policy.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -131,7 +132,7 @@ test('clears an encoded group session through the DSH API', async () => {
 
   await clearSession(config, 'dsh:qq:group:a/b');
   globalThis.fetch = originalFetch;
-  assert.equal(request.url, 'http://dsh.test/v1/session/dsh%3Aqq%3Agroup%3Aa%2Fb');
+  assert.equal(request.url, 'http://dsh.test/v1/session-hash/' + bridgeSessionHash('dsh:qq:group:a/b'));
   assert.equal(request.options.method, 'DELETE');
 });
 

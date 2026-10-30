@@ -43,7 +43,7 @@ export const archiveIncoming = (config: DSHBridgeConfig, event: Event, privateAl
 
   try {
     getChatArchive(config).append(
-      { platform: event.Platform, channelId },
+      { platform: event.Platform, channelId, botId: event.BotId || '' },
       {
         id: event.MessageId,
         role: 'user',
@@ -63,7 +63,7 @@ export const archiveIncoming = (config: DSHBridgeConfig, event: Event, privateAl
   }
   if (memoryEnabled(config)) {
     try {
-      getMemoryStore(config).observe({ platform: event.Platform, channelId });
+      getMemoryStore(config).observe({ platform: event.Platform, channelId, botId: event.BotId || '' });
     } catch {
       logger.error('聊天记录已归档，但记忆整理范围登记失败。');
     }
@@ -83,7 +83,7 @@ export const archiveReply = (config: DSHBridgeConfig, event: Event, text: string
 
   try {
     getChatArchive(config).append(
-      { platform: event.Platform, channelId },
+      { platform: event.Platform, channelId, botId: event.BotId || '' },
       {
         id: platformId || `local:${randomUUID()}`,
         role: 'assistant',

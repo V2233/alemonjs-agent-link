@@ -455,5 +455,214 @@ class BridgeSafetyTests(unittest.TestCase):
         self.assertEqual(json.loads(process.stdin.getvalue())['type'], 'shutdown')
         self.assertEqual(sequence[0], 'wait')
 
+class BridgeConversationScopeTests(unittest.TestCase):
+    def setUp(self):
+        self.bridge, self.root = load_bridge()
+        self.runtime_root = self.bridge.RUNTIME_ROOT
+        self.bridge.RUNTIME_PATH = Path(sys.executable)  # construction/profile fixture only; no Harness launched
+        self.capabilities = {'chat': True, 'web': False, 'files': False, 'terminal': False}
+
+    def tearDown(self):
+        self.bridge.close_workers()
+        shutil.rmtree(self.root, ignore_errors=True)
+        shutil.rmtree(self.runtime_root, ignore_errors=True)
+
+    def identity(self, name='a', group='dsh:qq:group:g'):
+        import hashlib
+        return {'groupKey': hashlib.sha256(group.encode()).hexdigest(), 'scopeKey': hashlib.sha256(name.encode()).hexdigest()}
+
+    def worker(self, identity):
+        parent, key = self.bridge.conversation_keys('dsh:qq:group:g:v1', identity)
+        return self.bridge.get_worker(key, 1, self.capabilities, parent)
+
+    def test_identity_validation_separate_workers_paths_snapshots_and_legacy(self):
+        a, b = self.worker(self.identity('a')), self.worker(self.identity('b'))
+        self.assertIsNot(a, b)
+        self.assertNotEqual(a.dsh_home, b.dsh_home)
+        self.assertNotEqual(a.runtime_dir, b.runtime_dir)
+        self.assertNotEqual(a.session_snapshot, b.session_snapshot)
+        self.assertEqual(a.parent_key, b.parent_key)
+        self.assertIs(a, self.worker(self.identity('a')))
+        legacy_key = self.bridge.group_key('dsh:qq:group:g:v1')
+        legacy = self.bridge.get_worker(legacy_key, 1, self.capabilities)
+        self.assertNotEqual(legacy.dsh_home, a.dsh_home)
+        for invalid in (None, {}, [], {'groupKey': 'a' * 64}, {**self.identity(), 'extra': True}, {**self.identity(), 'scopeKey': '../outside'}, {**self.identity(), 'scopeKey': 'A' * 64}):
+            with self.assertRaises(ValueError): self.bridge.conversation_keys('dsh:qq:group:g:v1', invalid)
+
+    def test_runtime_root_is_namespaced_by_installation_paths(self):
+        import hashlib
+        expected = hashlib.sha256(json.dumps([str(self.bridge.WORKSPACE_ROOT), str(self.bridge.HOME_ROOT)], separators=(',', ':')).encode()).hexdigest()
+        self.assertEqual(self.bridge.RUNTIME_ROOT.name, expected)
+        other, root = load_bridge()
+        try: self.assertNotEqual(other.RUNTIME_ROOT, self.runtime_root)
+        finally: shutil.rmtree(root, ignore_errors=True)
+
+    def test_active_parent_retention_and_completed_turn_activity_cover_scoped_children(self):
+        bridge = self.bridge
+        a = self.worker(self.identity())
+        parent = bridge.HOME_ROOT / a.parent_key
+        a.dsh_home.mkdir(parents=True)
+        old = time.time() - (bridge.RETENTION_DAYS + 1) * 86400
+        os.utime(parent, (old, old))
+        orphan = bridge.HOME_ROOT / ('f' * 64); orphan.mkdir(); os.utime(orphan, (old, old))
+        bridge.cleanup_stale_group_data()
+        self.assertTrue(parent.exists()); self.assertFalse(orphan.exists())
+        def finish(*_):
+            a.dsh_home.mkdir(parents=True, exist_ok=True)
+            return {'type': 'result', 'content': 'fixture'}
+        a._run = finish
+        a.run('fixture', 'dsh:qq:group:g:v1', lambda _: None)
+        self.assertGreater(parent.stat().st_mtime, time.time() - 5)
+        bridge.close_workers(); bridge.cleanup_stale_group_data()
+        self.assertTrue(parent.exists())
+
+    def test_actual_loopback_http_scoped_snapshot_resume_reset_validation_and_symlink_cleanup(self):
+        from http.server import ThreadingHTTPServer
+        import urllib.request
+        import urllib.error
+        bridge = self.bridge
+        bridge.validate_preflight = lambda: None
+        bridge.RETENTION_DAYS = 30
+        seen = []
+        def fake_run(worker, message, session, on_content):
+            worker.runtime_dir.mkdir(parents=True, exist_ok=True)
+            sessions = worker.dsh_home / 'sessions'; sessions.mkdir(parents=True, exist_ok=True)
+            path = sessions / 'fixture.json'
+            previous = json.loads(path.read_text()) if path.exists() else []
+            marker = next((item for item in ['__A_FIRST__', '__B_FIRST__', '__A_NEXT__', '__C_FIRST__', '__AFTER_RESET__'] if item in message), 'unknown')
+            path.write_text(json.dumps([*previous, marker]))
+            seen.append((worker.parent_key, worker.key))
+            return {'type': 'result', 'content': json.dumps(previous)}
+        bridge.Worker._run = fake_run
+        server = ThreadingHTTPServer(('127.0.0.1', 0), bridge.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        url = 'http://127.0.0.1:' + str(server.server_port)
+        def request(path, payload=None, method='POST', token='test-token'):
+            body = json.dumps(payload).encode() if payload is not None else None
+            req = urllib.request.Request(url + path, data=body, method=method, headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req, timeout=3) as response: return response.status, response.read().decode()
+        def chat(identity, marker):
+            status, raw = request('/v1/chat', {'sessionId': 'dsh:qq:group:g:v1', 'conversation': identity, 'message': marker, 'capabilities': self.capabilities, 'framework': {'url': 'http://127.0.0.1:1234/mcp', 'token': 'a' * 64}})
+            self.assertEqual(status, 200)
+            events = [json.loads(line[6:]) for line in raw.splitlines() if line.startswith('data: ')]
+            self.assertFalse(any(item.get('type') == 'error' for item in events))
+            return json.loads(next(item['content'] for item in events if item.get('type') == 'content'))
+        a, b, c = self.identity('a'), self.identity('b'), self.identity('c', 'dsh:qq:group:g:v12')
+        try:
+            self.assertEqual(json.loads(request('/health', method='GET')[1])['conversationScopes'], 1)
+            legacy = bridge.HOME_ROOT / a['groupKey'] / 'session-snapshot' / 'sessions'
+            legacy.mkdir(parents=True); (legacy / 'fixture.json').write_text('["__LEGACY__"]')
+            self.assertEqual(chat(a, '__A_FIRST__'), [])
+            self.assertEqual(chat(b, '__B_FIRST__'), [])
+            bridge.discard_worker(bridge.conversation_keys('dsh:qq:group:g:v1', a)[1])
+            self.assertEqual(chat(a, '__A_NEXT__'), ['__A_FIRST__'])
+            self.assertEqual(chat(c, '__C_FIRST__'), [])
+            before = len(bridge.WORKERS)
+            for malformed in (None, {**a, 'scopeKey': '../bad'}):
+                with self.assertRaises(urllib.error.HTTPError) as failure:
+                    request('/v1/chat', {'sessionId': 'dsh:qq:group:g:v1', 'conversation': malformed, 'message': 'fixture', 'capabilities': self.capabilities})
+                self.assertEqual(failure.exception.code, 400); failure.exception.close()
+            self.assertEqual(len(bridge.WORKERS), before)
+            with self.assertRaises(urllib.error.HTTPError) as denied: request('/v1/session-hash/' + a['groupKey'], method='DELETE', token='wrong')
+            self.assertEqual(denied.exception.code, 401); denied.exception.close()
+            self.assertEqual(request('/v1/session-hash/' + a['groupKey'], method='DELETE')[0], 204)
+            self.assertFalse((bridge.HOME_ROOT / a['groupKey']).exists())
+            self.assertTrue((bridge.HOME_ROOT / c['groupKey']).exists())
+            self.assertEqual({worker.parent_key for worker in bridge.WORKERS.values()}, {c['groupKey']})
+            self.assertEqual(chat(a, '__AFTER_RESET__'), [])
+            outside = self.root / 'outside'; outside.mkdir(); (outside / 'keep').write_text('fixture')
+            target = bridge.HOME_ROOT / ('e' * 64); target.symlink_to(outside, target_is_directory=True)
+            self.assertEqual(request('/v1/session-hash/' + 'e' * 64, method='DELETE')[0], 204)
+            self.assertFalse(target.is_symlink()); self.assertEqual((outside / 'keep').read_text(), 'fixture')
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=3)
+
+    @unittest.skipUnless(platform.system() == 'Darwin', 'macOS sandbox required')
+    def test_native_sandbox_can_read_own_scoped_home_but_not_sibling_home_or_snapshot(self):
+        from sandbox_profile import macos_profile
+        a, b = self.worker(self.identity('a')), self.worker(self.identity('b'))
+        for worker in (a, b):
+            worker.dsh_home.mkdir(parents=True); worker.runtime_dir.mkdir(parents=True)
+            (worker.dsh_home / 'fixture.txt').write_text('own')
+        b.session_snapshot.mkdir(parents=True); (b.session_snapshot / 'outside.txt').write_text('snapshot'); b.save_resume_state()
+        script = Path(__file__).resolve()
+        profile = macos_profile(b.runtime_dir, b.dsh_home, Path(sys.executable), Path(sys.prefix), script, script, 19879)
+        code = 'from pathlib import Path\n' + f'assert Path({str(b.dsh_home / "fixture.txt")!r}).read_text() == "own"\n'
+        for forbidden in (a.dsh_home / 'fixture.txt', b.session_snapshot / 'outside.txt', b.resume_state_path):
+            code += f'try: Path({str(forbidden)!r}).read_text()\nexcept PermissionError: pass\nelse: raise AssertionError("sibling data readable")\n'
+        result = subprocess.run(['/usr/bin/sandbox-exec', '-p', profile, sys.executable, '-c', code], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_recreated_worker_recovers_epoch_and_actual_resume_command(self):
+        import io
+        import hashlib
+        identity = self.identity()
+        logical = 'dsh:qq:group:g:v1'
+        def run_with_pipe(worker):
+            stream = io.StringIO()
+            worker.stop = lambda **_: None
+            def start():
+                (worker.dsh_home / 'sessions').mkdir(parents=True, exist_ok=True)
+                (worker.dsh_home / 'sessions' / 'fixture').write_text('fixture')
+                worker.process = SimpleNamespace(stdin=stream, stdout=True)
+                worker.stdout_queue.put(json.dumps({'type': 'result', 'content': 'fixture'}))
+            worker.start = start
+            worker.run('fixture', logical, lambda _: None)
+            return json.loads(stream.getvalue())
+        first = self.worker(identity)
+        first_command = run_with_pipe(first)
+        epoch = first.session_epoch
+        self.assertFalse(first_command['resume'])
+        self.assertEqual(first.resume_state_path.stat().st_mode & 0o777, 0o600)
+        self.assertNotIn(logical, first.resume_state_path.read_text())
+        self.bridge.discard_worker(first.key)
+        recovered = self.worker(identity)
+        self.assertEqual(recovered.session_epoch, epoch)
+        self.assertIn(hashlib.sha256(logical.encode()).hexdigest(), recovered.persisted_sessions)
+        self.assertTrue(run_with_pipe(recovered)['resume'])
+        other = self.worker(self.identity('b'))
+        self.assertFalse(run_with_pipe(other)['resume'])
+        self.assertNotEqual(other.session_epoch, epoch)
+
+    def test_resume_metadata_rejects_corruption_links_oversize_and_fifo(self):
+        import hashlib
+        worker = self.worker(self.identity())
+        worker.session_snapshot.mkdir(parents=True)
+        valid = {'version': 1, 'workerKey': worker.key, 'epoch': 'a' * 32, 'sessions': [hashlib.sha256(b'fixture').hexdigest()]}
+        for value in ({**valid, 'version': True}, {**valid, 'workerKey': 'other'}, {**valid, 'epoch': 'A' * 32}, {**valid, 'sessions': ['x']}, {**valid, 'sessions': ['a' * 64] * 65}, {**valid, 'extra': True}):
+            worker.resume_state_path.write_text(json.dumps(value))
+            candidate = self.bridge.Worker(worker.key, 1, self.capabilities, worker.parent_key)
+            self.assertEqual(candidate.persisted_sessions, set()); self.assertNotEqual(candidate.session_epoch, valid['epoch'])
+        worker.resume_state_path.write_text('x' * 16385)
+        self.assertEqual(self.bridge.Worker(worker.key, 1, self.capabilities, worker.parent_key).persisted_sessions, set())
+        worker.resume_state_path.unlink()
+        outside = self.root / 'outside-state'; outside.write_text(json.dumps(valid))
+        worker.resume_state_path.symlink_to(outside)
+        self.assertEqual(self.bridge.Worker(worker.key, 1, self.capabilities, worker.parent_key).persisted_sessions, set())
+        worker.save_resume_state(); self.assertFalse(worker.resume_state_path.is_symlink()); self.assertEqual(json.loads(outside.read_text()), valid)
+        worker.resume_state_path.unlink(); os.mkfifo(worker.resume_state_path)
+        started = time.monotonic()
+        self.assertEqual(self.bridge.Worker(worker.key, 1, self.capabilities, worker.parent_key).persisted_sessions, set())
+        self.assertLess(time.monotonic() - started, 1)
+
+    def test_resume_marker_survives_independent_python_process_restart(self):
+        module_dir = str(Path(__file__).resolve().parent.parent / 'python')
+        identity = self.identity()
+        code = (
+            'import sys,json,hashlib;from pathlib import Path;sys.path.insert(0,sys.argv[1]);import dsh_bridge as b;'
+            'b.RUNTIME_PATH=Path(sys.executable);identity=json.loads(sys.argv[2]);parent,key=b.conversation_keys("dsh:qq:group:g:v1",identity);'
+            'w=b.Worker(key,1,{"chat":True,"web":False,"files":False,"terminal":False},parent);'
+            '\nif sys.argv[3]=="write":\n w.session_snapshot.mkdir(parents=True);w.persisted_sessions.add(hashlib.sha256(b"logical").hexdigest());w.save_resume_state()'
+            '\nprint(json.dumps({"epoch":w.session_epoch,"sessions":sorted(w.persisted_sessions)}))'
+        )
+        env = {'PATH': os.environ.get('PATH', '/usr/bin:/bin'), 'DSH_WORKSPACE_ROOT': str(self.bridge.WORKSPACE_ROOT), 'DSH_HOME_ROOT': str(self.bridge.HOME_ROOT), 'DSH_BRIDGE_TOKEN': 'test-token'}
+        def child(value, action='read'):
+            result = subprocess.run([sys.executable, '-c', code, module_dir, json.dumps(value), action], env=env, capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return json.loads(result.stdout)
+        first, recovered, other = child(identity, 'write'), child(identity), child(self.identity('b'))
+        self.assertEqual(first, recovered); self.assertEqual(len(recovered['sessions']), 1); self.assertEqual(other['sessions'], [])
+        self.assertNotEqual(first['epoch'], other['epoch'])
+
 if __name__ == '__main__':
     unittest.main()

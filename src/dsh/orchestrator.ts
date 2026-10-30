@@ -344,7 +344,7 @@ const runCoordinatedChatInner = async (
           if (mediaTask?.execute) {
             await mediaTask.execute(signal);
           } else {
-            const memoryContext = event.ChannelId.startsWith('private:') ? buildMemoryContext(await registry.privateMemories(event.ChannelId)) : '';
+            const memoryContext = event.ChannelId.startsWith('private:') ? buildMemoryContext(await registry.privateMemories(event.ChannelId, scope)) : '';
 
             signal.throwIfAborted();
             const turnSignal = AbortSignal.any([signal, AbortSignal.timeout(config.requestTimeoutMs)]);

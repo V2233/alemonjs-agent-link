@@ -181,7 +181,7 @@ export class DiaryWorker {
         this.services.history ||
         ((cfg, ownerId, at) =>
           getChatArchive(cfg).search(
-            { platform: 'onebot', channelId: proactiveChannel({ platform: 'onebot', botId: options.botId, userId: ownerId }) },
+            { platform: 'onebot', botId: options.botId, channelId: proactiveChannel({ platform: 'onebot', botId: options.botId, userId: ownerId }) },
             { from: at - 36 * 3600000, to: at, limit: 20 }
           ).items as unknown as { text: string; timestamp: number; role: string }[])
       )(config, options.ownerId, now)

@@ -1,4 +1,5 @@
 import type { MemoryItem } from '../memory/store';
+import { visualCropRequest, type VideoCrop } from './crop';
 
 export type ReadingSourceEvidence = {
   id?: string;
@@ -6,7 +7,8 @@ export type ReadingSourceEvidence = {
   bvid?: string;
   contentBasis: 'metadata' | 'subtitles' | 'subtitle_excerpt' | 'sampled_frames' | 'audio_excerpt' | 'unknown';
   visualSource?: 'storyboard';
-  visualScope: 'not_observed' | 'sampled_frames' | 'bottom_band' | 'unknown';
+  visualScope: 'not_observed' | 'sampled_frames' | 'bottom_band' | 'crop' | 'unknown';
+  visualCrop?: VideoCrop;
   sampledTimestamps: number[];
   audioScope: 'not_observed' | 'transcribed_excerpt' | 'unknown';
   transcribedRange?: [number, number];
@@ -28,11 +30,20 @@ const isReading = (item: MemoryItem): boolean =>
 const sourceEvidence = (id?: string, source?: MemoryItem): ReadingSourceEvidence => {
   const details = source ? readingDetails(source) : {};
   const times = details.sampledTimestamps;
+  let crop: VideoCrop | undefined;
+
+  try {
+    crop = visualCropRequest(details.visualCrop);
+  } catch {
+    /* Invalid old records stay unverified. */
+  }
   const visual =
     details.visualStatus === 'available' &&
+    (details.visualRegion !== 'crop' || Boolean(crop)) &&
+    (crop === undefined || details.visualRegion === 'crop') &&
     Array.isArray(times) &&
     times.length > 0 &&
-    times.length <= (details.visualRegion === 'bottom_band' ? 12 : 3) &&
+    times.length <= (details.visualRegion === 'bottom_band' ? 12 : details.visualRegion === 'frame_grid' ? 9 : 3) &&
     times.every(time => typeof time === 'number' && Number.isFinite(time) && time >= 0);
   const basis = details.contentBasis;
   const range = details.transcribedRange;
@@ -89,14 +100,17 @@ const sourceEvidence = (id?: string, source?: MemoryItem): ReadingSourceEvidence
             ? basis
             : 'unknown',
     visualScope: visual
-      ? details.visualRegion === 'bottom_band'
-        ? 'bottom_band'
-        : 'sampled_frames'
+      ? details.visualRegion === 'crop'
+        ? 'crop'
+        : details.visualRegion === 'bottom_band'
+          ? 'bottom_band'
+          : 'sampled_frames'
       : typeof details.visualStatus === 'string' && details.visualStatus !== 'available'
         ? 'not_observed'
         : 'unknown',
     ...(visual && details.visualSource === 'storyboard' ? { visualSource: 'storyboard' as const } : {}),
     sampledTimestamps: visual ? times.slice() : [],
+    ...(visual && crop ? { visualCrop: crop } : {}),
     audioScope: audio ? 'transcribed_excerpt' : details.audioObserved === false ? 'not_observed' : 'unknown',
     ...(audio ? { transcribedRange: range.slice() as [number, number] } : {}),
     ...(commentScope ? { audienceCommentScope: commentScope } : {}),
@@ -201,7 +215,7 @@ export const formatReadingDiary = (entries: ReadingDiaryEntry[], hours: number, 
     const scope = item.sourceEvidence
       ?.map(
         source =>
-          `${source.bvid || source.id || '未关联来源'}：${{ metadata: '仅元数据', subtitles: '返回字幕', subtitle_excerpt: '字幕节选', sampled_frames: '采样静帧', audio_excerpt: 'ASR转写片段', unknown: '范围未知' }[source.contentBasis]}${source.visualScope === 'bottom_band' ? '，仅底部字幕带' : ''}${source.visualSource === 'storyboard' ? '，低清预览故事板' : ''}${source.transcribedRange ? `，转写范围${source.transcribedRange.join('–')}秒` : ''}`
+          `${source.bvid || source.id || '未关联来源'}：${{ metadata: '仅元数据', subtitles: '返回字幕', subtitle_excerpt: '字幕节选', sampled_frames: '采样静帧', audio_excerpt: 'ASR转写片段', unknown: '范围未知' }[source.contentBasis]}${source.visualScope === 'bottom_band' ? '，仅底部字幕带' : source.visualScope === 'crop' ? '，仅指定局部' : ''}${source.visualSource === 'storyboard' ? '，低清预览故事板' : ''}${source.transcribedRange ? `，转写范围${source.transcribedRange.join('–')}秒` : ''}`
       )
       .join('；');
 

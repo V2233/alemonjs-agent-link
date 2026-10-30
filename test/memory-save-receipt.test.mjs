@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../lib/dsh/conversation-scope.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -72,7 +73,7 @@ test('save receipts match actual persisted records, existing records and a full 
     assert.equal(first.ok, true);
     assert.equal(first.persistence.state, 'saved');
     assert.equal(first.persistence.retentionDays, 30);
-    const stored = (await new SessionRegistry(config).privateMemories('private:one'))[0];
+    const stored = (await new SessionRegistry(config).privateMemories('private:one', conversationQueueScope(config, context())))[0];
     assert.equal(first.persistence.recordId, stored.id);
     assert.equal(
       getMemoryStore(config)
@@ -83,21 +84,21 @@ test('save receipts match actual persisted records, existing records and a full 
     const duplicate = await executeTool(save, { text: '喜欢茶' }, context());
     assert.equal(duplicate.persistence.state, 'already_saved');
     assert.equal(duplicate.persistence.recordId, stored.id);
-    assert.equal((await registry.privateMemories('private:one')).length, 1);
+    assert.equal((await registry.privateMemories('private:one', conversationQueueScope(config, context()))).length, 1);
     const rejected = await executeTool(save, { text: '新编的资料' }, context('他说“记住我喜欢咖啡”'));
     assert.equal(rejected.ok, false);
     assert.equal(rejected.persistence.state, 'not_saved');
-    for (let i = 0; i < 19; i++) await registry.changePrivateMemory('private:one', 'add', `已有资料${i}`);
+    for (let i = 0; i < 19; i++) await registry.changePrivateMemory('private:one', 'add', `已有资料${i}`, undefined, conversationQueueScope(config, context()));
     const full = await executeTool(save, { text: '第21条' }, context('请记住这条新偏好'));
     assert.equal(full.ok, false);
     assert.equal(full.status, 'full');
     assert.equal(full.persistence.state, 'not_saved');
     assert.equal(full.persistence.recordId, undefined);
-    assert.equal((await registry.privateMemories('private:one')).length, 20);
+    assert.equal((await registry.privateMemories('private:one', conversationQueueScope(config, context()))).length, 20);
     const another = context();
     another.channelId = 'private:two';
     another.userId = 'two';
-    assert.equal((await new SessionRegistry(config).privateMemories(another.channelId)).length, 0);
+    assert.equal((await new SessionRegistry(config).privateMemories(another.channelId, conversationQueueScope(config, another))).length, 0);
   } finally {
     await lease.release();
     await runtime.close();
@@ -159,7 +160,7 @@ test('the actual turn never streams an echoed save request when memory tools are
     assert.equal(sent.length, 1);
     assert.match(sent[0], /没能确认长期保存/);
     assert.ok(!sent[0].includes(`user${text}`));
-    assert.equal((await new SessionRegistry(config).privateMemories('private:one')).length, 0);
+    assert.equal((await new SessionRegistry(config).privateMemories('private:one', conversationQueueScope(config, context()))).length, 0);
   } finally {
     await (await getModuleRuntime(config)).close();
     globalThis.__config = previous.config;

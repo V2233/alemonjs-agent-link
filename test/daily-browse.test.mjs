@@ -98,7 +98,7 @@ for (const scenario of ['reading', 'silence', 'cancelled', 'comparison']) {
     try {
       if (scenario === 'reading')
         getMemoryStore(config).recordDiary(
-          { platform: scope.platform, channelId: proactiveChannel(scope) },
+          { platform: scope.platform, botId: scope.botId, channelId: proactiveChannel(scope) },
           {
             key: 'previous-thought',
             subjectId: scope.botId,
@@ -108,7 +108,10 @@ for (const scenario of ['reading', 'silence', 'cancelled', 'comparison']) {
         );
       if (scenario === 'cancelled') await assert.rejects(() => browseDaily(config, scope, controller.signal));
       else assert.equal(await browseDaily(config, scope, controller.signal), 'recorded');
-      const entries = getMemoryStore(config).list({ platform: scope.platform, channelId: proactiveChannel(scope) }, { subjectId: scope.botId });
+      const entries = getMemoryStore(config).list(
+        { platform: scope.platform, botId: scope.botId, channelId: proactiveChannel(scope) },
+        { subjectId: scope.botId }
+      );
       assert.equal(entries.filter(item => item.origin === 'event').length, scenario === 'cancelled' ? 0 : scenario === 'comparison' ? 2 : 1);
       assert.equal(entries.filter(item => item.origin === 'diary').length, scenario === 'reading' ? 2 : scenario === 'comparison' ? 1 : 0);
       if (scenario === 'reading') assert.ok(entries.some(item => item.origin === 'diary' && item.text.includes('想继续了解')));
@@ -119,7 +122,7 @@ for (const scenario of ['reading', 'silence', 'cancelled', 'comparison']) {
         assert.match(thought.text, /BVabcdefghij/);
         assert.ok(!thought.text.includes('BV0987654321'));
       }
-      assert.deepEqual(getMemoryStore(config).list({ platform: scope.platform, channelId: 'other' }), []);
+      assert.deepEqual(getMemoryStore(config).list({ platform: scope.platform, botId: scope.botId, channelId: 'other' }), []);
     } finally {
       await (await getModuleRuntime(config)).close();
       globalThis.fetch = oldFetch;
@@ -135,12 +138,24 @@ for (const scenario of ['final-thought', 'final-unavailable', 'no-reading', 'con
     const previous = globalThis.__config;
     const oldFetch = globalThis.fetch;
     const scope = { platform: 'onebot', userId: '100', botId: '900' };
-    globalThis.__config = { value: { 'alemonjs-agent-link': {
-      apiKey: 'test', model: 'test', runtimeMode: 'chat-only', stateBackend: 'local',
-      workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'),
-      modules: { disabled: ['opinions'], maxToolRounds: scenario === 'configured-tighter' ? 2 : 16, maxToolContinuations: 4,
-        settings: { bili: { dailyBrowse: true, dailyBrowseMaxReads: 1 } } }
-    } } };
+    globalThis.__config = {
+      value: {
+        'alemonjs-agent-link': {
+          apiKey: 'test',
+          model: 'test',
+          runtimeMode: 'chat-only',
+          stateBackend: 'local',
+          workspaceRoot: join(root, 'work'),
+          dshHomeRoot: join(root, 'home'),
+          modules: {
+            disabled: ['opinions'],
+            maxToolRounds: scenario === 'configured-tighter' ? 2 : 16,
+            maxToolContinuations: 4,
+            settings: { bili: { dailyBrowse: true, dailyBrowseMaxReads: 1 } }
+          }
+        }
+      }
+    };
     const config = getDSHConfig();
     let calls = 0;
     let summaries = 0;
@@ -148,9 +163,13 @@ for (const scenario of ['final-thought', 'final-unavailable', 'no-reading', 'con
     const ok = data => Response.json({ code: 0, data });
     globalThis.fetch = async (url, init) => {
       const address = String(url);
-      if (address.endsWith('/nav')) return ok({ wbi_img: { img_url: `https://i0.hdslb.com/${'a'.repeat(32)}.png`, sub_url: `https://i0.hdslb.com/${'b'.repeat(32)}.png` } });
+      if (address.endsWith('/nav'))
+        return ok({ wbi_img: { img_url: `https://i0.hdslb.com/${'a'.repeat(32)}.png`, sub_url: `https://i0.hdslb.com/${'b'.repeat(32)}.png` } });
       if (address.includes('/search/type')) return ok({ result: [{ bvid: 'BV1234567890', title: '鲸鱼歌声' }] });
-      if (address.includes('/wbi/view')) { videoReads++; return ok({ bvid: 'BV1234567890', aid: 123, cid: 456, title: '鲸鱼歌声', desc: '研究鲸鱼歌声的资料' }); }
+      if (address.includes('/wbi/view')) {
+        videoReads++;
+        return ok({ bvid: 'BV1234567890', aid: 123, cid: 456, title: '鲸鱼歌声', desc: '研究鲸鱼歌声的资料' });
+      }
       if (address.includes('/player/')) return ok({ subtitle: { subtitles: [] } });
       if (address.includes('/reply/')) return ok({ replies: [] });
       assert.ok(address.includes('/chat/completions'));
@@ -164,9 +183,15 @@ for (const scenario of ['final-thought', 'final-unavailable', 'no-reading', 'con
         if (scenario === 'final-unavailable') return Response.json({ error: { message: 'test unavailable' } }, { status: 401 });
         return Response.json({ choices: [{ message: { content: scenario === 'final-thought' ? '歌声交流这个主题值得继续了解。' : '[沉默]' } }] });
       }
-      const sequence = [['bili_diary', {}], ['bili_search', { keyword: '鲸鱼' }], ['bili_watch', { link: 'BV1234567890' }]];
+      const sequence = [
+        ['bili_diary', {}],
+        ['bili_search', { keyword: '鲸鱼' }],
+        ['bili_watch', { link: 'BV1234567890' }]
+      ];
       const [name, args] = scenario === 'no-reading' ? sequence[0] : sequence[Math.min(calls - 1, 2)];
-      return Response.json({ choices: [{ message: { content: null, tool_calls: [{ id: `step-${calls}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }] });
+      return Response.json({
+        choices: [{ message: { content: null, tool_calls: [{ id: `step-${calls}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }]
+      });
     };
     try {
       const read = scenario === 'final-thought' || scenario === 'final-unavailable';
@@ -174,7 +199,10 @@ for (const scenario of ['final-thought', 'final-unavailable', 'no-reading', 'con
       assert.equal(calls, scenario === 'configured-tighter' ? 3 : 5);
       assert.equal(summaries, 1);
       assert.equal(videoReads, read ? 1 : 0);
-      const entries = getMemoryStore(config).list({ platform: scope.platform, channelId: proactiveChannel(scope) }, { subjectId: scope.botId });
+      const entries = getMemoryStore(config).list(
+        { platform: scope.platform, botId: scope.botId, channelId: proactiveChannel(scope) },
+        { subjectId: scope.botId }
+      );
       const diaries = entries.filter(item => item.origin === 'diary');
       assert.equal(diaries.length, scenario === 'final-thought' ? 1 : 0);
       assert.ok(diaries.every(item => !/工具次数|份回执|请缩小/.test(item.text)));

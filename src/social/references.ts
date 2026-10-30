@@ -103,7 +103,7 @@ export class MessageReferences {
         const channelId = getConversationId(event);
         const archived =
           historyEnabled(config) && channelId && (!event.IsPrivate || (await canPrivateChatWithKey(event, config.privateChatAccess)))
-            ? getChatArchive(config).findMessage({ platform: event.Platform, channelId }, referenceId)
+            ? getChatArchive(config).findMessage({ platform: event.Platform, channelId, botId: event.BotId || '' }, referenceId)
             : undefined;
 
         if (archived) {

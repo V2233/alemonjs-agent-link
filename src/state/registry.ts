@@ -360,14 +360,15 @@ export class SessionRegistry {
       )
     );
   }
-  async privateMemories(channelId: string): Promise<PrivateMemory[]> {
-    return (await this.changePrivateMemory(channelId, 'list')).notes;
+  async privateMemories(channelId: string, scope?: ConversationQueueScope): Promise<PrivateMemory[]> {
+    return (await this.changePrivateMemory(channelId, 'list', '', undefined, scope)).notes;
   }
   async changePrivateMemory(
     channelId: string,
     action: 'list' | 'add' | 'remove' | 'clear' | 'replace',
     text = '',
-    target?: { id: string; expectedText: string }
+    target?: { id: string; expectedText: string },
+    scope?: ConversationQueueScope
   ): Promise<{ status: string; notes: PrivateMemory[] }> {
     if (!channelId.startsWith('private:')) {
       throw new Error('长期记忆仅限私聊。');
@@ -381,7 +382,7 @@ export class SessionRegistry {
     ).eval(
       memoryScript,
       1,
-      key(channelId, 'private-memory.v1.json'),
+      key(channelId, scope ? `private-memory.v2:${scopeHash(channelId, scope)}` : 'private-memory.v1.json'),
       action,
       text.trim(),
       randomUUID().slice(0, 8),
