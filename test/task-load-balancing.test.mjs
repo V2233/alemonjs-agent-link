@@ -92,8 +92,9 @@ test('task factory keeps the same endpoint across rounds and disables transparen
   const task = createChatTaskCredentials();
   try {
     const first = await task.acquire({ purpose: 'chat' });
-    assert.equal(first.next, undefined);
+    assert.equal(typeof first.next, 'function');
     first.report({ ok: true });
+    assert.equal(first.next(), null);
     const pool = getCredentialPool(globalThis.__config.value['alemonjs-agent-link']);
     const other = pool.select();
     assert.equal(other.endpointId, 'lease-b');

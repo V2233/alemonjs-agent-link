@@ -16,6 +16,7 @@ export default function AdminLayout() {
     '/dictionary': '热词词典',
     '/events': '事件库',
     '/opinions': '对象评价',
+    '/token-usage': 'Token 用量',
     '/rotation': '额度轮转',
     '/voices': '音色库',
     '/images': '生图库',
@@ -40,6 +41,7 @@ export default function AdminLayout() {
         { key: '/events', label: '事件库' },
         { key: '/opinions', label: '对象评价' },
         { key: '/work-model', label: '工作模型' },
+        { key: '/token-usage', label: 'Token 用量' },
         { key: '/rotation', label: '额度轮转' },
         { key: '/ads', label: '私聊广告' }
       ]}

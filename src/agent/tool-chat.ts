@@ -41,6 +41,30 @@ export const requestModelMessage = async (
         ? '[structured content]'
         : '';
   const attempts: Array<{ endpoint: string; model: string; status?: number; error?: string }> = [];
+  let retryNoticeSent = false;
+  const advance = async (): Promise<boolean> => {
+    signal.throwIfAborted();
+    if ((current.attempt || 1) >= (current.maxAttempts || 1)) return false;
+    if (Date.now() - (current.startedAt || requestStartedAt) >= (current.retryBudgetMs ?? 12000)) return false;
+    const next = current.next?.();
+
+    if (!next) return false;
+    current = next;
+    try {
+      if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs, undefined, { signal });
+      signal.throwIfAborted();
+      // Notify once for the whole request, not once per endpoint.
+      if (!retryNoticeSent) {
+        retryNoticeSent = true;
+        await meta.onRetry?.();
+      }
+    } catch (error) {
+      current.report?.({ ok: false, errorKind: 'cancelled' });
+      throw error;
+    }
+
+    return true;
+  };
 
   for (;;) {
     const budgetMs = current.retryBudgetMs ?? 12000;
@@ -101,194 +125,198 @@ export const requestModelMessage = async (
     signal.throwIfAborted();
     // 单个端点最多等待 60 秒，同时遵守本轮剩余重试预算。
     const remaining = Math.max(0, budgetMs - elapsed);
-    const attemptMs = Math.max(1, Math.min(60000, remaining));
+    const remainingAttempts = Math.max(1, (current.maxAttempts || 1) - (current.attempt || 1) + 1);
+    const attemptMs = Math.max(1, Math.min(60000, current.initialFailover ? remaining / Math.min(3, remainingAttempts) : remaining));
     const attemptController = new AbortController();
     const attemptTimer = setTimeout(() => attemptController.abort(new DOMException('attempt timeout', 'TimeoutError')), attemptMs);
     const attemptStartedAt = Date.now();
     let response: Response;
+    let outputStarted = false;
 
     try {
-      response = await budgetedFetch(config, url, {
-        onDispatch: current.markSent,
-        personalKey: current.personal,
-        scopedKey: current.scoped,
-        pricing: current.pricing,
-        method: 'POST',
-        redirect: 'error',
-        signal: AbortSignal.any([signal, attemptController.signal]),
-        headers: { Authorization: `Bearer ${current.apiKey}`, 'Content-Type': 'application/json' },
-        body
-      });
-    } catch (error) {
-      clearTimeout(attemptTimer);
-      current.report?.({
-        ok: false,
-        errorKind: localRequestFailure(error)
-          ? localRequestFailure(error)
-          : signal.aborted
-            ? 'cancelled'
-            : error instanceof Error && /timeout/i.test(error.name + error.message)
-              ? 'timeout'
-              : undefined
-      });
-      if (error instanceof BudgetExceededError) throw error;
-      signal.throwIfAborted();
-      const timedOut = attemptController.signal.aborted;
-      const reason = timedOut ? `单次尝试超过 ${attemptMs}ms` : error instanceof Error ? error.message : '网络失败';
-
-      attempts.push({ endpoint, model, error: reason });
-      throw new Error(`模型请求失败：${endpoint} ${reason}；执行结果未知，未自动重放。`);
-    }
-    // 响应头已经到手，单次尝试的计时器不再需要（正文流式收完不受影响）。
-    clearTimeout(attemptTimer);
-
-    if (!response.ok) {
-      const status = response.status;
-      let detail = '';
-
       try {
-        const payload = (await response.json()) as { error?: { message?: unknown; code?: unknown }; message?: unknown };
+        response = await budgetedFetch(config, url, {
+          onDispatch: current.markSent,
+          personalKey: current.personal,
+          scopedKey: current.scoped,
+          pricing: current.pricing,
+          method: 'POST',
+          redirect: 'error',
+          signal: AbortSignal.any([signal, attemptController.signal]),
+          headers: { Authorization: `Bearer ${current.apiKey}`, 'Content-Type': 'application/json' },
+          body
+        });
+      } catch (error) {
+        clearTimeout(attemptTimer);
+        current.report?.({
+          ok: false,
+          errorKind: localRequestFailure(error)
+            ? localRequestFailure(error)
+            : signal.aborted
+              ? 'cancelled'
+              : error instanceof Error && /timeout/i.test(error.name + error.message)
+                ? 'timeout'
+                : undefined
+        });
+        if (error instanceof BudgetExceededError) throw error;
+        signal.throwIfAborted();
+        const timedOut = attemptController.signal.aborted;
+        const reason = timedOut ? `单次尝试超过 ${attemptMs}ms` : error instanceof Error ? error.message : '网络失败';
 
-        detail = (String(payload.error?.code || '') + ' ' + String(payload.error?.message || payload.message || '')).trim().slice(0, 500);
-      } catch {
-        // Provider error bodies are best-effort diagnostics.
+        attempts.push({ endpoint, model, error: reason });
+        if (!localRequestFailure(error) && current.initialFailover && (await advance())) continue;
+        throw new Error(`模型请求失败：${endpoint} ${reason}；执行结果未知，未自动重放。`);
       }
-      attempts.push({ endpoint, model, status, error: detail });
-      logger.warn(
+      // Keep the deadline until a complete result or the first visible output.
+
+      if (!response.ok) {
+        const status = response.status;
+        let detail = '';
+
+        try {
+          const payload = (await response.json()) as { error?: { message?: unknown; code?: unknown }; message?: unknown };
+
+          detail = (String(payload.error?.code || '') + ' ' + String(payload.error?.message || payload.message || '')).trim().slice(0, 500);
+        } catch {
+          // Provider error bodies are best-effort diagnostics.
+        }
+        attempts.push({ endpoint, model, status, error: detail });
+        logger.warn(
+          {
+            requestId: meta.requestId,
+            endpoint,
+            model,
+            attempt: current.attempt,
+            maxAttempts: current.maxAttempts,
+            status,
+            detail,
+            tools: tools.map(tool => tool.name),
+            messages: messages.map(message => [
+              message.role,
+              typeof message.content === 'string' ? message.content.length : Array.isArray(message.content) ? 'blocks' : 'none'
+            ]),
+            retryable:
+              Boolean(current.next) && ([401, 402, 403, 429].includes(status) || (current.initialFailover && [502, 503, 504].includes(status)))
+                ? 'eligible'
+                : 'stop',
+            promptPreview
+          },
+          'Model provider rejected request'
+        );
+        current.report?.({ ok: false, status, detail, headers: response.headers });
+        const billing = /计费账户|余额不足|余额已|欠费|冻结|billing|insufficient|quota|frozen|credit/iu.test(detail);
+
+        if (billing) current.disable?.();
+        const canSwitch = [401, 402, 403, 429].includes(status) || (status === 400 && billing) || (current.initialFailover && [502, 503, 504].includes(status));
+
+        attempts.push({ endpoint, model, status });
+        if (!canSwitch || !(await advance())) {
+          throw new Error(`模型服务返回 HTTP ${status}${detail ? `：${detail}` : ''}。`);
+        }
+        continue;
+      }
+      logger.info(
         {
           requestId: meta.requestId,
           endpoint,
           model,
           attempt: current.attempt,
-          maxAttempts: current.maxAttempts,
-          status,
-          detail,
-          tools: tools.map(tool => tool.name),
-          messages: messages.map(message => [
-            message.role,
-            typeof message.content === 'string' ? message.content.length : Array.isArray(message.content) ? 'blocks' : 'none'
-          ]),
-          retryable: status === 400 || current.retryable?.(status) ? 'next' : 'stop',
-          promptPreview
+          elapsedMs: Date.now() - startedAt,
+          requestElapsedMs: Date.now() - requestStartedAt,
+          status: response.status
         },
-        'Model provider rejected request'
+        'Model response received'
       );
-      current.report?.({ ok: false, status, detail, headers: response.headers });
-      const billing = /计费账户|余额不足|余额已|欠费|冻结|billing|insufficient|quota|frozen|credit/iu.test(detail);
+      const retryInvalid = (status = 200): Promise<boolean> => {
+        current.report?.({ ok: false, status, headers: response.headers, errorKind: 'invalid-response' });
+        current.invalidate?.(status);
 
-      if (billing) current.disable?.();
-      // Only explicit refusal may be retried; task-bound credentials expose no next().
-      const next =
-        (current.attempt || 1) < (current.maxAttempts || 1) && ([401, 402, 403, 429].includes(status) || (status === 400 && billing)) ? current.next?.() : null;
+        return Promise.resolve(!outputStarted && !signal.aborted && current.initialFailover ? advance() : false);
+      };
 
-      if (!next || (current.attempt || 1) >= (current.maxAttempts || 1)) {
-        throw new Error(`模型服务返回 HTTP ${status}${detail ? `：${detail}` : ''}。`);
+      if (!response.body) {
+        if (await retryInvalid(200)) continue;
+        throw new Error('模型响应为空。');
       }
-      current = next;
-      try {
-        if (current.retryJitterMs) await delay(Math.random() * current.retryJitterMs);
-        await meta.onRetry?.();
-      } catch (error) {
-        current.report?.({ ok: false, errorKind: 'cancelled' });
-        throw error;
-      }
-      continue;
-    }
-    clearTimeout(attemptTimer);
-    logger.info(
-      {
-        requestId: meta.requestId,
-        endpoint,
-        model,
-        attempt: current.attempt,
-        elapsedMs: Date.now() - startedAt,
-        requestElapsedMs: Date.now() - requestStartedAt,
-        status: response.status
-      },
-      'Model response received'
-    );
-    const retryInvalid = (status = 200): Promise<boolean> => {
-      current.report?.({ ok: false, status, headers: response.headers, errorKind: 'invalid-response' });
-      current.invalidate?.(status);
+      if (onContent && response.headers.get('content-type')?.includes('text/event-stream')) {
+        let emitted = false;
 
-      return Promise.resolve(false);
-    };
+        try {
+          const message = await readCompletionStream(response, config.maxRequestBytes, AbortSignal.any([signal, attemptController.signal]), async text => {
+            emitted = true;
+            outputStarted = true;
+            clearTimeout(attemptTimer);
+            await onContent(text);
+          });
 
-    if (!response.body) {
-      if (await retryInvalid(200)) continue;
-      throw new Error('模型响应为空。');
-    }
-    if (onContent && response.headers.get('content-type')?.includes('text/event-stream')) {
-      let emitted = false;
+          current.reportUsage?.(message.usage || {});
+          if (!message.content?.trim() && !message.tool_calls?.length) {
+            if (await retryInvalid(200)) continue;
+            throw new Error('模型未返回有效消息。');
+          }
 
-      try {
-        const message = await readCompletionStream(response, config.maxRequestBytes, signal, async text => {
-          emitted = true;
-          await onContent(text);
-        });
+          current.report?.({ ok: true, status: response.status, headers: response.headers, latencyMs: Date.now() - attemptStartedAt });
 
-        current.reportUsage?.(message.usage || {});
-        if (!message.content?.trim() && !message.tool_calls?.length) {
+          return message;
+        } catch (error) {
+          if (emitted) {
+            current.report?.({ ok: false, status: response.status, errorKind: signal.aborted ? 'cancelled' : 'stream-error' });
+            current.invalidate?.(200);
+            throw error;
+          }
           if (await retryInvalid(200)) continue;
-          throw new Error('模型未返回有效消息。');
+          throw error;
+        }
+      }
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let bytes = 0;
+
+      try {
+        while (true) {
+          const part = await reader.read();
+
+          if (part.done) {
+            break;
+          }
+          bytes += part.value.length;
+          if (bytes > config.maxRequestBytes) {
+            throw new Error('模型响应超过大小限制。');
+          }
+          chunks.push(part.value);
+        }
+      } catch (error) {
+        current.report?.({ ok: false, status: response.status, errorKind: signal.aborted ? 'cancelled' : 'stream-error' });
+        if (!outputStarted && !signal.aborted && current.initialFailover && (await advance())) continue;
+        throw error;
+      } finally {
+        await reader.cancel();
+      }
+      try {
+        const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        const message = payload?.choices?.[0]?.message;
+
+        current.reportUsage?.(payload?.usage || {});
+
+        if (!message || typeof message !== 'object' || (!message.content?.trim?.() && !message.tool_calls?.length)) {
+          throw new Error('invalid message');
+        }
+
+        if (onContent && typeof message.content === 'string') {
+          outputStarted = true;
+          clearTimeout(attemptTimer);
+          await onContent(message.content);
         }
 
         current.report?.({ ok: true, status: response.status, headers: response.headers, latencyMs: Date.now() - attemptStartedAt });
 
         return message;
-      } catch (error) {
-        if (emitted) {
-          current.report?.({ ok: false, status: response.status, errorKind: signal.aborted ? 'cancelled' : 'stream-error' });
-          current.invalidate?.(200);
-          throw error;
-        }
+      } catch {
         if (await retryInvalid(200)) continue;
-        throw error;
+        throw new Error('模型未返回有效消息。');
       }
-    }
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let bytes = 0;
-
-    try {
-      while (true) {
-        const part = await reader.read();
-
-        if (part.done) {
-          break;
-        }
-        bytes += part.value.length;
-        if (bytes > config.maxRequestBytes) {
-          throw new Error('模型响应超过大小限制。');
-        }
-        chunks.push(part.value);
-      }
-    } catch (error) {
-      current.report?.({ ok: false, status: response.status, errorKind: signal.aborted ? 'cancelled' : 'stream-error' });
-      throw error;
     } finally {
-      await reader.cancel();
-    }
-    try {
-      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      const message = payload?.choices?.[0]?.message;
-
-      current.reportUsage?.(payload?.usage || {});
-
-      if (!message || typeof message !== 'object' || (!message.content?.trim?.() && !message.tool_calls?.length)) {
-        throw new Error('invalid message');
-      }
-
-      if (onContent && typeof message.content === 'string') {
-        await onContent(message.content);
-      }
-
-      current.report?.({ ok: true, status: response.status, headers: response.headers, latencyMs: Date.now() - attemptStartedAt });
-
-      return message;
-    } catch {
-      if (await retryInvalid(200)) continue;
-      throw new Error('模型未返回有效消息。');
+      clearTimeout(attemptTimer);
     }
   }
 };

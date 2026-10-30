@@ -59,7 +59,7 @@ export const opinionsModule = (config: DSHBridgeConfig): AgentModule => ({
         context.signal.aborted ||
         active >= 2 ||
         !activity.output.trim() ||
-        /\[沉默\]|服务暂时不可用|网线断了|请稍后再试/.test(activity.output) ||
+        /\[沉默\]|服务暂时不可用|网线断了|非常抱歉，我网卡没流量了|请稍后再试/.test(activity.output) ||
         activity.input.trimStart().startsWith('/')
       )
         return;

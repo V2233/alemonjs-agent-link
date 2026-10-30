@@ -1,3 +1,4 @@
+import { tokenUsageFetch } from '../billing/token-usage';
 import { localRequestFailure } from '../dsh/errors';
 import { beginReplyGateAttempt } from './reply-gate-statistics';
 import { getGroupCredential as getBoundCredential } from '../credentials/group';
@@ -227,7 +228,7 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
             : await (() => {
                 current.markSent?.();
 
-                return fetch(url, request);
+                return tokenUsageFetch(config, url, request);
               })();
       } catch (error) {
         pendingAttempt(false);

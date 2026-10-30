@@ -16,6 +16,7 @@
     "dist",
     "python/chat_only.patch.yml",
     "python/dsh_bridge.py",
+    "python/token_usage.py",
     "python/dsh_worker.py",
     "python/requirements.txt",
     "python/sandbox_profile.py",

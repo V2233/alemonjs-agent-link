@@ -334,7 +334,7 @@ export class QAStore {
     if (answer.length < 6 || answer.length > 1200) {
       return undefined;
     }
-    if (/(糟糕，网线断了|服务暂时不可用|模型服务暂时不可用|请稍后再试|回复因内容安全策略未发送|\[沉默\])/u.test(answer)) {
+    if (/(糟糕，网线断了|非常抱歉，我网卡没流量了|服务暂时不可用|模型服务暂时不可用|请稍后再试|回复因内容安全策略未发送|\[沉默\])/u.test(answer)) {
       return undefined;
     }
     if (/^(我不知道|我不清楚|我不确定|不清楚|不确定|无法回答|无法确定)/u.test(answer)) {

@@ -1,3 +1,4 @@
+import { tokenUsageFetch } from './token-usage';
 import { isAdminSpeechPreview } from '../media/admin-preview-context';
 import { assertAIEnabled } from '../dsh/ai-switch';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -635,7 +636,7 @@ export const budgetedFetch = async (
           ? await (() => {
               init.onDispatch?.();
 
-              return fetch(new URL('https://api.deepseek.com/chat/completions'), { ...init, headers, redirect: 'error' });
+              return tokenUsageFetch(config, new URL('https://api.deepseek.com/chat/completions'), { ...init, headers, redirect: 'error' });
             })()
           : await withBudgetScope(keyLimitScope(personal.scope), () =>
               budgetedFetch(
@@ -674,7 +675,7 @@ export const budgetedFetch = async (
   if (!budgetEnabled(config)) {
     init.onDispatch?.();
 
-    return fetch(url, init);
+    return tokenUsageFetch(config, url, init);
   }
   init.signal?.throwIfAborted();
   const scope = context.getStore();
@@ -730,7 +731,7 @@ export const budgetedFetch = async (
 
   try {
     init.onDispatch?.();
-    response = await fetch(url, { ...init, body: JSON.stringify(body) });
+    response = await tokenUsageFetch(config, url, { ...init, body: JSON.stringify(body) });
   } catch (error) {
     await markPendingBudget(redis, keys[2], 'network-or-abort');
     throw error;

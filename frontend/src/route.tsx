@@ -1,3 +1,4 @@
+import TokenUsagePage from './components/TokenUsagePage';
 import ImagesPage from './components/ImagesPage';
 import StickersPage from './components/StickersPage';
 import SettingsPage from './components/SettingsPage';
@@ -29,6 +30,7 @@ export default createHashRouter([
       { path: '/personas', element: <ContentPage key='personas' kind='personas' /> },
       { path: '/knowledge', element: <ContentPage key='knowledge' kind='knowledge' /> },
       { path: '/work-model', element: <WorkModelPage /> },
+      { path: '/token-usage', element: <TokenUsagePage /> },
       { path: '/rotation', element: <PoolPage /> }
     ]
   },

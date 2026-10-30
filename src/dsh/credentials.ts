@@ -28,6 +28,7 @@ export type DSHCredentials = {
   hold?: () => void;
   endTask?: () => void;
   renew?: (estimatedTokens: number) => DSHCredentials | null;
+  initialFailover?: boolean;
   endpointId?: string;
   attempt?: number;
   maxAttempts?: number;
@@ -40,7 +41,7 @@ export type DSHCredentials = {
   disable?: () => void;
   markSent?: () => void;
   report?: (outcome: DSHCredentialReport) => void;
-  next?: (options?: { fallback?: boolean }) => DSHCredentials | null;
+  next?: (options?: { fallback?: boolean; initialTask?: boolean }) => DSHCredentials | null;
 };
 
 type CredentialConfig = {
@@ -161,6 +162,25 @@ export const createChatTaskCredentials = () => {
   let current: DSHCredentials | null = null;
   let acquiring = false;
   const lifetime = new AbortController();
+  let committed = false;
+  const wrapInitial = (selected: DSHCredentials): DSHCredentials => ({
+    ...selected,
+    initialFailover: true,
+    report: outcome => {
+      if (outcome.ok) committed = true;
+      selected.report?.(outcome);
+    },
+    next: () => {
+      if (committed || lifetime.signal.aborted) return null;
+      const next = selected.next?.({ initialTask: true });
+
+      if (!next) return null;
+      lease = next;
+      current = next;
+
+      return wrapInitial(next);
+    }
+  });
 
   return {
     async acquire(options: PoolSelectionOptions): Promise<DSHCredentials | null> {
@@ -171,6 +191,7 @@ export const createChatTaskCredentials = () => {
       acquiring = true;
       try {
         if (lease) {
+          committed = true;
           const deadline = Date.now() + (getCredentialPool(getAppConfigValue<CredentialConfig>())?.config.queueMaxWaitMs || 0);
           let next = lease.renew ? lease.renew(options.estimatedTokens || 0) : lease;
 
@@ -194,7 +215,7 @@ export const createChatTaskCredentials = () => {
         lease?.hold?.();
         current = lease;
 
-        return lease ? { ...lease, next: undefined } : null;
+        return lease ? wrapInitial(lease) : null;
       } finally {
         acquiring = false;
       }

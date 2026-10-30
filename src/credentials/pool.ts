@@ -1,3 +1,4 @@
+import { tokenUsageFetch } from '../billing/token-usage';
 import { requestReason, type RequestResult } from '../model-pool/request-result';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
@@ -187,6 +188,12 @@ export type ModelPoolStatus = {
 };
 
 export class CredentialPool {
+  private usageFetch(url: string | URL, init: RequestInit): Promise<Response> {
+    return this.metricsPath
+      ? tokenUsageFetch({ dshHomeRoot: join(dirname(this.metricsPath), 'dsh-homes'), modelPool: this.config }, new URL(url), init)
+      : fetch(url, init);
+  }
+
   private readonly states: EndpointState[];
   private readonly retired = new Map<string, EndpointState>();
 
@@ -794,7 +801,7 @@ export class CredentialPool {
     const url = `${endpoint.baseUrl.replace(/\/+$/u, '')}/chat/completions`;
 
     try {
-      const response = await fetch(url, {
+      const response = await this.usageFetch(url, {
         method: 'POST',
         redirect: 'error',
         signal: AbortSignal.timeout(this.config.capabilityProbeTimeoutMs),
@@ -860,7 +867,7 @@ export class CredentialPool {
       'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC';
 
     try {
-      const response = await fetch(`${endpoint.baseUrl.replace(/\/+$/u, '')}/chat/completions`, {
+      const response = await this.usageFetch(`${endpoint.baseUrl.replace(/\/+$/u, '')}/chat/completions`, {
         method: 'POST',
         redirect: 'error',
         signal: AbortSignal.timeout(this.config.capabilityProbeTimeoutMs),
@@ -919,7 +926,7 @@ export class CredentialPool {
     const endpoint = state.endpoint;
 
     try {
-      const response = await fetch(`${endpoint.baseUrl.replace(/\/+$/u, '')}/chat/completions`, {
+      const response = await this.usageFetch(`${endpoint.baseUrl.replace(/\/+$/u, '')}/chat/completions`, {
         method: 'POST',
         redirect: 'error',
         signal: AbortSignal.timeout(this.config.capabilityProbeTimeoutMs),
@@ -1020,7 +1027,7 @@ export class CredentialPool {
       let errorKind: string | undefined;
 
       try {
-        const response = await fetch(state.endpoint.baseUrl.replace(/\/+$/u, '') + '/chat/completions', {
+        const response = await this.usageFetch(state.endpoint.baseUrl.replace(/\/+$/u, '') + '/chat/completions', {
           method: 'POST',
           redirect: 'error',
           headers: { Authorization: 'Bearer ' + state.endpoint.apiKey, 'Content-Type': 'application/json' },
@@ -1196,8 +1203,9 @@ export class CredentialPool {
         }
         this.report(state, outcome, reserved, reservedTokens, purpose, !held);
       },
-      next: (nextOptions?: { fallback?: boolean }) => {
-        if (held || (credential.attempt || 1) >= this.config.maxAttempts) return null;
+      next: (nextOptions?: { fallback?: boolean; initialTask?: boolean }) => {
+        if ((held && !nextOptions?.initialTask) || ended || (credential.attempt || 1) >= this.config.maxAttempts) return null;
+        if (Date.now() - (credential.startedAt || Date.now()) >= this.config.retryBudgetMs) return null;
         const next = this.select({
           purpose,
           stickyKey: options.stickyKey,
@@ -1213,7 +1221,13 @@ export class CredentialPool {
           exclude: tried
         });
 
-        if (next) next.attempt = (credential.attempt || 1) + 1;
+        if (next) {
+          next.attempt = (credential.attempt || 1) + 1;
+          if (nextOptions?.initialTask) {
+            credential.endTask?.();
+            next.hold?.();
+          }
+        }
 
         return next;
       }

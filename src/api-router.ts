@@ -1,3 +1,5 @@
+import { readTokenUsage, rememberTokenKey, tokenKeyId } from './billing/token-usage';
+import { dirname } from 'node:path';
 import { readImageSettings, saveImageSettings, migrateImageSettings, previewImage } from './panel/image-service';
 import { imageMime } from './media/download';
 import { stickerAssets, stickerImage, saveStickerAsset, uploadStickerAsset } from './panel/sticker-service';
@@ -8,7 +10,7 @@ import { readAdsSettings, saveAdsSettings } from './panel/ads-settings';
 import { listEndpointModels } from './panel/model-list';
 import { readHobbies, saveHobbies } from './panel/hobbies';
 import { inspectBiliReadiness } from './panel/bili-diagnostics';
-import { logger } from 'alemonjs';
+import { logger, getAppConfig } from 'alemonjs';
 import { AdminInputError } from './panel/admin-error';
 import { migrateVoiceSettings, previewVoice, voiceSnapshot, probeVoices, voiceBalances, readVoiceSettings, updateVoiceSettings } from './panel/voice-service';
 import { getOpinionStore } from './opinions/store';
@@ -307,6 +309,23 @@ apiRouter.post('/knowledge', ctx => {
   const target = body.scope === 'global' ? 'global' : { platform: body.platform, channelId: body.channelId };
 
   success(ctx, getQAStore(getDSHConfig()).addExplicit(target, body), '问答已保存');
+});
+apiRouter.get('/token-usage', ctx => {
+  const config = getDSHConfig();
+  const root = dirname(config.dshHomeRoot);
+  const app = getAppConfig<{ apiKey?: string; baseUrl?: string }>().value;
+
+  if (app.apiKey && (app.baseUrl || config.provider === 'deepseek-official'))
+    rememberTokenKey(root, tokenKeyId(new URL(app.baseUrl || 'https://api.deepseek.com'), app.apiKey), '工作模型 / 主 Key');
+  const labels = new Map<string, string[]>();
+
+  for (const endpoint of config.modelPool?.endpoints || []) {
+    const id = tokenKeyId(new URL(endpoint.baseUrl), endpoint.apiKey);
+
+    labels.set(id, [...(labels.get(id) || []), endpoint.id]);
+  }
+  for (const [id, names] of labels) rememberTokenKey(root, id, names.join('、'));
+  success(ctx, readTokenUsage(root, typeof ctx.query.period === 'string' ? ctx.query.period : undefined));
 });
 apiRouter.get('/pool', async ctx => success(ctx, await poolSnapshot()));
 apiRouter.post('/pool/health-check-all', ctx => success(ctx, startPoolHealthRun()));
