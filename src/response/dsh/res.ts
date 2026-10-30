@@ -111,6 +111,7 @@ export default async (): Promise<void> => {
       {
         channelId: event.ChannelId,
         platform: event.Platform,
+        botId: event.BotId,
         id: event.MessageId,
         userId: event.UserId,
         userKey: event.UserKey || event.UserId,

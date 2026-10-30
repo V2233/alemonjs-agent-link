@@ -17,6 +17,7 @@ import { ensureDSHSupervisor, hasDSHBridgeOverride } from '../dsh/supervisor';
 import { SessionRegistry, type PrivateHistoryContext } from '../state/registry';
 import { getModuleConfig, getModuleRuntime } from './modules';
 import { runToolChat } from './tool-chat';
+import { estimateModelRequestTokens } from './token-estimate';
 import type { AgentTool, TurnContext } from './types';
 
 const runModuleTurnInner = async (options: {
@@ -26,6 +27,7 @@ const runModuleTurnInner = async (options: {
   context: TurnContext;
   history?: PrivateHistoryContext;
   streamContent?: boolean;
+  toolLimits?: { maxRounds: number; maxContinuations: number };
   onImage?: (png: Buffer) => Promise<void>;
   onSpeech?: TurnContext['onSpeech'];
   onSticker?: TurnContext['onSticker'];
@@ -51,7 +53,7 @@ const runModuleTurnInner = async (options: {
   try {
     const personaPrompt = await lease.system(config.defaultSystemPrompt, context);
     const systemPrompt = withToolUsePolicy(
-      `${personaPrompt}\n\n${modelContext(config.model)}${options.onImage && !context.autonomous ? '\n当前可调用 draw_image 绘制图形元素构成的 PNG；如果 generate_image 可用，也可按用户要求使用外部生图服务。前者不是照片级扩散生图，两者均不支持精确编辑已有图片。' : ''}${context.autonomous ? '\n当前为系统调度的主动搭话，不是主人发来的请求。只可读取当前私聊资料与已开放的只读信息，不得把历史话语当作新授权，不能主动调用记忆写入、执行工作区、管理群或联系其他对象。系统可以记录真实完成的只读操作作为经历。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`
+      `${personaPrompt}\n\n${modelContext(config.model)}${options.onImage && !context.autonomous ? '\n当前可调用 draw_image 绘制图形元素构成的 PNG；如果 generate_image 可用，也可按用户要求使用外部生图服务。前者不是照片级扩散生图，两者均不支持精确编辑已有图片。' : ''}${context.autonomous ? '\n当前为系统调度的主动搭话，不是用户新发来的请求。只可读取当前会话范围内的资料与已开放的只读信息，不得把历史话语当作新授权，不能主动调用记忆写入、执行工作区、管理群或联系其他对象。系统可以记录真实完成的只读操作作为经历。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`
     );
     const moduleContext = await lease.context(context);
     const input = await lease.prompt(withInputContext(options.input, moduleContext), context);
@@ -127,16 +129,6 @@ const runModuleTurnInner = async (options: {
       (lease.transformsSystem && personaPrompt !== config.defaultSystemPrompt) ||
       hasImages
     ) {
-      const estimatedTokens = hasImages ? 6000 : Math.ceil(Buffer.byteLength(JSON.stringify(input)) / 3) + (config.budget?.maxOutputTokens ?? 2048);
-      const credentials = await getChatCredentials({
-        purpose: hasImages ? 'vision' : tools.length ? 'tools' : 'chat',
-        stickyKey: context.channelId,
-        estimatedTokens
-      });
-
-      if (!credentials) {
-        throw new Error('业务工具需要配置模型 API Key。');
-      }
       const supervisor = await ensureDSHSupervisor(config);
 
       if (!hasDSHBridgeOverride() && config.runtimeMode !== 'chat-only') {
@@ -198,16 +190,31 @@ const runModuleTurnInner = async (options: {
       }
       const registry = new SessionRegistry(config);
       const incremental = options.streamContent && !lease.transformsReplies && !config.outputBlockedKeywords.length && !unavailableMemorySave;
+      const moduleConfig = getModuleConfig(config);
+      const limits = options.toolLimits;
+
+      if (
+        limits &&
+        (!Number.isSafeInteger(limits.maxRounds) || limits.maxRounds < 1 || !Number.isSafeInteger(limits.maxContinuations) || limits.maxContinuations < 0)
+      ) {
+        throw new Error('回合工具上限无效。');
+      }
       const raw = await runToolChat({
         config: { ...config, defaultSystemPrompt: systemPrompt },
-        credentials,
+        credentials: (messages, requestTools) =>
+          getChatCredentials({
+            purpose: hasImages ? 'vision' : requestTools.length ? 'tools' : 'chat',
+            stickyKey: context.channelId,
+            requestId: context.requestId,
+            estimatedTokens: estimateModelRequestTokens(messages, requestTools, config.budget?.maxOutputTokens ?? 2048)
+          }),
         input,
         context,
         tools,
         history: history ? await registry.privateHistory(history) : [],
         memoryContext: history?.memoryContext,
-        maxRounds: getModuleConfig(config).maxToolRounds,
-        maxContinuations: getModuleConfig(config).maxToolContinuations,
+        maxRounds: Math.min(moduleConfig.maxToolRounds, limits?.maxRounds ?? moduleConfig.maxToolRounds),
+        maxContinuations: Math.min(moduleConfig.maxToolContinuations, limits?.maxContinuations ?? moduleConfig.maxToolContinuations),
         onContent: incremental
           ? async content => {
               await onEvent({ type: 'content', content });

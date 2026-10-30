@@ -7,6 +7,9 @@ import { groupPolicy } from './group-settings';
 import { getBoundCredential } from '../credentials/scoped';
 import { withBudgetScope } from '../billing/budget';
 import { moodGroupPolicy } from '../companion/expression';
+import { getGroupWaitStore, groupWaitNamespace } from './group-wait-store';
+import { historyEnabled } from '../history/store';
+import { getGroupWakeStore, groupWakeNamespace } from './group-wake-store';
 
 export const scopedGroupPolicy = (channelId: string, platform = '') => {
   const config = getDSHConfig();
@@ -47,6 +50,50 @@ export const resolveGroupCapabilities = async (
 const processState = globalThis as typeof globalThis & { __agentLinkGroupConversations__?: GroupConversationCoordinator };
 
 export const groupConversations = (processState.__agentLinkGroupConversations__ ??= new GroupConversationCoordinator({
+  onInput: message => {
+    const config = getDSHConfig();
+
+    if (config.modules?.settings?.conversation?.wakeEnabled !== true) return;
+    try {
+      getGroupWakeStore(config).clear(groupWakeNamespace(config), message.channelId, {
+        platform: message.platform || '',
+        botId: message.botId ?? message.messageContext?.conversation?.botId ?? ''
+      });
+    } catch {
+      logger.warn('Group wake input cancellation failed');
+    }
+  },
+  waitNamespace: () => {
+    const config = getDSHConfig();
+
+    return JSON.stringify([groupWaitNamespace(config), historyEnabled(config)]);
+  },
+  waitPersistence: scope => {
+    const config = getDSHConfig();
+    const store = getGroupWaitStore(config);
+    const savedScope = { ...scope, namespace: groupWaitNamespace(config) };
+
+    if (!historyEnabled(config)) {
+      store.remove(savedScope);
+
+      return undefined;
+    }
+
+    return store.persistence(savedScope, () => logger.warn('Group wait persistence failed'));
+  },
+  clearPersistedWait: (channelId, scope, userKey) => {
+    const config = getDSHConfig();
+
+    const wait = getGroupWaitStore(config).remove({ namespace: groupWaitNamespace(config), channelId, ...scope }, userKey);
+
+    try {
+      return getGroupWakeStore(config).clear(groupWakeNamespace(config), channelId, scope) || wait;
+    } catch {
+      logger.warn('Group wake cleanup failed');
+
+      return wait;
+    }
+  },
   classify: classifyGroupReply,
   resolvePolicy: async (message, policy) => {
     if (!message.platform) return policy;

@@ -1,3 +1,4 @@
+import type { ConversationQueueScope } from '../dsh/conversation-scope';
 import { readMessageContext } from './message-context';
 import { claimReplyGateBudgetNotice, replyGateExceededMessage } from '../billing/budget';
 import { budgetNoticeActions } from '../billing/help';
@@ -9,7 +10,7 @@ import { getDSHConfig } from '../dsh/client';
 import { SessionRegistry } from '../state/registry';
 import { logger } from 'alemonjs';
 import { noticeBubble } from '../response/bubble';
-import { ensureIsolatedGroup } from '../dsh/orchestrator';
+import { conversationQueueScope, ensureIsolatedGroup } from '../dsh/orchestrator';
 import { randomUUID } from 'node:crypto';
 import { currentVoiceTranscript } from '../media/onebot-transcript';
 import { readCurrentForwards } from './onebot-forward';
@@ -34,8 +35,9 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
     return { delivered: false, completed: true };
   }
   let result: GroupBatchResult = { delivered: false, completed: false };
-  const registry = new SessionRegistry(getDSHConfig());
-  const claims: { id: string; requestId: string }[] = [];
+  const claimConfig = getDSHConfig();
+  const registry = new SessionRegistry(claimConfig);
+  const claims: { channelId: string; id: string; requestId: string; scope: ConversationQueueScope }[] = [];
   const accepted: GroupBatch['messages'] = [];
 
   try {
@@ -43,12 +45,13 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
     for (const message of batch.messages) {
       if (message.id) {
         const id = `group-message:${message.id}`;
-        const claim = await registry.deduplicate(message.channelId, id);
+        const scope = conversationQueueScope(claimConfig, { platform: message.platform, botId: message.botId ?? message.messageContext?.conversation?.botId });
+        const claim = await registry.deduplicate(message.channelId, id, scope);
 
         if (claim.duplicate) {
           continue;
         }
-        claims.push({ id, requestId: claim.requestId });
+        claims.push({ channelId: message.channelId, id, requestId: claim.requestId, scope });
       }
       accepted.push(message);
     }
@@ -101,7 +104,9 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
         buildGroupBatchPrompt(currentBatch),
         {
           requestId,
+          onGroupWakeValid: batch.onGroupWakeValid,
           onGroupWait: batch.onGroupWait,
+          onGroupInboxSpeakers: batch.onGroupInboxSpeakers,
           referencesPrepared: true,
           voice: anchor.voice,
           userText: anchor.text,
@@ -120,7 +125,9 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
     }
     if (result.completed) {
       for (const claim of claims) {
-        await registry.finalizeDeduplication(event.ChannelId, claim.id, claim.requestId).catch(() => logger.warn('Group source message confirmation failed'));
+        await registry
+          .finalizeDeduplication(claim.channelId, claim.id, claim.requestId, claim.scope)
+          .catch(() => logger.warn('Group source message confirmation failed'));
       }
     }
   } catch {
@@ -142,7 +149,9 @@ export const respondToGroupBatch = async (event: ChatEvent, transport: Transport
   } finally {
     if (!result.completed) {
       for (const claim of claims) {
-        await registry.releaseDeduplication(event.ChannelId, claim.id, claim.requestId).catch(() => logger.warn('Group source message claim release failed'));
+        await registry
+          .releaseDeduplication(claim.channelId, claim.id, claim.requestId, claim.scope)
+          .catch(() => logger.warn('Group source message claim release failed'));
       }
     }
   }
@@ -162,6 +171,7 @@ export const submitGroupChat = async (event: ChatEvent, prompt: string, transpor
     {
       channelId: event.ChannelId,
       platform: event.Platform,
+      botId: event.BotId,
       id: event.MessageId,
       userId: event.UserId || 'unknown',
       userKey: event.UserKey || event.UserId || 'unknown',

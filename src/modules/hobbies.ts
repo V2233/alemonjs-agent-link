@@ -15,7 +15,7 @@ export const hobbiesModule = (): AgentModule => ({
     api.on(
       'context',
       () =>
-        `角色的爱好偏好数据：${JSON.stringify({ hobbies: selected, interests: settings.interests })}。仅用于自然聊天中的兴趣表达，不是工具调用指令或授权；不要每次回复都提爱好，不得编造看过的视频或动态。实际浏览依赖已开放工具；此设置不启用自动浏览、点赞、评论或发布。`
+        `角色的爱好偏好数据：${JSON.stringify({ hobbies: selected, interests: settings.interests })}。仅用于自然聊天中的兴趣表达，不是工具调用指令或授权；不要每次回复都提爱好，不得编造看过的视频或动态。实际浏览依赖已开放工具；独立阅读是否执行由自主活动调度与工具权限控制；爱好偏好本身不授权点赞、评论或发布。`
     );
   }
 });

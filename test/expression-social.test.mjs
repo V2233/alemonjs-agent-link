@@ -45,3 +45,57 @@ test('automatic stickers avoid the last three successful images within a convers
     ['morning', 'generic']
   );
 });
+
+test('common classifier labels match reactions without relying on exact canonical names', () => {
+  const library = [
+    { id: 'laughter', name: '笑死大笑', tags: ['大笑', '搞笑'], category: '开心' },
+    { id: 'comfort', name: '给你一个拥抱', tags: ['拥抱', '心疼'] },
+    { id: 'anger', name: '炸毛了', tags: ['炸毛'] }
+  ];
+  assert.equal(selectIntentSticker(library, '哈哈哈')?.id, 'laughter');
+  assert.equal(selectIntentSticker(library, '我好难过')?.id, 'comfort');
+  assert.equal(selectIntentSticker(library, '气死我了')?.id, 'anger');
+  assert.equal(selectIntentSticker([{ id: 'broad', tags: ['日常', '问候'] }], '肥鱼在吗'), undefined);
+});
+
+test('explicit emotion cannot be replaced by the bot mood or an unrelated fallback', async () => {
+  const { selectExpressionSticker } = await import('../lib/companion/expression.js');
+  const library = [
+    { id: 'happy', tags: ['开心'] },
+    { id: 'comfort', tags: ['心疼'] }
+  ];
+  assert.equal(selectExpressionSticker([library[0]], '抱抱', 90, 'sad', false, '我好难过'), undefined);
+  assert.equal(selectExpressionSticker([library[0]], '抱抱', 90, 'sad', true, '我好难过'), undefined);
+  assert.equal(selectExpressionSticker(library, '抱抱', 90, 'sad', false, '我好难过')?.id, 'comfort');
+  assert.equal(selectExpressionSticker([library[0]], '抱抱', 90, 'implicit', false, '我被裁员了'), undefined);
+  for (const userText of ['他说“哈哈哈”', '我不开心', '怎么安慰难过的人', '不要再说晚安了'])
+    assert.equal(selectExpressionSticker(library, '开心', 90, 'ambiguous', true, userText), undefined, userText);
+});
+
+test('a greeting cannot hide a single explicit emotion in automatic sticker selection', async () => {
+  const { selectExpressionSticker } = await import('../lib/companion/expression.js');
+  const library = [
+    { id: 'here', name: '在呢', tags: ['回应'] },
+    { id: 'morning', tags: ['早安'] },
+    { id: 'hug', tags: ['拥抱'] },
+    { id: 'laugh', tags: ['大笑'] }
+  ];
+  for (const text of ['肥鱼在吗，我好难过', '早安，我好难过', '我好难过，肥鱼在吗']) {
+    assert.equal(hasStickerIntent(text), true);
+    assert.equal(selectIntentSticker(library, text)?.id, 'hug', text);
+    assert.equal(selectExpressionSticker(library, '在呢，抱抱', 90, text, true, text)?.id, 'hug', text);
+  }
+  assert.equal(selectIntentSticker(library, '早安，今天好开心')?.id, 'laugh');
+});
+
+test('mixed reactions retain text and cannot become an unrelated mood or random sticker', async () => {
+  const { selectExpressionSticker } = await import('../lib/companion/expression.js');
+  const library = [{ id: 'laugh', tags: ['大笑', '开心'] }, { id: 'hug', tags: ['拥抱'] }, { id: 'angry', tags: ['炸毛'] }];
+  for (const text of ['哈哈，其实我很难过', '我很难过，但现在好开心', '气死我了哈哈哈', '早安，晚安']) {
+    assert.equal(hasStickerIntent(text), false, text);
+    assert.equal(selectIntentSticker(library, text), undefined, text);
+    assert.equal(selectExpressionSticker(library, '开心，抱抱', 90, text, true, text), undefined, text);
+    assert.equal(needsTextSupplement(text, '抱抱'), true, text);
+  }
+  assert.equal(selectIntentSticker(library, '哈哈哈，今天好开心')?.id, 'laugh', 'aliases of the same emotion remain one intent');
+});

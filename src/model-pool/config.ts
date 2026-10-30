@@ -16,6 +16,7 @@ export type ModelPoolEndpoint = {
   rpm?: number;
   tpm?: number;
   balanceUrl?: string;
+  balanceStyle?: 'newapi';
   pricing?: { input: number; output: number; cached: number };
   weight: number;
   maxConcurrent: number;

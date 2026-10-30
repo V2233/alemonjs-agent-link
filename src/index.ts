@@ -1,3 +1,4 @@
+import { reconcileGroupWakes } from './social/group-wake';
 import { getOpinionStore } from './opinions/store';
 import { getAffinityStore } from './companion/affinity';
 import { budgetEnabled, budgetRedis } from './billing/budget';
@@ -60,6 +61,7 @@ export default defineChildren({
     try {
       const startupConfig = getDSHConfig();
 
+      reconcileGroupWakes(startupConfig);
       logger.info(runtimeSummary(startupConfig), 'AgentLink runtime resolved');
       warmCredentialPool(startupConfig);
       if (budgetEnabled(startupConfig)) {
@@ -85,6 +87,7 @@ export default defineChildren({
         try {
           const next = getDSHConfig();
 
+          reconcileGroupWakes(next);
           logger.info(runtimeSummary(next), 'AgentLink runtime reloaded');
           warmCredentialPool(next);
           void syncStickerPanel(next);

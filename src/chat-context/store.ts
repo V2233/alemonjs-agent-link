@@ -1,3 +1,4 @@
+import type { ConversationQueueScope } from '../dsh/conversation-scope';
 import type { DSHBridgeConfig } from '@src/dsh/client';
 import { SessionRegistry, type RecentMessage } from '@src/state/registry';
 
@@ -17,17 +18,20 @@ export const recordRecentMessage = (
   channelId: string,
   message: Omit<RecentChatMessage, 'timestamp'> & { timestamp?: number },
   _options: RecentChatOptions,
-  config: DSHBridgeConfig
-): Promise<void> => new SessionRegistry(config).recordRecent(channelId, message);
+  config: DSHBridgeConfig,
+  scope?: ConversationQueueScope
+): Promise<void> => new SessionRegistry(config).recordRecent(channelId, message, scope);
 
 export const getRecentMessages = (
   channelId: string,
   _options: RecentChatOptions,
   config: DSHBridgeConfig,
-  excludedMessageId?: string
-): Promise<RecentChatMessage[]> => new SessionRegistry(config).recent(channelId, excludedMessageId);
+  excludedMessageId?: string,
+  scope?: ConversationQueueScope
+): Promise<RecentChatMessage[]> => new SessionRegistry(config).recent(channelId, excludedMessageId, scope);
 
-export const clearRecentMessages = (channelId: string, config: DSHBridgeConfig): Promise<void> => new SessionRegistry(config).clearRecent(channelId);
+export const clearRecentMessages = (channelId: string, config: DSHBridgeConfig, scope?: ConversationQueueScope): Promise<void> =>
+  new SessionRegistry(config).clearRecent(channelId, scope);
 
 const priorityPattern = /(\?|？|结论|决定|确认|计划|待办|任务|截止|时间|地址|链接|https?:\/\/)/i;
 

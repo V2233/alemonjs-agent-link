@@ -385,6 +385,11 @@ export class LocalStore {
           put(keys[0], meta);
 
           return 1;
+        case 'writeHistoryAnchor':
+          if (meta.generation !== Number(a[0]) || meta.isolated !== true || meta.transition) return 0;
+          this.command(['set', keys[1], a[1], 'EX', a[2]]);
+
+          return 1;
         case 'appendPrivateTurn':
           if (meta.generation !== Number(a[0]) || meta.isolated !== true || meta.transition) {
             return 0;

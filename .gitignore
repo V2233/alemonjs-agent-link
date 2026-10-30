@@ -27,6 +27,7 @@ __pycache__/
 /.github/skills
 
 /packages
+/output
 
 /.playwright-cli
 /.agent-link-admin

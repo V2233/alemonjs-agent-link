@@ -253,7 +253,7 @@ export class OneBotActions {
                 ?.toString() ?? '');
         const emojiId = /^[A-Za-z0-9_-]{1,64}$/u.test(rawId) ? rawId : '';
 
-        if (!emojiId) throw new OneBotError('收藏表情未返回可核对的标识。');
+        if (!emojiId) throw new OneBotError('protocol');
         data = { emojiId };
       } else if (payload.key === 'agentLink.stickerFavoriteRename') {
         if (!event.IsMaster) throw new Error('只有主人能修改 QQ 收藏表情。');

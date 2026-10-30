@@ -1,3 +1,5 @@
+import { conversationQueueKey, conversationQueueScope, type ConversationQueueScope } from './conversation-scope';
+export { conversationQueueScope } from './conversation-scope';
 import { RequestSlotPool } from './request-slots';
 import { serializeByKey } from './serialize';
 import { withBudgetScope } from '../billing/budget';
@@ -13,13 +15,16 @@ import { getSessionId } from '@src/response/dsh/util';
 import type { GroupPolicy } from '@src/state/registry';
 
 type Job = { userId: string; run: () => Promise<void>; reject: (error: Error) => void };
-type GroupQueue = { running: boolean; jobs: Job[]; cancel?: AbortController; activeUserId?: string };
+type GroupQueue = { channelId: string; running: boolean; jobs: Job[]; cancel?: AbortController; activeUserId?: string };
 const queues = new Map<string, GroupQueue>();
 const groupResetTransitions = new Map<string, Promise<void>>();
 const requestSlots = new RequestSlotPool();
 
 export const getRequestCapacity = (): { active: number } => ({ active: requestSlots.active });
-export const conversationBusy = (channelId: string): boolean => Boolean(queues.get(channelId)?.running || queues.get(channelId)?.jobs.length);
+export const conversationBusy = (channelId: string, scope?: ConversationQueueScope): boolean =>
+  scope
+    ? Boolean(queues.get(conversationQueueKey(channelId, scope))?.running || queues.get(conversationQueueKey(channelId, scope))?.jobs.length)
+    : [...queues.values()].some(queue => queue.channelId === channelId && (queue.running || queue.jobs.length));
 
 export const enqueueChat = async (
   channelId: string,
@@ -27,11 +32,13 @@ export const enqueueChat = async (
   userId: string,
   run: (signal: AbortSignal) => Promise<void>,
   onQueued?: (ahead: number) => Promise<void>,
-  onStarted?: (wasQueued: boolean, signal: AbortSignal) => Promise<void>
+  onStarted?: (wasQueued: boolean, signal: AbortSignal) => Promise<void>,
+  scope?: ConversationQueueScope
 ): Promise<void> => {
-  const queue = queues.get(channelId) ?? { running: false, jobs: [] };
+  const key = conversationQueueKey(channelId, scope);
+  const queue = queues.get(key) ?? { channelId, running: false, jobs: [] };
 
-  queues.set(channelId, queue);
+  queues.set(key, queue);
   if (queue.running && queue.jobs.length >= maxQueued) {
     throw new DSHError('http', '当前群请求排队已满');
   }
@@ -82,22 +89,25 @@ export const enqueueChat = async (
       }
       queue.running = false;
       if (!queue.jobs.length) {
-        queues.delete(channelId);
+        queues.delete(key);
       }
     })();
   });
 };
 
-export const cancelGroupChat = (channelId: string, clearPending = true): void => {
+/** Omitted scope preserves the existing channel-wide reset boundary while generation metadata is still shared. */
+export const cancelGroupChat = (channelId: string, clearPending = true, scope?: ConversationQueueScope): void => {
   if (clearPending) {
-    groupConversations.clear(channelId);
-    void messageReferences.clear(channelId).catch(() => logger.warn('Message reference cleanup failed'));
+    groupConversations.clear(channelId, scope);
+    void messageReferences.clear(channelId, scope).catch(() => logger.warn('Message reference cleanup failed'));
   }
-  const queue = queues.get(channelId);
+  const selected = scope
+    ? [queues.get(conversationQueueKey(channelId, scope))].filter(Boolean)
+    : [...queues.values()].filter(queue => queue.channelId === channelId);
 
-  queue?.cancel?.abort();
-  while (queue?.jobs.length) {
-    queue.jobs.shift().reject(new DSHError('cancelled', '会话已重置'));
+  for (const queue of selected) {
+    queue.cancel?.abort();
+    while (queue.jobs.length) queue.jobs.shift().reject(new DSHError('cancelled', '会话已重置'));
   }
 };
 
@@ -214,8 +224,8 @@ export type CoordinatedChatResult = {
   release: () => Promise<void>;
 };
 
-export const cancelChatForUser = (channelId: string, userId: string, privileged: boolean): CancelChatResult => {
-  const queue = queues.get(channelId);
+export const cancelChatForUser = (channelId: string, userId: string, privileged: boolean, scope?: ConversationQueueScope): CancelChatResult => {
+  const queue = queues.get(conversationQueueKey(channelId, scope));
 
   if (!queue) {
     return 'empty';
@@ -270,6 +280,8 @@ const runCoordinatedChatInner = async (
     onSticker?: import('../agent/types').TurnContext['onSticker'];
     onStickerCollect?: import('../agent/types').TurnContext['onStickerCollect'];
     onCurrentImages?: import('../agent/types').TurnContext['onCurrentImages'];
+    onGroupInboxSpeakers?: import('../agent/types').TurnContext['onGroupInboxSpeakers'];
+    onGroupWakeValid?: () => boolean;
     onGroupWait?: import('../agent/types').TurnContext['onGroupWait'];
     prepareMessage?: (text: string, signal: AbortSignal) => Promise<ChatInput>;
     execute?: (signal: AbortSignal) => Promise<void>;
@@ -283,6 +295,7 @@ const runCoordinatedChatInner = async (
   }
 ): Promise<CoordinatedChatResult> => {
   const config = getDSHConfig();
+  const scope = conversationQueueScope(config, { platform: event.Platform, botId: event.BotId });
   const registry = new SessionRegistry(config);
 
   await registry.ready();
@@ -296,12 +309,12 @@ const runCoordinatedChatInner = async (
   if (!capabilities.chat) {
     throw new DSHError('http', '当前群未开放 Agent 对话权限');
   }
-  const duplicate = await registry.deduplicate(event.ChannelId, event.MessageId);
+  const duplicate = await registry.deduplicate(event.ChannelId, event.MessageId, scope);
 
   if (duplicate.duplicate) {
     return { ...duplicate, confirmDelivery: () => Promise.resolve(), release: () => Promise.resolve() };
   }
-  const release = async (): Promise<void> => await registry.releaseDeduplication(event.ChannelId, event.MessageId, duplicate.requestId);
+  const release = async (): Promise<void> => await registry.releaseDeduplication(event.ChannelId, event.MessageId, duplicate.requestId, scope);
 
   try {
     if (!(await registry.allowUser(event.ChannelId, event.UserKey || 'unknown'))) {
@@ -357,7 +370,9 @@ const runCoordinatedChatInner = async (
                 requestId: duplicate.requestId,
                 inputId: mediaTask?.inputId || event.MessageId || duplicate.requestId,
                 addressed: mediaTask?.addressed,
+                onGroupWakeValid: mediaTask?.onGroupWakeValid,
                 onGroupWait: mediaTask?.onGroupWait,
+                onGroupInboxSpeakers: mediaTask?.onGroupInboxSpeakers,
                 autonomous: mediaTask?.autonomous,
                 channelId: event.ChannelId,
                 userId: event.UserId || event.UserKey || 'unknown',
@@ -377,6 +392,7 @@ const runCoordinatedChatInner = async (
               },
               history: {
                 channelId: event.ChannelId,
+                scope,
                 generation: meta.generation,
                 memoryContext,
                 record: mediaTask?.recordHistory,
@@ -405,7 +421,8 @@ const runCoordinatedChatInner = async (
         }
       },
       onQueued,
-      onStarted
+      onStarted,
+      scope
     );
   } catch (error) {
     await release().catch(releaseError => logger.warn({ err: releaseError }, 'Unable to release failed DSH request'));
@@ -416,7 +433,7 @@ const runCoordinatedChatInner = async (
   return {
     ...duplicate,
     confirmDelivery: async (): Promise<void> => {
-      const finalized = await registry.finalizeDeduplication(event.ChannelId, event.MessageId, duplicate.requestId);
+      const finalized = await registry.finalizeDeduplication(event.ChannelId, event.MessageId, duplicate.requestId, scope);
 
       if (!finalized) {
         logger.warn(

@@ -142,6 +142,7 @@ export const getChatCredentials = async (options: PoolSelectionOptions = {}): Pr
       reserve: true,
       stable: false,
       estimatedTokens: options.estimatedTokens,
+      requestId: options.requestId,
       waitForCapacity: true
     });
 

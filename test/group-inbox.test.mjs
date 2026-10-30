@@ -159,6 +159,7 @@ test('the model reads real scoped archive sources and acknowledges only the retu
     assert.equal(results.at(-1).ok, true);
     return Response.json({ choices: [{ message: { content: '原来是在找海洋资料。' } }] });
   };
+  const observedSpeakers = [];
   const context = {
     ...scope,
     botId: 'bot',
@@ -167,12 +168,14 @@ test('the model reads real scoped archive sources and acknowledges only the retu
     owner: false,
     userText: '接上刚才的话题',
     onGroupWait: () => ({ ok: true, state: 'idle' }),
+    onGroupInboxSpeakers: ids => observedSpeakers.push(...ids),
     capabilities: { chat: true, web: false, files: false, terminal: false },
     signal: new AbortController().signal
   };
   try {
     await runModuleTurn({ config, sessionId: 'inbox-test', input: context.userText, context, onEvent: () => Promise.resolve() });
     assert.equal(calls, 3);
+    assert.deepEqual(observedSpeakers, ['alice']);
     assert.deepEqual(
       archive.readGroupInbox(scope, 'bot').sources.map(row => row.messageId),
       ['later']

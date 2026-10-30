@@ -78,6 +78,7 @@ export type PoolSelectionOptions = {
   stable?: boolean;
   provider?: string;
   fallbackOnly?: boolean;
+  workspaceOnly?: boolean;
   estimatedTokens?: number;
   startedAt?: number;
   waitForCapacity?: boolean;
@@ -462,7 +463,8 @@ export class CredentialPool {
 
   private withinLimits(state: EndpointState, now: number, estimatedTokens: number): boolean {
     const window = this.windowStats(state, now);
-    const account = state.endpoint.account ? this.windowStats(this.accountState(state.endpoint.account), now) : undefined;
+    const accountState = state.endpoint.account ? this.accountState(state.endpoint.account) : undefined;
+    const account = accountState ? this.windowStats(accountState, now) : undefined;
     const rpm = state.endpoint.rpm;
     const tpm = state.endpoint.tpm;
 
@@ -470,7 +472,7 @@ export class CredentialPool {
     if (
       tpm !== undefined &&
       (window.input + window.output + state.pendingTokens + estimatedTokens > tpm ||
-        (account && account.input + account.output + account.pendingTokens + estimatedTokens > tpm))
+        (account && account.input + account.output + accountState.pendingTokens + estimatedTokens > tpm))
     )
       return false;
 
@@ -577,12 +579,13 @@ export class CredentialPool {
     );
   }
 
-  private hasBusyPrimary(purpose: ModelPoolPurpose, provider: string | undefined, estimatedTokens: number): boolean {
+  private hasBusyPrimary(purpose: ModelPoolPurpose, provider: string | undefined, estimatedTokens: number, workspaceOnly = false): boolean {
     const now = this.now();
 
     return this.states.some(
       state =>
         !state.endpoint.fallback &&
+        (!workspaceOnly || state.endpoint.workspace === true) &&
         !state.disabled &&
         state.cooldownUntil <= now &&
         this.supports(state, purpose) &&
@@ -632,7 +635,7 @@ export class CredentialPool {
       this.config.queueMaxWaitMs > 0 &&
       waitForCapacity &&
       fallback.length &&
-      this.hasBusyPrimary(purpose, provider, estimatedTokens)
+      this.hasBusyPrimary(purpose, provider, estimatedTokens, workspaceOnly)
     )
       return undefined;
     const eligible = fallbackOnly ? fallback : primary.length ? primary : fallback;
@@ -705,6 +708,7 @@ export class CredentialPool {
 
   private async probe(state: EndpointState, includeChat = false): Promise<void> {
     const endpoint = state.endpoint;
+    const healthy = () => state.healthy !== false;
     const url = `${endpoint.baseUrl.replace(/\/+$/u, '')}/models`;
 
     state.lastProbeAt = this.now();
@@ -737,9 +741,9 @@ export class CredentialPool {
 
         state.latencyMs = state.latencyMs ? state.latencyMs * 0.7 + sample * 0.3 : sample;
         await response.body?.cancel();
-        if (includeChat && this.config.probeChat && state.healthy !== false) {
+        if (includeChat && this.config.probeChat && healthy()) {
           await this.probeChat(state);
-          if (state.healthy !== false && this.config.capabilityProbe) {
+          if (healthy() && this.config.capabilityProbe) {
             await this.probeVision(state);
             await this.probeTools(state);
           }
@@ -1072,14 +1076,21 @@ export class CredentialPool {
     const now = this.now();
 
     this.pruneBindings(now);
-    const bindingKey = !options.stable && options.stickyKey ? `${purpose}:${options.stickyKey}` : undefined;
+    const bindingKey = !options.stable && options.stickyKey ? `${purpose}:${options.workspaceOnly ? 'workspace:' : ''}${options.stickyKey}` : undefined;
     let state: EndpointState | undefined;
     const bound = bindingKey ? this.bindings.get(bindingKey) : undefined;
 
     if (bound && bound.expiresAt > now && !tried.has(bound.endpointId)) {
       const candidate = this.states.find(item => item.endpoint.id === bound.endpointId);
 
-      if (!options.fallbackOnly && candidate && candidate.healthy !== false && this.canUse(candidate, purpose, tried, options.provider)) {
+      if (
+        !options.fallbackOnly &&
+        candidate &&
+        candidate.healthy !== false &&
+        (!options.workspaceOnly || candidate.endpoint.workspace === true) &&
+        this.canUse(candidate, purpose, tried, options.provider) &&
+        this.withinLimits(candidate, now, options.estimatedTokens || 0)
+      ) {
         state = candidate;
         // 活跃会话滑动续期：持续接待一直保持同一端点，空闲超过 TTL 才释放。
         if (bindingKey && this.config.stickySeconds > 0)
@@ -1095,7 +1106,8 @@ export class CredentialPool {
         options.provider,
         options.estimatedTokens || 0,
         options.waitForCapacity === true,
-        options.fallbackOnly === true
+        options.fallbackOnly === true,
+        options.workspaceOnly === true
       );
 
     if (!state) {
@@ -1192,6 +1204,7 @@ export class CredentialPool {
           stable: false,
           provider: options.provider,
           fallbackOnly: nextOptions?.fallback === true,
+          workspaceOnly: options.workspaceOnly,
           estimatedTokens: options.estimatedTokens,
           startedAt: credential.startedAt,
           requestId: options.requestId || id,

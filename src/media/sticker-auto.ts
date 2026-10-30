@@ -9,6 +9,8 @@ import { collectSticker, setStickerEmoji } from './stickers';
 import { assessSticker, type StickerAssessment } from './providers';
 import { bindOnebotImageResolver } from './onebot-images';
 import { addOnebotFavoriteSticker } from './onebot-favorites';
+import { visionSource } from './vision';
+import { getStickerCollectionQuota, type StickerQuotaClaim } from './sticker-quota';
 
 type Event = {
   Platform?: string;
@@ -100,6 +102,7 @@ type Dependencies = {
   favorite: typeof addOnebotFavoriteSticker;
   setEmoji: typeof setStickerEmoji;
   failed: () => void;
+  claimQuota?: (config: DSHBridgeConfig, input: StickerQuotaClaim) => boolean;
 };
 type Job = {
   platform: string;
@@ -123,7 +126,8 @@ export class AutoStickerCollector {
   constructor(private readonly deps: Dependencies) {}
 
   enqueue(event: Event): number {
-    const settings = autoStickerSettings(this.deps.config());
+    const config = this.deps.config();
+    const settings = autoStickerSettings(config);
     const platform = event.Platform || '';
     const userId = event.UserId || '';
     const channelId = event.IsPrivate ? `private:${JSON.stringify([platform, userId])}` : event.ChannelId || '';
@@ -141,7 +145,7 @@ export class AutoStickerCollector {
     let vision = false;
 
     try {
-      vision = Boolean(this.deps.media().vision);
+      vision = Boolean(visionSource(this.deps.media(), this.deps.config()));
     } catch {
       /* Media configuration can be temporarily invalid; explicit stickers still need no vision. */
     }
@@ -174,6 +178,12 @@ export class AutoStickerCollector {
       const key = JSON.stringify([platform, channelId, event.MessageId, index]);
 
       if (this.seen.has(key) || this.queue.length >= 8 || this.attempts.length >= settings.maxPerHour || userAttempts >= 20) continue;
+      try {
+        if (this.deps.claimQuota && !this.deps.claimQuota(config, { eventKey: key, userKey, maxPerHour: settings.maxPerHour, now })) continue;
+      } catch {
+        this.deps.failed();
+        break;
+      }
       this.seen.set(key, now);
       this.attempts.push({ at: now, userKey });
       userAttempts++;
@@ -221,9 +231,10 @@ export class AutoStickerCollector {
           )
             continue;
           const media = this.deps.media();
+          const hasVision = Boolean(visionSource(media, this.deps.config()));
 
           if (!media.stickerRoot) continue;
-          if (!job.explicit && (!current.detect || !media.vision)) continue;
+          if (!job.explicit && (!current.detect || !hasVision)) continue;
           const maxBytes = job.explicit ? media.maxBytes : current.maxBytes;
 
           if (job.item.FileSize && job.item.FileSize > maxBytes) continue;
@@ -266,7 +277,7 @@ export class AutoStickerCollector {
           }
           let assessment: StickerAssessment | undefined;
 
-          if (media.vision && (current.detect || (job.explicit && current.label)) && imageMime(data) !== 'image/gif') {
+          if (hasVision && (current.detect || (job.explicit && current.label)) && imageMime(data) !== 'image/gif') {
             try {
               assessment = await withBudgetScope({ platform: job.platform, channelId: job.channelId, userId: job.userId }, () =>
                 this.deps.assess(data, media, signal)
@@ -286,7 +297,7 @@ export class AutoStickerCollector {
           const category = assessment?.category || (kind === 'avatar' ? '头像' : '未分类');
           const tags = assessment?.tags.length ? assessment.tags : [kind === 'avatar' ? '头像' : '表情'];
 
-          if (!job.explicit && kind === 'other') continue;
+          if (kind === 'other') continue;
           signal.throwIfAborted();
           if (job.generation !== this.generation) continue;
           const collected = await this.deps.collect(media, data, tags, signal, {
@@ -323,5 +334,6 @@ export const autoStickerCollector = new AutoStickerCollector({
   collect: collectSticker,
   favorite: addOnebotFavoriteSticker,
   setEmoji: setStickerEmoji,
+  claimQuota: (config, input) => getStickerCollectionQuota(config).claim(input),
   failed: () => logger.warn('Automatic sticker collection failed')
 });

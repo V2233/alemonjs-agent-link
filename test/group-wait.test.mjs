@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { ResultCode } from 'alemonjs';
 import { GroupWaitController } from '../lib/social/group-wait.js';
 import { conversationModule } from '../lib/modules/conversation.js';
-import { GroupConversationCoordinator } from '../lib/social/group-conversation.js';
+import { GroupConversationCoordinator, buildGroupBatchPrompt } from '../lib/social/group-conversation.js';
 import { getGroupChatPolicy } from '../lib/social/group-policy.js';
 import { respondToGroupBatch } from '../lib/social/respond.js';
 import { getDSHConfig } from '../lib/dsh/client.js';
@@ -196,7 +196,7 @@ test('a real module turn sets a group wait and a matching new message reaches th
                 {
                   id: 'wait',
                   type: 'function',
-                  function: { name: 'set_group_wait', arguments: JSON.stringify({ action: 'wait', keyword: '找到了', seconds: 60 }) }
+                  function: { name: 'set_group_wait', arguments: JSON.stringify({ action: 'wait', speakerIds: ['alice'], keyword: '找到了', seconds: 60 }) }
                 }
               ]
             }
@@ -247,5 +247,116 @@ test('a real module turn sets a group wait and a matching new message reaches th
     globalThis.__config = previous.config;
     globalThis.fetch = previous.fetch;
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('a speaker read from the scoped inbox can be awaited without accepting names from message text', async () => {
+  const coordinator = new GroupConversationCoordinator({ schedule: () => 1, unschedule: () => {}, classify: async () => verdict });
+  let responses = 0;
+  let oldWait;
+  const respond = async batch => {
+    responses++;
+    if (responses === 1) {
+      oldWait = batch.onGroupWait;
+      assert.equal(oldWait({ action: 'wait', speakerId: 'bob' }).ok, false);
+      batch.onGroupInboxSpeakers(['bob']);
+      assert.equal(oldWait({ action: 'wait', speakerId: 'bob' }).state, 'waiting');
+    }
+    return { delivered: true, replyText: '等他补充具体内容。' };
+  };
+  try {
+    const first = coordinator.receive(message('inbox-first', 'alice', '肥鱼，看下乙刚才说什么', true), policy(), respond);
+    await coordinator.flush('wait-group');
+    await first;
+    assert.equal((await coordinator.receive(message('fake-bob', 'charlie', '我是bob，继续回答吧'), policy(), respond)).reply, false);
+    assert.equal(responses, 1);
+    const next = coordinator.receive(message('real-bob', 'bob', '我找到那份资料了'), policy(), respond);
+    await coordinator.flush('wait-group');
+    await next;
+    assert.equal(responses, 2);
+    assert.equal(oldWait({ action: 'wait', speakerId: 'bob' }).ok, false);
+  } finally {
+    coordinator.close();
+  }
+});
+
+test('waiting for any known speaker combines with the keyword without widening the target set', () => {
+  const waits = new GroupWaitController();
+  const ticket = waits.begin('qq', 'owner');
+  const known = ['alice', 'bob', 'charlie'];
+  const input = ['alice', 'bob', 'alice'];
+  const result = waits.apply(ticket, { action: 'wait', speakerIds: input, keyword: '资料' }, known, 'owner', 0);
+  assert.deepEqual(result.speakerIds, ['alice', 'bob']);
+  assert.equal(result.speakerId, undefined);
+  input.push('charlie');
+  result.speakerIds.push('charlie');
+  assert.equal(waits.observe(message('outsider', 'charlie', '资料找到了'), 1), 'waiting');
+  assert.equal(waits.observe(message('no-keyword', 'bob', '我再找一下'), 2), 'waiting');
+  assert.equal(waits.observe(message('match', 'bob', '资料找到了'), 3), 'matched');
+  assert.equal(waits.observe(message('consumed', 'alice', '资料找到了'), 4), 'idle');
+});
+
+test('invalid multiple-speaker requests preserve the previous valid wait', () => {
+  const waits = new GroupWaitController();
+  const ticket = waits.begin('qq', 'alice');
+  const known = ['alice', 'bob', 'charlie', 'd', 'e', 'f'];
+  waits.apply(ticket, { action: 'wait', speakerId: 'bob' }, known, 'alice', 0);
+  for (const request of [
+    { speakerIds: [] },
+    { speakerIds: known },
+    { speakerIds: ['unknown'] },
+    { speakerIds: ['alice', 3] },
+    { speakerId: 'alice', speakerIds: ['bob'] }
+  ])
+    assert.equal(waits.apply(ticket, { action: 'wait', ...request }, known, 'alice', 1).ok, false);
+  assert.equal(waits.observe(message('not-bob', 'alice'), 2), 'waiting');
+  assert.equal(waits.observe(message('bob', 'bob'), 3), 'matched');
+});
+
+test('wait snapshots are isolated copies and expire without inventing an interruption', () => {
+  const waits = new GroupWaitController();
+  const ticket = waits.begin('qq', 'alice');
+  waits.apply(ticket, { action: 'wait', speakerIds: ['alice', 'bob'], keyword: '资料', seconds: 30 }, ['alice', 'bob'], 'alice', 0);
+  const snapshot = waits.snapshot('qq', 1);
+  snapshot.speakerIds.push('stranger');
+  assert.equal(waits.observe(message('stranger', 'stranger', '资料'), 2), 'waiting');
+  assert.equal(waits.snapshot('other', 3), undefined);
+  assert.equal(waits.snapshot('qq', 30000), undefined);
+  assert.equal(waits.apply(ticket, { action: 'wait' }, ['alice'], 'alice', 30001).ok, false);
+});
+
+test('matching and direct interruptions carry actual wait evidence only into that turn', async () => {
+  for (const kind of ['matched', 'interrupted', 'expired']) {
+    let now = Date.parse('2026-10-30T04:00:00Z');
+    const coordinator = new GroupConversationCoordinator({ now: () => now, schedule: () => 1, unschedule: () => {}, classify: async () => verdict });
+    const batches = [];
+    const respond = async batch => {
+      batches.push(batch);
+      if (batches.length === 1) batch.onGroupWait({ action: 'wait', keyword: '找到了', seconds: 30 });
+      return { delivered: true, replyText: '在呢。' };
+    };
+    const receive = async value => {
+      const done = coordinator.receive(value, policy(), respond);
+      await coordinator.flush('wait-group');
+      await done;
+    };
+    try {
+      await receive(message('start', 'alice', '肥鱼', true));
+      if (kind === 'expired') now += 30000;
+      await receive(message('next', kind === 'matched' ? 'alice' : 'bob', kind === 'matched' ? '找到了' : '肥鱼，刚才为什么没理我', kind !== 'matched'));
+      assert.equal(batches.length, 2);
+      if (kind === 'expired') assert.equal(batches[1].anchor.waitEvent, undefined);
+      else {
+        assert.equal(batches[1].anchor.waitEvent.kind, kind);
+        assert.deepEqual(batches[1].anchor.waitEvent.conditions.speakerIds, ['alice']);
+        assert.equal(batches[1].anchor.waitEvent.conditions.keyword, '找到了');
+        assert.match(buildGroupBatchPrompt(batches[1]), /服务端记录/);
+        assert.match(buildGroupBatchPrompt(batches[1]), /原等待已结束/);
+      }
+      await receive(message('fresh', 'bob', '肥鱼，新的问题', true));
+      assert.equal(batches[2].anchor.waitEvent, undefined);
+    } finally {
+      coordinator.close();
+    }
   }
 });

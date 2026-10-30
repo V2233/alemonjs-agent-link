@@ -38,7 +38,7 @@ export type ReferenceEvent = MessageContextEvent & {
 
 export class MessageReferences {
   private readonly service = createConversationService({ historyLimit: 1, referenceLimit: 100, contentLimit: 3000, ttlMs: 900000, maxScopes: 1000 });
-  private readonly channels = new Map<string, string>();
+  private readonly channels = new Map<string, { channelId: string; platform: string; botId: string }>();
   private readonly tasks = new Map<string, Promise<unknown>>();
   private pending = 0;
 
@@ -49,7 +49,7 @@ export class MessageReferences {
 
     if (scope && channelId) {
       this.channels.delete(scope);
-      this.channels.set(scope, channelId);
+      this.channels.set(scope, { channelId, platform: event.Platform || '', botId: event.BotId || '' });
       while (this.channels.size > 1000) {
         this.channels.delete(this.channels.keys().next().value);
       }
@@ -262,11 +262,11 @@ export class MessageReferences {
     });
   }
 
-  async clear(channelId: string): Promise<void> {
+  async clear(channelId: string, identity?: { platform: string; botId: string }): Promise<void> {
     const pending: Promise<unknown>[] = [];
 
     for (const [scope, channel] of this.channels) {
-      if (channel === channelId) {
+      if (channel.channelId === channelId && (!identity || (channel.platform === identity.platform && channel.botId === identity.botId))) {
         pending.push(this.serialize(scope, () => this.service.store.delete?.(scope)));
         this.channels.delete(scope);
       }

@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../../dsh/conversation-scope';
 import { commandBubble } from '../bubble';
 import { useEvent, useMessage } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
@@ -34,7 +35,8 @@ export default async (): Promise<void> => {
         maxChars: config.recentChatMaxChars
       },
       config,
-      event.MessageId
+      event.MessageId,
+      conversationQueueScope(config, { platform: event.Platform, botId: event.BotId })
     );
     const previewBudget = Math.max(0, Math.min(config.recentChatSummaryMaxChars, config.maxMessageLength - 320));
     const preview = buildRecentChatContext(recent, previewBudget);

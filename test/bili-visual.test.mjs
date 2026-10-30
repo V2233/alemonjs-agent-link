@@ -5,7 +5,7 @@ import { dirname } from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import sharp from 'sharp';
-import { extractVideoFrames, videoDownloadUrl, videoSampleTimes } from '../lib/bili/visual.js';
+import { extractVideoFrames, videoDownloadUrl, videoSampleTimes, videoSceneSampleTimes } from '../lib/bili/visual.js';
 import { createBiliClient, biliOptions } from '../lib/bili/client.js';
 import { biliEvidence } from '../lib/bili/evidence.js';
 import { describeVideoFrames } from '../lib/media/providers.js';
@@ -70,12 +70,13 @@ test('local extraction uses argument arrays, bounded decoding and removes tempor
     assert.equal(command, 'ffmpeg');
     assert.equal(args[args.indexOf('-protocol_whitelist') + 1], 'file,pipe');
     assert.equal(args[args.indexOf('-f') + 1], 'mov');
-    assert.equal(options.timeout, 10000);
+    assert.equal(options.timeout, args.at(-1) === '-' ? 5000 : 10000);
     assert.equal(options.killSignal, 'SIGKILL');
     assert.equal(options.shell, undefined);
     const input = args[args.indexOf('-i') + 1];
     directory = dirname(input);
     assert.ok(!input.startsWith('https:'));
+    if (args.at(-1) === '-') return { stderr: '' };
     await writeFile(args.at(-1), await png());
   });
   assert.deepEqual(
@@ -93,6 +94,59 @@ test('local extraction uses argument arrays, bounded decoding and removes tempor
   );
   await assert.rejects(access(directory));
   await assert.rejects(extractVideoFrames(Buffer.from('#EXTM3U'), 20, signal()), /MP4/);
+});
+
+test('scene selection spreads cuts over thirds and preserves fallback positions for static sections', () => {
+  assert.deepEqual(videoSceneSampleTimes(30, 'pts_time:2 pts_time:3 pts_time:4 pts_time:15 pts_time:27'), [4.1, 15.1, 27.1]);
+  assert.deepEqual(videoSceneSampleTimes(30, 'pts_time:2 pts_time:3 pts_time:4'), [4.1, 15, 25.5]);
+  assert.deepEqual(videoSceneSampleTimes(30, 'pts_time:0 pts_time:30 pts_time:999 pts_time:NaN'), [4.5, 15, 25.5]);
+  assert.deepEqual(videoSceneSampleTimes(30, ''), videoSampleTimes(30));
+  assert.deepEqual(videoSceneSampleTimes(30, 'pts_time:9.999 pts_time:9.999 pts_time:29.9999'), [9.999, 15, 29.9999]);
+});
+
+test('scene probing changes actual seek positions without increasing the three image budget', async () => {
+  const seeks = [];
+  let probes = 0;
+  const frames = await extractVideoFrames(mp4, 30, signal(), async (_command, args, options) => {
+    if (args.at(-1) === '-') {
+      probes++;
+      assert.equal(options.maxBuffer, 128 * 1024);
+      assert.match(args[args.indexOf('-vf') + 1], /fps=2.*scale=160.*scene/);
+      return { stderr: 'pts_time:2 pts_time:15 pts_time:27' };
+    }
+    seeks.push(Number(args[args.indexOf('-ss') + 1]));
+    await writeFile(args.at(-1), await png());
+  });
+  assert.equal(probes, 1);
+  assert.deepEqual(seeks, [2.1, 15.1, 27.1]);
+  assert.deepEqual(
+    frames.map(frame => frame.seconds),
+    seeks
+  );
+});
+
+test('failed scene probe falls back but cancellation never starts frame decoding', async () => {
+  const seeks = [];
+  await extractVideoFrames(mp4, 20, signal(), async (_command, args) => {
+    if (args.at(-1) === '-') throw new Error('probe timed out');
+    seeks.push(Number(args[args.indexOf('-ss') + 1]));
+    await writeFile(args.at(-1), await png());
+  });
+  assert.deepEqual(seeks, [3, 10, 17]);
+  const controller = new AbortController();
+  let directory;
+  let calls = 0;
+  await assert.rejects(
+    extractVideoFrames(mp4, 20, controller.signal, async (_command, args) => {
+      calls++;
+      directory = dirname(args[args.indexOf('-i') + 1]);
+      controller.abort();
+      throw new Error('interrupted');
+    }),
+    { name: 'AbortError' }
+  );
+  assert.equal(calls, 1);
+  await assert.rejects(access(directory));
 });
 
 test('watch combines actual extracted frames and vision output without sending cookies to CDN', async () => {
@@ -216,40 +270,37 @@ test('real ffmpeg decodes a generated MP4 into three distinct sampled frames', {
   const root = await mkdtemp(join(tmpdir(), 'agent-link-video-native-'));
   try {
     const path = join(root, 'fixture.mp4');
+    const generate = colors =>
+      run(
+        executable,
+        [
+          '-nostdin',
+          '-loglevel',
+          'error',
+          ...colors.flatMap(([color, duration]) => ['-f', 'lavfi', '-i', `color=${color}:s=64x64:r=10:d=${duration}`]),
+          '-filter_complex',
+          '[0:v][1:v][2:v]concat=n=3:v=1:a=0[out]',
+          '-map',
+          '[out]',
+          '-c:v',
+          'mpeg4',
+          '-y',
+          path
+        ],
+        { timeout: 10000 }
+      );
     // Red, green and blue thirds make wrong seek positions visible in the result pixels.
-    await run(
-      executable,
-      [
-        '-nostdin',
-        '-loglevel',
-        'error',
-        '-f',
-        'lavfi',
-        '-i',
-        'color=red:s=64x64:r=10:d=1',
-        '-f',
-        'lavfi',
-        '-i',
-        'color=green:s=64x64:r=10:d=1',
-        '-f',
-        'lavfi',
-        '-i',
-        'color=blue:s=64x64:r=10:d=1',
-        '-filter_complex',
-        '[0:v][1:v][2:v]concat=n=3:v=1:a=0[out]',
-        '-map',
-        '[out]',
-        '-c:v',
-        'mpeg4',
-        '-y',
-        path
-      ],
-      { timeout: 10000 }
-    );
+    await generate([
+      ['red', 1],
+      ['green', 1],
+      ['blue', 1]
+    ]);
     const frames = await extractVideoFrames(await readFile(path), 3, signal(), (_command, args, options) => run(executable, args, options));
     assert.deepEqual(
       frames.map(frame => frame.seconds),
-      [0.45, 1.5, 2.55]
+      // Red/green have similar luma: the coarse scene filter misses that cut,
+      // so the middle third keeps its fallback. The blue cut is detected.
+      [0.45, 1.5, 2.1]
     );
     for (const [index, frame] of frames.entries()) {
       const { data, info } = await sharp(frame.data).raw().toBuffer({ resolveWithObject: true });
@@ -257,6 +308,20 @@ test('real ffmpeg decodes a generated MP4 into three distinct sampled frames', {
       const rgb = [...data.subarray(0, 3)];
       assert.equal(rgb.indexOf(Math.max(...rgb)), index);
     }
+    // Fixed 15/50/85% positions miss the white scene entirely (6–7 seconds).
+    // The scene-selected middle frame must actually contain white pixels.
+    await generate([
+      ['red', 6],
+      ['white', 1],
+      ['blue', 3]
+    ]);
+    const changed = await extractVideoFrames(await readFile(path), 10, signal(), (_command, args, options) => run(executable, args, options));
+    assert.deepEqual(
+      changed.map(frame => frame.seconds),
+      [1.5, 6.1, 7.1]
+    );
+    const white = await sharp(changed[1].data).raw().toBuffer();
+    assert.ok([...white.subarray(0, 3)].every(channel => channel > 230));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../lib/dsh/conversation-scope.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -8,7 +9,10 @@ import { getConfig, ResultCode } from 'alemonjs';
 import { proactiveOptions, isQuiet, localDay } from '../lib/proactive/options.js';
 import { ProactiveStore, getProactiveStore } from '../lib/proactive/store.js';
 import { ProactiveWorker, deliverProactive } from '../lib/proactive/worker.js';
-import { beginProactive, proactiveChannel } from '../lib/proactive/control.js';
+import { deliverGroupWake } from '../lib/social/group-wake.js';
+import { groupWakeNamespace } from '../lib/social/group-wake-store.js';
+import { beginProactive, proactiveChannel, proactiveScopeId } from '../lib/proactive/control.js';
+import { readingSettings } from '../lib/proactive/reading-settings.js';
 import { observeProactiveInput, observeProactiveOutput } from '../lib/proactive/observe.js';
 import { getDSHConfig } from '../lib/dsh/runtime-config.js';
 import { ModuleRuntime, getModuleRuntime, executeTool } from '../lib/agent/modules.js';
@@ -518,7 +522,7 @@ test('real delivery pipeline uses owner persona and history readers without writ
     globalThis.fetch = async (_url, init) => {
       const body = JSON.parse(init.body);
       requests++;
-      assert.match(body.messages[0].content, /系统调度的主动搭话，不是主人发来的请求/u);
+      assert.match(body.messages[0].content, /系统调度的主动搭话，不是用户新发来的请求/u);
       assert.match(body.messages[0].content, /保持主人的私聊称呼/u);
       assert.doesNotMatch(body.messages[0].content, /公共称呼/u);
       const tools = body.tools.map(tool => tool.function.name);
@@ -547,7 +551,7 @@ test('real delivery pipeline uses owner persona and history readers without writ
     const registry = new SessionRegistry(f.config);
     const channelId = proactiveChannel(scope);
     const meta = await registry.meta(channelId);
-    assert.deepEqual(await registry.privateHistory({ channelId, generation: meta.generation }), [{ role: 'assistant', content: '今天有空喝茶吗？' }]);
+    assert.deepEqual(await registry.privateHistory({ channelId, generation: meta.generation, scope: conversationQueueScope(f.config, scope) }), [{ role: 'assistant', content: '今天有空喝茶吗？' }]);
     assert.equal(f.store.get(scope).unanswered, 1);
     response = '[沉默]';
     observeProactiveInput(f.config, {
@@ -942,3 +946,208 @@ test('AI master switch prevents independent reading without consuming the daily 
       worker.stop();
     }
   }));
+
+test('hobby activity interval and daily cap survive restart; disabled subscriptions do not run', async () => {
+  await fixture(async f => {
+    f.store.subscribe(scope, true, f.options);
+    assert.equal(f.store.claimHobbyActivity(scope, f.options, 15, 2), true);
+    f.store.finishHobbyActivity(scope, f.store.hobbyActivity(scope).runId, 'recorded');
+    assert.equal(f.store.claimHobbyActivity(scope, f.options, 15, 2), false);
+    f.reopen();
+    assert.equal(f.store.hobbyActivityStatus()[0].status, 'recorded');
+    f.advance(15);
+    assert.equal(f.store.claimHobbyActivity(scope, f.options, 15, 2), true);
+    f.advance(15);
+    assert.equal(f.store.claimHobbyActivity(scope, f.options, 15, 2), false);
+    f.setTime(Date.parse('2026-10-27T10:00:00+08:00'));
+    assert.equal(f.store.claimHobbyActivity(scope, f.options, 15, 2), true);
+    f.store.subscribe(scope, false, f.options);
+    f.advance(15);
+    assert.equal(f.store.claimHobbyActivity(scope, f.options, 15, 2), false);
+  });
+});
+
+test('managed hobby reading honors private opt-out and persisted reading windows', async () =>
+  fixture(async f => {
+    const config = {
+      ...f.config,
+      modules: {
+        settings: {
+          proactive: { ownKeyMax: false, idleMinutes: 1440, minIntervalMinutes: 1440, maxIntervalMinutes: 1440 },
+          hobbies: { enabled: true, bilibili: true, autonomous: true, intervalMinutes: 15, maxPerDay: 2 },
+          bili: { dailyBrowse: false, dailyBrowseWindow: [11, 12] }
+        }
+      }
+    };
+    f.store.subscribe(scope, true, proactiveOptions(config));
+    assert.equal(readingSettings(config, f.store, scope).enabled, true, 'managed default must match worker behavior');
+    f.store.setDailyBrowse(scope, { enabled: false, window: [11, 12] });
+    let reads = 0;
+    const createWorker = () =>
+      new ProactiveWorker(config, {
+        store: f.store,
+        config: () => config,
+        owner: () => true,
+        browse: async () => {
+          reads++;
+          return 'recorded';
+        }
+      });
+    let worker = createWorker();
+    try {
+      await worker.tick();
+      assert.equal(reads, 0);
+      assert.equal(f.store.hobbyActivity(scope), undefined);
+      worker.stop();
+      f.reopen();
+      worker = createWorker();
+      assert.equal(readingSettings(config, f.store, scope).enabled, false);
+      f.store.setDailyBrowse(scope, { enabled: true });
+      await worker.tick();
+      assert.equal(reads, 0, 'enabled reading must still wait for its window');
+      f.setTime(Date.parse('2026-10-26T11:59:00+08:00'));
+      await worker.tick();
+      assert.equal(reads, 1);
+      assert.equal(f.store.hobbyActivity(scope).status, 'recorded');
+    } finally {
+      worker.stop();
+    }
+  }));
+
+test('managed reading opt-out cancels the running activity and prevents the next tick', async () =>
+  fixture(async f => {
+    const config = {
+      ...f.config,
+      modules: {
+        settings: {
+          proactive: { ownKeyMax: false, idleMinutes: 1440, minIntervalMinutes: 1440, maxIntervalMinutes: 1440 },
+          hobbies: { enabled: true, bilibili: true, autonomous: true, intervalMinutes: 15, maxPerDay: 3 }
+        }
+      }
+    };
+    f.store.subscribe(scope, true, proactiveOptions(config));
+    let ready,
+      release,
+      reads = 0;
+    const started = new Promise(resolve => {
+      ready = resolve;
+    });
+    const gate = new Promise(resolve => {
+      release = resolve;
+    });
+    const worker = new ProactiveWorker(config, {
+      store: f.store,
+      config: () => config,
+      owner: () => true,
+      browse: async (_config, _scope, signal) => {
+        reads++;
+        ready();
+        await gate;
+        assert.equal(signal.aborted, true);
+        return 'recorded';
+      }
+    });
+    try {
+      const pending = worker.tick();
+      await started;
+      f.store.setDailyBrowse(scope, { enabled: false });
+      release();
+      await pending;
+      assert.equal(f.store.hobbyActivity(scope).status, 'cancelled');
+      f.advance(15);
+      await worker.tick();
+      assert.equal(reads, 1);
+    } finally {
+      release();
+      worker.stop();
+    }
+  }));
+
+test('hobby runs share a cross-midnight activity day and keep the cap after restart', async () =>
+  fixture(async f => {
+    const options = { ...f.options, quietHours: [0, 0] };
+    f.store.subscribe(scope, true, options);
+    f.setTime(Date.parse('2026-10-26T23:59:00+08:00'));
+    assert.equal(f.store.claimHobbyActivity(scope, options, 15, 1, [22, 1]), true);
+    assert.equal(f.store.hobbyActivity(scope).day, '2026-10-26');
+    f.reopen();
+    f.setTime(Date.parse('2026-10-27T00:59:00+08:00'));
+    assert.equal(f.store.claimHobbyActivity(scope, options, 15, 1, [22, 1]), false);
+    f.setTime(Date.parse('2026-10-27T01:01:00+08:00'));
+    assert.equal(f.store.claimHobbyActivity(scope, options, 15, 1, [22, 1]), false);
+    f.setTime(Date.parse('2026-10-28T00:59:00+08:00'));
+    assert.equal(f.store.claimHobbyActivity(scope, options, 15, 1, [22, 1]), true);
+    assert.equal(f.store.hobbyActivity(scope).day, '2026-10-27');
+  }));
+
+test('purging activity removes its status and stale same-time completion cannot alter a new run', async () =>
+  fixture(async f => {
+    f.store.subscribe(scope, true, f.options);
+    assert.equal(f.store.claimHobbyActivity(scope, f.options, 15, 2), true);
+    const old = f.store.hobbyActivity(scope);
+    f.store.purgeHash(createHash('sha256').update(proactiveChannel(scope)).digest('hex'));
+    assert.equal(f.store.hobbyActivity(scope), undefined);
+    assert.deepEqual(f.store.hobbyActivityStatus(), []);
+    f.store.subscribe(scope, true, f.options);
+    assert.equal(f.store.claimHobbyActivity(scope, f.options, 15, 2), true);
+    const current = f.store.hobbyActivity(scope);
+    assert.equal(current.at, old.at);
+    assert.notEqual(current.runId, old.runId);
+    assert.equal(f.store.finishHobbyActivity(scope, old.runId, 'recorded'), false);
+    assert.equal(f.store.hobbyActivity(scope).status, 'running');
+    assert.equal(f.store.finishHobbyActivity(scope, current.runId, 'completed'), true);
+    assert.equal(f.store.finishHobbyActivity(scope, current.runId, 'failed'), false);
+  }));
+
+test('global managed switches cannot be overridden by enabling a private reading setting', async () =>
+  fixture(async f => {
+    const config = { ...f.config, modules: { settings: { hobbies: { enabled: true, bilibili: true, autonomous: false } } } };
+    f.store.setDailyBrowse(scope, { enabled: true });
+    assert.equal(readingSettings(config, f.store, scope).enabled, false);
+  }));
+
+test('old hobby activity tables migrate without resetting day or attempt counts', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const root = await mkdtemp(join(tmpdir(), 'hobby-migrate-'));
+  let store;
+  try {
+    const db = new DatabaseSync(join(root, 'proactive.sqlite'));
+    db.exec('CREATE TABLE hobby_activity(scope TEXT PRIMARY KEY,day TEXT NOT NULL,count INTEGER NOT NULL,at INTEGER NOT NULL,status TEXT NOT NULL)');
+    db.prepare('INSERT INTO hobby_activity VALUES(?,?,?,?,?)').run(proactiveScopeId(scope), '2026-10-26', 2, base, 'recorded');
+    db.close();
+    store = new ProactiveStore(root, () => base);
+    assert.deepEqual({ ...store.hobbyActivity(scope) }, { day: '2026-10-26', count: 2, at: base, status: 'recorded', runId: '' });
+    store.close();
+    store = new ProactiveStore(root, () => base);
+    assert.equal(store.hobbyActivity(scope).count, 2);
+    store.cleanup(30);
+    assert.equal(store.hobbyActivity(scope), undefined, 'old orphan activity rows must not survive cleanup');
+  } finally {
+    store?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test('group wake uses actual chat/delivery pipeline with group-scoped readonly tools, no automatic mention and no fake user history', () => pipeline(async f => {
+  const plan = { namespace: groupWakeNamespace(f.config), platform: scope.platform, botId: scope.botId, channelId: '200', userId: scope.userId, id: 'test-group-wake', reason: '刚才谈到的猫', createdAt: Date.now() - 60000, dueAt: Date.now() };
+  let requests = 0, checks = 0;
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body); requests++;
+    assert.match(body.messages[0].content, /只可读取当前会话范围内的资料/u);
+    assert.doesNotMatch(body.messages[0].content, /只可读取当前私聊资料/u);
+    const tools = body.tools.map(tool => tool.function.name);
+    assert.ok(tools.includes('search_chat_history'));
+    for (const denied of ['set_group_wake', 'set_group_wait', 'remember_private_fact', 'manage_group', 'poke_speaker', 'agent_workspace']) assert.equal(tools.includes(denied), false);
+    assert.match(JSON.stringify(body.messages.at(-1).content), /系统群聊唤醒，不是群友的新消息/u);
+    return Response.json({ choices: [{ message: { content: '猫这种生物，光看着就挺解压的。' } }] });
+  };
+  const result = await deliverGroupWake(plan, { signal: new AbortController().signal, beforeSend: async () => { checks++; return true; } });
+  assert.equal(result.delivered, true); assert.equal(requests, 1); assert.ok(checks >= 1);
+  const sends = f.nativeCalls.filter(item => item.action === 'send_group_msg');
+  assert.equal(sends.length, 1); assert.equal(sends[0].params.group_id, 200);
+  assert.ok(f.nativeCalls.every(item => item.action === 'send_group_msg' || item.action.startsWith('get_')));
+  assert.deepEqual(sends[0].params.message, [{ type: 'text', data: { text: '猫这种生物，光看着就挺解压的。' } }]);
+  const rows = getChatArchive(f.config).search({ platform: scope.platform, channelId: '200' }).items;
+  assert.equal(rows.filter(row => row.role === 'user').length, 0); assert.equal(rows.filter(row => row.role === 'assistant').length, 1);
+}));

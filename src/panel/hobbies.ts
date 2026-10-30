@@ -1,3 +1,6 @@
+import { getDSHConfig } from '../dsh/runtime-config';
+import { getProactiveStore } from '../proactive/store';
+import { interruptAllProactive } from '../proactive/control';
 import { normalizeHobbies } from '../companion/hobbies';
 import { getConfig } from 'alemonjs';
 import { AdminInputError } from './admin-error';
@@ -5,6 +8,7 @@ import { getAdminStore } from './admin-panel';
 
 const project = (snapshot: { source: string; revision: string }) => ({
   revision: snapshot.revision,
+  activities: getProactiveStore(getDSHConfig()).hobbyActivityStatus(),
   values: normalizeHobbies(JSON.parse(snapshot.source)['alemonjs-agent-link']?.modules?.settings?.hobbies)
 });
 
@@ -27,6 +31,7 @@ export const saveHobbies = async (input: unknown) => {
   const saved = await store.save(JSON.stringify(source), body.revision);
 
   getConfig().reload();
+  interruptAllProactive();
 
   return project(saved);
 };

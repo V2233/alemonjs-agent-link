@@ -1,3 +1,4 @@
+import { conversationQueueKey, type ConversationQueueScope } from '../dsh/conversation-scope';
 import { getOpinionStore } from '../opinions/store';
 import { getAffinityStore } from '../companion/affinity';
 import { purgeWorkspaceHash } from '../files/workspace';
@@ -183,8 +184,14 @@ const privateHistoryKeepRatio = 0.5;
 const privateHistoryGrowthFactor = 2;
 const privateHistoryDigestLimit = 1200;
 
-const historyKey = (channelId: string): string => key(channelId, 'private-history.v1');
-const anchorKey = (channelId: string): string => key(channelId, 'private-anchor.v1');
+const scopeHash = (channelId: string, scope: ConversationQueueScope): string =>
+  createHash('sha256').update(conversationQueueKey(channelId, scope)).digest('hex');
+const historyKey = (channelId: string, scope?: ConversationQueueScope): string =>
+  key(channelId, scope ? `private-history.v2:${scopeHash(channelId, scope)}` : 'private-history.v1');
+const anchorKey = (channelId: string, scope?: ConversationQueueScope): string =>
+  key(channelId, scope ? `private-anchor.v2:${scopeHash(channelId, scope)}` : 'private-anchor.v1');
+const recentKey = (channelId: string, scope?: ConversationQueueScope): string =>
+  key(channelId, scope ? `recent.v2:${scopeHash(channelId, scope)}` : 'recent.v1.jsonl');
 
 const isAutonomousTurn = (turn: Pick<HistoryTurn, 'user' | 'autonomous'>): boolean =>
   turn.autonomous === true || turn.user.startsWith('【系统主动搭话提醒，不是主人发言】');
@@ -256,6 +263,7 @@ const parseMeta = (value: string | null): GroupMeta => {
 
 export type PrivateHistoryContext = {
   channelId: string;
+  scope?: ConversationQueueScope;
   generation: number;
   memoryContext?: string;
   record?: () => boolean;
@@ -270,6 +278,15 @@ if meta.generation ~= tonumber(ARGV[1]) or meta.isolated ~= true or (meta.transi
 redis.call('RPUSH', KEYS[2], ARGV[2])
 redis.call('LTRIM', KEYS[2], -tonumber(ARGV[3]), -1)
 redis.call('EXPIRE', KEYS[2], ARGV[4])
+return 1
+`;
+
+const writeHistoryAnchorScript = `-- agent-link:writeHistoryAnchor
+local raw = redis.call('GET', KEYS[1])
+if not raw then return 0 end
+local meta = cjson.decode(raw)
+if meta.generation ~= tonumber(ARGV[1]) or meta.isolated ~= true or (meta.transition and meta.transition ~= cjson.null) then return 0 end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
 return 1
 `;
 
@@ -387,7 +404,7 @@ export class SessionRegistry {
     const client = await redis(this.config);
     const [anchor, rows] = await Promise.all([
       this.readHistoryAnchor(client, context),
-      client.lrange(historyKey(context.channelId), -Math.max(maxTurns, privateHistoryRetention), -1)
+      client.lrange(historyKey(context.channelId, context.scope), -Math.max(maxTurns, privateHistoryRetention), -1)
     ]);
     const expiresBefore = Date.now() - this.config.privateHistoryTtlSeconds * 1000;
     const turns: HistoryTurn[] = [];
@@ -448,7 +465,7 @@ export class SessionRegistry {
   }
   private async readHistoryAnchor(client: RedisClient, context: PrivateHistoryContext): Promise<HistoryAnchor> {
     try {
-      const raw = await client.get(anchorKey(context.channelId));
+      const raw = await client.get(anchorKey(context.channelId, context.scope));
 
       if (raw) {
         const parsed = JSON.parse(String(raw)) as HistoryAnchor;
@@ -464,7 +481,15 @@ export class SessionRegistry {
     return { generation: context.generation, since: 0, digest: '' };
   }
   private async writeHistoryAnchor(client: RedisClient, context: PrivateHistoryContext, anchor: HistoryAnchor): Promise<void> {
-    await client.set(anchorKey(context.channelId), JSON.stringify(anchor), 'EX', this.config.privateHistoryTtlSeconds);
+    await client.eval(
+      writeHistoryAnchorScript,
+      2,
+      key(context.channelId, 'meta.v1.json'),
+      anchorKey(context.channelId, context.scope),
+      String(context.generation),
+      JSON.stringify(anchor),
+      String(this.config.privateHistoryTtlSeconds)
+    );
   }
   async appendPrivateTurn(context: PrivateHistoryContext, user: string, assistant: string, autonomous = false): Promise<void> {
     if (!this.config.privateHistoryMaxTurns || context.record?.() === false) {
@@ -481,7 +506,7 @@ export class SessionRegistry {
       appendPrivateTurnScript,
       2,
       key(context.channelId, 'meta.v1.json'),
-      key(context.channelId, 'private-history.v1'),
+      historyKey(context.channelId, context.scope),
       String(context.generation),
       JSON.stringify({
         generation: context.generation,
@@ -556,7 +581,7 @@ export class SessionRegistry {
       await redis(this.config)
     ).eval(setPolicyScript, 1, key(channelId, 'meta.v1.json'), JSON.stringify({ ...policy, version: 2, terminal: false }), JSON.stringify(parseMeta(null)));
   }
-  async deduplicate(channelId: string, messageId?: string): Promise<{ duplicate: boolean; requestId: string }> {
+  async deduplicate(channelId: string, messageId?: string, scope?: ConversationQueueScope): Promise<{ duplicate: boolean; requestId: string }> {
     const requestId = randomUUID();
 
     if (!messageId) {
@@ -564,11 +589,11 @@ export class SessionRegistry {
     }
     const accepted = await (
       await redis(this.config)
-    ).set(this.dedupeKey(channelId, messageId), `running:${requestId}`, 'EX', getDedupeTtlSeconds(this.config), 'NX');
+    ).set(this.dedupeKey(channelId, messageId, scope), `running:${requestId}`, 'EX', getDedupeTtlSeconds(this.config), 'NX');
 
     return { duplicate: !accepted, requestId };
   }
-  async finalizeDeduplication(channelId: string, messageId: string | undefined, requestId: string): Promise<boolean> {
+  async finalizeDeduplication(channelId: string, messageId: string | undefined, requestId: string, scope?: ConversationQueueScope): Promise<boolean> {
     if (!messageId) {
       return true;
     }
@@ -580,7 +605,7 @@ export class SessionRegistry {
         ).eval(
           finalizeDedupeScript,
           1,
-          this.dedupeKey(channelId, messageId),
+          this.dedupeKey(channelId, messageId, scope),
           `running:${requestId}`,
           `delivered:${requestId}`,
           String(getDedupeTtlSeconds(this.config))
@@ -588,11 +613,11 @@ export class SessionRegistry {
       ) === 1
     );
   }
-  async releaseDeduplication(channelId: string, messageId: string | undefined, requestId: string): Promise<void> {
+  async releaseDeduplication(channelId: string, messageId: string | undefined, requestId: string, scope?: ConversationQueueScope): Promise<void> {
     if (!messageId) {
       return;
     }
-    await (await redis(this.config)).eval(releaseDedupeScript, 1, this.dedupeKey(channelId, messageId), `running:${requestId}`);
+    await (await redis(this.config)).eval(releaseDedupeScript, 1, this.dedupeKey(channelId, messageId, scope), `running:${requestId}`);
   }
   async allowUser(channelId: string, userId: string): Promise<boolean> {
     const store = await redis(this.config);
@@ -608,33 +633,35 @@ export class SessionRegistry {
 
     return Number(result?.[2]?.[1] ?? 0) <= this.config.maxCallsPerUserPerMinute;
   }
-  async recordRecent(channelId: string, message: Omit<RecentMessage, 'timestamp'> & { timestamp?: number }): Promise<void> {
+  async recordRecent(channelId: string, message: Omit<RecentMessage, 'timestamp'> & { timestamp?: number }, scope?: ConversationQueueScope): Promise<void> {
     const text = message.text.replace(/\s+/g, ' ').trim();
 
     if (!text || this.config.recentChatMaxMessages === 0) {
       return;
     }
     const store = await redis(this.config);
-    const recentKey = key(channelId, 'recent.v1.jsonl');
+    const recordKey = recentKey(channelId, scope);
 
     await store
       .multi()
-      .rpush(recentKey, JSON.stringify({ id: message.id, text, timestamp: message.timestamp ?? Date.now() }))
-      .ltrim(recentKey, -this.config.recentChatMaxMessages, -1)
-      .expire(recentKey, Math.min(recentTtlSeconds, this.config.recentChatWindowSeconds))
+      .rpush(recordKey, JSON.stringify({ id: message.id, text, timestamp: message.timestamp ?? Date.now() }))
+      .ltrim(recordKey, -this.config.recentChatMaxMessages, -1)
+      .expire(recordKey, Math.min(recentTtlSeconds, this.config.recentChatWindowSeconds))
       .exec();
   }
-  async recent(channelId: string, excludedMessageId?: string): Promise<RecentMessage[]> {
+  async recent(channelId: string, excludedMessageId?: string, scope?: ConversationQueueScope): Promise<RecentMessage[]> {
     if (this.config.recentChatMaxMessages === 0 || this.config.recentChatMaxChars === 0) {
       return [];
     }
-    const rows = await (await redis(this.config)).lrange(key(channelId, 'recent.v1.jsonl'), 0, -1);
+    const rows = await (await redis(this.config)).lrange(recentKey(channelId, scope), 0, -1);
     const cutoff = Date.now() - this.config.recentChatWindowSeconds * 1000;
     const parsed = rows.flatMap(row => {
       try {
         const value = JSON.parse(row) as RecentMessage;
 
-        return typeof value.text === 'string' && value.timestamp >= cutoff && value.id !== excludedMessageId ? [value] : [];
+        return typeof value.text === 'string' && value.timestamp >= cutoff && (excludedMessageId === undefined || value.id !== excludedMessageId)
+          ? [value]
+          : [];
       } catch {
         return [];
       }
@@ -656,34 +683,31 @@ export class SessionRegistry {
 
     return output;
   }
-  async clearPrivateHistory(channelId: string): Promise<void> {
-    // The anchor describes where the retained tail starts; keeping it across a reset
-    // would carry a summary of the old topic into the new one.
-    await (await redis(this.config)).del(historyKey(channelId), anchorKey(channelId));
-  }
-  async clearRecent(channelId: string): Promise<void> {
-    await (await redis(this.config)).del(key(channelId, 'recent.v1.jsonl'));
-  }
-  async purge(channelId: string): Promise<void> {
-    purgeWorkspaceHash(this.config.workspaceRoot, groupHash(channelId));
-    getProactiveStore(this.config).purgeHash(groupHash(channelId));
-    getPlatformLedger(this.config).purgeHash(groupHash(channelId));
-    getPersonaStore(this.config).purgeHash(groupHash(channelId));
-    getMoodStore(this.config).purgeHash(groupHash(channelId));
-    getAffinityStore(this.config).purgeHash(groupHash(channelId));
-    getOpinionStore(this.config).purgeHash(groupHash(channelId));
-    getChatArchive(this.config).purgeHash(groupHash(channelId));
-    getMemoryStore(this.config).purgeHash(groupHash(channelId));
-    getQAStore(this.config).purgeHash(groupHash(channelId));
+  private async clearScopedVariants(channelId: string, names: string[]): Promise<void> {
     const store = await redis(this.config);
 
-    await store.del(
-      key(channelId, 'meta.v1.json'),
-      key(channelId, 'recent.v1.jsonl'),
-      key(channelId, 'private-history.v1'),
-      key(channelId, 'private-memory.v1.json')
-    );
-    await store.zrem(`${prefix}:retention.v1`, groupHash(channelId));
+    for (const name of names) {
+      let cursor = '0';
+
+      do {
+        const [next, keys] = await store.scan(cursor, 'MATCH', `${prefix}:group:${groupHash(channelId)}:${name}.v2:*`, 'COUNT', 100);
+
+        cursor = next;
+        if (keys.length) await store.del(...keys);
+      } while (cursor !== '0');
+    }
+  }
+  async clearPrivateHistory(channelId: string, scope?: ConversationQueueScope): Promise<void> {
+    // Unscoped reset still owns the shared generation, so it clears all transcript/anchor variants.
+    await (await redis(this.config)).del(historyKey(channelId, scope), anchorKey(channelId, scope));
+    if (!scope) await this.clearScopedVariants(channelId, ['private-history', 'private-anchor']);
+  }
+  async clearRecent(channelId: string, scope?: ConversationQueueScope): Promise<void> {
+    await (await redis(this.config)).del(recentKey(channelId, scope));
+    if (!scope) await this.clearScopedVariants(channelId, ['recent']);
+  }
+  async purge(channelId: string): Promise<void> {
+    await this.purgeHash(groupHash(channelId));
   }
   async expiredGroups(): Promise<string[]> {
     return await (await redis(this.config)).zrangebyscore(`${prefix}:retention.v1`, 0, Date.now() - this.config.retentionDays * 86400_000, 'LIMIT', 0, 100);
@@ -714,7 +738,12 @@ export class SessionRegistry {
     } while (cursor !== '0');
     await store.zrem(`${prefix}:retention.v1`, hash);
   }
-  private dedupeKey(channelId: string, messageId: string): string {
-    return `${prefix}:dedupe:${groupHash(channelId)}:${messageId}`;
+  private dedupeKey(channelId: string, messageId: string, scope?: ConversationQueueScope): string {
+    if (!scope) return `${prefix}:dedupe:${groupHash(channelId)}:${messageId}`;
+    const identityHash = scopeHash(channelId, scope);
+    const messageHash = createHash('sha256').update(messageId).digest('hex');
+
+    // The existing group-prefix purge covers every v2 identity; legacy keys are neither imported nor rewritten.
+    return key(channelId, `dedupe.v2:${identityHash}:${messageHash}`);
   }
 }

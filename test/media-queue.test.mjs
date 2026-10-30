@@ -1,7 +1,8 @@
+import { getDSHConfig } from '../lib/dsh/runtime-config.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SessionRegistry } from '../lib/state/registry.js';
-import { runCoordinatedChat, cancelChatForUser } from '../lib/dsh/orchestrator.js';
+import { runCoordinatedChat, cancelChatForUser, conversationQueueScope } from '../lib/dsh/orchestrator.js';
 
 const meta = { generation: 1, isolated: true, lastActivity: 0, policy: { version: 1, chat: true, web: false, files: false, terminal: false } };
 
@@ -53,7 +54,7 @@ test('media tasks deduplicate and rate limit before execution; cancellation abor
     });
     const rejection = assert.rejects(pending, error => error.kind === 'cancelled');
     await start;
-    assert.equal(cancelChatForUser('media-cancel', 'u', false), 'cancelled-running');
+    assert.equal(cancelChatForUser('media-cancel', 'u', false, conversationQueueScope(getDSHConfig(), {})), 'cancelled-running');
     await rejection;
     assert.equal(calls.at(-1), 'release');
   } finally {

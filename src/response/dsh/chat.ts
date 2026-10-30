@@ -16,7 +16,7 @@ import { DSHError, getDSHConfig, toUserMessage } from '@src/dsh/client';
 import { bannedWordsFor, groupVoicePolicy, maskBannedWords } from '../../social/group-settings';
 import { buildRecentChatContext, getRecentMessages } from '@src/chat-context/store';
 import { StreamOutput, assertMessageDelivered } from '@src/dsh/output';
-import { ensureIsolatedGroup, runCoordinatedChat, type CoordinatedChatResult } from '@src/dsh/orchestrator';
+import { conversationQueueScope, ensureIsolatedGroup, runCoordinatedChat, type CoordinatedChatResult } from '@src/dsh/orchestrator';
 import { canPrivateChatWithKey, getConversationId, describeSpeaker } from './util';
 import { ownerPrivatePolicy, publicPrivatePolicy, SessionRegistry } from '@src/state/registry';
 import { messageReferences } from '../../social/references';
@@ -86,6 +86,8 @@ export const runDSHChat = async (
     autonomous?: { signal: AbortSignal; maxChars: number; beforeSend: (text?: string) => Promise<boolean> };
     userText?: string;
     replyReferences?: Record<string, { messageId: string; userId: string }>;
+    onGroupInboxSpeakers?: import('../../agent/types').TurnContext['onGroupInboxSpeakers'];
+    onGroupWakeValid?: () => boolean;
     onGroupWait?: import('../../agent/types').TurnContext['onGroupWait'];
     onOutcome?: (result: { delivered: boolean; completed: boolean; replyText?: string; replyToMessageId?: string }) => void;
     transport?: { message: ReturnType<typeof useMessage>[0]; media: ReturnType<typeof useMedia>[0] };
@@ -126,7 +128,7 @@ export const runDSHChat = async (
   const replyAgent = async (text: string): Promise<unknown> => {
     await beforeExpression();
     await checkSend();
-    const format = createChatReplyFormat(text, event.Platform, firstAgentReply && !event.IsPrivate ? replyTarget.userId : undefined);
+    const format = createChatReplyFormat(text, event.Platform, firstAgentReply && !event.IsPrivate && !options.autonomous ? replyTarget.userId : undefined);
     const result = await message.send({
       format,
       replyId: firstAgentReply ? replyTarget.messageId : undefined
@@ -254,7 +256,8 @@ export const runDSHChat = async (
         if (!event.IsPrivate && !(await registry.policy(channelId)).chat) {
           return;
         }
-        const claim = await registry.deduplicate(channelId, event.MessageId);
+        const scope = conversationQueueScope(config, { platform: event.Platform, botId: event.BotId });
+        const claim = await registry.deduplicate(channelId, event.MessageId, scope);
 
         if (claim.duplicate) {
           options.onOutcome?.({ delivered: false, completed: true });
@@ -263,17 +266,17 @@ export const runDSHChat = async (
         }
         try {
           if (!(await registry.allowUser(channelId, event.UserKey || event.UserId || 'unknown'))) {
-            await registry.releaseDeduplication(channelId, event.MessageId, claim.requestId);
+            await registry.releaseDeduplication(channelId, event.MessageId, claim.requestId, scope);
 
             return;
           }
           assertMessageDelivered(await reply(unavailableMediaReply));
           fallbackDelivered = true;
-          await registry.finalizeDeduplication(channelId, event.MessageId, claim.requestId);
+          await registry.finalizeDeduplication(channelId, event.MessageId, claim.requestId, scope);
           options.onOutcome?.({ delivered: true, completed: true });
         } catch (error) {
           if (!fallbackDelivered) {
-            await registry.releaseDeduplication(channelId, event.MessageId, claim.requestId);
+            await registry.releaseDeduplication(channelId, event.MessageId, claim.requestId, scope);
           }
           throw error;
         }
@@ -302,7 +305,8 @@ export const runDSHChat = async (
           maxChars: config.recentChatMaxChars
         },
         config,
-        event.MessageId
+        event.MessageId,
+        conversationQueueScope(config, { platform: event.Platform, botId: event.BotId })
       ),
       config.recentChatSummaryMaxChars
     );
@@ -319,7 +323,11 @@ export const runDSHChat = async (
     try {
       const styleRegistry = new SessionRegistry(config);
       const meta = await styleRegistry.meta(channelId);
-      const history = await styleRegistry.privateHistory({ channelId, generation: meta.generation });
+      const history = await styleRegistry.privateHistory({
+        channelId,
+        generation: meta.generation,
+        scope: conversationQueueScope(config, { platform: event.Platform, botId: event.BotId })
+      });
 
       privateStyle = styleHint(
         history.filter(item => item.role === 'user').map(item => ({ text: item.content })),
@@ -740,7 +748,9 @@ ${agentPrompt}`
       },
       {
         streamContent: nativeStream || !buffered,
+        onGroupWakeValid: options.onGroupWakeValid,
         onGroupWait: options.onGroupWait,
+        onGroupInboxSpeakers: options.onGroupInboxSpeakers,
         onImage: png => {
           generatedImage = png;
 

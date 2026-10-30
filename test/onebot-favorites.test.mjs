@@ -92,6 +92,8 @@ test('favorite writes reject non-owners, bad ids and invalid payloads', async ()
     payload: { key: 'agentLink.stickerFavoriteAdd', event: { ...event, IsMaster: true }, params: [{ data: png.toString('base64') }] }
   });
   assert.equal(added[0].code, ResultCode.Fail);
+  assert.equal(added[0].data.kind, 'protocol');
+  assert.equal(added[0].data.emojiId, undefined);
 });
 
 test('dedicated sticker send builds a OneBot image segment with sub_type=1', async () => {

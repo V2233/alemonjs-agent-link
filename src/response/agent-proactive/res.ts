@@ -3,6 +3,7 @@ import { readingDiary, formatReadingDiary, searchReadingDiary } from '../../bili
 import { getMemoryStore } from '../../memory/store';
 import { memoryEnabled } from '../../memory/consolidation';
 import { proactiveChannel } from '../../proactive/control';
+import { readingSettings } from '../../proactive/reading-settings';
 import { browseWindow } from '../../proactive/browse-schedule';
 import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
@@ -78,8 +79,10 @@ export default async (): Promise<void> => {
         store.setDailyBrowse(scope, { enabled: readingArgs === '开启' });
         await reply(
           readingArgs === '开启'
-            ? '本私聊的每日阅读已开启；需保持主动搭话订阅，遵守暂停、免打扰和每日次数限制。'
-            : '本私聊的每日阅读已关闭，正在阅读的任务已取消。'
+            ? readingSettings(config, store, scope).enabled
+              ? '本私聊的独立阅读已开启；需保持主动搭话订阅，遵守暂停、免打扰和每日次数限制。'
+              : '本私聊已允许阅读，但全局爱好开关尚未启用，暂不执行。'
+            : '本私聊的独立阅读已关闭，正在阅读的任务已取消。'
         );
       } else if (windowMatch) {
         if (
@@ -182,18 +185,15 @@ export default async (): Promise<void> => {
       store.recover();
       const row = store.get(scope);
       const attempts = store.attempts(scope);
-      const browsing = store.dailyBrowseStatus(scope);
-      const reading = store.dailyBrowseSettings(
-        scope,
-        config.modules?.settings?.bili?.dailyBrowse === true,
-        browseWindow(config.modules?.settings?.bili?.dailyBrowseWindow)
-      );
+      const reading = readingSettings(config, store, scope);
+      const browsing = reading.managed ? store.hobbyActivity(scope) : store.dailyBrowseStatus(scope);
       const browseLabels: Record<string, string> = {
         running: '已启动，尚无结束记录',
         recorded: '已保存阅读经历',
         completed: '已结束，未确认新增阅读记录',
         failed: '未完成',
-        cancelled: '已取消'
+        cancelled: '已取消',
+        unavailable: 'B站能力未开启'
       };
       const paused = row ? (row.pausedUntil >= Number.MAX_SAFE_INTEGER ? '等待核查发送结果' : row.pausedUntil > Date.now() ? time(row.pausedUntil) : '') : '';
       const today = row?.day === localDay(Date.now(), options.timezone) ? row.count : 0;
@@ -213,7 +213,7 @@ export default async (): Promise<void> => {
             },
             {
               title: '独立阅读',
-              text: `${reading.enabled ? '每日阅读已配置开启' : '每日阅读未开启'}。${reading.window ? `作息 ${reading.window[0]}:00–${reading.window[1]}:00（${options.timezone}）。` : ''}${browsing ? `最近尝试 ${time(browsing.at)}：${browseLabels[browsing.status] || '结果待核查'}。可询问“看看你的浏览日记”。` : '暂无尝试记录。'}`,
+              text: `${reading.enabled ? '独立阅读已配置开启' : '独立阅读未开启'}。${reading.window ? `作息 ${reading.window[0]}:00–${reading.window[1]}:00（${options.timezone}）。` : ''}${browsing ? `最近尝试 ${time(browsing.at)}：${browseLabels[browsing.status] || '结果待核查'}。可询问“看看你的浏览日记”。` : '暂无尝试记录。'}`,
               actions: [
                 { label: reading.enabled ? '关闭阅读' : '开启阅读', command: `/主动搭话 阅读 ${reading.enabled ? '关闭' : '开启'}` },
                 { label: '阅读偏好', command: '/主动搭话 阅读 偏好' },

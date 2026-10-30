@@ -21,3 +21,18 @@ test('evidence distinguishes returned subtitles from incomplete excerpts and emp
   assert.equal(biliEvidence({ status: 'available', text: ' ' }, comments).basis, 'metadata');
   assert.equal(biliEvidence({ status: 'available', text: '台词' }, comments).hasAudienceComments, false);
 });
+
+test('audience comment scope describes only returned text and never establishes zero comments', () => {
+  for (const [comments, expected, hasText] of [
+    [{ status: 'available', items: [] }, 'empty_response', false],
+    [{ status: 'available', items: [{ text: '  ' }] }, 'empty_response', false],
+    [{ status: 'available', items: [{ text: '我喜欢这条视频' }] }, 'returned_subset', true],
+    [{ status: 'unavailable', items: [{ text: 'untrusted stale result' }] }, 'unavailable', false]
+  ]) {
+    const result = biliEvidence({ status: 'empty', text: '' }, comments);
+    assert.equal(result.audienceCommentScope, expected);
+    assert.equal(result.hasAudienceComments, hasText);
+    assert.equal(result.basis, 'metadata');
+    assert.match(result.limitation, /不证明原视频零评论/u);
+  }
+});

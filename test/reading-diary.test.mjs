@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readingDiary, formatReadingDiary } from '../lib/bili/diary.js';
+import { readingDiary, formatReadingDiary, readingSupport } from '../lib/bili/diary.js';
 const now = Date.parse('2026-10-29T12:00:00+08:00');
 const entry = changes => ({
   id: 'a',
@@ -11,6 +11,40 @@ const entry = changes => ({
   createdAt: now,
   text: '我读取了 B 站视频资料：{"title":"鲸鱼歌声","bvid":"BV1234567890"}。',
   ...changes
+});
+
+test('reading support comes from valid source scope rather than a diary claiming sensory or audience facts', () => {
+  const source = details => entry({ text: JSON.stringify({ contentBasis: 'audio_excerpt', audioStatus: 'available', audioTranscribed: true, transcribedRange: [0, 8], commentStatus: 'available', ...details }) });
+  for (const value of ['empty_response', 'returned_subset']) {
+    const evidence = readingDiary([source({ audienceCommentScope: value })], 24, now)[0].sourceEvidence;
+    assert.equal(evidence[0].audienceCommentScope, value);
+    const support = readingSupport(evidence);
+    assert.deepEqual(support.obtained, ['asr_excerpt_text']);
+    assert.ok(support.notEstablished.includes('direct_listening'));
+    assert.ok(support.notEstablished.includes('full_video_viewing'));
+    assert.ok(support.notEstablished.includes('comment_absence'));
+  }
+  for (const details of [{}, { audienceCommentScope: 'invented' }, { audienceCommentScope: 'unavailable', commentStatus: 'available' }, { audienceCommentScope: 'returned_subset', commentStatus: 'unavailable' }])
+    assert.equal(readingDiary([source(details)], 24, now)[0].sourceEvidence[0].audienceCommentScope, undefined);
+  assert.equal(readingDiary([source({ commentStatus: 'unavailable', audienceCommentScope: 'unavailable' })], 24, now)[0].sourceEvidence[0].audienceCommentScope, 'unavailable');
+  const legacy = readingDiary([entry({ origin: 'diary', kind: 'diary', text: '我听完整条视频，下面没人留言' })], 24, now)[0].sourceEvidence;
+  assert.deepEqual(readingSupport(legacy).obtained, []);
+});
+
+test('linked reading excerpts remain bounded, source-specific and unavailable when their observation is invalid', () => {
+  const details = { contentBasis: 'audio_excerpt', audioStatus: 'available', audioTranscribed: true, transcribedRange: [0, 8], audioExcerpt: '音'.repeat(150),
+    visualStatus: 'available', sampledTimestamps: [2], visualExcerpt: '图'.repeat(150), commentStatus: 'available', audienceCommentScope: 'returned_subset', commentExcerpt: '评论只是一条观点' };
+  const source = entry({ id: 'abcdef123456', subjectId: 'fish', text: JSON.stringify(details) });
+  const thought = entry({ id: 'thought', subjectId: 'fish', origin: 'diary', kind: 'diary', tags: ['B站', 'reading:abcdef123456'], text: '我看完了，所有人都喜欢' });
+  const evidence = readingDiary([source, thought], 24, now).find(row => row.id === 'thought').sourceEvidence[0];
+  assert.deepEqual(evidence.excerpts.map(row => [row.kind, row.text.length]), [['asr_text', 120], ['visual_description', 80]]);
+  const invalid = readingDiary([entry({ text: JSON.stringify({ ...details, audioTranscribed: false, visualStatus: 'unavailable', commentStatus: 'unavailable' }) })], 24, now)[0].sourceEvidence[0];
+  assert.equal(invalid.excerpts, undefined);
+  for (const change of [{ subjectId: 'other' }, { createdAt: now + 1 }, { status: 'deleted' }]) {
+    const missing = readingDiary([{ ...source, ...change }, thought], 24, now).find(row => row.id === 'thought').sourceEvidence[0];
+    assert.equal(missing.excerpts, undefined);
+  }
+  assert.equal(source.text, JSON.stringify(details), 'source and mistaken reflection are never rewritten');
 });
 
 test('diary separates readings, reflections and legacy thoughts without inventing activity', () => {
@@ -111,4 +145,57 @@ test('a comparative thought retains every source and remains searchable by eithe
   assert.equal(searchReadingDiary(rows, '海洋生态').length, 1);
   assert.equal(searchReadingDiary(rows, 'BV1234567890').length, 1);
   assert.match(formatReadingDiary(rows, 24, 'UTC'), /BVabcdefghij/);
+});
+
+test('recent reflections resolve older source scope before the display window and continuity retains it', async () => {
+  const { readingContinuity } = await import('../lib/bili/diary.js');
+  const source = entry({ id: 'abcdef123456', subjectId: 'bot', createdAt: now - 48 * 3600000,
+    text: JSON.stringify({ bvid: 'BV1234567890', contentBasis: 'metadata', visualStatus: 'disabled', audioObserved: false }) });
+  const thought = entry({ id: 'thought', subjectId: 'bot', origin: 'diary', kind: 'diary', tags: ['B站', 'reading:abcdef123456'],
+    text: JSON.stringify({ title: '鲸鱼', thought: '视频没有讲到机制' }) });
+  const rows = readingDiary([thought, source], 24, now);
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0].sourceEvidence, [{ id: source.id, availability: 'available', bvid: 'BV1234567890', contentBasis: 'metadata', visualScope: 'not_observed', sampledTimestamps: [], audioScope: 'not_observed' }]);
+  assert.deepEqual(readingContinuity([thought, source], '鲸鱼', now)[0].sourceEvidence, rows[0].sourceEvidence);
+  assert.match(formatReadingDiary(rows, 24, 'UTC'), /仅元数据/);
+});
+
+test('missing, deleted, wrong-subject, future and reflection sources never certify old thoughts', () => {
+  const thought = entry({ id: 'thought', subjectId: 'bot', origin: 'diary', kind: 'diary', tags: ['B站', 'reading:abcdef123456'],
+    text: JSON.stringify({ contentBasis: 'subtitles', thought: '我看了全片' }) });
+  for (const changes of [null, { status: 'outdated' }, { subjectId: 'other' }, { createdAt: now + 1 }, { createdAt: now - 1, origin: 'diary', kind: 'diary' }]) {
+    const sources = changes ? [entry({ id: 'abcdef123456', subjectId: 'bot', text: '{"contentBasis":"subtitles"}', ...changes })] : [];
+    const result = readingDiary([thought, ...sources], 24, now).find(item => item.id === 'thought').sourceEvidence[0];
+    assert.equal(result.availability, 'missing');
+    assert.equal(result.contentBasis, 'unknown');
+    assert.equal(result.audioScope, 'unknown');
+  }
+  const legacy = readingDiary([entry({ origin: 'diary', kind: 'diary', text: '我看了全片' })], 24, now)[0];
+  assert.equal(legacy.sourceEvidence[0].availability, 'unlinked');
+  assert.equal(legacy.sourceEvidence[0].contentBasis, 'unknown');
+});
+
+test('comparative reflections retain distinct subtitle and cropped visual evidence', () => {
+  const rows = readingDiary([
+    entry({ id: 'abcdef123456', text: JSON.stringify({ contentBasis: 'subtitle_excerpt', visualStatus: 'disabled' }) }),
+    entry({ id: '123456abcdef', text: JSON.stringify({ contentBasis: 'sampled_frames', visualStatus: 'available', visualRegion: 'bottom_band', sampledTimestamps: [1, 3, 5, 7] }) }),
+    entry({ id: 'thought', origin: 'diary', kind: 'diary', tags: ['B站', 'reading:abcdef123456', 'reading:123456abcdef'] })
+  ], 24, now);
+  const evidence = rows.find(item => item.id === 'thought').sourceEvidence;
+  assert.equal(evidence[0].contentBasis, 'subtitle_excerpt');
+  assert.equal(evidence[1].visualScope, 'bottom_band');
+  assert.deepEqual(evidence[1].sampledTimestamps, [1, 3, 5, 7]);
+  assert.match(formatReadingDiary(rows, 24, 'UTC'), /仅底部字幕带/);
+});
+
+test('malformed and unavailable frame evidence never becomes observed video', () => {
+  for (const timestamps of [[], [-1], [null], [1, 2, 3, 4], ['1']]) {
+    const evidence = readingDiary([entry({ text: JSON.stringify({ contentBasis: 'sampled_frames', visualStatus: 'available', sampledTimestamps: timestamps }) })], 24, now)[0].sourceEvidence[0];
+    assert.equal(evidence.contentBasis, 'unknown');
+    assert.equal(evidence.visualScope, 'unknown');
+    assert.deepEqual(evidence.sampledTimestamps, []);
+  }
+  for (const text of ['null', '[]', '{bad']) {
+    assert.equal(readingDiary([entry({ text })], 24, now)[0].sourceEvidence[0].contentBasis, 'unknown');
+  }
 });

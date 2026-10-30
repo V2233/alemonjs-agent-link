@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { getDSHConfig } from '../lib/dsh/client.js';
 import { getModuleRuntime } from '../lib/agent/modules.js';
-import { runCoordinatedChat } from '../lib/dsh/orchestrator.js';
+import { runCoordinatedChat, conversationQueueScope } from '../lib/dsh/orchestrator.js';
 import { SessionRegistry } from '../lib/state/registry.js';
 import { setDSHBridgeForTesting, DSHSupervisor } from '../lib/dsh/supervisor.js';
 import { runModuleTurn } from '../lib/agent/turn.js';
@@ -224,7 +224,7 @@ test('coordinated turn executes memory tools and stores the transformed reply on
     );
     await started;
     const meta = await registry.meta(channelId);
-    const history = { channelId, generation: meta.generation };
+    const history = { channelId, generation: meta.generation, scope: conversationQueueScope(config, { platform: event.Platform, botId: event.BotId }) };
     assert.deepEqual(await registry.privateHistory(history), []);
     assert.equal((await registry.privateMemories(channelId))[0].text, '喜欢茶');
     deliver();

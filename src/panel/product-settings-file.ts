@@ -72,7 +72,8 @@ export class ProductSettingsFile {
     if (revision(original) !== expected) throw new Error('配置已被其他操作修改，请重新读取后再保存');
     const doc = parse(source);
 
-    if (doc.contents.items.some((pair: any) => String(pair.key.value) !== 'alemonjs-agent-link')) throw new Error('只能修改 AgentLink 配置');
+    if (!isMap(doc.contents) || doc.contents.items.some((pair: any) => String(pair.key.value) !== 'alemonjs-agent-link'))
+      throw new Error('只能修改 AgentLink 配置');
     const before = parse(original);
     const secrets = new Map<string, unknown>();
     const collect = (node: any, sensitive = false) => {

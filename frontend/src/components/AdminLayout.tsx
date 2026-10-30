@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar, Breadcrumb, Button, Drawer, Flex, Grid, Layout, Menu, Space, Typography } from 'antd';
-import { MenuOutlined, RobotOutlined, SwapOutlined } from '@ant-design/icons';
+import { MenuOutlined, RobotOutlined } from '@ant-design/icons';
 import './workspace.css';
 
 export default function AdminLayout() {
@@ -19,6 +19,7 @@ export default function AdminLayout() {
     '/rotation': '额度轮转',
     '/voices': '音色库',
     '/ads': '私聊广告',
+    '/settings': '设置',
     '/work-model': '工作模型'
   };
   const menu = (
@@ -26,16 +27,17 @@ export default function AdminLayout() {
       mode='inline'
       selectedKeys={[location.pathname]}
       items={[
+        { key: '/settings', label: '设置' },
         { key: '/personas', label: '人设' },
         { key: '/hobbies', label: '爱好设置' },
+        { key: '/voices', label: '音色库' },
         { key: '/knowledge', label: '问答库' },
         { key: '/dictionary', label: '热词词典' },
         { key: '/events', label: '事件库' },
         { key: '/opinions', label: '对象评价' },
         { key: '/work-model', label: '工作模型' },
-        { key: '/ads', label: '私聊广告' },
-        { key: '/voices', label: '音色库' },
-        { key: '/rotation', label: '额度轮转' }
+        { key: '/rotation', label: '额度轮转' },
+        { key: '/ads', label: '私聊广告' }
       ]}
       onClick={({ key }) => {
         navigate(key);

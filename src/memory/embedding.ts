@@ -51,9 +51,11 @@ export const embeddingSettings = (config: DSHBridgeConfig): EmbeddingSettings | 
     !Number.isFinite(weight) ||
     weight < 0 ||
     weight > 1 ||
+    typeof maxItems !== 'number' ||
     !Number.isSafeInteger(maxItems) ||
     maxItems < 100 ||
     maxItems > 2000 ||
+    typeof timeoutMs !== 'number' ||
     !Number.isSafeInteger(timeoutMs) ||
     timeoutMs < 1000 ||
     timeoutMs > 30000

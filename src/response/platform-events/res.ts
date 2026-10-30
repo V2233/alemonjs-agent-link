@@ -5,7 +5,7 @@ import { logger, useEvent } from 'alemonjs';
 import { contextEvents, eventContexts, normalizeContextEvent } from '../../social/event-context';
 import { messageReferences } from '../../social/references';
 import { groupConversations } from '../../social/groups';
-import { cancelGroupChat } from '../../dsh/orchestrator';
+import { cancelGroupChat, conversationQueueScope } from '../../dsh/orchestrator';
 import { getConversationId } from '../dsh/util';
 import { getDSHConfig } from '../../dsh/client';
 import { SessionRegistry } from '../../state/registry';
@@ -45,8 +45,8 @@ export default async (): Promise<void> => {
 
       // Conservative cancellation: edits/withdrawals may affect another queued question's quote.
       if (channelId) {
-        groupConversations.invalidateRecent(channelId);
-        cancelGroupChat(channelId, false);
+        groupConversations.invalidateRecent(channelId, { platform: event.Platform, botId: event.BotId });
+        cancelGroupChat(channelId, false, conversationQueueScope(config, { platform: event.Platform, botId: event.BotId }));
       }
       await messageReferences.invalidate(event);
       if (channelId && event.Platform && historyEnabled(config)) {
@@ -56,7 +56,9 @@ export default async (): Promise<void> => {
         if (event.name.endsWith('.update')) archiveIncoming(config, event, event.IsPrivate && (await canPrivateChatWithKey(event, config.privateChatAccess)));
       }
       if (channelId) {
-        await new SessionRegistry(getDSHConfig()).clearRecent(channelId).catch(() => logger.warn('Event recent-context cleanup failed'));
+        await new SessionRegistry(config)
+          .clearRecent(channelId, conversationQueueScope(config, { platform: event.Platform, botId: event.BotId }))
+          .catch(() => logger.warn('Event recent-context cleanup failed'));
       }
       if (event.name.endsWith('.update') && typeof event.MessageText === 'string') {
         await messageReferences.capture(event);

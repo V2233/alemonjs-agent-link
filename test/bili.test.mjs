@@ -153,6 +153,7 @@ test('model reads the actual Bilibili result through a normal tool turn', async 
       const result = JSON.parse(request.messages.find(item => item.role === 'tool').content);
       assert.equal(result.video.title, '真实标题');
       assert.equal(result.evidence.basis, 'metadata');
+      assert.equal(result.evidence.audienceCommentScope, 'returned_subset');
       assert.equal(result.subtitles.status, 'not_available');
     } else {
       assert.match(JSON.stringify(request.messages), /近期经历/);
@@ -193,6 +194,7 @@ test('model reads the actual Bilibili result through a normal tool turn', async 
     assert.match(experiences[0].text, /实测鲸鱼资料/);
     assert.match(experiences[0].text, /这是条蓝鲸/);
     assert.match(experiences[0].text, /contentBasis.*metadata/);
+    assert.match(experiences[0].text, /audienceCommentScope.*returned_subset/);
     assert.deepEqual(store.list({ ...scope, channelId: 'private:other' }), []);
     await runModuleTurn({
       config,
@@ -320,6 +322,7 @@ test('opt-in proactive turn searches and reads Bilibili with per-turn bounds and
     const reflection = events.find(item => item.tags.includes('阅读感想'));
     assert.match(reading.text, /讲鲸鱼的生态/);
     assert.match(reading.text, /没有读取视频画面或声音/);
+    assert.match(reading.text, /audienceCommentScope.*empty_response/);
     assert.equal(reflection.origin, 'diary');
     assert.equal(reflection.kind, 'diary');
     assert.ok(reflection.tags.includes(`reading:${reading.id}`));
@@ -504,11 +507,18 @@ test('reading diary exposes only scoped Bilibili evidence and respects deletion 
     const result = await diary.execute({}, context);
     assert.equal(result.entries.length, 1);
     assert.equal(result.entries[0].evidence, '真实阅读资料 A');
+    assert.equal(result.entries[0].sourceEvidence[0].availability, 'available');
+    assert.equal(result.entries[0].sourceEvidence[0].contentBasis, 'unknown');
     assert.equal((await diary.execute({ query: '资料 A' }, context)).entries.length, 1);
     assert.equal((await diary.execute({ query: '其他活动' }, context)).entries.length, 0);
     assert.equal((await diary.execute({ query: 'a'.repeat(81) }, context)).ok, false);
     assert.equal((await diary.execute({ hours: 169 }, context)).ok, false);
     assert.equal((await diary.execute({}, { ...context, botId: 'another' })).entries.length, 0);
+    store.recordDiary(context, { key: 'thought-a', subjectId: '900', text: '{"thought":"续读问题"}', tags: ['B站'], sourceReadingId: result.entries[0].id });
+    const thought = (await diary.execute({ query: '续读问题' }, context)).entries[0];
+    assert.equal(thought.type, 'reflection');
+    assert.equal(thought.sourceEvidence[0].id, result.entries[0].id);
+    assert.equal(thought.sourceEvidence[0].availability, 'available');
     store.forget(context, result.entries[0].id, 0);
     assert.equal((await diary.execute({}, context)).entries.length, 0);
     globalThis.__config.value['alemonjs-agent-link'].modules = { disabled: ['memory'] };

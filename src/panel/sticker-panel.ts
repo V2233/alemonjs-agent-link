@@ -269,7 +269,7 @@ const syncFavorites = async (res: ServerResponse, media: MediaConfig): Promise<v
   json(res, 200, { ok: true, added, renamed, failed, total: items.length });
 };
 
-const handle = async (req: IncomingMessage, res: ServerResponse, config: DSHBridgeConfig, panel: StickerPanelConfig, media: MediaConfig): Promise<void> => {
+const handle = async (req: IncomingMessage, res: ServerResponse, panel: StickerPanelConfig, media: MediaConfig): Promise<void> => {
   const url = new URL(req.url || '/', `http://${panel.host === '::1' ? `[${panel.host}]` : panel.host}`);
 
   if (!authorized(req, url, panel.token)) {
@@ -469,7 +469,7 @@ export const startStickerPanel = async (config: DSHBridgeConfig, portOverride?: 
 
         return;
       }
-      await handle(req, res, config, active, media);
+      await handle(req, res, active, media);
     })().catch(error => {
       if (res.headersSent) return;
       logger.warn({ err: error }, 'Sticker panel request failed');

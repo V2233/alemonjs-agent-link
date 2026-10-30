@@ -1,6 +1,8 @@
+import { readGeneralSettings, saveGeneralSettings } from './panel/general-settings';
 import { readAdsSettings, saveAdsSettings } from './panel/ads-settings';
 import { listEndpointModels } from './panel/model-list';
 import { readHobbies, saveHobbies } from './panel/hobbies';
+import { inspectBiliReadiness } from './panel/bili-diagnostics';
 import { logger } from 'alemonjs';
 import { AdminInputError } from './panel/admin-error';
 import { voiceSnapshot, probeVoices, voiceBalances, readVoiceSettings, updateVoiceSettings } from './panel/voice-service';
@@ -258,6 +260,7 @@ apiRouter.post('/pool/settings', async ctx => {
   success(ctx, result.data, result.message);
 });
 apiRouter.get('/hobbies', async ctx => success(ctx, await readHobbies()));
+apiRouter.post('/hobbies/diagnostics', async ctx => success(ctx, await inspectBiliReadiness()));
 apiRouter.post('/hobbies', async ctx => success(ctx, await saveHobbies(ctx.request.body)));
 apiRouter.get('/work-model', async ctx => success(ctx, await readWorkModel()));
 apiRouter.post('/work-model', async ctx => success(ctx, await saveWorkModel(ctx.request.body)));
@@ -273,4 +276,10 @@ apiRouter.post('/voices/settings', async ctx => {
 apiRouter.post('/models', async ctx => success(ctx, await listEndpointModels(ctx.request.body)));
 apiRouter.get('/ads', async ctx => success(ctx, await readAdsSettings()));
 apiRouter.post('/ads', async ctx => success(ctx, await saveAdsSettings(ctx.request.body)));
+apiRouter.get('/settings', async ctx => success(ctx, await readGeneralSettings()));
+apiRouter.post('/settings', async ctx => {
+  const result = await saveGeneralSettings(ctx.request.body);
+
+  success(ctx, result.data, result.message);
+});
 export default apiRouter;

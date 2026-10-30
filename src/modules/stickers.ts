@@ -4,6 +4,7 @@ import type { AgentModule } from '../agent/types';
 import { getMediaConfig, MediaError } from '../media/config';
 import { withBudgetScope } from '../billing/budget';
 import { assessSticker } from '../media/providers';
+import { visionSource } from '../media/vision';
 import { chooseSticker, listStickers, loadSticker, collectSticker, updateSticker, markStickerUsed, renameSticker, readStickerPath } from '../media/stickers';
 import { renderSticker } from '../media/sticker-forge';
 import { downloadAttachment, imageMime } from '../media/download';
@@ -362,12 +363,12 @@ export const stickerModule = (): AgentModule => ({
             try {
               const relativePath = relative(root, resolve(directory, entry.name));
               const data = await readStickerPath(config, relativePath, 5 * 1024 * 1024);
-              let kindValue = kind === 'avatar' ? 'avatar' : 'sticker';
+              let kindValue: 'avatar' | 'sticker' = kind === 'avatar' ? 'avatar' : 'sticker';
               let category = kindValue === 'avatar' ? '头像' : '未分类';
               let name: string | undefined;
               let tags = kindValue === 'avatar' ? ['头像'] : ['导入'];
 
-              if (config.vision && imageMime(data) !== 'image/gif') {
+              if (visionSource(config) && imageMime(data) !== 'image/gif') {
                 try {
                   const assessment = await withBudgetScope({ platform: context.platform, channelId: context.channelId, userId: context.userId }, () =>
                     assessSticker(data, config, context.signal)

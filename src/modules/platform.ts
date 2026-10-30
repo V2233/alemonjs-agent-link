@@ -48,7 +48,7 @@ export const groupAdminModule = (config: DSHBridgeConfig): AgentModule => ({
   apiVersion: 1,
   setup(api) {
     const groups = api.settings.groups ?? [];
-    const allGroups = api.settings.allGroups ?? groups.length === 0;
+    const allGroups = api.settings.allGroups ?? (Array.isArray(groups) && groups.length === 0);
 
     if (!Array.isArray(groups) || groups.length > 1000 || groups.some(id => typeof id !== 'string' || numericId(id) !== id) || typeof allGroups !== 'boolean') {
       throw new Error('群管理白名单无效。');

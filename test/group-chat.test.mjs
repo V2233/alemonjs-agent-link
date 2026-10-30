@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../lib/dsh/conversation-scope.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -170,7 +171,7 @@ test('group batch reaches the actual model once, quotes a selected participant a
     assert.equal(sends.length, 1);
     assert.equal(sends[0].replyId, 'a');
     const meta = await registry.meta('group');
-    const history = await registry.privateHistory({ channelId: 'group', generation: meta.generation });
+    const history = await registry.privateHistory({ channelId: 'group', generation: meta.generation, scope: conversationQueueScope(config, { platform: b.Platform, botId: b.BotId }) });
     assert.equal(history.at(-1).content, '收到两位的问题了。');
     const quote = await messageReferences.capture({ ...b, MessageId: 'quote', ReplyId: 'out-1' });
     assert.equal(quote.quote.isBot, true);
@@ -247,7 +248,7 @@ test('optional silence is completed without platform output while failed deliver
     assert.equal(failed.completed, false);
     const registry = new SessionRegistry(config);
     const meta = await registry.meta('silent');
-    assert.deepEqual(await registry.privateHistory({ channelId: 'silent', generation: meta.generation }), []);
+    assert.deepEqual(await registry.privateHistory({ channelId: 'silent', generation: meta.generation, scope: conversationQueueScope(config, { platform: event.Platform, botId: event.BotId }) }), []);
   } finally {
     await (await getModuleRuntime(config)).close();
     await messageReferences.clear('silent');

@@ -128,7 +128,7 @@ export const startPoolProbeRun = () => {
     running: true,
     startedAt: Date.now(),
     finishedAt: undefined as number | undefined,
-    results: pool.status.map(item => ({ id: item.id, state: 'pending' }))
+    results: pool.status.map((item): ProbeResult => ({ id: item.id, state: 'pending' }))
   };
 
   probeRun = run;

@@ -62,6 +62,7 @@ export class ProactiveStore {
         nudgedFor TEXT NOT NULL,unanswered INTEGER NOT NULL,day TEXT NOT NULL,count INTEGER NOT NULL,nudges INTEGER NOT NULL,nextAt INTEGER NOT NULL,
         pendingId TEXT NOT NULL,leaseUntil INTEGER NOT NULL,updatedAt INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS proactive_attempts(id TEXT PRIMARY KEY,scope TEXT NOT NULL,kind TEXT NOT NULL,status TEXT NOT NULL,at INTEGER NOT NULL,updatedAt INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS hobby_activity(scope TEXT PRIMARY KEY,day TEXT NOT NULL,count INTEGER NOT NULL,at INTEGER NOT NULL,status TEXT NOT NULL,runId TEXT NOT NULL DEFAULT '');
       CREATE TABLE IF NOT EXISTS proactive_browse_settings(scope TEXT PRIMARY KEY,enabled INTEGER,start INTEGER,end INTEGER);
       CREATE TABLE IF NOT EXISTS proactive_browse_preferences(scope TEXT NOT NULL,topic TEXT NOT NULL,preference TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(scope,topic));
       CREATE TABLE IF NOT EXISTS proactive_shares(scope TEXT NOT NULL,key TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(scope,key));
@@ -69,6 +70,13 @@ export class ProactiveStore {
       CREATE TABLE IF NOT EXISTS proactive_browse_days(scope TEXT PRIMARY KEY,day TEXT NOT NULL,at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS proactive_attempt_scope ON proactive_attempts(scope,at);
       CREATE TABLE IF NOT EXISTS proactive_inputs(scope TEXT NOT NULL,message_hash TEXT NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(scope,message_hash));`);
+    if (
+      !this.db
+        .prepare('PRAGMA table_info(hobby_activity)')
+        .all()
+        .some(column => column.name === 'runId')
+    )
+      this.db.exec("ALTER TABLE hobby_activity ADD COLUMN runId TEXT NOT NULL DEFAULT ''");
   }
   close(): void {
     this.db.close();
@@ -83,6 +91,39 @@ export class ProactiveStore {
       .prepare('SELECT * FROM proactive_subscriptions WHERE enabled=1 ORDER BY nextAt LIMIT 100')
       .all()
       .map(row => ({ ...row, enabled: Boolean(row.enabled) })) as unknown as ProactiveSubscription[];
+  }
+  hobbyActivityStatus() {
+    return this.db.prepare('SELECT scope,day,count,at,status FROM hobby_activity ORDER BY at DESC LIMIT 100').all();
+  }
+  hobbyActivity(scope: ProactiveScope): { day: string; count: number; at: number; status: string; runId: string } | undefined {
+    return this.db.prepare('SELECT day,count,at,status,runId FROM hobby_activity WHERE scope=?').get(proactiveScopeId(scope)) as never;
+  }
+  claimHobbyActivity(scope: ProactiveScope, options: ProactiveOptions, intervalMinutes: number, maxPerDay: number, window?: [number, number]): boolean {
+    const row = this.get(scope);
+    const now = this.now();
+
+    if (!row?.enabled || !options.enabled || row.pausedUntil > now || isQuiet(now, options) || row.pendingId) return false;
+    const { day, due } = dailyBrowseSlot(scope, now, options.timezone, window);
+
+    if (!due) return false;
+
+    return (
+      this.db
+        .prepare(
+          `INSERT INTO hobby_activity(scope,day,count,at,status,runId) VALUES(?,?,1,?,'running',?)
+      ON CONFLICT(scope) DO UPDATE SET day=excluded.day,count=CASE WHEN day=excluded.day THEN count+1 ELSE 1 END,at=excluded.at,status='running',runId=excluded.runId
+      WHERE at<=? AND (day<>excluded.day OR count<?)`
+        )
+        .run(proactiveScopeId(scope), day, now, randomUUID(), now - intervalMinutes * 60000, maxPerDay).changes === 1
+    );
+  }
+  finishHobbyActivity(scope: ProactiveScope, runId: string, status: string): boolean {
+    if (!runId) return false;
+
+    return (
+      this.db.prepare("UPDATE hobby_activity SET status=? WHERE scope=? AND runId=? AND status='running'").run(status, proactiveScopeId(scope), runId)
+        .changes === 1
+    );
   }
   claimDailyBrowse(scope: ProactiveScope, options: ProactiveOptions, window?: [number, number]): boolean {
     const row = this.get(scope);
@@ -501,6 +542,9 @@ export class ProactiveStore {
     }
     this.db.prepare('DELETE FROM proactive_attempts WHERE at<?').run(this.now() - days * 86400000);
     this.db.prepare('DELETE FROM proactive_shares WHERE at<=?').run(this.now() - 7 * 86400000);
+    this.db
+      .prepare('DELETE FROM hobby_activity WHERE NOT EXISTS (SELECT 1 FROM proactive_subscriptions WHERE proactive_subscriptions.id=hobby_activity.scope)')
+      .run();
   }
   private remove(row: ProactiveSubscription): void {
     interruptProactive(this.root, row);
@@ -512,6 +556,7 @@ export class ProactiveStore {
     this.db.prepare('DELETE FROM proactive_browse_settings WHERE scope=?').run(row.id);
     this.db.prepare('DELETE FROM proactive_browse_days WHERE scope=?').run(row.id);
     this.db.prepare('DELETE FROM proactive_browse_outcomes WHERE scope=?').run(row.id);
+    this.db.prepare('DELETE FROM hobby_activity WHERE scope=?').run(row.id);
   }
   private validate(scope: ProactiveScope): void {
     if (!['onebot', 'qq-bot'].includes(scope.platform) || !scope.botId || !scope.userId || scope.botId.length > 200 || scope.userId.length > 200) {

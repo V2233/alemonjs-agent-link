@@ -17,7 +17,7 @@ export const expressionOptions = (config: DSHBridgeConfig) => {
     automatic: raw.automatic ?? true,
     voiceChance: raw.voiceChance ?? 0.15,
     stickerChance: raw.stickerChance ?? 0.35,
-    // 没有匹配到话题相关表情时，是否随手发一个（默认不发）。
+    // 未识别明确意图的普通补图场景，没有匹配时是否随机挑一张（默认不发）。
     stickerFallback: raw.stickerFallback ?? false,
     // 识别到“在不在/晚安”等明确意图时，绕过概率抽样尝试一次匹配表情。
     stickerIntentAlways: raw.stickerIntentAlways ?? true,
@@ -70,30 +70,38 @@ const sample = (id: string, purpose: string): number =>
     .readUInt32BE(0) / 0x100000000;
 
 type StickerIntent = { names: string[]; categories: string[]; tags: string[]; context: string[] };
-const INTENTS: { pattern: RegExp; intent: StickerIntent }[] = [
+const INTENTS: { pattern: RegExp; intent: StickerIntent; social?: boolean }[] = [
   {
+    social: true,
     pattern: /在不在|在吗|在么|在嘛|有人吗|在不在呀/u,
     intent: { names: ['在呢'], categories: ['日常'], tags: ['招呼', '回应', '日常'], context: ['招呼', '回应', '在呢'] }
   },
   {
     pattern: /早安|早上好/u,
+    social: true,
     intent: { names: ['早安', '早上好'], categories: ['问候'], tags: ['早安', '早上好', '问候'], context: ['早晨', '问候'] }
   },
   {
     pattern: /晚安|睡了|困了|睡觉|好梦/u,
+    social: true,
     intent: { names: ['晚安', '睡了'], categories: ['晚安'], tags: ['晚安', '困'], context: ['睡前', '困倦', '晚安'] }
   },
   {
     pattern: /哈哈|笑死|好笑|开心|好耶|太好/u,
-    intent: { names: ['好耶', '开心', '笑死', '哈哈'], categories: ['开心'], tags: ['开心', '笑'], context: ['庆祝', '好消息', '开心'] }
+    intent: {
+      names: ['好耶', '开心', '笑死', '哈哈'],
+      categories: ['开心'],
+      tags: ['开心', '笑', '哈哈', '哈哈哈', '大笑', '爆笑', '笑死', '搞笑', '高兴', '快乐'],
+      context: ['庆祝', '好消息', '开心']
+    }
   },
   {
     pattern: /生气|好烦|讨厌|不满|气死/u,
-    intent: { names: ['生气', '不满'], categories: ['不满'], tags: ['生气', '不满'], context: ['不满', '生气'] }
+    intent: { names: ['生气', '不满'], categories: ['不满'], tags: ['生气', '不满', '愤怒', '气愤', '炸毛'], context: ['不满', '生气'] }
   },
   {
     pattern: /委屈|难过|想哭|伤心|哭死/u,
-    intent: { names: ['抱抱', '安慰'], categories: ['安慰'], tags: ['抱抱', '安慰'], context: ['陪伴', '安慰'] }
+    intent: { names: ['抱抱', '安慰'], categories: ['安慰'], tags: ['抱抱', '安慰', '拥抱', '摸摸', '拍拍', '陪伴', '心疼'], context: ['陪伴', '安慰'] }
   },
   {
     pattern: /害羞|不好意思|脸红/u,
@@ -112,9 +120,18 @@ const INTENTS: { pattern: RegExp; intent: StickerIntent }[] = [
 export const stickerIntent = (text: string): StickerIntent | undefined => {
   if (!text || /[“”「」"<>]|他说|她说|有人说|不要|别再|不许|并不|不是|不(?:开心|难过|生气|困|委屈)|怎么|如何|为什么|什么叫/u.test(text)) return undefined;
 
-  return INTENTS.find(entry => entry.pattern.test(text))?.intent;
+  const matched = INTENTS.filter(entry => entry.pattern.test(text));
+  const reactions = matched.filter(entry => !entry.social);
+  const candidates = reactions.length ? reactions : matched;
+
+  // An explicit emotion takes precedence over a greeting. Mixed emotions are
+  // ambiguous: preserve the text instead of choosing a reaction by list order.
+  return candidates.length === 1 ? candidates[0].intent : undefined;
 };
 export const hasStickerIntent = (text: string): boolean => Boolean(stickerIntent(text));
+const matchesStickerIntent = (item: Sticker, intent: StickerIntent): boolean =>
+  Boolean(item.name && intent.names.includes(item.name)) || item.tags.some(tag => !['日常', '回应', '问候'].includes(tag) && intent.tags.includes(tag));
+
 export const selectIntentSticker = (items: Sticker[], userText: string): Sticker | undefined => {
   const intent = stickerIntent(userText);
 
@@ -123,10 +140,9 @@ export const selectIntentSticker = (items: Sticker[], userText: string): Sticker
   const exact = items.find(item => Boolean(item.name && intent.names.includes(item.name)));
 
   if (exact) return exact;
-  // Require a specific expression tag: a broad category such as 日常 is not enough.
-  const specific = intent.tags.filter(tag => !['日常', '回应', '问候'].includes(tag));
 
-  return items.find(item => item.tags.some(tag => specific.includes(tag)));
+  // Require a specific expression tag: a broad category such as 日常 is not enough.
+  return items.find(item => matchesStickerIntent(item, intent));
 };
 const INTENT_WORDS =
   /在不在|在吗|在么|在嘛|有人吗|早安|早上好|晚安|睡了|困了|睡觉|好梦|哈哈|笑死|好笑|开心|好耶|太好|生气|好烦|讨厌|不满|气死|委屈|难过|想哭|伤心|哭死|害羞|不好意思|脸红|得意|厉害|牛啊|太强|崇拜|调皮|略略略|逗你|哼哼/gu;
@@ -202,9 +218,14 @@ export const selectExpressionSticker = (
 ): Sticker | undefined => {
   const related = moodValue >= 75 ? ['开心', '愉快', '高兴', '快乐', '笑'] : moodValue < 45 ? ['低落', '难过', '疲惫', '叹气'] : ['平和', '日常', '点头'];
   const intent = stickerIntent(userText);
+
+  // Quoted, negated or explanatory uses of a reaction word are not an invitation
+  // to react. Likewise, our mood must not override an explicit user's emotion.
+  if (!intent && userText && INTENTS.some(entry => entry.pattern.test(userText))) return undefined;
   const ranked = items
     .map(item => {
-      let score = item.tags.reduce((sum, tag) => sum + (text.includes(tag) ? 3 : related.includes(tag) ? 1 : 0), 0);
+      if (intent && !matchesStickerIntent(item, intent)) return { item, score: 0, tie: 0 };
+      let score = item.tags.reduce((sum, tag) => sum + (text.includes(tag) ? 3 : 0), 0);
 
       if (intent) {
         if (item.name && intent.names.includes(item.name)) score += 40;
@@ -213,6 +234,9 @@ export const selectExpressionSticker = (
         if (intent.tags.some(tag => item.tags.includes(tag))) score += 6;
         if (item.context && intent.context.some(keyword => item.context?.includes(keyword))) score += 4;
       }
+      // Mood weights already relevant candidates; it cannot make an unrelated
+      // image relevant to a reply by itself.
+      if (score > 0) score += item.tags.filter(tag => related.includes(tag)).length;
 
       return { item, score, tie: sample(inputId, item.id) };
     })
@@ -220,7 +244,7 @@ export const selectExpressionSticker = (
     .sort((a, b) => b.score - a.score || a.tie - b.tie);
 
   if (ranked[0]) return ranked[0].item;
-  if (!fallback || !items.length) return undefined;
+  if (intent || !fallback || !items.length) return undefined;
 
   // A deterministic per-input shuffle gives an unpredictable but retry-stable fallback.
   return [...items].sort((a, b) => sample(inputId, a.id) - sample(inputId, b.id))[0];

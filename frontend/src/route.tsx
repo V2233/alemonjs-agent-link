@@ -1,3 +1,4 @@
+import SettingsPage from './components/SettingsPage';
 import AdsPage from './components/AdsPage';
 import HobbiesPage from './components/HobbiesPage';
 import VoicesPage from './components/VoicesPage';
@@ -14,6 +15,7 @@ export default createHashRouter([
   {
     element: <AdminLayout />,
     children: [
+      { path: '/settings', element: <SettingsPage /> },
       { path: '/ads', element: <AdsPage /> },
       { path: '/hobbies', element: <HobbiesPage /> },
       { path: '/voices', element: <VoicesPage /> },

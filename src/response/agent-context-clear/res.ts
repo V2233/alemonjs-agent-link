@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../../dsh/conversation-scope';
 import { getDSHConfig } from '@src/dsh/client';
 import { useEvent, useMessage } from 'alemonjs';
 import { noticeBubble } from '../bubble';
@@ -32,7 +33,9 @@ export default async (): Promise<void> => {
     return;
   }
 
-  await clearRecentMessages(event.ChannelId, getDSHConfig());
+  const config = getDSHConfig();
+
+  await clearRecentMessages(event.ChannelId, config, conversationQueueScope(config, { platform: event.Platform, botId: event.BotId }));
   await message.send({
     format: noticeBubble('聊天参考已清除，正式对话保留。', {
       platform: event.Platform,

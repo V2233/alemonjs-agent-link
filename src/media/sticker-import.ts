@@ -2,6 +2,7 @@ import { MediaError, type MediaConfig } from './config';
 import { downloadAttachment, imageMime } from './download';
 import { collectSticker } from './stickers';
 import { assessSticker } from './providers';
+import { visionSource } from './vision';
 
 export type StickerImportResult = { total: number; added: number; existing: number; failed: number };
 const MAX_IMPORT = 30;
@@ -38,7 +39,7 @@ export const importStickerUrls = async (
       let tags = ['导入'];
       let category = '导入';
 
-      if (config.vision && mime !== 'image/gif') {
+      if (visionSource(config) && mime !== 'image/gif') {
         try {
           const assessment = await assess(data, config, signal);
 

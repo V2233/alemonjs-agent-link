@@ -64,7 +64,6 @@ export const proactiveOptions = (config: DSHBridgeConfig): ProactiveOptions => {
     throw new Error('proactive 模块设置无效。');
   }
   const options = {
-    activity,
     enabled: raw.enabled ?? true,
     autoSubscribe: raw.autoSubscribe ?? true,
     nudge: raw.nudge ?? true,

@@ -1,3 +1,4 @@
+import { conversationQueueScope } from '../../dsh/conversation-scope';
 import { describeSpeaker, extractWakePrompt } from '@src/response/dsh/util';
 import { logger, useEvent, useMention } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
@@ -41,7 +42,8 @@ export default async (): Promise<void> => {
             windowSeconds: config.recentChatWindowSeconds,
             maxChars: config.recentChatMaxChars
           },
-          config
+          config,
+          conversationQueueScope(config, { platform: event.Platform, botId: event.BotId })
         );
       }
     } catch (error) {

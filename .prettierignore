@@ -41,3 +41,4 @@ frontend/build/
 testone/
 
 /packages
+/output

@@ -563,17 +563,18 @@ const markPendingBudget = async (redis: Redis, key: string, reason: string): Pro
 export const budgetedFetch = async (
   config: DSHBridgeConfig,
   url: URL,
-  init: RequestInit & { onDispatch?: () => void; personalKey?: boolean; scopedKey?: boolean; pricing?: CredentialPricing },
+  init: RequestInit & { onDispatch?: () => void; personalKey?: boolean; scopedKey?: boolean; robotKey?: boolean; pricing?: CredentialPricing },
   kind: BudgetKind = 'chat',
   keyBudget: boolean | 'observe' = false
 ): Promise<Response> => {
   assertAIEnabled(config);
+  if (init.robotKey && (init.personalKey || init.scopedKey)) throw new DSHError('budget', '模型凭据类型冲突。');
   if (kind === 'chat' && getBudgetScope()?.autonomous) kind = 'autonomous';
   if (kind === 'reply-gate' && getBudgetScope()?.channelId.startsWith('private:')) throw new DSHError('budget', '主动搭话识别仅限群会话。');
   if (init.personalKey && !getBudgetScope()?.channelId.startsWith('private:')) throw new DSHError('budget', '个人 Key 只能用于本人私聊。');
   const { getBoundCredential, checkedBoundCredential, disableBoundCredential } = await import('../credentials/scoped');
 
-  if (!keyBudget && (init.personalKey || init.scopedKey || (await getBoundCredential()))) {
+  if (!init.robotKey && !keyBudget && (init.personalKey || init.scopedKey || (await getBoundCredential()))) {
     const personal = await checkedBoundCredential(init.signal || undefined);
 
     if (personal) {

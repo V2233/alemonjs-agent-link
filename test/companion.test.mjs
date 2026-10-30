@@ -316,7 +316,8 @@ test('expression decisions require configuration, remain stable on retry and do 
       { id: 'tea', tags: ['喝茶'] }
     ];
     assert.equal(selectExpressionSticker(items, '一起喝茶吧', 80, 'm').id, 'tea');
-    assert.equal(selectExpressionSticker(items, '好呀', 80, 'm').id, 'happy');
+    assert.equal(selectExpressionSticker(items, '好呀', 80, 'm'), undefined);
+    assert.equal(selectExpressionSticker(items, '替你开心', 80, 'm').id, 'happy');
     assert.equal(selectExpressionSticker(items, '好呀', 60, 'm'), undefined);
     assert.ok(selectExpressionSticker(items, '好呀', 60, 'm', true));
     assert.equal(hasStickerIntent('在不在'), true);
@@ -470,6 +471,97 @@ test('explicit intent replies with only a matching sticker in either mode', () =
     assert.equal(texts, 0);
     assert.equal(stickers, 1);
     assert.equal(outcome.delivered, true);
+  }));
+
+test('ordinary users can receive a classifier-tagged reaction through the complete chat delivery path', () =>
+  fixture(async ({ root }) => {
+    const { runDSHChat } = await import('../lib/response/dsh/chat.js');
+    const { ResultCode } = await import('alemonjs');
+    const stickerRoot = join(root, 'stickers');
+    await mkdir(stickerRoot);
+    await writeFile(
+      join(stickerRoot, 'manifest.json'),
+      JSON.stringify([{ id: 'learned-laugh', file: 'laugh.png', name: '笑死大笑', tags: ['大笑', '搞笑'], category: '开心' }])
+    );
+    await writeFile(join(stickerRoot, 'laugh.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
+      modules: {
+        settings: {
+          memory: { automatic: false },
+          mood: { modelJudge: false },
+          expression: {
+            automatic: true,
+            voiceChance: 0,
+            stickerChance: 0,
+            stickerIntentAlways: true,
+            stickerMode: 'either'
+          }
+        }
+      },
+      media: { stickerRoot }
+    });
+    globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '笑死' } }] });
+    let texts = 0,
+      images = 0,
+      outcome;
+    const transport = {
+      message: {
+        send: async () => {
+          texts++;
+          return [{ code: ResultCode.Ok, data: null }];
+        }
+      },
+      media: {
+        send: async () => {
+          images++;
+          return { code: ResultCode.Ok, data: { messageId: 'synonym-receipt' } };
+        }
+      }
+    };
+    await runDSHChat({ Platform: 'qq', UserId: 'tag-alias-member', IsPrivate: true, IsMaster: false, MessageId: 'synonym-reaction' }, '哈哈哈', {
+      transport,
+      onOutcome: value => {
+        outcome = value;
+      }
+    });
+    assert.equal(images, 1);
+    assert.equal(texts, 0);
+    assert.equal(outcome.delivered, true);
+  }));
+
+test('ordinary-user chat chooses comfort over a greeting and preserves text for mixed emotions', () =>
+  fixture(async ({ root }) => {
+    const { runDSHChat } = await import('../lib/response/dsh/chat.js');
+    const { ResultCode } = await import('alemonjs');
+    const stickerRoot = join(root, 'stickers');
+    await mkdir(stickerRoot);
+    const library = [
+      { id: 'here', file: 'here.png', name: '在呢', tags: ['回应'] },
+      { id: 'hug', file: 'hug.png', tags: ['拥抱'] },
+      { id: 'laugh', file: 'laugh.png', tags: ['大笑', '开心'] }
+    ];
+    await writeFile(join(stickerRoot, 'manifest.json'), JSON.stringify(library));
+    for (const item of library) await writeFile(join(stickerRoot, item.file), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
+      modules: { settings: {
+        memory: { automatic: false }, mood: { modelJudge: false },
+        expression: { automatic: true, voiceChance: 0, stickerChance: 1, stickerIntentAlways: true, stickerMode: 'either', socialPolish: false }
+      } },
+      media: { stickerRoot }
+    });
+    globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '抱抱' } }] });
+    for (const [index, input] of ['肥鱼在吗，我好难过', '早安，我好难过', '哈哈，其实我很难过', '我很难过，但现在好开心'].entries()) {
+      const images = [], texts = [];
+      const transport = {
+        message: { send: async value => { texts.push(value); return [{ code: ResultCode.Ok, data: null }]; } },
+        media: { send: async value => { images.push(value.name); return { code: ResultCode.Ok, data: { messageId: `emotion-${index}` } }; } }
+      };
+      let outcome;
+      await runDSHChat({ Platform: 'qq', UserId: `ordinary-emotion-${index}`, IsPrivate: true, IsMaster: false, MessageId: `emotion-${index}` }, input, { transport, onOutcome: value => { outcome = value; } });
+      assert.equal(outcome.delivered, true, input);
+      assert.deepEqual(images, index < 2 ? ['hug.png'] : [], input);
+      assert.equal(texts.length, index < 2 ? 0 : 1, input);
+    }
   }));
 
 test('disabled sticker module preserves text despite forced intent', () =>

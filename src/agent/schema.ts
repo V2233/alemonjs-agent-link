@@ -1,12 +1,37 @@
 import type { ToolSchema } from './types';
 
+export class ToolArgumentError extends Error {
+  constructor(
+    readonly field: string,
+    readonly reason: 'unknown_field' | 'required_field' | 'invalid_value' | 'nesting_limit',
+    readonly allowedFields?: string[]
+  ) {
+    super(
+      reason === 'unknown_field'
+        ? `工具参数 ${field} 不在当前工具定义中。`
+        : reason === 'required_field'
+          ? `工具参数 ${field} 缺失。`
+          : reason === 'nesting_limit'
+            ? '工具参数嵌套过深。'
+            : `工具参数 ${field} 无效。`
+    );
+    this.name = 'ToolArgumentError';
+  }
+}
+const fieldName = (key: string): string => (/^[A-Za-z_][A-Za-z0-9_]{0,63}$/u.test(key) ? key : '[field]');
+const fieldPath = (value: string): string => value.replace(/[^A-Za-z0-9_.[\]]/gu, '_').slice(0, 200);
+const allowedFields = (schema: ToolSchema): string[] =>
+  Object.keys(schema.properties || {})
+    .filter(key => fieldName(key) === key)
+    .slice(0, 32);
+
 // Validate again at execution: model-generated arguments are untrusted input.
 export const validateArguments = (schema: ToolSchema, value: unknown, path = 'arguments', depth = 0): void => {
   if (depth > 12) {
-    throw new Error('工具参数嵌套过深。');
+    throw new ToolArgumentError(fieldPath(path), 'nesting_limit');
   }
   const invalid = (): never => {
-    throw new Error(`工具参数 ${path} 无效。`);
+    throw new ToolArgumentError(fieldPath(path), 'invalid_value');
   };
 
   if (schema.enum && !schema.enum.includes(value as string | number | boolean)) {
@@ -21,7 +46,7 @@ export const validateArguments = (schema: ToolSchema, value: unknown, path = 'ar
 
       for (const key of schema.required || []) {
         if (!Object.hasOwn(object, key)) {
-          invalid();
+          throw new ToolArgumentError(fieldPath(`${path}.${fieldName(key)}`), 'required_field', allowedFields(schema));
         }
       }
       for (const [key, entry] of Object.entries(object)) {
@@ -29,9 +54,9 @@ export const validateArguments = (schema: ToolSchema, value: unknown, path = 'ar
           invalid();
         }
         if (Object.hasOwn(schema.properties || {}, key)) {
-          validateArguments(schema.properties[key], entry, `${path}.${key}`, depth + 1);
+          validateArguments(schema.properties[key], entry, `${path}.${fieldName(key)}`, depth + 1);
         } else if (schema.additionalProperties !== true) {
-          invalid();
+          throw new ToolArgumentError(fieldPath(`${path}.${fieldName(key)}`), 'unknown_field', allowedFields(schema));
         }
       }
       break;

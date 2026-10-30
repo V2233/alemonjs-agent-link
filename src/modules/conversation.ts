@@ -2,6 +2,10 @@ import type { AgentModule } from '../agent/types';
 import type { DSHBridgeConfig } from '../dsh/config';
 import { getChatArchive, historyEnabled } from '../history/store';
 import { getDSHConfig } from '../dsh/runtime-config';
+import { logger } from 'alemonjs';
+import { getGroupWakeStore, groupWakeNamespace, type GroupWakeRequest } from '../social/group-wake-store';
+import { GroupWakeWorker, groupWakePolicyAllows, groupWakeEnabled, validateGroupWakeSettings } from '../social/group-wake';
+import { groupConversations } from '../social/groups';
 
 export const conversationModule = (config?: DSHBridgeConfig): AgentModule => ({
   id: 'conversation',
@@ -12,13 +16,14 @@ export const conversationModule = (config?: DSHBridgeConfig): AgentModule => ({
     api.tool({
       name: 'set_group_wait',
       description:
-        '调整你在当前群的短时等待：wait 等本批已知发言人再次发言，可同时要求包含一个字面关键词；默认等当前发言人120秒，范围15–300秒。等待期间不接无关普通消息，明确呼唤可打断；条件命中只触发重新判断，不保证回复。到期恢复普通参与，不主动催人、不发超时消息、不承诺稍后自动联系。status查询，cancel取消。适合你刚提出一个具体问题、需要等对方补充时；不要每轮强制调用。',
+        '调整你在当前群的短时等待：wait 等本批或本回合收件箱实际读取的发言人再次发言，可用speakerIds等1–5人中任意一人，不能与speakerId同时填写；还可要求包含一个字面关键词。默认等当前发言人120秒，范围15–300秒。等待期间不接无关普通消息，明确呼唤可打断；条件命中只触发重新判断，不保证回复。到期恢复普通参与，不主动催人、不发超时消息、不承诺稍后自动联系。status查询，cancel取消。适合你刚提出一个具体问题、需要等对方补充时；不要每轮强制调用。',
       parameters: {
         type: 'object',
         properties: {
           action: { type: 'string', enum: ['wait', 'cancel', 'status'] },
           seconds: { type: 'integer', minimum: 15, maximum: 300 },
           speakerId: { type: 'string', minLength: 1, maxLength: 200 },
+          speakerIds: { type: 'array', maxItems: 5, items: { type: 'string', minLength: 1, maxLength: 200 } },
           keyword: { type: 'string', maxLength: 40 }
         },
         required: ['action'],
@@ -33,6 +38,81 @@ export const conversationModule = (config?: DSHBridgeConfig): AgentModule => ({
       }
     });
     if (!config) return;
+    validateGroupWakeSettings(config);
+    if (config.modules?.settings?.conversation?.wakeEnabled === true) {
+      const worker = new GroupWakeWorker(config, {
+        ready: plan => groupConversations.idleWakeAllowed(plan.channelId, plan),
+        onDelivered: (plan, text) => groupConversations.recordIdleWake(plan.channelId, plan, text)
+      });
+      const timer = setInterval(() => {
+        void worker.tick().catch(() => logger.warn('Group wake tick failed'));
+      }, 15000);
+
+      timer.unref();
+      api.onDispose(() => {
+        clearInterval(timer);
+        worker.stop();
+        const current = getDSHConfig();
+
+        if (
+          groupWakeNamespace(current) !== groupWakeNamespace(config) ||
+          current.aiEnabled === false ||
+          !historyEnabled(current) ||
+          current.modules?.disabled?.includes('conversation') ||
+          current.modules?.settings?.conversation?.wakeEnabled !== true
+        )
+          getGroupWakeStore(config).clear(groupWakeNamespace(config));
+      });
+    }
+    api.tool({
+      name: 'set_group_wake',
+      description:
+        '预约当前群60–3600秒后的一次自主重新判断，只在主人已配置允许的群可用。schedule需说明reason（1–160字单行）；本群只有一个预约，新预约替换旧预约。新群消息、取消或重置会撤销；到期仍检查静默、群开关和限频，可沉默，不保证发送，不作为提醒送达承诺。status查询，cancel取消。自主唤醒回合不能再预约；不要每轮调用或重复催人。',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['schedule', 'status', 'cancel'] },
+          seconds: { type: 'integer', minimum: 60, maximum: 3600 },
+          reason: { type: 'string', minLength: 1, maxLength: 160 }
+        },
+        required: ['action'],
+        additionalProperties: false
+      },
+      available: context =>
+        Boolean(
+          context.onGroupWakeValid?.() &&
+          !context.private &&
+          !context.autonomous &&
+          context.botId &&
+          groupWakeEnabled(getDSHConfig(), {
+            namespace: groupWakeNamespace(config),
+            platform: context.platform,
+            botId: context.botId,
+            channelId: context.channelId
+          })
+        ),
+      execute: (args, context) =>
+        Promise.resolve().then(() => {
+          context.signal.throwIfAborted();
+          const scope = { namespace: groupWakeNamespace(config), platform: context.platform, botId: context.botId || '', channelId: context.channelId };
+
+          if (context.private || context.autonomous || !context.onGroupWakeValid?.() || !groupWakeEnabled(getDSHConfig(), scope))
+            return { ok: false, message: '当前群没有自主唤醒入口或回合已失效。' };
+          const store = getGroupWakeStore(config),
+            request = args as GroupWakeRequest;
+
+          if (request.action === 'status') return store.status(scope);
+          if (request.action === 'cancel') {
+            store.cancel(scope);
+
+            return { ok: true, state: 'idle' };
+          }
+          if (!groupWakePolicyAllows(getDSHConfig(), scope)) return { ok: false, message: '当前群处于静默时段或已关闭自主参与。' };
+          if (request.action !== 'schedule') return { ok: false, message: '唤醒操作无效。' };
+
+          return store.schedule(scope, context.userId, request.seconds ?? 120, request.reason ?? '');
+        })
+    });
     const available = (context: import('../agent/types').TurnContext): boolean => {
       const current = getDSHConfig();
 
@@ -65,9 +145,16 @@ export const conversationModule = (config?: DSHBridgeConfig): AgentModule => ({
         context.signal.throwIfAborted();
         if (!available(context)) return Promise.resolve({ ok: false, message: '当前回合没有群消息归档读取入口。' });
 
-        return Promise.resolve(
-          getChatArchive(config).readGroupInbox(context, context.botId, args.limit as number | undefined, args.previousReceipt as string | undefined)
+        const result = getChatArchive(config).readGroupInbox(
+          context,
+          context.botId,
+          args.limit as number | undefined,
+          args.previousReceipt as string | undefined
         );
+
+        context.onGroupInboxSpeakers?.(result.sources.map(item => item.speakerId));
+
+        return Promise.resolve(result);
       }
     });
     api.tool({
