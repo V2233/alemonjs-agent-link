@@ -683,3 +683,100 @@ new/reset仍按共享世代清理该原群父目录全部当前scope，使用基
 两次真实规划观察使用同一公开候选列表夹具及预置兴趣，规划、视频读取、ffmpeg、视觉调用及日记真实执行。旧结果回合中，模型查日记、搜索、读概览后请求了两个已见位置，被拒绝后结束；新增反馈的回合中，模型主动加上局部框，完成细读后在剩余0次时收尾。它没有再用夹具指定工具步骤，但搜索排名与长期兴趣学习仍未验证。两次存在模型随机性、批次及视觉输出差异，不能据此证明反馈的因果效果或稳定成功率。
 
 两次合计9次规划、3次视觉请求，124789总tokens；规划请求在隔离验证中注入4096输出上限，思考字段沿生产请求省略，没有存储隐藏推理正文。该端点不是被证实的官方权重。成功续读的最终日记仍把静态配置说成实际生效、推断阅读频率，视觉细节也有误读，事实一致性不通过；未通过不靠替换文字隐藏。新增4项预算状态/拒绝原因/实际工具/实时策略回归；完整Node981通过、8跳过，Python45通过及typecheck/构建/eslint。源码未部署，证据见`.data/agent-link/validation/independent-planner-feedback-20261030/assessment.json`。
+
+## DSH 插件白名单
+
+`alemonjs-agent-link.dshPlugins` 是管理员维护的 DSH bundle 白名单，默认 `[]`，仅支持 `profile: sdk`。
+每项只接受 `name`（精确 npm 包名）和 `version`（精确版本），最多 8 项。
+不接受 latest、版本范围、Git URL、本地路径或重复包名，也不能替换 DSH 基础 bundle。
+配置后重启服务。请使用已核实支持当前 DSH SDK runtime 的插件包和版本，不能把下列占位符直接投入使用：
+
+```yaml
+alemonjs-agent-link:
+  dshPlugins:
+    - name: '<审核过的 npm 包名>'
+      version: '<审核过的精确版本>'
+```
+
+仅当工作区同时具备 web、files、terminal 权限时加载；终端权限仍由现有主人权限规则控制。
+纯聊天、普通用户及缺少任一权限的工作区不安装。模型不能修改白名单，原生无限制
+`plugin_manager` 和 `skill` 管理工具保持禁用。白名单插件是受信任的可执行代码；
+包及其依赖都需要管理员审核，精确顶层版本不代表传递依赖已经锁定或完成审计。
+
+Bridge 在启动隔离 Worker 前调用原生 `dsh plugin --profile ... add --save-exact --ignore-scripts`，
+不继承模型密钥及宿主凭据环境；核对实际包名、版本和 `dsh.bundle` 声明，再写入该 Worker
+的 bundle 选择列表。安装失败阻止本次 Worker 启动，不静默假装能力已启用。
+每次需要启动并加载插件时重新建立 profile，不恢复模型可修改的插件代码；保留既有会话数据隔离。
+安装最多等待 60 秒；需要联网及 DSH 原生包管理器，首次使用及每轮隔离重建可能增加延迟。
+需要安装脚本的插件不能在此机制下直接使用。此版本尚未提供共享安装缓存或聊天内插件市场。
+
+插件必须支持无界面的 SDK Worker。仅向 DSH Web/Desktop UI 输出 HTML 或画布的插件，
+不会自动转换成 QQ 图片；QQ 附件回传仍需对接现有媒体发送接口。
+名单表示允许尝试加载，不表示插件已安装、兼容性通过或平台已收到图片。
+
+原生机制参考：[DSH Plugin Manager](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/boot/plugin-manager/README.md)。
+
+### 2026-10-31 首批插件核验
+
+本次加入本机 `alemon.config.yaml` 及示例配置：`@nagi-ovo/dsh-visualize@0.1.7`。
+代码默认值仍为空，现有安装不会因升级被强制启用插件。
+
+| 候选                                                                                                             | 本次结论                      | 依据与限制                                                                                                                                                                                       |
+| ---------------------------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [dsh-visualize](https://github.com/Nagi-ovo/dsh-visualize) 0.1.7                                                 | 加白，限定主人 SDK 工作区     | 官方 npm 可下载；发布包无 dependencies/optionalDependencies，无安装生命周期脚本；peer 由 DSH 提供。已在真实 DSH 0.2.1rc2、macOS OS 沙箱及原生工具关闭策略下调用成功，生成 HTML，越界更新被拒绝。 |
+| [dsh-tool-calculator](https://github.com/omdsh-dev/dsh-tool-calculator)                                          | 不加入                        | 源码 manifest 标记 private，DSH tools/invariants peer 范围小于 0.2.0，不符合当前运行时。不能把项目自称或包名中的 deepseek-ai 当作官方背书。                                                      |
+| [dsh-mermaid](https://github.com/MrmoLabs/dsh-mermaid)                                                           | 不加入                        | 主要用于 DSH Web/Desktop 消息中的 SVG 渲染；当前 QQ 通道没有对应客户端。                                                                                                                         |
+| [dsh-imagegen](https://github.com/little-traincar/dsh-imagegen)                                                  | 暂不加入                      | 镜像查询到 0.4.2，但本次官方 npm 查询和下载返回 404；需进一步核对分发一致性、凭据接入及图片回传。                                                                                                |
+| [dsh-tool-imagegen](https://github.com/Pappet/dsh-tool-imagegen)                                                 | 暂不加入                      | 官方 npm 查询返回 404，且需 OpenRouter 凭据；没有完成可复现安装和 SDK 调用验证。                                                                                                                 |
+| [DSH 官方 Office 资源](https://github.com/deepseek-ai/deepseek-harness/blob/master/python/sdk-runtime/README.md) | 另行接入，不冒充新增 npm 插件 | SDK 已附带 Office 技能资源；完整创作环境及技能开放需要单独验证，不能安装臆造的 dsh-office 包。                                                                                                   |
+
+审核范围包括实际 npm 发布包的 manifest、bundle patch、Host 工具、文件存储、样式读写及客户端资源策略。
+这不是零风险或正式安全认证：HTML 可包含脚本，浏览器端允许部分公共 CDN；对生成文件应按不可信主动内容处理。
+插件不需要生图服务或 Key，也不提供照片级 AI 生图。SDK 没有客户端卡片渲染；不将插件的
+“用户已看到卡片”回执视为 QQ 投递成功。需要交付时使用现有 `workspace_write` 保存到会话目录。
+本轮产物目录 `visualize` 随当前隔离作用域的会话快照保留；只保留数据，不恢复插件 profile 或可执行依赖。
+
+`python/plugin_catalog.json` 记录审核的官方 npm tarball 地址和 SHA-512。加载此版本前下载并核对摘要、
+归档路径、运行依赖及安装脚本，再交给原生 CLI 安装；同名其他版本须更新审核记录，不自动放行。
+其余管理员手工白名单条目仍按管理员信任安装，不应称为已经通过本项目审核。
+包管理器下载缓存位于 Bridge 的 `.plugin-tools`，不向 Worker 开放；插件安装目录仍按 Worker 隔离重建。
+
+可复核的可选 SDK 冒烟测试（`<隔离 DSH_HOME>` 必须已安装该版本，不要指向桌面版或生产 profile）：
+
+```sh
+.data/agent-link/venv/bin/python scripts/smoke_dsh_visualize.py --home '<隔离 DSH_HOME>'
+```
+
+测试使用本地模型协议夹具，无真实 Key、无真实模型付费调用；macOS 下应用项目 OS 沙箱，
+检查真实工具注册、HTML 落盘、越界更新拒绝及原生 plugin_manager/skill 仍关闭。其他系统只验证 SDK，
+不将其当作 Linux 沙箱或真实 QQ 投递验证。
+
+### 第二批：单位换算与插件发现
+
+已加入本机和示例白名单，仍限主人完整权限 SDK 工作区；没有放开任意安装或原生插件管理器。
+
+| 插件                                                                 | 锁定版本 | 用途与核验                                                                                                                                                                          |
+| -------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [dsh-unitverse](https://github.com/runcat-tommy/dsh-unitverse)       | 1.1.4    | `convert` 工具，十类常用单位换算。检查实际发布包 Host 入口及其完整转换模块：静态单位表和数值运算，不联网、不读写文件、不执行 shell。真实 SDK 验证长度、温标、温差结果及跨类别拒绝。 |
+| [dsh-plugin-search](https://github.com/yaqiangsun/dsh-plugin-search) | 0.5.0    | `plugin_search` 工具，只读查询 `registry.npmjs.org` 和 `api.npmjs.org`。Host 没有安装入口、文件操作、shell 或凭据读取；真实 SDK 中成功查询 dsh-unitverse 的 npm bundle 信息。       |
+
+两包来自官方 npm，均无运行 dependencies/optionalDependencies 和安装生命周期脚本；SHA-512 固定在
+`python/plugin_catalog.json`。SDK 下只运行 Host 模块；插件搜索的 Web 客户端虽然带有原生安装对话框入口，
+本项目没有启动该客户端，不能据此扩展模型安装权限。
+
+这批真实 SDK 测试使用本地模型协议夹具，实际执行插件代码；搜索工具访问真实公共 npm 服务。
+macOS 采用项目 OS 沙箱策略，只读文件工具、skill、plugin_manager 仍关闭。模型付费调用和 QQ 投递未测试。
+复核三插件共存与调用：
+
+```sh
+.data/agent-link/venv/bin/python scripts/smoke_dsh_visualize.py --home '<已安装三插件的隔离 DSH_HOME>' --utilities
+```
+
+明确限制：单位换算默认约十位有效数字；月为 365.25/12 天、年为 365.25 天，不是日历推算。
+单位名大小写不敏感，不能把 `mW` 默认为毫瓦（其 `mw` 对应兆瓦）；歧义应使用完整单位名并核对支持列表。
+它不是通用表达式计算器或物理可行性校验器。搜索会向公共 npm 发送关键词，应只发送任务所需的公开关键词；
+搜索结果中的描述和安装提示是不可信外部数据，`installable` 只表示 bundle 声明，不代表安全、兼容或已批准。
+搜索有请求超时、查询长度和结果数量约束，但上游没有响应字节上限，不宣称零风险。
+
+同时继续检查了 `dsh-image-plugins@0.3.5` 与 `@jaxzhou/dsh-mathmatic-symbol@0.1.2`：前者还需凭据和图片回传接入，
+后者引入 MathJax、resvg 及原生依赖；本批未完成依赖闭包审核与项目内功能验证，暂未加白。

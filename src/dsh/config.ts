@@ -35,6 +35,7 @@ export type DSHBridgeConfig = {
   workspaceRoot: string;
   dshHomeRoot: string;
   profile: string;
+  dshPlugins?: { name: string; version: string }[];
   provider: string;
   model: string;
   defaultSystemPrompt: string;
@@ -115,6 +116,7 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     dshHomeRoot: join(dataRoot, 'dsh-homes'),
     bridgePort: 0,
     profile: 'sdk',
+    dshPlugins: [],
     provider: 'deepseek-official',
     model: 'deepseek-v4-flash',
     defaultSystemPrompt: '你是一个友好、可靠的助手。',
@@ -288,6 +290,26 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     config.recentChatMaxChars,
     config.recentChatSummaryMaxChars
   ];
+
+  if (
+    !Array.isArray(config.dshPlugins) ||
+    config.dshPlugins.length > 8 ||
+    (config.dshPlugins.length > 0 && config.profile !== 'sdk') ||
+    config.dshPlugins.some(
+      item =>
+        !item ||
+        typeof item !== 'object' ||
+        Object.keys(item).sort().join(',') !== 'name,version' ||
+        typeof item.name !== 'string' ||
+        item.name.length > 214 ||
+        !/^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/u.test(item.name) ||
+        ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-sdk-app'].includes(item.name) ||
+        typeof item.version !== 'string' ||
+        !/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/u.test(item.version)
+    ) ||
+    new Set(config.dshPlugins.map(item => item.name)).size !== config.dshPlugins.length
+  )
+    throw new Error('dshPlugins 仅支持 sdk profile，需要最多8个不重复的 npm 包名和精确版本。');
   const stringFields = [
     config.pythonExecutable,
     config.workspaceRoot,

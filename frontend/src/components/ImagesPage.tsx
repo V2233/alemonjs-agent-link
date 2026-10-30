@@ -1,5 +1,6 @@
+import ImageResources from './ImageResources';
 import { useEffect, useState } from 'react';
-import { Alert, App, Button, Form, Image, Input, Layout, Modal, Select, Space, Switch, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Form, Image, Input, Layout, Modal, Select, Space, Switch, Table, Tabs, Tag, Typography } from 'antd';
 import { useUnsavedNavigation } from './useUnsavedNavigation';
 type Preset = {
   id: string;
@@ -99,126 +100,160 @@ export default function ImagesPage() {
   return (
     <Layout.Content className='workspace-content'>
       <Typography.Title level={2}>生图库</Typography.Title>
-      <Alert
-        type='info'
-        showIcon
-        title='配置兼容 OpenAI Images 的生图服务'
-        description='接口地址会追加 /images/generations。试生成使用已保存的配置，可能消耗供应商额度；生成结果仅在管理页展示。'
-      />
-      {error && <Alert type='error' title={error} action={<Button onClick={() => run(load)}>重试</Button>} />}
-      {settings?.legacyAvailable && (
-        <Alert
-          type='info'
-          title='检测到原有 media.imageGen 配置'
-          action={
-            <Button
-              disabled={busy}
-              onClick={() =>
-                run(async () => {
-                  const result = await request('/migrate', { revision: settings.revision });
-                  setSettings(result.data);
-                  message.success('已迁入并设为默认');
-                })
-              }
-            >
-              迁入生图库
-            </Button>
-          }
-        />
-      )}
-      {settings?.imageLibrary.some(item => item.id === settings.activeImage && !item.enabled) && (
-        <Alert type='warning' title='默认生图配置已停用，聊天生图当前不可用，请启用或切换。' />
-      )}
-      <Space wrap style={{ margin: '16px 0' }}>
-        <Input.Search placeholder='搜索名称、ID或模型' value={query} onChange={e => setQuery(e.target.value)} allowClear />
-        <Button loading={busy} onClick={() => run(load)}>
-          刷新
-        </Button>
-        <Button type='primary' disabled={busy || !settings} onClick={() => open(null)}>
-          新增生图配置
-        </Button>
-        <Select
-          style={{ minWidth: 200 }}
-          value={settings?.activeImage || ''}
-          disabled={busy || !settings}
-          onChange={activeImage => settings && run(() => save({ ...settings, activeImage }))}
-          options={[
-            { value: '', label: '原有生图配置' },
-            ...(settings?.imageLibrary || []).map(item => ({ value: item.id, label: item.name + (item.enabled ? '' : '（已停用）'), disabled: !item.enabled }))
-          ]}
-        />
-      </Space>
-      <Table
-        rowKey='id'
-        loading={busy}
-        scroll={{ x: 900 }}
-        dataSource={settings?.imageLibrary.filter(item =>
-          [item.id, item.name, item.provider.model].some(value => value.toLowerCase().includes(query.toLowerCase()))
-        )}
-        columns={[
+      <Tabs
+        items={[
           {
-            title: '配置',
-            render: (_, item: Preset) => (
+            key: 'configured',
+            label: '已配置生图',
+            children: (
               <>
-                {item.name} {settings?.activeImage === item.id && <Tag>默认</Tag>}
-                <br />
-                <Typography.Text type='secondary'>{item.id}</Typography.Text>
+                <Alert
+                  type='info'
+                  showIcon
+                  title='配置兼容 OpenAI Images 的生图服务'
+                  description='接口地址会追加 /images/generations。试生成使用已保存的配置，可能消耗供应商额度；生成结果仅在管理页展示。'
+                />
+                {error && <Alert type='error' title={error} action={<Button onClick={() => run(load)}>重试</Button>} />}
+                {settings?.legacyAvailable && (
+                  <Alert
+                    type='info'
+                    title='检测到原有 media.imageGen 配置'
+                    action={
+                      <Button
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            const result = await request('/migrate', { revision: settings.revision });
+                            setSettings(result.data);
+                            message.success('已迁入并设为默认');
+                          })
+                        }
+                      >
+                        迁入生图库
+                      </Button>
+                    }
+                  />
+                )}
+                {settings?.imageLibrary.some(item => item.id === settings.activeImage && !item.enabled) && (
+                  <Alert type='warning' title='默认生图配置已停用，聊天生图当前不可用，请启用或切换。' />
+                )}
+                <Space wrap style={{ margin: '16px 0' }}>
+                  <Input.Search placeholder='搜索名称、ID或模型' value={query} onChange={e => setQuery(e.target.value)} allowClear />
+                  <Button loading={busy} onClick={() => run(load)}>
+                    刷新
+                  </Button>
+                  <Button type='primary' disabled={busy || !settings} onClick={() => open(null)}>
+                    新增生图配置
+                  </Button>
+                  <Select
+                    style={{ minWidth: 200 }}
+                    value={settings?.activeImage || ''}
+                    disabled={busy || !settings}
+                    onChange={activeImage => settings && run(() => save({ ...settings, activeImage }))}
+                    options={[
+                      { value: '', label: '原有生图配置' },
+                      ...(settings?.imageLibrary || []).map(item => ({
+                        value: item.id,
+                        label: item.name + (item.enabled ? '' : '（已停用）'),
+                        disabled: !item.enabled
+                      }))
+                    ]}
+                  />
+                </Space>
+                <Table
+                  rowKey='id'
+                  loading={busy}
+                  scroll={{ x: 900 }}
+                  dataSource={settings?.imageLibrary.filter(item =>
+                    [item.id, item.name, item.provider.model].some(value => value.toLowerCase().includes(query.toLowerCase()))
+                  )}
+                  columns={[
+                    {
+                      title: '配置',
+                      render: (_, item: Preset) => (
+                        <>
+                          {item.name} {settings?.activeImage === item.id && <Tag>默认</Tag>}
+                          <br />
+                          <Typography.Text type='secondary'>{item.id}</Typography.Text>
+                        </>
+                      )
+                    },
+                    { title: '模型', render: (_, item) => item.provider.model },
+                    { title: '尺寸', render: (_, item) => item.provider.size || '1024x1024' },
+                    { title: '使用范围', render: (_, item) => (item.provider.ownerOnly ? '仅主人' : '按聊天权限') },
+                    {
+                      title: '启用',
+                      render: (_, item) => (
+                        <Switch
+                          checked={item.enabled}
+                          disabled={busy}
+                          onChange={enabled =>
+                            settings &&
+                            run(() => save({ ...settings, imageLibrary: settings.imageLibrary.map(row => (row.id === item.id ? { ...row, enabled } : row)) }))
+                          }
+                        />
+                      )
+                    },
+                    {
+                      title: '操作',
+                      render: (_, item) => (
+                        <Space wrap>
+                          <Button disabled={busy || !item.enabled || !prompt.trim()} onClick={() => generate(item.id, item.name)}>
+                            试生成
+                          </Button>
+                          <Button disabled={busy} onClick={() => open(item)}>
+                            编辑
+                          </Button>
+                          <Button
+                            danger
+                            disabled={busy || settings?.activeImage === item.id}
+                            onClick={() =>
+                              modal.confirm({
+                                title: `删除“${item.name}”？`,
+                                onOk: () => settings && run(() => save({ ...settings, imageLibrary: settings.imageLibrary.filter(row => row.id !== item.id) }))
+                              })
+                            }
+                          >
+                            删除
+                          </Button>
+                        </Space>
+                      )
+                    }
+                  ]}
+                />
+                <Typography.Title level={4}>试生成</Typography.Title>
+                <Input.TextArea value={prompt} onChange={e => setPrompt(e.target.value)} rows={3} maxLength={1000} showCount />
+                <Button
+                  style={{ margin: '16px 0' }}
+                  disabled={busy || !settings || !prompt.trim()}
+                  onClick={() => generate(settings?.activeImage || '', '当前默认配置')}
+                >
+                  使用默认配置生成
+                </Button>
+                {preview && (
+                  <div>
+                    <Typography.Paragraph>{preview.name} · 生成结果</Typography.Paragraph>
+                    <Image src={preview.url} width={320} style={{ maxWidth: '100%' }} />
+                  </div>
+                )}
               </>
             )
           },
-          { title: '模型', render: (_, item) => item.provider.model },
-          { title: '尺寸', render: (_, item) => item.provider.size || '1024x1024' },
-          { title: '使用范围', render: (_, item) => (item.provider.ownerOnly ? '仅主人' : '按聊天权限') },
           {
-            title: '启用',
-            render: (_, item) => (
-              <Switch
-                checked={item.enabled}
-                disabled={busy}
-                onChange={enabled =>
-                  settings && run(() => save({ ...settings, imageLibrary: settings.imageLibrary.map(row => (row.id === item.id ? { ...row, enabled } : row)) }))
-                }
+            key: 'resources',
+            label: '服务资源（10）',
+            children: (
+              <ImageResources
+                disabled={busy || !settings}
+                onAdd={(name, baseUrl) => {
+                  open(null);
+                  form.setFieldsValue({ name, provider: { baseUrl } });
+                }}
               />
-            )
-          },
-          {
-            title: '操作',
-            render: (_, item) => (
-              <Space wrap>
-                <Button disabled={busy || !item.enabled || !prompt.trim()} onClick={() => generate(item.id, item.name)}>
-                  试生成
-                </Button>
-                <Button disabled={busy} onClick={() => open(item)}>
-                  编辑
-                </Button>
-                <Button
-                  danger
-                  disabled={busy || settings?.activeImage === item.id}
-                  onClick={() =>
-                    modal.confirm({
-                      title: `删除“${item.name}”？`,
-                      onOk: () => settings && run(() => save({ ...settings, imageLibrary: settings.imageLibrary.filter(row => row.id !== item.id) }))
-                    })
-                  }
-                >
-                  删除
-                </Button>
-              </Space>
             )
           }
         ]}
       />
-      <Typography.Title level={4}>试生成</Typography.Title>
-      <Input.TextArea value={prompt} onChange={e => setPrompt(e.target.value)} rows={3} maxLength={1000} showCount />
-      <Button style={{ margin: '16px 0' }} disabled={busy || !settings || !prompt.trim()} onClick={() => generate(settings?.activeImage || '', '当前默认配置')}>
-        使用默认配置生成
-      </Button>
-      {preview && (
-        <div>
-          <Typography.Paragraph>{preview.name} · 生成结果</Typography.Paragraph>
-          <Image src={preview.url} width={320} style={{ maxWidth: '100%' }} />
-        </div>
-      )}
       <Modal
         title={editing ? '编辑生图配置' : '新增生图配置'}
         open={editing !== undefined}

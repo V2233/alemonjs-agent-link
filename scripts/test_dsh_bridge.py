@@ -437,6 +437,34 @@ class BridgeSafetyTests(unittest.TestCase):
         self.assertFalse((worker.dsh_home / 'profiles').exists())
         self.assertFalse((worker.dsh_home / 'sessions' / 'link').exists())
 
+    def test_reviewed_visualize_data_survives_rotation_without_executable_profiles(self):
+        self.bridge.RUNTIME_PATH = Path('/tmp/runtime-fixture')
+        self.bridge.DSH_PLUGINS = [{'name': '@nagi-ovo/dsh-visualize', 'version': '0.1.7'}]
+        worker = self.bridge.Worker('d' * 64, 1, {'chat': True, 'web': True, 'files': True, 'terminal': True})
+        worker.turn_id = 'one'
+        card = worker.dsh_home / 'visualize/sessions/test/card.html'
+        card.parent.mkdir(parents=True); card.write_text('<div>saved card</div>')
+        (worker.dsh_home / 'profiles').mkdir()
+        (worker.dsh_home / 'profiles/old.js').write_text('untrusted code')
+        worker.save_session_data()
+        worker.turn_id = 'two'; worker.restore_session_data()
+        self.assertEqual((worker.dsh_home / 'visualize/sessions/test/card.html').read_text(), '<div>saved card</div>')
+        self.assertFalse((worker.dsh_home / 'profiles').exists())
+        prompt = self.bridge.trusted_prompt('draw', worker.capabilities)
+        self.assertIn('不能复述为交付成功', prompt)
+
+    def test_discovery_does_not_grant_installation_or_expose_private_queries(self):
+        self.bridge.DSH_PLUGINS = [{'name': 'dsh-unitverse', 'version': '1.1.4'}, {'name': 'dsh-plugin-search', 'version': '0.5.0'}]
+        caps = {'chat': True, 'web': True, 'files': True, 'terminal': True}
+        prompt = self.bridge.trusted_prompt('find a plugin', caps)
+        self.assertIn('不得安装未批准的包', prompt)
+        self.assertIn('不发送私聊原文', prompt)
+        self.assertIn('不是安全审核', prompt)
+        self.assertIn('平均儒略时长', prompt)
+        self.assertIn('- id: tool-plugin-manager\n  disabled: true', self.bridge.tool_policy_patch(caps))
+        caps['terminal'] = False
+        self.assertNotIn('先使用 plugin_search', self.bridge.trusted_prompt('find a plugin', caps))
+
     def test_messages_proxy_uses_official_deepseek_endpoint_without_changing_compatible_origins(self):
         target = self.bridge.model_egress_target
         self.assertEqual(target('https://api.deepseek.com', 'messages', True), 'https://api.deepseek.com/anthropic/v1/messages')

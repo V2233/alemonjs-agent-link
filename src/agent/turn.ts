@@ -166,7 +166,7 @@ ${canGenerate ? '当前也可调用 generate_image，使用已配置的外部生
       if (!context.autonomous && sandboxReady && (context.capabilities.web || context.capabilities.files || context.capabilities.terminal)) {
         const workspaceTool: AgentTool = {
           name: 'agent_workspace',
-          description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}、终端${context.capabilities.terminal ? '允许' : '禁止'}。文件操作使用 framework MCP 的 workspace_* 工具；仅终端权限允许时可按用户明确任务执行终端命令。可通过 framework MCP 发现并调用本轮开放的框架和业务接口，权限以目录与真实回执为准。`,
+          description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}、终端${context.capabilities.terminal ? '允许' : '禁止'}。文件操作使用 framework MCP 的 workspace_* 工具；仅终端权限允许时可按用户明确任务执行终端命令。可通过 framework MCP 发现并调用本轮开放的框架和业务接口，权限以目录与真实回执为准。${context.capabilities.web && context.capabilities.files && context.capabilities.terminal && config.dshPlugins?.length ? `管理员已允许工作区加载这些 DSH 插件：${config.dshPlugins.map(item => item.name + '@' + item.version).join('、')}。相关任务优先检查并复用其实际工具，加载失败如实报告；不得自行安装名单外插件。` : ''}`,
           parameters: {
             type: 'object',
             properties: { task: { type: 'string', minLength: 1, maxLength: 12000 } },

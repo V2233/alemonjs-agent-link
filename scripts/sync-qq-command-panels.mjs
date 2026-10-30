@@ -21,27 +21,25 @@ const panels = [
     panel: {
       remark: `${MANAGED_REMARK_PREFIX} group`,
       items: [
-        command('/提问 ', '向 Agent 提问'),
+        command('/帮助', '查看使用说明与更多指令'),
+        command('/提问 ', '填写问题开始聊天'),
         command('/取消', '取消自己的请求'),
-        command('/新会话', '开始新的群会话', true),
-        command('/聊天参考', '查看近期聊天参考'),
-        command('/人格', '查看或切换人格'),
+        command('/新会话', '管理员开始新的群会话', true),
+        command('/人格', '查看人格与切换权限'),
+        command('/人设', '查看人设与编辑权限'),
         command('/心情', '查看当前心情'),
-        command('/语音 ', '用语音回答问题'),
+        command('/智能程度', '查看档位与调整权限'),
+        command('/语音 ', '填写问题听语音回答'),
         command('/表情', '查看或发送表情'),
-        command('/额度', '查看今日剩余额度'),
         command('/群记忆', '查看本群记忆'),
         command('/记忆检索 ', '按关键词查找记忆'),
-        command('/记忆来源 ', '核对记忆来源'),
-        command('/过时记忆', '查看旧记忆'),
-        command('/恢复记忆 ', '恢复指定旧记忆', true),
-        command('/整理记忆', '整理本群记忆', true),
-        command('/清除聊天记录', '主人清除聊天记录'),
-        command('/工具策略', '主人查看群工具策略'),
-        command('/群设置', '管理员调整本群强度、静默、唤醒词与禁语'),
+        command('/聊天参考', '查看近期聊天参考'),
+        command('/额度', '查看今日剩余额度'),
+        command('/我的权限', '查看自己的权益与权限'),
+        command('/我的钥匙', '管理员管理群钥匙', true),
+        command('/群设置', '查看设置，管理员可修改'),
         command('/状态', '查看服务状态'),
-        command('/隐私说明', '查看数据与隐私说明'),
-        command('/帮助', '查看完整使用说明')
+        command('/隐私说明', '查看数据与删除入口')
       ]
     }
   },
@@ -51,32 +49,31 @@ const panels = [
     panel: {
       remark: `${MANAGED_REMARK_PREFIX} owner-c2c`,
       items: [
-        command('/提问 ', '向 Agent 提问'),
+        command('/帮助', '查看使用说明与更多指令'),
+        command('/提问 ', '填写问题开始聊天'),
         command('/取消', '取消自己的请求'),
         command('/新会话', '开始新的私聊会话'),
-        command('/人格', '查看或切换人格'),
+        command('/人格', '查看人格与切换权限'),
+        command('/人设', '查看人设与编辑权限'),
         command('/心情', '查看当前心情'),
-        command('/语音 ', '用语音回答问题'),
+        command('/智能程度', '查看档位与调整权限'),
+        command('/语音 ', '填写问题听语音回答'),
         command('/表情', '查看或发送表情'),
-        command('/额度', '查看今日剩余额度'),
         command('/记忆', '查看自己的记忆'),
-        command('/记住 ', '保存一条记忆'),
-        command('/忘记 ', '删除指定记忆'),
-        command('/忘记全部', '清除自己的全部记忆'),
-        command('/主动搭话', '主人管理主动搭话'),
-        command('/清除聊天记录', '清除自己的聊天记录'),
-        command('/隐私说明', '查看数据与隐私说明'),
-        command('/我是主人', '申请主人验证'),
+        command('/记住 ', '填写要保存的偏好'),
+        command('/记忆检索 ', '按关键词查找记忆'),
+        command('/额度', '查看今日剩余额度'),
+        command('/我的权限', '查看自己的权益与权限'),
+        command('/我的钥匙', '管理个人钥匙与群授权'),
         command('/状态', '查看服务状态'),
-        command('/模型列表', '查看可用模型'),
-        command('/当前模型', '查看当前配置模型'),
-        command('/帮助', '查看完整管理说明')
+        command('/隐私说明', '查看数据与删除入口')
       ]
     }
   }
 ];
 
 const width = text => [...text].reduce((total, char) => total + (char.codePointAt(0) > 127 ? 2 : 1), 0);
+
 for (const { scope, panel } of panels) {
   if (panel.items.length > 20) throw new Error(`${scope} panel exceeds 20 items`);
   if (new Set(panel.items.map(item => item.name.trim())).size !== panel.items.length) throw new Error(`${scope} panel has duplicate commands`);
@@ -114,8 +111,10 @@ const listPanels = async (apiBase, headers, scope) => {
 
   for (;;) {
     const query = new URLSearchParams({ scope, limit: '50' });
+
     if (cursor) query.set('cursor', cursor);
     const page = await request(`${apiBase}/v2/panels?${query}`, { headers });
+
     records.push(...(page.records || []));
     if (page.is_end || !page.next_cursor) return records;
     cursor = page.next_cursor;
@@ -125,6 +124,7 @@ const listPanels = async (apiBase, headers, scope) => {
 const main = async () => {
   if (process.argv.includes('--dry-run')) {
     for (const { scope, panel } of panels) console.log(`${scope}: ${panel.items.length} commands\n${panel.items.map(item => item.name.trim()).join('、')}`);
+
     return;
   }
   const bot = await getCredentials();
@@ -155,6 +155,7 @@ const main = async () => {
         headers,
         body: JSON.stringify(desired)
       });
+
       console.log(`created ${desired.scope} command panel: ${result.panel_id}`);
       continue;
     }
@@ -165,11 +166,13 @@ const main = async () => {
         headers,
         body: JSON.stringify({ panel: desired.panel })
       });
+
       console.log(`updated ${desired.scope} command panel: ${record.panel_id} (version ${result.version})`);
     }
   }
   for (const desired of panels) {
     const saved = (await listPanels(apiBase, headers, desired.scope)).filter(record => record.panel?.remark === desired.panel.remark);
+
     if (
       !saved.length ||
       saved.some(

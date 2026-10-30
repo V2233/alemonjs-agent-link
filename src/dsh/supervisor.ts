@@ -343,6 +343,7 @@ export class DSHSupervisor {
       DSH_WORKSPACE_ROOT: this.config.workspaceRoot,
       DSH_HOME_ROOT: this.config.dshHomeRoot,
       DSH_PROFILE: this.config.profile,
+      DSH_PLUGIN_ALLOWLIST: JSON.stringify(this.config.dshPlugins || []),
       DSH_PROVIDER: this.config.provider,
       DSH_MODEL: this.credentials?.model || this.config.model,
       DSH_SYSTEM_PROMPT: this.config.defaultSystemPrompt,

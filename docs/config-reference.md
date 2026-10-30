@@ -101,16 +101,17 @@
 
 ### 4.1 模型与运行模式
 
-| 字段           | 类型   | 默认                | 范围/取值                           | 说明                                                                                                              |
-| -------------- | ------ | ------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `apiKey`       | string | 空                  | —                                   | 模型服务密钥。留空时纯聊天、沙箱都不启动，直到补填                                                                |
-| `baseUrl`      | string | 官方地址            | 无凭证、无查询参数的 **HTTPS** 地址 | 兼容 OpenAI 的模型服务地址；`provider` 决定留空时的默认值                                                         |
-| `model`        | string | `deepseek-v4-flash` | 非空                                | 默认模型 ID                                                                                                       |
-| `provider`     | string | `deepseek-official` | 非空                                | 提供方标识；等于 `deepseek-official` 时 `baseUrl` 默认 `https://api.deepseek.com`，用于判断「同源才能复用主密钥」 |
-| `profile`      | string | `sdk`               | 非空                                | 传给 DSH 沙箱的配置档名（`DSH_PROFILE`）                                                                          |
-| `transport`    | string | `qq-bot`            | `qq-bot` \| `onebot`                | 连接方式。**修改后需重启**，连接层不热切换                                                                        |
-| `runtimeMode`  | string | `auto`              | `auto` \| `sandbox` \| `chat-only`  | `auto` 先纯聊天、后台准备沙箱；`sandbox` 强制沙箱，失败拒服务；`chat-only` 不装 Python、不启 Worker               |
-| `stateBackend` | string | 见说明              | `local` \| `redis`                  | 状态库。未显式配置时，存在 `db.redis` 即 `redis`，否则 `local`                                                    |
+| 字段           | 类型   | 默认                | 范围/取值                           | 说明                                                                                                                                                                               |
+| -------------- | ------ | ------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apiKey`       | string | 空                  | —                                   | 模型服务密钥。留空时纯聊天、沙箱都不启动，直到补填                                                                                                                                 |
+| `baseUrl`      | string | 官方地址            | 无凭证、无查询参数的 **HTTPS** 地址 | 兼容 OpenAI 的模型服务地址；`provider` 决定留空时的默认值                                                                                                                          |
+| `model`        | string | `deepseek-v4-flash` | 非空                                | 默认模型 ID                                                                                                                                                                        |
+| `provider`     | string | `deepseek-official` | 非空                                | 提供方标识；等于 `deepseek-official` 时 `baseUrl` 默认 `https://api.deepseek.com`，用于判断「同源才能复用主密钥」                                                                  |
+| `profile`      | string | `sdk`               | 非空                                | 传给 DSH 沙箱的配置档名（`DSH_PROFILE`）                                                                                                                                           |
+| `dshPlugins`   | array  | `[]`                | 最多8项，仅 sdk profile             | DSH 插件白名单，每项为精确 `name` 和 `version`；仅主人完整权限工作区加载。已审核版本的压缩包摘要由 `python/plugin_catalog.json` 固定；详见 [模块说明](modules.md#dsh-插件白名单)。 |
+| `transport`    | string | `qq-bot`            | `qq-bot` \| `onebot`                | 连接方式。**修改后需重启**，连接层不热切换                                                                                                                                         |
+| `runtimeMode`  | string | `auto`              | `auto` \| `sandbox` \| `chat-only`  | `auto` 先纯聊天、后台准备沙箱；`sandbox` 强制沙箱，失败拒服务；`chat-only` 不装 Python、不启 Worker                                                                                |
+| `stateBackend` | string | 见说明              | `local` \| `redis`                  | 状态库。未显式配置时，存在 `db.redis` 即 `redis`，否则 `local`                                                                                                                     |
 
 ### 4.1.1 模型端点池（`modelPool`）
 
