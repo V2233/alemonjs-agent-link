@@ -293,7 +293,9 @@ export const installSpeech = (runtime = getDSHConfig(), callerSignal = new Abort
 
     await mkdir(root, { recursive: true, mode: 0o700 });
     if (!(await exists(python))) {
-      if (process.platform === 'win32') {
+      if (await exists(runtime.pythonExecutable)) {
+        await speechProcess(runtime.pythonExecutable, ['-m', 'venv', join(root, 'speech-venv')], signal);
+      } else if (process.platform === 'win32') {
         try {
           await speechProcess('py', ['-3', '-m', 'venv', join(root, 'speech-venv')], signal);
         } catch {

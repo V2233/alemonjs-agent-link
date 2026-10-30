@@ -209,3 +209,15 @@ test('the declared minimum Node boundary is checked before setup', async () => {
   assert.equal(supportsNodeVersion('22.13.0'), true);
   assert.equal(supportsNodeVersion('24.0.0'), true);
 });
+
+test('doctor distinguishes explicit chat-only from automatic environment preparation', async () => {
+  const cwd = await temporary();
+  const configPath = join(cwd, 'profile', 'alemon.config.yaml');
+  await mkdir(join(cwd, 'profile'), { recursive: true });
+  await writeFile(configPath, valid);
+  const automatic = JSON.parse((await run(cwd, ['doctor', '--json'])).output);
+  assert.ok(automatic.checks.some(item => item.name === 'agent-platform'));
+  await writeFile(configPath, valid + '\n  runtimeMode: chat-only\n');
+  const chat = JSON.parse((await run(cwd, ['doctor', '--json'])).output);
+  assert.match(JSON.stringify(chat), /不会自动安装/);
+});

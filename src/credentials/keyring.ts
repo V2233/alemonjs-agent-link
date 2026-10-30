@@ -40,8 +40,9 @@ export const changeKeyring = async (scope: BudgetScope, action: 'add' | 'grant' 
     const entry = ring.keys.find(item => item.id === Number(input));
 
     if (!entry) throw new DSHError('budget', '没有这个群聊钥匙编号。');
-    target = groupStorageKey(scope);
     const token = randomUUID();
+
+    target = groupStorageKey({ ...scope, credentialId: token });
     const credential = decryptStoredKey(key, entry.value, scope, await encryptionKey());
 
     payload = JSON.stringify({
@@ -58,7 +59,7 @@ export const changeKeyring = async (scope: BudgetScope, action: 'add' | 'grant' 
     const grant = ring.grants.find(item => item.id === Number(input));
 
     if (!grant) throw new DSHError('budget', '没有这个授权记录编号。');
-    target = groupStorageKey({ ...scope, channelId: grant.channelId });
+    target = groupStorageKey({ ...scope, channelId: grant.channelId, credentialId: grant.token });
     expected = grant.token;
     ring.grants = ring.grants.filter(item => item.id !== grant.id);
   }
@@ -66,17 +67,18 @@ export const changeKeyring = async (scope: BudgetScope, action: 'add' | 'grant' 
     `
 if (redis.call('GET', KEYS[1]) or '') ~= ARGV[1] then return 0 end
 if ARGV[3] == 'grant' then
- if redis.call('GET', KEYS[2]) then return 2 end
  redis.call('SET', KEYS[2], ARGV[4])
+ redis.call('RPUSH', KEYS[3], cjson.decode(ARGV[4]).grantToken)
 elseif ARGV[3] == 'revoke' then
  local current = redis.call('GET', KEYS[2])
- if current and cjson.decode(current).grantToken == ARGV[5] then redis.call('DEL', KEYS[2]) end
+ if current and cjson.decode(current).grantToken == ARGV[5] then redis.call('DEL', KEYS[2]); redis.call('LREM', KEYS[3], 0, ARGV[5]) end
 end
 redis.call('SET', KEYS[1], ARGV[2])
 return 1`,
-    2,
+    3,
     key,
     target,
+    `${groupStorageKey({ ...scope, channelId: action === 'revoke' ? (JSON.parse(raw) as Ring).grants.find(item => item.id === Number(input)).channelId : scope.channelId })}:pool`,
     raw,
     JSON.stringify(ring),
     action,
@@ -92,7 +94,7 @@ export const removeCurrentGroupKey = async (scope: BudgetScope): Promise<boolean
 
 /** 记录保留供提供者核对，群已移除或换用另一授权时标记为失效。 */
 export const grantIsCurrent = async (scope: BudgetScope, grant: Grant): Promise<boolean> => {
-  const raw = await (await budgetRedis()).get(groupStorageKey({ ...scope, channelId: grant.channelId }));
+  const raw = await (await budgetRedis()).get(groupStorageKey({ ...scope, channelId: grant.channelId, credentialId: grant.token }));
 
   return Boolean(raw && JSON.parse(raw).grantToken === grant.token);
 };
@@ -118,7 +120,7 @@ value.donorDailyLimit=tonumber(ARGV[2])
 redis.call('SET', KEYS[1], cjson.encode(value))
 return 1`,
     1,
-    groupStorageKey({ ...scope, channelId: grant.channelId }),
+    groupStorageKey({ ...scope, channelId: grant.channelId, credentialId: grant.token }),
     grant.token,
     input
   );
@@ -127,7 +129,7 @@ return 1`,
 };
 
 export const grantLimitDetails = async (scope: BudgetScope, grant: Grant) => {
-  const target = { ...scope, channelId: grant.channelId };
+  const target = { ...scope, channelId: grant.channelId, credentialId: grant.token };
   const raw = await (await budgetRedis()).get(groupStorageKey(target));
   const record = raw ? JSON.parse(raw) : null;
 

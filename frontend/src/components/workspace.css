@@ -46,3 +46,11 @@
 .workspace-content > .ant-alert {
   margin-bottom: 16px;
 }
+
+/* Pointer drag uses the same target feedback on mouse and touch screens. */
+.workspace-shell .ant-table-tbody > tr.endpoint-drop-target > td {
+  background: #e6f4ff !important;
+  box-shadow:
+    inset 0 2px 0 #1677ff,
+    inset 0 -2px 0 #1677ff;
+}

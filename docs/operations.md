@@ -119,3 +119,25 @@ alemonjs-agent-link:
 ---
 
 [← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)
+
+## 静默准备 Agent 环境
+
+默认 auto 模式先检查本机沙箱。Linux 缺少 Bubblewrap 时尝试通过 apt-get、dnf 或 apk 无交互安装；非 root 使用 sudo -n，不弹出密码提示，不修改内核隔离策略。管理员权限不可用或容器限制仍需部署者处理。Windows 原生仍需 WSL2。
+
+沙箱前置检查通过后优先复用本机 Python；没有可用解释器时下载固定 uv 0.13.6 并校验 SHA-256，通过 uv 在数据目录准备 Python 3.12 和虚拟环境，再安装锁定的 DSH 依赖。下载需要网络；工具、Python 与缓存放在数据目录，不修改全局 PATH。自定义 pythonExecutable 不会被覆盖。机制参考 [uv Python 管理文档](https://docs.astral.sh/uv/guides/install-python/)。
+
+安装过程不输出进度到聊天。最终以 Bridge 健康检查与沙箱检查确认就绪，不能把安装成功当作 Agent 已就绪。失败时 auto 保留普通聊天并后台重试；sandbox 模式报告失败。可用 /agentstatus 查看状态。
+
+### 首次安装遇到问题
+
+启动时会先检查系统版本与架构，不支持的平台不会反复下载依赖。当前完整 Agent 运行包支持 macOS 14+，以及 glibc 2.28+ 的 Linux，CPU 为 x64 或 arm64；Alpine/musl 暂不支持。
+
+Windows 原生可以运行普通聊天，但完整 Agent 需进入 WSL2：以管理员身份运行 `wsl --install`，按提示重启并完成发行版初始化，再在 WSL2 内安装 Node.js、下载项目和启动。首次管理员授权、重启不能静默跳过；不要在 Windows Node 进程中混用 WSL Python。
+
+网络较慢时可在已有 `alemonjs-agent-link` 配置段设置 `preparationTimeoutMs: 600000`，给一次环境准备最多十分钟。SDK 下载使用安装预算，并为备用源保留时间；该设置不代表保证下载成功。缓存的 uv 工具无法执行时会重新下载并校验。已准备的托管 Python 也供语音虚拟环境使用，不再强制依赖系统 python3。
+
+查看 `/agentstatus` 确认增强环境是否就绪；普通聊天可用不代表沙箱、网页和媒体能力全部可用。
+
+离线检查 `npm run doctor` 会显示系统与架构是否满足 Agent 要求；严格 sandbox 模式遇到不支持的平台会直接报告错误，auto 模式保留普通聊天并提示限制。检查不会下载安装。依赖下载失败后，重试会复用已有可用 Python 虚拟环境，仅补装缺失的 SDK；系统 Python 低于 3.10 时会跳过，尝试其他解释器或托管安装。
+
+Python 环境准备使用数据目录内的安装锁，其他实例不会同时改写环境；停止或超时时，macOS/Linux 会终止安装进程组，避免残留下载子进程。`startup.log` 记录环境复用、托管 Python 下载、SDK 下载源序号和探测结果；SDK 探测通过仍不等于完整 Agent 验收通过。

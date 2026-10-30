@@ -1,3 +1,5 @@
+import { alemonPreset } from './presets/alemon';
+import { bailiPreset } from './presets/baili';
 import lockfile from 'proper-lockfile';
 import { dafeiyuDetails, validatePersonaDetails, personaDetailsPrompt, type PersonaDetails } from './persona-details';
 import { DatabaseSync } from 'node:sqlite';
@@ -23,7 +25,8 @@ export type PersonaDefinition = {
 export const validPersonaId = (id: string): boolean => /^[a-z][a-z0-9-]{0,63}$/u.test(id);
 const builtinPersonas: PersonaDefinition[] = [
   { id: 'dafeiyu', name: '大肥鱼', prompt: dafeiyuPrompt, details: dafeiyuDetails, tags: ['陪伴'] },
-  { id: 'assistant', name: '通用助手', prompt: '你是一个友好、可靠的助手。', tags: ['助手'] }
+  alemonPreset,
+  bailiPreset
 ];
 const scopeKey = (scope: PersonaScope): string => {
   if (!scope.platform || !scope.channelId) {

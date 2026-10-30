@@ -4,7 +4,7 @@ import { getDSHConfig, type AgentCapabilities } from '../dsh/client';
 import { GroupConversationCoordinator } from './group-conversation';
 import { boundKeyGroupPolicy } from './group-policy';
 import { groupPolicy } from './group-settings';
-import { getBoundCredential } from '../credentials/scoped';
+import { getGroupCredential as getBoundCredential } from '../credentials/group';
 import { withBudgetScope } from '../billing/budget';
 import { moodGroupPolicy } from '../companion/expression';
 import { getGroupWaitStore, groupWaitNamespace } from './group-wait-store';

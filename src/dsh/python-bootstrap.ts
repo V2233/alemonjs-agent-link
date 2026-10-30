@@ -1,16 +1,26 @@
+import { acquireProcessLock } from '../../runtime/process-lock.mjs';
+import { installManagedPython } from './managed-python';
 import { appendDiagnostic } from '../../runtime/diagnostics.mjs';
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import type { DSHBridgeConfig } from './client';
 
-export const runQuiet = (command: string, args: string[], timeout: number, signal?: AbortSignal, diagnosticPath?: string): Promise<void> =>
+export const runQuiet = (
+  command: string,
+  args: string[],
+  timeout: number,
+  signal?: AbortSignal,
+  diagnosticPath?: string,
+  extraEnv: NodeJS.ProcessEnv = {}
+): Promise<void> =>
   new Promise((resolveRun, reject) => {
     signal?.throwIfAborted();
     const child = spawn(command, args, {
       stdio: ['ignore', 'ignore', 'pipe'],
       windowsHide: true,
-      env: { ...process.env, PIP_NO_INPUT: '1', PIP_DISABLE_PIP_VERSION_CHECK: '1' }
+      detached: process.platform !== 'win32',
+      env: { ...process.env, ...extraEnv, PIP_NO_INPUT: '1', PIP_DISABLE_PIP_VERSION_CHECK: '1' }
     });
     let errors = '';
 
@@ -19,6 +29,15 @@ export const runQuiet = (command: string, args: string[], timeout: number, signa
       errors = errors.length + String(data).length > 8000 ? '[Python 失败信息过长，已省略]' : errors + data;
     });
     const abort = () => {
+      if (process.platform !== 'win32' && child.pid) {
+        try {
+          process.kill(-child.pid, 'SIGKILL');
+
+          return;
+        } catch {
+          /* The group may already have exited. */
+        }
+      }
       child.kill('SIGKILL');
     };
 
@@ -26,7 +45,7 @@ export const runQuiet = (command: string, args: string[], timeout: number, signa
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      abort();
       if (diagnosticPath) {
         appendDiagnostic(diagnosticPath, 'Python 准备超时。\n' + errors);
       }
@@ -66,7 +85,7 @@ const probe = [
   'from deepseek_harness import DeepSeekHarness; from deepseek_harness_runtime import bundled_runtime_path; assert callable(getattr(DeepSeekHarness, "resume_session", None)), "DSH SDK requires native session resume support"; bundled_runtime_path()'
 ];
 
-export const preparePython = async (
+const preparePythonUnlocked = async (
   config: DSHBridgeConfig,
   requirements: string,
   installing: () => void,
@@ -81,7 +100,11 @@ export const preparePython = async (
     if (remaining <= 0) {
       throw new Error('Python preparation timed out');
     }
-    await runner(command, args, Math.min(remaining, timeout), signal, join(dirname(config.dshHomeRoot), 'startup.log'));
+    await runner(command, args, Math.min(remaining, timeout), signal, join(dirname(config.dshHomeRoot), 'startup.log'), {
+      UV_PYTHON_INSTALL_DIR: join(dirname(config.dshHomeRoot), 'python'),
+      UV_CACHE_DIR: join(dirname(config.dshHomeRoot), 'uv-cache'),
+      UV_NO_PROGRESS: '1'
+    });
     signal?.throwIfAborted();
   };
 
@@ -101,14 +124,30 @@ export const preparePython = async (
   }
   signal?.throwIfAborted();
   installing();
+  const diagnostic = join(dirname(config.dshHomeRoot), 'startup.log');
+
+  appendDiagnostic(diagnostic, '开始准备 Python 环境。');
   await mkdir(dirname(managedRoot), { recursive: true });
-  // No system Python installation, sudo, or shell commands. If none is usable,
-  // auto mode stays usable through the Node-only chat backend.
+  // Prefer local Python, then provision a private managed interpreter.
   let created = false;
 
+  // A failed SDK download does not invalidate an otherwise usable venv.
+  try {
+    await run(managedPython, ['-I', '-c', 'import sys, pip; assert sys.version_info >= (3, 10)'], 5000);
+    created = true;
+    appendDiagnostic(diagnostic, '复用已有 Python 虚拟环境，继续检查依赖。');
+  } catch {
+    signal?.throwIfAborted();
+  }
+
   for (const command of ['python3', 'python']) {
+    if (created) {
+      break;
+    }
     try {
+      await run(command, ['-I', '-c', 'import sys; assert sys.version_info >= (3, 10)'], 5000);
       await run(command, ['-m', 'venv', managedRoot], config.startupTimeoutMs);
+      await run(managedPython, ['-I', '-c', 'import sys, pip; assert sys.version_info >= (3, 10)'], 5000);
       created = true;
       break;
     } catch {
@@ -120,7 +159,8 @@ export const preparePython = async (
     }
   }
   if (!created) {
-    throw new Error('No usable Python with venv');
+    appendDiagnostic(diagnostic, '本机无可用解释器，开始下载托管 Python。');
+    await installManagedPython(dirname(managedRoot), run, signal, Math.max(1, deadline - Date.now()));
   }
   const sources = [...new Set(config.pythonPackageSources)];
   let failures: Record<string, number> = {};
@@ -148,6 +188,7 @@ export const preparePython = async (
   };
 
   for (const source of sources) {
+    appendDiagnostic(diagnostic, `正在安装 DSH 依赖，下载源 ${sources.indexOf(source) + 1}/${sources.length}。`);
     try {
       await run(
         config.pythonExecutable,
@@ -168,7 +209,7 @@ export const preparePython = async (
           '--requirement',
           requirements
         ],
-        config.startupTimeoutMs
+        Math.max(1, Math.floor((deadline - Date.now()) / (sources.length - sources.indexOf(source))))
       );
       await run(config.pythonExecutable, probe, Math.min(config.startupTimeoutMs, 5000));
     } catch {
@@ -182,8 +223,40 @@ export const preparePython = async (
     }
     Reflect.deleteProperty(failures, source);
     await saveSource(source);
+    appendDiagnostic(diagnostic, 'Python 与 DSH SDK 探测通过；仍需 Bridge 和沙箱验证。');
 
     return;
   }
   throw new Error('Python package sources unavailable; retry startup when connected');
+};
+
+export const preparePython = async (
+  config: DSHBridgeConfig,
+  requirements: string,
+  installing: () => void,
+  runner = runQuiet,
+  signal?: AbortSignal
+): Promise<void> => {
+  signal?.throwIfAborted();
+  const ownership = await acquireProcessLock(join(dirname(config.dshHomeRoot), 'python-install.lock'));
+  const controller = new AbortController();
+  const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  const watch = setInterval(() => {
+    try {
+      ownership.assertOwned();
+    } catch (error) {
+      controller.abort(error);
+    }
+  }, 1000);
+
+  watch.unref();
+  try {
+    combined.throwIfAborted();
+    ownership.assertOwned();
+    await preparePythonUnlocked(config, requirements, installing, runner, combined);
+    ownership.assertOwned();
+  } finally {
+    clearInterval(watch);
+    await ownership.release();
+  }
 };

@@ -18,7 +18,7 @@ export type BudgetConfig = {
   globalDailyYuan?: number;
   maxOutputTokens?: number;
 };
-export type BudgetScope = { platform: string; channelId: string; userId?: string; autonomous?: boolean };
+export type BudgetScope = { platform: string; channelId: string; userId?: string; autonomous?: boolean; credentialId?: string; sharedOnly?: boolean };
 const context = new AsyncLocalStorage<BudgetScope>();
 
 export const getBudgetScope = (): BudgetScope | undefined => context.getStore();
@@ -571,13 +571,13 @@ export const budgetedFetch = async (
   if (init.robotKey && (init.personalKey || init.scopedKey)) throw new DSHError('budget', '模型凭据类型冲突。');
   if (kind === 'chat' && getBudgetScope()?.autonomous) kind = 'autonomous';
   if (kind === 'reply-gate' && getBudgetScope()?.channelId.startsWith('private:')) throw new DSHError('budget', '主动搭话识别仅限群会话。');
-  if (init.personalKey && !getBudgetScope()?.channelId.startsWith('private:')) throw new DSHError('budget', '个人 Key 只能用于本人私聊。');
+  if (init.personalKey && !getBudgetScope()?.userId) throw new DSHError('budget', '个人 Key 只能用于本人私聊。');
   const { getBoundCredential, checkedBoundCredential, disableBoundCredential } = await import('../credentials/scoped');
 
   if (!init.robotKey && !keyBudget && (init.personalKey || init.scopedKey || (await getBoundCredential()))) {
-    const personal = await checkedBoundCredential(init.signal || undefined);
+    let personal = await checkedBoundCredential(init.signal || undefined, kind !== 'chat');
 
-    if (personal) {
+    while (personal) {
       const headers = new Headers(init.headers);
 
       headers.delete('Authorization');
@@ -614,7 +614,7 @@ export const budgetedFetch = async (
       if (result.status !== 402) return result;
       await result.body?.cancel();
       if (!(await disableBoundCredential(personal))) throw new DSHError('budget', '绑定 Key 设置已变更，请重新发送请求。');
-      throw new DSHError('budget', '钥匙余额不足，已暂停使用；充值后请启用，或显式停用、移除以使用机器人额度。');
+      personal = await checkedBoundCredential(init.signal || undefined, kind !== 'chat');
     }
     // The input may have been built using a personal key. Fallback must select
     // the robot credential afresh and can only proceed through budget admission.

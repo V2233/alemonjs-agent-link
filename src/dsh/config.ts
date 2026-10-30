@@ -1,3 +1,5 @@
+import { alemonPreset } from '../companion/presets/alemon';
+import { bailiPreset } from '../companion/presets/baili';
 import type { BudgetConfig } from '../billing/budget';
 import { dirname, join, resolve } from 'node:path';
 import { dafeiyuPrompt } from './persona';
@@ -21,7 +23,7 @@ export type DSHBridgeConfig = {
   groupWakeNames: string[];
   privateChatAccess: 'owner' | 'all';
   privateAutoReply: boolean;
-  persona: 'assistant' | 'dafeiyu';
+  persona: 'assistant' | 'dafeiyu' | 'xunqing';
   privateHistoryMaxTurns: number;
   privateHistoryTtlSeconds: number;
   privateHistoryMaxChars: number;
@@ -165,8 +167,10 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     config.pythonExecutable = process.platform === 'win32' ? join(root, 'venv', 'Scripts', 'python.exe') : join(root, 'venv', 'bin', 'python');
   }
 
-  if (config.persona === 'dafeiyu' && agentLink?.defaultSystemPrompt === undefined) {
-    config.defaultSystemPrompt = dafeiyuPrompt;
+  if (agentLink?.defaultSystemPrompt === undefined) {
+    const prompts = { dafeiyu: dafeiyuPrompt, assistant: alemonPreset.prompt, xunqing: bailiPreset.prompt };
+
+    config.defaultSystemPrompt = prompts[config.persona] ?? config.defaultSystemPrompt;
   }
   const ranges: Partial<Record<keyof DSHBridgeConfig, [number, number]>> = {
     privateHistoryMaxTurns: [0, 100],
@@ -316,7 +320,7 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
     typeof config.aiEnabled !== 'boolean' ||
     typeof config.aiDisabledReason !== 'string' ||
     config.aiDisabledReason.length > 500 ||
-    !['assistant', 'dafeiyu'].includes(config.persona) ||
+    !['assistant', 'dafeiyu', 'xunqing'].includes(config.persona) ||
     config.privateHistoryMaxTurns < 0 ||
     config.privateHistoryMaxTurns > 100 ||
     config.privateHistoryTtlSeconds < 1 ||

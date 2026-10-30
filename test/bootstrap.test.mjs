@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { preparePython, runQuiet } from '../lib/dsh/python-bootstrap.js';
@@ -90,6 +90,9 @@ test('auto mode remains usable with no Python or sandbox commands on PATH', asyn
   const config = await configFor();
   const previous = process.env.PATH;
   const supervisor = new DSHSupervisor(config, { apiKey: 'local-test-only' }, 'no-dependencies');
+  supervisor.bootstrapPython = async () => {
+    throw new Error('managed download unavailable');
+  };
   try {
     process.env.PATH = '';
     await supervisor.start();
@@ -216,4 +219,202 @@ test('rapid status transitions persist the latest phase and cancellation cannot 
   await stale;
   await supervisor.writeStartupStatus();
   assert.equal(JSON.parse(await readFile(path, 'utf8')).phase, 'stopped');
+});
+
+test('bubblewrap setup never prompts and tries another package manager on failure', async () => {
+  const { installBubblewrap } = await import('../lib/dsh/sandbox-bootstrap.js');
+  const calls = [];
+  await installBubblewrap(1000, undefined, async (...args) => {
+    calls.push(args);
+    if (calls.length === 1) throw new Error('unavailable');
+  });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0][5].DEBIAN_FRONTEND, 'noninteractive');
+  if (process.getuid?.() !== 0) assert.equal(calls[0][1][0], '-n');
+});
+
+test('managed Python rejects a corrupt download before extracting or executing', async () => {
+  const { installManagedPython } = await import('../lib/dsh/managed-python.js');
+  const root = await mkdtemp(join(tmpdir(), 'agent-link-managed-'));
+  const previous = globalThis.fetch;
+  globalThis.fetch = async () => new Response('invalid archive');
+  try {
+    await assert.rejects(
+      installManagedPython(root, async () => assert.fail('must not execute')),
+      /checksum/
+    );
+  } finally {
+    globalThis.fetch = previous;
+  }
+});
+
+test('missing system Python uses private uv and verifies the SDK after installation', async () => {
+  const config = await configFor();
+  const tools = join(config.dshHomeRoot, '..', 'tools');
+  await mkdir(tools, { recursive: true });
+  await writeFile(join(tools, 'uv-0.13.6'), 'test fixture');
+  const calls = [];
+  let probes = 0;
+  await preparePython(
+    config,
+    'requirements.txt',
+    () => {},
+    async (command, args, ...rest) => {
+      calls.push([command, args, ...rest]);
+      if (command === 'python' || command === 'python3' || args[0] === '-I') throw new Error('missing');
+      if (args[0] === '-c' && probes++ === 0) throw new Error('missing');
+    }
+  );
+  const uv = calls.find(([command, args]) => command.endsWith('uv-0.13.6') && args[0] === 'venv');
+  assert.ok(uv);
+  assert.ok(uv[1].includes('--managed-python'));
+  assert.ok(uv[1].includes('3.12'));
+  assert.equal(uv[5].UV_PYTHON_INSTALL_DIR, join(config.dshHomeRoot, '..', 'python'));
+  assert.equal(probes, 2);
+});
+
+test('platform preflight explains unsupported environments before installing', async () => {
+  const { agentPlatformIssue } = await import('../lib/dsh/platform-preflight.js');
+  assert.match(agentPlatformIssue('win32', 'x64', '10', undefined), /wsl --install/);
+  assert.match(agentPlatformIssue('darwin', 'arm64', '22.6', undefined), /macOS 14/);
+  assert.equal(agentPlatformIssue('darwin', 'arm64', '23.0', undefined), undefined);
+  assert.match(agentPlatformIssue('linux', 'x64', '6.0', ''), /musl/);
+  assert.match(agentPlatformIssue('linux', 'x64', '6.0', '2.27'), /glibc/);
+  assert.equal(agentPlatformIssue('linux', 'x64', '6.0', '2.28'), undefined);
+  assert.match(agentPlatformIssue('linux', 'ia32', '6.0', '2.39'), /架构/);
+});
+
+test('large SDK download uses preparation budget and reserves time for another source', async () => {
+  const config = await configFor();
+  config.preparationTimeoutMs = 120000;
+  config.startupTimeoutMs = 1000;
+  const budgets = [];
+  let probeCount = 0;
+  await preparePython(
+    config,
+    'requirements.txt',
+    () => {},
+    async (_command, args, timeout) => {
+      if (args[0] === '-c' && probeCount++ === 0) throw new Error('missing');
+      if (args.includes('--index-url')) {
+        budgets.push(timeout);
+        if (budgets.length === 1) throw new Error('source offline');
+      }
+    }
+  );
+  assert.equal(budgets.length, 2);
+  assert.ok(budgets[0] > config.startupTimeoutMs);
+  assert.ok(budgets[0] <= 60000);
+  assert.ok(budgets[1] > budgets[0]);
+});
+
+test('SDK download retry reuses a healthy venv instead of recreating it', async () => {
+  const config = await configFor();
+  const calls = [];
+  let probeCount = 0;
+  await preparePython(
+    config,
+    'requirements.txt',
+    () => {},
+    async (command, args) => {
+      calls.push([command, args]);
+      if (args[0] === '-c' && probeCount++ === 0) throw new Error('SDK not installed');
+    }
+  );
+  assert.ok(calls.some(([, args]) => args[0] === '-I' && args.includes('-c')));
+  assert.ok(calls.some(([, args]) => args.includes('--requirement')));
+  assert.ok(!calls.some(([, args]) => args.includes('venv')));
+  assert.ok(!calls.some(([command]) => command === 'python3' || command === 'python'));
+});
+
+test('old system Python is rejected before creating a venv', async () => {
+  const config = await configFor();
+  let environmentReady = false;
+  let sdkReady = false;
+  const calls = [];
+  await preparePython(
+    config,
+    'requirements.txt',
+    () => {},
+    async (command, args) => {
+      calls.push([command, args]);
+      if (command === 'python3') throw new Error('Python too old');
+      if (args[0] === '-c' && !sdkReady) throw new Error('missing SDK');
+      if (command === config.pythonExecutable && args[0] === '-I' && !environmentReady) throw new Error('missing venv');
+      if (command === 'python' && args.includes('venv')) environmentReady = true;
+      if (args.includes('--requirement')) sdkReady = true;
+    }
+  );
+  assert.ok(!calls.some(([command, args]) => command === 'python3' && args.includes('venv')));
+  assert.ok(calls.some(([command, args]) => command === 'python' && args.includes('venv')));
+});
+
+test('concurrent Python setup cannot mutate the same environment and releases its lock', async () => {
+  const config = await configFor();
+  let entered;
+  let finish;
+  const started = new Promise(resolve => {
+    entered = resolve;
+  });
+  const gate = new Promise(resolve => {
+    finish = resolve;
+  });
+  const first = preparePython(
+    config,
+    'requirements.txt',
+    () => {},
+    async () => {
+      entered();
+      await gate;
+    }
+  );
+  await started;
+  try {
+    await assert.rejects(
+      preparePython(
+        config,
+        'requirements.txt',
+        () => {},
+        async () => assert.fail('concurrent runner')
+      ),
+      { code: 'ELOCKED' }
+    );
+  } finally {
+    finish();
+    await first;
+  }
+  await preparePython(
+    config,
+    'requirements.txt',
+    () => {},
+    async () => {}
+  );
+});
+
+test('cancelled installation kills descendant processes on POSIX', { skip: process.platform === 'win32' }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'agent-installer-tree-'));
+  const heartbeat = join(root, 'heartbeat');
+  const descendant = `const fs=require('node:fs'); setInterval(()=>fs.writeFileSync(${JSON.stringify(heartbeat)},String(Date.now())),20);`;
+  const parent = `require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:'inherit'});setInterval(()=>{},1000);`;
+  const controller = new AbortController();
+  const pending = runQuiet(process.execPath, ['-e', parent], 5000, controller.signal);
+  const rejected = assert.rejects(pending, /abort/i);
+  try {
+    let ready = false;
+    for (let i = 0; i < 100; i++) {
+      try {
+        await readFile(heartbeat);
+        ready = true;
+        break;
+      } catch {}
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert.equal(ready, true);
+  } finally {
+    controller.abort();
+    await rejected;
+  }
+  const stopped = await readFile(heartbeat, 'utf8');
+  await new Promise(resolve => setTimeout(resolve, 150));
+  assert.equal(await readFile(heartbeat, 'utf8'), stopped);
 });

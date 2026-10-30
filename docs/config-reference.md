@@ -172,12 +172,12 @@
 
 ### 4.3 人格
 
-| 字段                                   | 类型   | 默认                         | 说明                                                                                      |
-| -------------------------------------- | ------ | ---------------------------- | ----------------------------------------------------------------------------------------- |
-| `persona`                              | string | `dafeiyu`                    | `assistant` \| `dafeiyu`；`dafeiyu` 且未自定义 `defaultSystemPrompt` 时使用内置大肥鱼人格 |
-| `defaultSystemPrompt`                  | string | `你是一个友好、可靠的助手。` | 未选中人格文件时的系统提示词；`persona: dafeiyu` 时默认换成人格提示词                     |
-| `modules.settings.persona.defaultId`   | string | 无                           | 默认人格文件编号（`^[a-z][a-z0-9-]{0,63}$`），被 `/人格 使用` 的选择覆盖                  |
-| `modules.settings.persona.commonRules` | string | 空                           | ≤4000 字，追加在所有会话的公共规则                                                        |
+| 字段                                   | 类型   | 默认                         | 说明                                                                                                                 |
+| -------------------------------------- | ------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `persona`                              | string | `dafeiyu`                    | `assistant`（阿柠檬） \| `dafeiyu`（大肥鱼） \| `xunqing`（百里寻晴）；未自定义 `defaultSystemPrompt` 时使用所选预设 |
+| `defaultSystemPrompt`                  | string | `你是一个友好、可靠的助手。` | 未选中人格文件时的系统提示词；`persona: dafeiyu` 时默认换成人格提示词                                                |
+| `modules.settings.persona.defaultId`   | string | 无                           | 默认人格文件编号（`^[a-z][a-z0-9-]{0,63}$`），被 `/人格 使用` 的选择覆盖                                             |
+| `modules.settings.persona.commonRules` | string | 空                           | ≤4000 字，追加在所有会话的公共规则                                                                                   |
 
 ### 4.4 私聊
 

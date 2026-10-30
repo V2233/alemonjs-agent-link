@@ -96,7 +96,7 @@ test('persona files persist choices, preserve configured defaults and layer owne
       assert.equal((await store.read('assistant')).id, 'assistant');
       await store.save({ id: 'assistant', name: '自定义助手', prompt: '新提示' });
       await store.remove('assistant');
-      assert.equal((await store.read('assistant')).name, '通用助手');
+      assert.equal((await store.read('assistant')).name, '阿柠檬');
     } finally {
       store.close();
     }

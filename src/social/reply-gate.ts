@@ -1,5 +1,5 @@
 import { beginReplyGateAttempt } from './reply-gate-statistics';
-import { getBoundCredential } from '../credentials/scoped';
+import { getGroupCredential as getBoundCredential } from '../credentials/group';
 import { assertAIEnabled } from '../dsh/ai-switch';
 import { budgetEnabled, budgetedFetch, replyGateBudgetStatus, withBudgetScope, BudgetExceededError, type BudgetScope } from '../billing/budget';
 import { getDSHConfig } from '../dsh/client';

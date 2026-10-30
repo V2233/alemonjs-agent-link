@@ -72,7 +72,11 @@ export async function removeAccount(scope: BudgetScope): Promise<void> {
   ring.keys = ring.keys.filter(entry => !ids.has(entry.id));
   ring.grants = ring.grants.filter(grant => !ids.has(grant.keyId));
   delete ring.account;
-  const keys = [keyringStorageKey(scope), personalStorageKey(scope), ...grants.map(grant => groupStorageKey({ ...scope, channelId: grant.channelId }))];
+  const keys = [
+    keyringStorageKey(scope),
+    personalStorageKey(scope),
+    ...grants.map(grant => groupStorageKey({ ...scope, channelId: grant.channelId, credentialId: grant.token }))
+  ];
   const result = await (
     await budgetRedis()
   ).eval(

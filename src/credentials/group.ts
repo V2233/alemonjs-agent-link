@@ -13,7 +13,7 @@ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(valu
 export const groupStorageKey = (scope: BudgetScope): string => {
   if (!scope.platform || !scope.channelId || scope.channelId.startsWith('private:')) throw new DSHError('budget', '无法确定目标群。');
 
-  return `${prefix}:group:${hash([scope.platform, scope.channelId])}`;
+  return `${prefix}:group:${hash([scope.platform, scope.channelId])}${scope.credentialId ? `:grant:${scope.credentialId}` : ''}`;
 };
 const proofKey = (code: string): string => `${prefix}:proof:${hash(code.toLowerCase())}`;
 const usedKey = (code: string): string => `${prefix}:used:${hash(code.toLowerCase())}`;
@@ -163,17 +163,29 @@ export const getGroupCredential = async (): Promise<PersonalCredential | null> =
   const key = await encryptionKey();
 
   if (!key) return null;
-  const raw = await (await budgetRedis()).get(groupStorageKey(scope));
-  const value = raw ? (JSON.parse(raw) as RecordValue) : null;
+  const redis = await budgetRedis();
+  const ids = await redis.lrange(`${groupStorageKey(scope)}:pool`, 0, -1);
 
-  if (value?.reason === 'balance') throw new DSHError('budget', '本群钥匙余额不足，充值后请管理员启用；如要使用机器人额度，请显式停用或移除钥匙。');
-  if (value?.enabled !== true) return null;
-  if (!key) throw new DSHError('budget', '群密钥加密文件缺失，请联系主人恢复或重新绑定。');
+  for (const id of ['', ...ids]) {
+    const target = { ...scope, credentialId: id || undefined };
+    const raw = await redis.get(groupStorageKey(target));
+    const value = raw ? (JSON.parse(raw) as RecordValue) : null;
 
-  return decryptStoredKey(groupStorageKey(scope), value, scope, key);
+    if (value?.enabled === true) return decryptStoredKey(groupStorageKey(target), value, target, key);
+  }
+
+  return null;
 };
-export const checkedGroupCredential = async (signal?: AbortSignal): Promise<PersonalCredential | null> =>
-  checkCredentialBalance(await getGroupCredential(), credential => updateGroupKey(credential.scope, credential.revision), getGroupCredential, signal);
+export const checkedGroupCredential = async (signal?: AbortSignal): Promise<PersonalCredential | null> => {
+  for (;;) {
+    const credential = await getGroupCredential();
+
+    if (!credential) return null;
+    const checked = await checkCredentialBalance(credential, item => updateGroupKey(item.scope, item.revision), getGroupCredential, signal);
+
+    if (checked) return checked;
+  }
+};
 
 export const setGroupKeyState = async (scope: BudgetScope, enabled: boolean): Promise<boolean> =>
   Number(

@@ -1,3 +1,5 @@
+import { agentPlatformIssue } from './platform-preflight';
+import { installBubblewrap } from './sandbox-bootstrap';
 import { readBounded } from '../media/http';
 import { bridgeSessionHash, type BridgeConversationIdentity } from './conversation-scope';
 import { preparePython } from './python-bootstrap';
@@ -139,7 +141,7 @@ export class DSHSupervisor {
                 ? '普通聊天已就绪。'
                 : `普通聊天模式：${this.describeStartupFailure(error)} 网页暂不可用；受限文件工具按模块及会话权限开放，终端禁止。`
           };
-          if (this.credentials && this.config.runtimeMode !== 'chat-only') {
+          if (this.credentials && this.config.runtimeMode !== 'chat-only' && !(error instanceof Error && error.message.startsWith('Agent platform: '))) {
             this.scheduleRetry();
           }
           await this.writeStartupStatus();
@@ -268,8 +270,10 @@ export class DSHSupervisor {
     if (this.config.runtimeMode === 'chat-only') {
       throw new Error('chat-only selected');
     }
-    if (!['darwin', 'linux'].includes(process.platform)) {
-      throw new Error('Native Windows sandbox unavailable');
+    const platformIssue = agentPlatformIssue();
+
+    if (platformIssue) {
+      throw new Error(`Agent platform: ${platformIssue}`);
     }
     if (process.platform === 'darwin') {
       await access('/usr/bin/sandbox-exec');
@@ -291,7 +295,26 @@ export class DSHSupervisor {
       );
 
       if (!available.some(Boolean)) {
-        throw new Error('bubblewrap unavailable');
+        if (process.env.DSH_BWRAP_EXECUTABLE) {
+          throw new Error('bubblewrap configured executable unavailable');
+        }
+        this.statusValue = { phase: 'installing' };
+        await this.writeStartupStatus();
+        await installBubblewrap(this.config.preparationTimeoutMs ?? 120000, signal);
+        if (
+          !(
+            await Promise.all(
+              candidates.map(path =>
+                access(path).then(
+                  () => true,
+                  () => false
+                )
+              )
+            )
+          ).some(Boolean)
+        ) {
+          throw new Error('bubblewrap unavailable after installation');
+        }
       }
     }
     if (this.child?.exitCode === null) {
@@ -584,6 +607,21 @@ export class DSHSupervisor {
   private describeStartupFailure(error: unknown): string {
     const message = error instanceof Error ? error.message : '';
 
+    if ((error as NodeJS.ErrnoException)?.code === 'ELOCKED') {
+      return '另一个进程正在准备此数据目录的 Python 环境；当前实例稍后自动重试。';
+    }
+    if (message.startsWith('Agent platform: ')) {
+      return message.slice('Agent platform: '.length);
+    }
+    if (message.includes('bootstrap download failed')) {
+      return '托管 Python 安装工具下载失败；请检查当前网络能否访问 GitHub，后台会自动重试。';
+    }
+    if (message.includes('checksum mismatch')) {
+      return '环境安装包校验失败，已拒绝执行；请检查下载网络，后台会重试。';
+    }
+    if (message.includes('preparation timed out')) {
+      return '环境下载或安装超时；请检查网络，或调大 preparationTimeoutMs 后重试。';
+    }
     if (message.includes('Model credentials missing')) {
       return '请填写 alemon.config.yaml 中的 alemonjs-agent-link.apiKey 后重新启动。';
     }
@@ -591,7 +629,7 @@ export class DSHSupervisor {
       return '当前系统不提供受支持的本地沙箱。';
     }
     if (message.includes('bubblewrap')) {
-      return '未找到 Linux Bubblewrap 沙箱。';
+      return 'Linux 沙箱未就绪，自动安装未完成；请由管理员安装 bubblewrap，并确认当前主机允许创建用户命名空间。';
     }
     if (message.includes('No usable Python')) {
       return '未找到可用的 Python/venv。';

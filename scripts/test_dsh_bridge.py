@@ -163,6 +163,25 @@ class BridgeSafetyTests(unittest.TestCase):
         finally:
             self.bridge.subprocess.run = original_run
 
+    def test_managed_python_base_is_readable_without_exposing_data_parent(self):
+        from sandbox_profile import linux_bwrap_command, macos_profile
+        original = sys.base_prefix
+        base = self.root / 'private-data' / 'python' / 'cpython-3.12'
+        try:
+            sys.base_prefix = str(base)
+            workspace, home = self.root / 'work', self.root / 'home'
+            runtime, venv = self.root / 'runtime' / 'dsh', self.root / 'venv'
+            worker, patch = self.root / 'worker.py', self.root / 'patch.yml'
+            command = linux_bwrap_command('/usr/bin/bwrap', workspace, home, runtime, venv, worker, patch, venv / 'bin/python')
+            index = command.index(str(base.resolve()))
+            self.assertEqual(command[index - 1], '--ro-bind')
+            self.assertNotIn(str(base.parent.parent.resolve()), command)
+            profile = macos_profile(workspace, home, runtime, venv, worker, patch, 18080)
+            self.assertIn(f'(allow file-read* (subpath "{base.resolve()}"))', profile)
+            self.assertNotIn(f'(subpath "{base.parent.parent.resolve()}")', profile)
+        finally:
+            sys.base_prefix = original
+
     def test_linux_requires_bubblewrap_and_builds_a_bwrap_launcher(self):
         original_system = self.bridge.platform.system
         original_which = self.bridge.shutil.which

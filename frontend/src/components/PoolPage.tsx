@@ -27,7 +27,7 @@ import {
   Tag,
   Typography
 } from 'antd';
-import { PlusOutlined, ReloadOutlined, MoreOutlined } from '@ant-design/icons';
+import { PlusOutlined, MinusOutlined, VerticalAlignTopOutlined, ReloadOutlined, MoreOutlined } from '@ant-design/icons';
 import { useUnsavedNavigation } from './useUnsavedNavigation';
 
 const strategies = [
@@ -144,6 +144,7 @@ export default function PoolPage() {
   const [recognizing, setRecognizing] = useState(false);
   const [recognitionText, setRecognitionText] = useState('');
   const [filter, setFilter] = useState('');
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
   const [drawer, setDrawer] = useState<'endpoint' | 'rules' | 'budget'>();
   const [editor, setEditor] = useState<ConfigSnapshot>();
   const [editingId, setEditingId] = useState<string>();
@@ -445,6 +446,8 @@ export default function PoolPage() {
           dataSource={endpoints.filter(row => [row.id, row.model, row.account, row.baseUrl].join(' ').toLowerCase().includes(filter.toLowerCase()))}
           locale={{ emptyText: <Empty description={endpoints.length ? '没有符合筛选条件的端点' : '添加端点，开始管理额度轮转'} /> }}
           expandable={{
+            showExpandColumn: false,
+            expandedRowKeys: expandedKeys,
             expandedRowRender: row => (
               <>
                 <Descriptions
@@ -520,16 +523,27 @@ export default function PoolPage() {
               title: '顺序',
               width: 120,
               render: (_, row) => (
-                <Space>
-                  <EndpointDragHandle id={row.id} disabled={busy || Boolean(filter) || Boolean(drawer)} onMove={target => void reorder(row.id, target)} />
+                <Space size={4}>
                   <span>{configured.findIndex(item => item.id === row.id) + 1}</span>
                   <Button
                     size='small'
+                    type='text'
+                    icon={expandedKeys.includes(row.id) ? <MinusOutlined /> : <PlusOutlined />}
+                    aria-label={expandedKeys.includes(row.id) ? '收起端点详情' : '展开端点详情'}
+                    aria-expanded={expandedKeys.includes(row.id)}
+                    title={expandedKeys.includes(row.id) ? '收起详情' : '展开详情'}
+                    onClick={() => setExpandedKeys(keys => (keys.includes(row.id) ? keys.filter(key => key !== row.id) : [...keys, row.id]))}
+                  />
+                  <EndpointDragHandle id={row.id} disabled={busy || Boolean(filter) || Boolean(drawer)} onMove={target => void reorder(row.id, target)} />
+                  <Button
+                    size='small'
+                    type='text'
+                    icon={<VerticalAlignTopOutlined />}
+                    aria-label='置顶端点'
+                    title='置顶'
                     disabled={busy || Boolean(drawer) || configured[0]?.id === row.id}
                     onClick={() => void reorder(row.id, configured[0]?.id)}
-                  >
-                    置顶
-                  </Button>
+                  />
                 </Space>
               )
             },
