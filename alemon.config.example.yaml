@@ -145,7 +145,7 @@ alemonjs-agent-link:
   #   maxAttempts: 3
   #   # 一次请求的总重试预算（毫秒）。每个端点最多用剩余预算的一半，
   #   # 一个不回包的端点不会占满全部机会；maxAttempts 再大也受它限制。
-  #   retryBudgetMs: 12000
+  #   retryBudgetMs: 60000
   #   # 连续失败多少次后把端点标记为不可用。
   #   failureThreshold: 2
   #   # 不可用后冷却多少秒再试。

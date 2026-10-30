@@ -19,7 +19,7 @@ import { personaDetailFields } from './companion/persona-details';
 import { getDictionaryStore, type Word } from './dictionary/store';
 import { getPersonaStore } from './companion/personas';
 import { getQAStore } from './qa/store';
-import { poolSnapshot, poolBalances, poolAction, startPoolProbeRun } from './panel/pool-service';
+import { poolSnapshot, poolBalances, poolAction, startPoolHealthRun, startPoolProbeRun } from './panel/pool-service';
 import KoaRouter from 'koa-router';
 import bodyParser from 'koa-bodyparser';
 import { readPoolSettings, updatePoolSettings } from './panel/pool-settings';
@@ -309,6 +309,7 @@ apiRouter.post('/knowledge', ctx => {
   success(ctx, getQAStore(getDSHConfig()).addExplicit(target, body), '问答已保存');
 });
 apiRouter.get('/pool', async ctx => success(ctx, await poolSnapshot()));
+apiRouter.post('/pool/health-check-all', ctx => success(ctx, startPoolHealthRun()));
 apiRouter.post('/pool/probe-all', ctx => success(ctx, startPoolProbeRun()));
 apiRouter.post('/pool/balances', async ctx => {
   const body = ctx.request.body as { id?: unknown };

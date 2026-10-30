@@ -73,6 +73,7 @@ export const poolSnapshot = async () => {
   return {
     replyGateStatistics: readReplyGateStatistics(config),
     probeRun: getPoolProbeRun(),
+    healthRun: getPoolHealthRun(),
     sampledAt: Date.now(),
     enabled: Boolean(pool),
     strategy: pool?.config.strategy,
@@ -140,6 +141,42 @@ export const startPoolProbeRun = () => {
             item.state = 'running';
             try {
               item.state = (await pool.probeEndpoint(item.id, false)) ? 'done' : 'failed';
+            } catch {
+              item.state = 'failed';
+            }
+          })
+        );
+      }
+    } finally {
+      run.running = false;
+      run.finishedAt = Date.now();
+    }
+  })();
+
+  return run;
+};
+
+type HealthRun = { running: boolean; startedAt: number; finishedAt?: number; results: ProbeResult[] };
+let healthRun: HealthRun | undefined;
+
+export const getPoolHealthRun = () => healthRun;
+export const startPoolHealthRun = (): HealthRun => {
+  if (healthRun?.running) return healthRun;
+  const pool = diagnosticPool();
+
+  if (!pool?.status.length) throw new Error('未配置额度轮转端点');
+  const run: HealthRun = { running: true, startedAt: Date.now(), results: pool.status.map(item => ({ id: item.id, state: 'pending' })) };
+
+  healthRun = run;
+  void (async () => {
+    try {
+      for (let index = 0; index < run.results.length; index += 2) {
+        await Promise.all(
+          run.results.slice(index, index + 2).map(async item => {
+            item.state = 'running';
+            try {
+              await pool.healthCheckEndpoint(item.id);
+              item.state = pool.status.find(endpoint => endpoint.id === item.id)?.lastRequest?.ok === true ? 'done' : 'failed';
             } catch {
               item.state = 'failed';
             }

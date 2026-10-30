@@ -1,3 +1,4 @@
+import { localRequestFailure } from '../dsh/errors';
 import { setTimeout as delay } from 'node:timers/promises';
 import { logger } from 'alemonjs';
 import { withToolUsePolicy } from '../agent/tool-use-policy';
@@ -78,14 +79,13 @@ export const directChat = async (
     } catch (error) {
       current.report?.({
         ok: false,
-        errorKind:
-          error instanceof BudgetExceededError
-            ? 'local-budget'
-            : signal.aborted
-              ? 'cancelled'
-              : error instanceof Error && /timeout/i.test(error.name + error.message)
-                ? 'timeout'
-                : undefined
+        errorKind: localRequestFailure(error)
+          ? localRequestFailure(error)
+          : signal.aborted
+            ? 'cancelled'
+            : error instanceof Error && /timeout/i.test(error.name + error.message)
+              ? 'timeout'
+              : undefined
       });
       if (error instanceof BudgetExceededError) throw error;
       signal.throwIfAborted();

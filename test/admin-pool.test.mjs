@@ -171,3 +171,21 @@ test('pool page snapshots refresh balances automatically and reuse cached result
    assert.equal(calls,1);
  }finally{globalThis.__config=previous;globalThis.fetch=previousFetch;stopCredentialPool();}
 });
+
+test('batch health checks are bounded, deduplicated and report actual failures without enabling endpoints', async () => {
+  const {startPoolHealthRun}=await import('../lib/panel/pool-service.js');
+  const previous=globalThis.__config; const previousFetch=globalThis.fetch;
+  const endpoints=['batch-a','batch-b','batch-c'].map(id=>({id,provider:'test',baseUrl:'https://batch.example/v1',model:id,apiKey:'batch-private-key',enabled:false}));
+  globalThis.__config={value:{'alemonjs-agent-link':{modelPool:{enabled:false,probeIntervalSeconds:0,endpoints}}}};
+  let active=0,max=0,calls=0;
+  globalThis.fetch=async(_url,options)=>{calls++;active++;max=Math.max(max,active);await new Promise(resolve=>setTimeout(resolve,10));active--;return JSON.parse(options.body).model==='batch-b'?Response.json({error:{message:'failed'}},{status:402}):Response.json({choices:[{message:{content:'OK'}}]});};
+  try {
+    const run=startPoolHealthRun();assert.equal(startPoolHealthRun(),run);
+    const until=Date.now()+3000;
+    while(run.running && Date.now()<until) await new Promise(resolve=>setTimeout(resolve,10));
+    assert.equal(run.running,false);assert.equal(calls,3);assert.equal(max,2);
+    assert.deepEqual(run.results.map(r=>r.state),['done','failed','done']);
+    assert.ok(endpoints.every(e=>e.enabled===false));
+    const snapshot=await poolSnapshot();assert.equal(snapshot.enabled,false);assert.ok(!JSON.stringify(snapshot).includes('batch-private-key'));
+  }finally{globalThis.__config=previous;globalThis.fetch=previousFetch;stopCredentialPool();}
+});

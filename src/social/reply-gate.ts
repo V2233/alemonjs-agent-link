@@ -1,3 +1,4 @@
+import { localRequestFailure } from '../dsh/errors';
 import { beginReplyGateAttempt } from './reply-gate-statistics';
 import { getGroupCredential as getBoundCredential } from '../credentials/group';
 import { assertAIEnabled } from '../dsh/ai-switch';
@@ -230,7 +231,7 @@ const classifyGroupReplyInner = async (input: ReplyGateInput, signal: AbortSigna
               })();
       } catch (error) {
         pendingAttempt(false);
-        current.report?.({ ok: false, errorKind: error instanceof BudgetExceededError ? 'local-budget' : signal.aborted ? 'cancelled' : 'network' });
+        current.report?.({ ok: false, errorKind: localRequestFailure(error) || (signal.aborted ? 'cancelled' : 'network') });
         if (error instanceof BudgetExceededError) throw error;
         signal.throwIfAborted();
         const next = current.next?.();

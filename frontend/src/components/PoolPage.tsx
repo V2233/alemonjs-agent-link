@@ -110,6 +110,7 @@ type Snapshot = {
   sampledAt: number;
   strategy?: string;
   endpoints: Endpoint[];
+  healthRun?: { running: boolean; results: { id: string; state: string }[] };
   probeRun?: { running: boolean; results: { id: string; state: string }[] };
 };
 type ConfigSnapshot = { revision: string; modelPool: Record<string, any>; budget: Record<string, any>; baseUrl?: string };
@@ -205,11 +206,6 @@ export default function PoolPage() {
     void run(refresh);
   }, []);
   useEffect(() => {
-    if (!data?.probeRun?.running) return;
-    const timer = setTimeout(() => void run(async () => setData((await request('pool')).data)), 1500);
-    return () => clearTimeout(timer);
-  }, [data, busy]);
-  useEffect(() => {
     if (data?.balances) setBalances(data.balances);
   }, [data?.balances]);
   const app: ConfigSnapshot = config || { revision: '', modelPool: {}, budget: {} };
@@ -222,12 +218,6 @@ export default function PoolPage() {
   }));
   // Also support normalized legacy pool entries returned by the runtime.
   for (const item of data?.endpoints || []) if (!endpoints.some(row => row.id === item.id)) endpoints.push(item);
-  useEffect(() => {
-    const timer = setInterval(() => {
-      if (!document.hidden && !pending.current) void run(async () => setData((await request('pool')).data));
-    }, 5000);
-    return () => clearInterval(timer);
-  }, []);
   const open = async (kind: 'endpoint' | 'rules' | 'budget', id?: string) => {
     const current = (await request('pool/settings')).data as ConfigSnapshot;
     const value = current;
@@ -329,10 +319,31 @@ export default function PoolPage() {
               })
             }
           >
-            一键测活
+            测活
+          </Button>
+          <Button
+            disabled={busy || data?.healthRun?.running || !endpoints.length}
+            loading={data?.healthRun?.running}
+            onClick={async () => {
+              if (
+                !(await modal.confirm({
+                  title: '检查全部端点的模型调用能力？',
+                  content: '包括停用端点，每个端点发送一次小型模型请求，可能消耗额度；不会修改启停状态。完成后点击刷新查看结果。',
+                  okText: '开始检查',
+                  cancelText: '取消'
+                }))
+              )
+                return;
+              await run(async () => {
+                await request('pool/health-check-all', {});
+                await refresh();
+              });
+            }}
+          >
+            一键健康检查
           </Button>
           <Button disabled={busy || !endpoints.length} onClick={() => run(() => lookup())}>
-            立即查额度
+            查额度
           </Button>
           <Button type='primary' icon={<PlusOutlined />} disabled={busy} onClick={() => run(() => open('endpoint'))}>
             新增端点
@@ -344,9 +355,15 @@ export default function PoolPage() {
         </Space>
       </Flex>
       {error && <Alert type='error' title={error} showIcon style={{ marginBottom: 16 }} />}
+      {data?.healthRun && (
+        <Typography.Paragraph type='secondary'>
+          健康检查{data.healthRun.running ? '进行中' : '已完成'}：成功 {data.healthRun.results.filter(item => item.state === 'done').length}，失败{' '}
+          {data.healthRun.results.filter(item => item.state === 'failed').length}，共 {data.healthRun.results.length} 项 · 点击刷新查看最新结果
+        </Typography.Paragraph>
+      )}
       {data?.probeRun && (
         <Typography.Paragraph type='secondary'>
-          测活 {data.probeRun.results.filter(item => ['done', 'failed'].includes(item.state)).length} / {data.probeRun.results.length}
+          测活 {data.probeRun.results.filter(item => ['done', 'failed'].includes(item.state)).length} / {data.probeRun.results.length} · 点击刷新查看最新进度
         </Typography.Paragraph>
       )}
       <Typography.Paragraph type='secondary' style={{ fontSize: 12 }}>
@@ -500,7 +517,9 @@ export default function PoolPage() {
                               'local-budget': '本地额度拦截',
                               cancelled: '取消',
                               timeout: '超时',
-                              network: '网络异常',
+                              network: '连接失败（未收到响应）',
+                              'pricing-unconfigured': '未配置计费价格（本地拦截）',
+                              'local-disabled': 'AI 请求已关闭',
                               'invalid-response': '响应无效',
                               'stream-error': '响应中断',
                               frozen: '冻结',
@@ -598,7 +617,7 @@ export default function PoolPage() {
               }
             },
             {
-              title: '连通（自动更新）',
+              title: '连通（手动刷新）',
               width: 150,
               filters: [
                 { text: '可连通', value: 'reachable' },
@@ -668,7 +687,9 @@ export default function PoolPage() {
                   forbidden: '访问受限',
                   'server-error': '接口异常',
                   'request-error': '请求被拒绝',
-                  network: '网络异常',
+                  network: '连接失败（未收到响应）',
+                  'pricing-unconfigured': '未配置计费价格（本地拦截）',
+                  'local-disabled': 'AI 请求已关闭',
                   'invalid-response': '响应无效',
                   'stream-error': '响应中断',
                   timeout: '请求超时',

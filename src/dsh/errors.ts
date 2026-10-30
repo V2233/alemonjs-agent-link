@@ -21,3 +21,12 @@ export const abortFailure = (error: unknown, signal?: AbortSignal): DSHError | u
 
   return undefined;
 };
+
+/** Local policy failures must not be reported as transport failures. */
+export const localRequestFailure = (error: unknown): string | undefined => {
+  if (!(error instanceof DSHError)) return undefined;
+  if (error.kind === 'disabled') return 'local-disabled';
+  if (error.kind === 'budget') return /价格/.test(error.message) ? 'pricing-unconfigured' : 'local-budget';
+
+  return undefined;
+};

@@ -53,7 +53,10 @@ test('Shanghai day boundaries, group/private limits, price aliases and validatio
   );
   assert.equal(parseUsage({ prompt_tokens: 10, completion_tokens: -1 }), undefined);
   assert.equal(parseUsage({ prompt_tokens: 10, completion_tokens: 1, prompt_cache_hit_tokens: 11 }), undefined);
-  assert.throws(() => officialRates(new URL('https://relay.invalid/chat/completions'), 'deepseek-flash'), /价格/);
+  assert.deepEqual(officialRates(new URL('https://relay.invalid/chat/completions'), 'cn:deepseek-v4.1-flash'), { input: 2, output: 8, cached: 0.04 });
+  assert.deepEqual(officialRates(url, 'deepseek-v4.1-flash'), officialRates(url, 'deepseek-flash'));
+  assert.deepEqual(officialRates(url, 'unknown'), officialRates(url, 'deepseek-flash'));
+  assert.deepEqual(officialRates(url, 'deepseek-v4-pro'), { input: 9, output: 27, cached: 0.3 });
   for (const budget of [
     { enabled: 'true' },
     { groupDailyYuan: -1 },
@@ -66,7 +69,7 @@ test('Shanghai day boundaries, group/private limits, price aliases and validatio
   }
 });
 
-test('missing identity and unknown pricing fail before any provider request', async () => {
+test('missing identity fails before any provider request', async () => {
   const old = globalThis.fetch;
   const previousKeyFile = process.env.AGENT_LINK_PERSONAL_KEY_FILE;
   // A key file left by a real deployment would make the bound-key lookup reach
@@ -75,10 +78,6 @@ test('missing identity and unknown pricing fail before any provider request', as
   globalThis.fetch = () => assert.fail('must not contact provider');
   try {
     await assert.rejects(budgetedFetch(config, url, init()), /所属会话/);
-    await assert.rejects(
-      withBudgetScope(scope, () => budgetedFetch(config, new URL('https://relay.invalid/chat/completions'), init())),
-      /价格/
-    );
   } finally {
     globalThis.fetch = old;
     if (previousKeyFile === undefined) delete process.env.AGENT_LINK_PERSONAL_KEY_FILE;

@@ -1179,7 +1179,7 @@ export class CredentialPool {
         if (reserved) {
           const reason = requestReason(outcome);
 
-          if (reason === 'local-budget') state.lifecycle.blocked += 1;
+          if (['local-budget', 'pricing-unconfigured', 'local-disabled'].includes(reason)) state.lifecycle.blocked += 1;
           if (reason === 'cancelled') state.lifecycle.cancelled += 1;
           state.lifecycle.records.push({
             id,

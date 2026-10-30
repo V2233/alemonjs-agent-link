@@ -62,6 +62,8 @@ test('latest request categories distinguish billing, permissions, and API failur
     [{ok:false,status:400,detail:'insufficient_quota'},'exhausted'],
     [{ok:false,status:402},'exhausted'],
     [{ok:false,status:429},'rate-limited'],
+    [{ok:false,status:429,detail:'quota_exceeded'},'exhausted'],
+    [{ok:false,errorKind:'pricing-unconfigured'},'pricing-unconfigured'],
     [{ok:false,status:401},'invalid'],
     [{ok:false,status:503},'server-error'],
     [{ok:false},'network'],
@@ -153,4 +155,12 @@ test('cache observations separate unknown usage from zero hits and persist by pu
     await new Promise(resolve=>setTimeout(resolve,30));
     await rm(directory,{recursive:true,force:true});
   }
+});
+
+test('local pricing errors are distinct from network errors', async () => {
+ const { DSHError, localRequestFailure } = await import('../lib/dsh/errors.js');
+ assert.equal(localRequestFailure(new DSHError('budget', '当前服务商尚未配置可核验的价格，已暂停付费调用。')), 'pricing-unconfigured');
+ assert.equal(localRequestFailure(new DSHError('budget', '额度不足')), 'local-budget');
+ assert.equal(localRequestFailure(new DSHError('disabled', '关闭')), 'local-disabled');
+ assert.equal(localRequestFailure(new TypeError('fetch failed')), undefined);
 });

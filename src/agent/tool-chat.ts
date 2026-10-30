@@ -1,3 +1,4 @@
+import { localRequestFailure } from '../dsh/errors';
 import { reasoningParameters, type IntelligenceLevel } from './intelligence';
 import { setTimeout as delay } from 'node:timers/promises';
 import { budgetedFetch, BudgetExceededError } from '../billing/budget';
@@ -97,9 +98,9 @@ export const requestModelMessage = async (
       throw new Error('请求超过大小限制。');
     }
     signal.throwIfAborted();
-    // 每个端点最多用剩余重试预算的一半：一个挂死的端点不会占满整个预算。
+    // 单个端点最多等待 60 秒，同时遵守本轮剩余重试预算。
     const remaining = Math.max(0, budgetMs - elapsed);
-    const attemptMs = Math.min(Math.max(1500, remaining / 2), Math.max(1500, remaining));
+    const attemptMs = Math.max(1, Math.min(60000, remaining));
     const attemptController = new AbortController();
     const attemptTimer = setTimeout(() => attemptController.abort(new DOMException('attempt timeout', 'TimeoutError')), attemptMs);
     const attemptStartedAt = Date.now();
@@ -121,14 +122,13 @@ export const requestModelMessage = async (
       clearTimeout(attemptTimer);
       current.report?.({
         ok: false,
-        errorKind:
-          error instanceof BudgetExceededError
-            ? 'local-budget'
-            : signal.aborted
-              ? 'cancelled'
-              : error instanceof Error && /timeout/i.test(error.name + error.message)
-                ? 'timeout'
-                : undefined
+        errorKind: localRequestFailure(error)
+          ? localRequestFailure(error)
+          : signal.aborted
+            ? 'cancelled'
+            : error instanceof Error && /timeout/i.test(error.name + error.message)
+              ? 'timeout'
+              : undefined
       });
       if (error instanceof BudgetExceededError) throw error;
       signal.throwIfAborted();

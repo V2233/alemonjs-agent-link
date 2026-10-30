@@ -473,14 +473,12 @@ export const parseUsage = (value: unknown): TokenUsage | undefined => {
 
   return { prompt_tokens: v.prompt_tokens, completion_tokens: v.completion_tokens, prompt_cache_hit_tokens: hit };
 };
-// CNY per million tokens, deliberately use peak rates for a conservative budget.
+// CNY per million tokens. Unconfigured providers/models use the project's
+// DeepSeek V4.1 Flash estimate; explicit endpoint pricing takes precedence.
 export const officialRates = (url: URL, model: string): { input: number; output: number; cached: number } => {
-  if (url.origin !== 'https://api.deepseek.com' || !['/chat/completions', '/v1/chat/completions'].includes(url.pathname) || url.search || url.hash) {
-    throw new DSHError('budget', '当前服务商尚未配置可核验的价格，已暂停付费调用。');
-  }
-  if (['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp'].includes(model)) return { input: 2, output: 8, cached: 0.04 };
-  if (model === 'deepseek-v4-pro') return { input: 9, output: 27, cached: 0.3 };
-  throw new DSHError('budget', '当前模型尚未配置可核验的价格，已暂停付费调用。');
+  if (url.origin === 'https://api.deepseek.com' && model === 'deepseek-v4-pro') return { input: 9, output: 27, cached: 0.3 };
+
+  return { input: 2, output: 8, cached: 0.04 };
 };
 export const usageCost = (usage: TokenUsage, rates: ReturnType<typeof officialRates>): number =>
   Math.ceil(
