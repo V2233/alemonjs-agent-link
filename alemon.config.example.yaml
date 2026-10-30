@@ -1,11 +1,11 @@
 # AgentLink 配置示例（逐字段解释）
 #
-# 用法：复制为 alemon.config.yaml，按需删掉用不到的注释再改值。
+# 用法：插件模式将所需配置合并到宿主配置；仓库独立运行可复制为 alemon.config.yaml。
 # 具体范围与校验规则见 docs/config-reference.md，场景说明见 docs/config.md。
-# 占位符统一写成 '<...>'：`agent-link doctor` 会识别为“未填写”，不会当成真实凭证。
+# 占位符统一写成 '<...>'：仓库内的 `npm run doctor` 会识别为“未填写”，不会当成真实凭证。
 # 单位约定：时长一律毫秒；名称以 Seconds / Days 结尾的除外。
 #
-# 最小可用（只填模型 Key；QQ 凭证留空时启动器会显示扫码）：
+# 最小可用（只填模型 Key；仓库独立启动时 QQ 凭证留空会显示扫码）：
 #   alemonjs-agent-link:
 #     apiKey: '<MODEL_API_KEY>'
 

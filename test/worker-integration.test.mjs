@@ -7,8 +7,8 @@ import { fork } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 const packageRoot = process.env.AGENT_LINK_INTEGRATION_PACKAGE_ROOT || fileURLToPath(new URL('../', import.meta.url));
-const { launchRuntime } = await import(pathToFileURL(join(packageRoot, 'bin/runtime.mjs')).href);
-const { acquireProcessLock } = await import(pathToFileURL(join(packageRoot, 'bin/process-lock.mjs')).href);
+const { launchRuntime } = await import(pathToFileURL(join(packageRoot, 'runtime/runtime.mjs')).href);
+const { acquireProcessLock } = await import(pathToFileURL(join(packageRoot, 'runtime/process-lock.mjs')).href);
 
 test('real worker boots local app and an offline adapter, observes CBP readiness and reaps its child processes', async () => {
   const root = await mkdtemp(join(tmpdir(), 'agent-link-worker-'));

@@ -37,7 +37,7 @@ AgentLink 是 AlemonJS 的一个插件：QQ 事件在 Node 主进程里编排，
 | `src/platform/`、`src/onebot/`        | 平台能力抽象、OneBot 传输、戳一戳、群管理               |
 | `src/modules/`                        | 内置模块与外部插件的 Expose 能力发现                    |
 | `src/qzone/`、`src/bili/`             | QQ 空间与 B 站的可选业务能力                            |
-| `bin/`、`python/`                     | 启动器、诊断、进程锁与 DSH Python 桥接                  |
+| `runtime/`、`python/`                 | 启动器、诊断、进程锁与 DSH Python 桥接                  |
 | `test/`、`scripts/`                   | Node 与 Python 回归、发布检查脚本                       |
 
 ## 状态与一致性

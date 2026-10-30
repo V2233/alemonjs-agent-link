@@ -11,6 +11,7 @@ export default [
     ignores: [
       'frontend/**',
       'lib/**',
+      'runtime/**',
       'logs/**',
       'dist/**',
       'dist-desktop/**',
@@ -201,6 +202,12 @@ export default [
       // 模板标签间距规则
       'template-tag-spacing': 'error'
     }
+  },
+  // JavaScript files have no TypeScript project services. Keep syntax rules,
+  // but disable every rule that requires type information.
+  {
+    ...ts.configs.disableTypeChecked,
+    files: ['**/*.{js,mjs,cjs}']
   },
   // Keep this last: custom style rules above must not re-enable rules that
   // conflict with the formatter used by the pre-commit hook.

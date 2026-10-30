@@ -5,8 +5,8 @@ import { PassThrough } from 'node:stream';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { launchRuntime } from '../bin/runtime.mjs';
-import { redact, appendDiagnostic } from '../bin/diagnostics.mjs';
+import { launchRuntime } from '../runtime/runtime.mjs';
+import { redact, appendDiagnostic } from '../runtime/diagnostics.mjs';
 const frame = event => ({ type: 'cbp.event', data: { protocol: 'cbp', type: 'event', payload: { event } } });
 const fixture = async () => {
   const root = await mkdtemp(join(tmpdir(), 'agent-link-runtime-'));

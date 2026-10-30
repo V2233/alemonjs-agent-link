@@ -1,1 +1,1 @@
-import './bin/agent-link.cjs';
+import './runtime/agent-link.cjs';

@@ -1,6 +1,6 @@
 # OneBot 接入、戳一戳与群管理
 
-启动器默认使用 QQ Bot。配置 `transport: onebot` 可改用已运行的 OneBot v11 服务，通过正向 WebSocket 同时收事件和调用接口。每个实例选择一种连接，不额外登录另一个适配器。
+仓库独立启动器默认使用 QQ Bot。配置 `transport: onebot` 可改用已运行的 OneBot v11 服务，通过正向 WebSocket 同时收事件和调用接口。每个实例选择一种连接，不额外登录另一个适配器。
 
 ## 配置与启动
 
@@ -28,7 +28,7 @@ alemonjs-agent-link:
         groups: ['<授权管理的群号>'] # 默认空列表
 ```
 
-运行 `agent-link doctor` 检查格式，再运行 `agent-link`。启动器选择内置 OneBot 适配器，不要求 QQ Bot AppID 和密钥。连接、账号或令牌修改后需重启；业务模块配置随下一轮刷新。框架宿主也可将 `alemonjs-agent-link/onebot` 作为平台入口加载，业务入口仍为包主入口。
+在本仓库根目录运行 `npm run doctor` 检查格式，再运行 `npm start`。启动器选择内置 OneBot 适配器，不要求 QQ Bot AppID 和密钥。连接、账号或令牌修改后需重启；业务模块配置随下一轮刷新。框架宿主也可将 `alemonjs-agent-link/onebot` 作为平台入口加载，业务入口仍为包主入口。
 
 远程服务需要 WSS 和访问令牌；明文 WS 仅允许回环地址。令牌通过 Authorization 头发送，不进入 URL。连接后先调用 `get_login_info`，账号与 `selfId` 一致才接受事件并报告在线。失败按退避策略重连。`/agentstatus` 的主人私聊视图显示连接状态；在线只证明协议连接，不证明模型和各扩展均可用。
 

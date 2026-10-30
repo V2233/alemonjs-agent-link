@@ -9,7 +9,7 @@
 | `src/agent/modules.ts`、`src/modules/*`             | `modules` 与各模块 `settings`                                            |
 | `src/media/config.ts`、`src/media/speech-config.ts` | `media` 与语音引擎                                                       |
 | `src/onebot/config.ts`                              | `onebot` 连接                                                            |
-| `bin/paths.mjs`、`bin/startup.mjs`                  | 配置文件位置、CLI 参数、环境变量                                         |
+| `runtime/paths.mjs`、`runtime/startup.mjs`          | 配置文件位置、CLI 参数、环境变量                                         |
 
 场景说明与最小示例见 [配置指南](config.md)，额度规则见 [额度与预算](budget.md)，媒体见 [图片与语音](media.md)，模块机制见 [模块](modules.md)，OneBot 见 [OneBot 接入](onebot.md)。
 
@@ -17,7 +17,9 @@
 
 ## 1. 文件位置与优先级
 
-启动器按以下顺序确定配置文件（`bin/paths.mjs`）：
+插件模式使用 AlemonJS 宿主加载的配置文件。以下自动选择、生成配置与记忆路径规则仅适用于仓库独立启动器。
+
+独立启动器按以下顺序确定配置文件（`runtime/paths.mjs`）：
 
 1. `--config <路径>` 或环境变量 `CFG_PATH`；
 2. 当前目录的 `alemon.config.yaml`，或当前目录存在 `.data/agent-link`，或加了 `--portable`；
@@ -552,16 +554,25 @@ media:
 | `LOG_LEVEL`                    | 框架日志级别                                                  |
 | `APPDATA` / `XDG_CONFIG_HOME`  | Windows / Linux 下 `<home>` 的基准目录                        |
 
-## 11. 命令行
+## 11. 仓库运行脚本
 
-| 命令                | 作用                                                     |
-| ------------------- | -------------------------------------------------------- |
-| `agent-link start`  | 启动（默认）；首次运行自动生成配置并显示路径             |
-| `agent-link init`   | 只生成最小配置，不启动                                   |
-| `agent-link doctor` | 离线检查 Node 版本、SQLite、配置格式、必要字段与目录权限 |
-| `--config <路径>`   | 指定配置文件，等价 `CFG_PATH`                            |
-| `--portable`        | 强制使用当前目录的配置与数据                             |
-| `--json`            | `doctor` 输出结构化结果（不含密钥）                      |
+以下命令在本仓库根目录执行。安装为插件时使用宿主启动方式；本包不注册命令行。npm 脚本附加参数须放在 `--` 后，例如：
+
+```bash
+npm start -- --config /absolute/path/alemon.config.yaml
+npm start -- --portable
+npm run doctor -- --json
+npm run init -- --config /absolute/path/alemon.config.yaml
+```
+
+| 命令              | 作用                                                     |
+| ----------------- | -------------------------------------------------------- |
+| `npm start`       | 启动（默认）；首次运行自动生成配置并显示路径             |
+| `npm run init`    | 只生成最小配置，不启动                                   |
+| `npm run doctor`  | 离线检查 Node 版本、SQLite、配置格式、必要字段与目录权限 |
+| `--config <路径>` | 指定配置文件，等价 `CFG_PATH`                            |
+| `--portable`      | 强制使用当前目录的配置与数据                             |
+| `--json`          | `doctor` 输出结构化结果（不含密钥）                      |
 
 ## 12. 校验与生效方式
 

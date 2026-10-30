@@ -1,4 +1,4 @@
-import { appendDiagnostic } from '../../bin/diagnostics.mjs';
+import { appendDiagnostic } from '../../runtime/diagnostics.mjs';
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';

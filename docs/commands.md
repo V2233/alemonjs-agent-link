@@ -150,7 +150,7 @@
 
 ## 相关文档
 
-- [使用与部署](../README.md#快速开始)
+- [使用与部署](../README.md#如何本地启动)
 - [配置指南](config.md)、[配置字段参考](config-reference.md)
 - [人格、心情与自动表达](companion.md)、[长期记忆](memory.md)、[媒体能力](media.md)
 - [每日额度](budget.md)、[个人 Key](personal-key.md)、[群 Key](group-key.md)

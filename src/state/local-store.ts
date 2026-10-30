@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises';
-import { acquireProcessLock } from '../../bin/process-lock.mjs';
+import { acquireProcessLock } from '../../runtime/process-lock.mjs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { GroupMeta, PrivateMemory } from './registry';

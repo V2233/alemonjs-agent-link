@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { runCLI, diagnose, inspectConfig } from '../bin/startup.mjs';
+import { runCLI, diagnose, inspectConfig } from '../runtime/startup.mjs';
 
 const temporary = () => mkdtemp(join(tmpdir(), 'agent-link-cli-'));
 const valid = "qq-bot:\n  app_id: '1234'\n  secret: 'secret-do-not-print'\nalemonjs-agent-link:\n  apiKey: 'api-key-do-not-print'\n";
@@ -98,7 +98,7 @@ test('data path that is a file fails offline preflight', async () => {
 
 test('CLI executable works from an empty directory without importing the bot framework', async () => {
   const cwd = await temporary();
-  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/agent-link.mjs', import.meta.url)), 'doctor', '--json'], {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../runtime/agent-link.mjs', import.meta.url)), 'doctor', '--json'], {
     cwd,
     encoding: 'utf8',
     env: { ...process.env, AGENT_LINK_HOME: join(cwd, 'profile') }
@@ -158,7 +158,7 @@ test('offline validation and runtime reject the same invalid settings', async ()
 });
 
 test('default profile is stable across working directories and remembers a legacy profile', async () => {
-  const { launchPaths } = await import('../bin/paths.mjs');
+  const { launchPaths } = await import('../runtime/paths.mjs');
   const root = await temporary();
   const homeDir = join(root, 'user-profile');
   const left = join(root, 'left');
@@ -177,7 +177,7 @@ test('default profile is stable across working directories and remembers a legac
 });
 
 test('outer instance lock prevents starting a second adapter', async () => {
-  const { acquireProcessLock } = await import('../bin/process-lock.mjs');
+  const { acquireProcessLock } = await import('../runtime/process-lock.mjs');
   const cwd = await temporary();
   const homeDir = join(cwd, 'profile');
   await mkdir(homeDir);
@@ -203,7 +203,7 @@ test('outer instance lock prevents starting a second adapter', async () => {
 });
 
 test('the declared minimum Node boundary is checked before setup', async () => {
-  const { supportsNodeVersion } = await import('../bin/startup.mjs');
+  const { supportsNodeVersion } = await import('../runtime/startup.mjs');
   assert.equal(supportsNodeVersion('20.19.0'), false);
   assert.equal(supportsNodeVersion('22.12.0'), false);
   assert.equal(supportsNodeVersion('22.13.0'), true);

@@ -1,6 +1,6 @@
 # 配置指南
 
-默认连接 QQ Bot；需要 OneBot 账号协议时可设置 `transport: onebot`，连接参数、戳一戳和白名单群管理见 [OneBot 接入](onebot.md)。修改连接类型后需重启。
+仓库独立启动器默认连接 QQ Bot；需要 OneBot 账号协议时可设置 `transport: onebot`，连接参数、戳一戳和白名单群管理见 [OneBot 接入](onebot.md)。修改连接类型后需重启。
 
 所有运行配置位于本机 `alemon.config.yaml`。该文件包含 QQ 和 Redis 凭证，必须保持在版本控制之外。
 
@@ -12,14 +12,14 @@
 
 ## 最小配置
 
-首次运行 `agent-link`（本仓库为 `npm start`）会在固定用户目录创建配置并显示绝对路径，已有文件保持原样。首次只需填写模型 API Key：
+插件安装后，在 AlemonJS 宿主使用的配置文件中合并以下配置，已有同名段直接修改，避免重复 YAML 键：
 
 ```yaml
 alemonjs-agent-link:
   apiKey: '<MODEL_API_KEY>'
 ```
 
-QQ 凭证留空时，启动器显示终端二维码，使用手机 QQ 完成授权后由适配器保存凭证并继续启动。授权会更新机器人密钥，其他实例需同步更新。已有凭证可直接配置，跳过扫码：
+仓库独立运行 `npm start` 时，QQ 凭证留空会显示终端二维码，使用手机 QQ 完成授权后由适配器保存凭证并继续启动。授权会更新机器人密钥，其他实例需同步更新。已有凭证可直接配置，跳过扫码：
 
 ```yaml
 qq-bot:
@@ -36,11 +36,15 @@ alemonjs-agent-link:
   model: '<MODEL_NAME>'
 ```
 
-`agent-link doctor`（本仓库为 `npm run doctor`）离线检查 Node 22.13+、内置 SQLite、配置格式、必要字段和数据目录权限。检查与运行时共用 AgentLink 配置规则。`doctor --json` 提供不含密钥的结构化结果；不连接模型、QQ 或 Redis，不创建数据目录，不安装依赖。缺失字段或 YAML 重复键、缩进错误会在启动前提示；只检查格式不表示网络与凭证有效。
+## 仓库独立启动与诊断
 
-可用 `agent-link init` 单独生成最小配置，`--config 路径` 或 `CFG_PATH` 指定配置文件。启动器通过同一路径加载框架配置。新安装默认使用固定用户目录：Windows 为 AppData/AgentLink，macOS 为 Library/Application Support/AgentLink，Linux 为 XDG_CONFIG_HOME/agent-link（未设置时 ~/.config/agent-link）；可用 AGENT_LINK_HOME 指定。默认数据放在该目录的 data 子目录。
+以下 npm 命令均在本仓库根目录执行；插件模式沿用宿主的启动命令、配置文件与平台登录方式，不会自动执行这些脚本。首次执行 `npm start` 时，独立启动器会生成缺失的配置并显示路径，已有文件保持原样。
 
-检测到工作目录已有配置或 .data/agent-link 时沿用旧目录，并记住成功启动的配置路径，之后换目录也会继续使用；不自动移动或覆盖已有数据。`--portable` 强制当前目录模式。`--config` 的相对数据路径以配置所在目录为基准；AGENT_LINK_DATA_DIR 可显式指定默认数据目录。
+`npm run doctor`离线检查 Node 22.13+、内置 SQLite、配置格式、必要字段和数据目录权限。检查与运行时共用 AgentLink 配置规则。`npm run doctor -- --json` 提供不含密钥的结构化结果；不连接模型、QQ 或 Redis，不创建数据目录，不安装依赖。缺失字段或 YAML 重复键、缩进错误会在启动前提示；只检查格式不表示网络与凭证有效。
+
+可用 `npm run init` 单独生成最小配置，`--config 路径` 或 `CFG_PATH` 指定配置文件。启动器通过同一路径加载框架配置。独立启动器默认使用固定用户目录：Windows 为 AppData/AgentLink，macOS 为 Library/Application Support/AgentLink，Linux 为 XDG_CONFIG_HOME/agent-link（未设置时 ~/.config/agent-link）；可用 AGENT_LINK_HOME 指定。默认数据放在该目录的 data 子目录。
+
+检测到工作目录已有配置或 .data/agent-link 时沿用旧目录，并记住成功启动的配置路径，之后换目录也会继续使用；不自动移动或覆盖已有数据。`npm start -- --portable` 强制当前目录模式。`--config` 的相对数据路径以配置所在目录为基准；AGENT_LINK_DATA_DIR 可显式指定默认数据目录。
 
 `alemon.config.yaml` 已被 Git 忽略。应仅允许运行账户读取，并禁止复制到日志、镜像或公开位置。`/agentbind`、`/agentmodel` 与 `/agentunbind` 不会修改该文件。
 

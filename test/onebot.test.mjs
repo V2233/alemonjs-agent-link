@@ -17,9 +17,9 @@ import { claimPoke } from '../lib/social/poke.js';
 import { getDSHConfig } from '../lib/dsh/client.js';
 import { getModuleRuntime } from '../lib/agent/modules.js';
 import { runModuleTurn } from '../lib/agent/turn.js';
-import { inspectConfig } from '../bin/startup.mjs';
+import { inspectConfig } from '../runtime/startup.mjs';
 import { fork } from 'node:child_process';
-import { launchRuntime } from '../bin/runtime.mjs';
+import { launchRuntime } from '../runtime/runtime.mjs';
 
 const owner = id => id === '100';
 const raw = {

@@ -22,26 +22,33 @@ Windows Sandbox 不适合作为 Worker 后端：它是临时桌面 VM，关闭�
 
 ## 启动与停止
 
-开发环境：
+### 插件安装
+
+在 AlemonJS 宿主项目目录安装：
 
 ```bash
-yarn dev --login qq-bot
+npm install alemonjs-agent-link
 ```
 
-生产环境：
+由宿主加载 `alemonjs-agent-link` 包主入口，并在宿主配置中填写 `alemonjs-agent-link.apiKey`。平台连接、启动、停止与重启均由宿主管理。包不提供 `bin` 命令，不使用 `npx alemonjs-agent-link` 启动。
+
+### 仓库独立运行
+
+以下命令仅在本仓库根目录执行：
 
 ```bash
+npm install
 npm run build
 npm start
 ```
 
-安装包含启动器的发布包后，也可从固定目录执行 `npx alemonjs-agent-link`，无需构建。首次在固定用户目录生成配置，填好模型 API Key 后重跑同一命令，按提示扫码 QQ；已有 QQ 凭证可直接填写。新入口需要发布后才能从 npm 获取。
+开发调试使用 `npm run dev -- --login qq-bot`。独立启动后按 Ctrl+C 停止；交给进程管理器运行时，由进程管理器发送 SIGTERM 停止。
 
 生产中只运行一个 Node 进程。热重载可能在旧 QQ Gateway 连接尚未释放时建立第二个连接，从而导致网关重置。
 
 ## 健康检查
 
-启动前可执行 `npm run doctor`（发布包为 `agent-link doctor`）离线检查配置；检查不会验证外部服务连通性。
+仓库独立运行前可执行 `npm run doctor` 离线检查配置，指定配置使用 `npm run doctor -- --config /absolute/path/alemon.config.yaml`。检查不会验证外部服务连通性；插件安装应使用宿主的日志和运行状态排查。
 
 在 QQ 中发送 `/agentstatus`：
 

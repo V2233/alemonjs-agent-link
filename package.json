@@ -11,7 +11,7 @@
   "type": "module",
   "main": "lib/index.js",
   "files": [
-    "bin",
+    "runtime",
     "lib",
     "dist",
     "python/chat_only.patch.yml",
@@ -32,7 +32,7 @@
   },
   "scripts": {
     "dev": "npx lvy app.ts",
-    "start": "node bin/agent-link.cjs",
+    "start": "node runtime/agent-link.cjs",
     "view": "npx lvy dev --jsxp",
     "build": "lvy build",
     "install-fe": "yarn --cwd frontend install",
@@ -47,8 +47,8 @@
     "sync-qq-commands": "node scripts/sync-qq-command-panels.mjs",
     "prepare": "husky",
     "precommit": "lint-staged",
-    "init": "node bin/agent-link.cjs init",
-    "doctor": "node bin/agent-link.cjs doctor",
+    "init": "node runtime/agent-link.cjs init",
+    "doctor": "node runtime/agent-link.cjs doctor",
     "validate:gate": "node scripts/replay-reply-gate.mjs",
     "validate:live": "node scripts/live-gate-metrics.mjs",
     "prepack": "npm run build",
@@ -299,9 +299,6 @@
   },
   "engines": {
     "node": ">=22.13.0"
-  },
-  "bin": {
-    "agent-link": "bin/agent-link.cjs"
   },
   "private": "true",
   "workspaces": [
