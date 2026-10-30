@@ -18,6 +18,7 @@ export default function AdminLayout() {
     '/opinions': '对象评价',
     '/rotation': '额度轮转',
     '/voices': '音色库',
+    '/stickers': '表情管理',
     '/ads': '私聊广告',
     '/settings': '设置',
     '/work-model': '工作模型'
@@ -31,6 +32,7 @@ export default function AdminLayout() {
         { key: '/personas', label: '人设' },
         { key: '/hobbies', label: '爱好设置' },
         { key: '/voices', label: '音色库' },
+        { key: '/stickers', label: '表情管理' },
         { key: '/knowledge', label: '问答库' },
         { key: '/dictionary', label: '热词词典' },
         { key: '/events', label: '事件库' },

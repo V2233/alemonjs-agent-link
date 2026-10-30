@@ -507,3 +507,25 @@ export const markStickerUsed = async (config: MediaConfig, id: string, signal: A
     return { items: updated, value: true };
   });
 };
+
+/** Atomic management edits use the same manifest lock as collection and usage. */
+export const editStickerAsset = async (config: MediaConfig, id: string, expected: string, patch: { name: string; tags: string[] } | null): Promise<void> => {
+  if (!ID_PATTERN.test(id) || typeof expected !== 'string') throw new MediaError('表情编号无效。');
+  await mutate(config, AbortSignal.timeout(10000), items => {
+    const index = items.findIndex(item => item.id === id);
+
+    if (index < 0 || stickerRevision(items[index]) !== expected) throw new MediaError('配置已更新，请刷新后重试。');
+    const updated = [...items];
+
+    if (patch === null) updated.splice(index, 1);
+    else {
+      const item = { ...items[index], name: patch.name, tags: patch.tags };
+
+      if (!validItem(item) || hasControl(patch.name) || !tagsValid(patch.tags)) throw new MediaError('名称或标签无效。');
+      updated[index] = item;
+    }
+
+    return { items: updated, value: undefined };
+  });
+};
+export const stickerRevision = (item: Sticker): string => createHash('sha256').update(JSON.stringify(item)).digest('hex');

@@ -1,3 +1,4 @@
+import StickersPage from './components/StickersPage';
 import SettingsPage from './components/SettingsPage';
 import AdsPage from './components/AdsPage';
 import HobbiesPage from './components/HobbiesPage';
@@ -18,6 +19,7 @@ export default createHashRouter([
       { path: '/settings', element: <SettingsPage /> },
       { path: '/ads', element: <AdsPage /> },
       { path: '/hobbies', element: <HobbiesPage /> },
+      { path: '/stickers', element: <StickersPage /> },
       { path: '/voices', element: <VoicesPage /> },
       { path: '/opinions', element: <OpinionsPage /> },
       { path: '/events', element: <EventsPage /> },

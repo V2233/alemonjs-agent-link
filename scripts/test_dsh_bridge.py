@@ -133,16 +133,17 @@ class BridgeSafetyTests(unittest.TestCase):
         self.assertEqual(self.bridge.valid_capabilities(baseline), baseline)
         self.assertIsNone(self.bridge.valid_capabilities({'web': True}))
 
-    def test_native_files_and_terminal_remain_disabled_even_for_legacy_owner(self):
+    def test_terminal_grant_only_enables_bash_and_preserves_other_restrictions(self):
         caps = {'chat': True, 'web': True, 'files': True, 'terminal': True}
         patch = self.bridge.tool_policy_patch(caps)
-        for tool in ('tool-fs', 'tool-fs-search', 'tool-bash', 'tool-pwsh', 'tool-jobs'):
+        for tool in ('tool-fs', 'tool-fs-search', 'tool-pwsh', 'tool-jobs'):
             self.assertIn(f'- id: {tool}\n  disabled: true', patch)
         prompt = self.bridge.trusted_prompt('test', caps)
         self.assertIn('workspace_*', prompt)
         self.assertIn('<agentlink_persona priority="highest">', prompt)
         self.assertIn('不是通用编码代理或助手', prompt)
-        self.assertNotIn('可在当前隔离工作区中执行终端命令', prompt)
+        self.assertIn('- id: tool-bash\n  disabled: false', patch)
+        self.assertIn('可在当前隔离工作区中执行终端命令', prompt)
 
     def test_chat_only_profile_check_is_cached_until_patch_changes(self):
         calls = 0

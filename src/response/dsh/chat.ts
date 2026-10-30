@@ -27,7 +27,7 @@ import {
   planExpression,
   automaticVoiceText,
   selectExpressionSticker,
-  freshExpressionStickers,
+  selectFreshExpressionSticker,
   recordExpressionSticker,
   selectIntentSticker,
   hasStickerIntent,
@@ -376,12 +376,7 @@ export const runDSHChat = async (
         expression = { ...expression, sticker: true };
       }
       stickerOnlyIntent =
-        stickerMode === 'either' &&
-        !config.modules?.disabled?.includes('stickers') &&
-        expression.sticker &&
-        !requestedVoice &&
-        !options.autonomous &&
-        hasStickerIntent(intentText);
+        stickerMode === 'either' && !config.modules?.disabled?.includes('stickers') && expression.sticker && !requestedVoice && !options.autonomous;
 
       if (stickerOnlyIntent) expression = { ...expression, sticker: false };
     }
@@ -603,7 +598,17 @@ ${agentPrompt}`
         if (!stickerAttempted && !stickerDelivered && stickerOnlyIntent && !requestedVoice && !generatedSpeech) {
           try {
             const settings = getMediaConfig();
-            const item = selectIntentSticker(freshExpressionStickers(await listStickers(settings), voiceKey), intentText);
+            const value =
+              config.modules?.disabled?.includes('mood') || !event.Platform
+                ? 60
+                : getMoodStore(config).snapshot({ platform: event.Platform, channelId }, moodOptions(config), config.retentionDays).value;
+            const item = selectFreshExpressionSticker(await listStickers(settings), voiceKey, items =>
+              hasStickerIntent(intentText)
+                ? selectIntentSticker(items, intentText)
+                : selectExpressionSticker(items, answer || expressionText, value, event.MessageId || prompt, false, intentText)
+            );
+
+            logger.debug({ matched: Boolean(item), mode: 'either' }, 'Automatic sticker selection');
 
             if (item) {
               stickerAttempted = true;
@@ -710,13 +715,8 @@ ${agentPrompt}`
               config.modules?.disabled?.includes('mood') || !event.Platform
                 ? 60
                 : getMoodStore(config).snapshot({ platform: event.Platform, channelId }, moodOptions(config), config.retentionDays).value;
-            const item = selectExpressionSticker(
-              freshExpressionStickers(await listStickers(settings), voiceKey),
-              answer || expressionText,
-              value,
-              event.MessageId || prompt,
-              stickerFallback,
-              intentText
+            const item = selectFreshExpressionSticker(await listStickers(settings), voiceKey, items =>
+              selectExpressionSticker(items, answer || expressionText, value, event.MessageId || prompt, stickerFallback, intentText)
             );
 
             if (item) {

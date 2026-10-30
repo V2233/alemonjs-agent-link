@@ -310,6 +310,10 @@ test('keyring storage and command integration', { skip: !process.env.AGENT_LINK_
       assert.match(recordView, /提供者上限：1 元/);
       assert.match(recordView, /群上限：5 元/);
       assert.match(recordView, /生效上限：1 元/);
+      assert.match(recordView, /本次分享今日已用及预占/);
+      const groupView = await command('/我的钥匙', { ChannelId: target.channelId });
+      assert.match(groupView, /已启用.*不代表余额或授权有效/);
+      assert.match(groupView, /提供者上限：1 元/);
       assert.equal((await groupKeyBudgetStatus(config, (await credential(target)).scope)).personalLimit, 1);
       await setGroupKeyDailyLimit(target, '0.5');
       assert.equal((await groupKeyBudgetStatus(config, (await credential(target)).scope)).personalLimit, 0.5);

@@ -1,3 +1,4 @@
+import ScopedPersonaSettings from './ScopedPersonaSettings';
 import { useUnsavedNavigation } from './useUnsavedNavigation';
 import { useEffect, useState } from 'react';
 import { App, Alert, Button, Collapse, Drawer, Form, Input, Layout, Space, Select, Table, Tag, Typography } from 'antd';
@@ -155,6 +156,7 @@ export default function ContentPage({ kind }: { kind: 'personas' | 'knowledge' }
   };
   return (
     <Layout.Content className='workspace-content'>
+      {kind === 'personas' && <ScopedPersonaSettings />}
       <Space className='workspace-page-heading' style={{ width: '100%', justifyContent: 'space-between' }} size={16} wrap>
         <Typography.Title level={2} style={{ margin: 0 }}>
           {persona ? '人设' : '问答库'}

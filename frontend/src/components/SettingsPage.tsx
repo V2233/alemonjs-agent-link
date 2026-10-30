@@ -1,3 +1,4 @@
+import IntelligenceSettings from './IntelligenceSettings';
 import { useEffect, useState } from 'react';
 import { Alert, App, Button, Card, Form, Input, InputNumber, Layout, Select, Space, Switch, Typography } from 'antd';
 import { useUnsavedNavigation } from './useUnsavedNavigation';
@@ -53,6 +54,7 @@ export default function SettingsPage() {
   }, []);
   return (
     <Layout.Content className='workspace-content'>
+      <IntelligenceSettings />
       <Typography.Title level={2}>设置</Typography.Title>
       <Typography.Paragraph type='secondary'>调整机器人如何接收消息、与谁聊天以及怎样回复。模型、额度、音色和广告仍在各自页面管理。</Typography.Paragraph>
       {notice && <Alert showIcon title={notice} style={{ marginBottom: 16 }} />}

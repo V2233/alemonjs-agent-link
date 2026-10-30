@@ -2,7 +2,7 @@ import { logger } from 'alemonjs';
 import { getPersonaStore } from '../companion/personas';
 import type { AgentModule } from '../agent/types';
 import type { DSHBridgeConfig } from '../dsh/client';
-import { getMoodStore, keywordMoodDelta, moodOptions } from '../companion/mood';
+import { getMoodStore, keywordMoodDelta, moodOptions, parseMoodJudgment } from '../companion/mood';
 import { requestModelMessage } from '../agent/tool-chat';
 import { getDSHCredentials } from '../dsh/credentials';
 
@@ -91,30 +91,28 @@ export const moodModule = (config: DSHBridgeConfig): AgentModule => ({
             { role: 'user', content: JSON.stringify({ character: emotionalContext, input: activity.input.slice(0, 2000) }) }
           ],
           [],
-          signal
+          signal,
+          undefined,
+          { requestId: `mood:${context.requestId}`, sensitiveInput: true }
         );
-        const parsed = JSON.parse(result.content || 'null');
+        const parsed = parseMoodJudgment(result.content);
 
-        if (
-          !parsed ||
-          Object.keys(parsed).some(key => !['delta', 'confidence'].includes(key)) ||
-          !Number.isInteger(parsed.delta) ||
-          Math.abs(parsed.delta) > 6 ||
-          typeof parsed.confidence !== 'number' ||
-          !Number.isFinite(parsed.confidence) ||
-          parsed.confidence < 0.8 ||
-          parsed.confidence > 1
-        ) {
-          logger.warn('Mood model judgment ignored: invalid or low-confidence result');
+        if ('reason' in parsed) {
+          logger.warn({ requestId: context.requestId, reason: parsed.reason }, 'Mood model judgment ignored');
 
           return;
         }
         signal.throwIfAborted();
-        store.applyModel(context, token, parsed.delta, options);
+        const applied = store.applyModel(context, token, parsed.delta, options);
+
+        logger.debug({ requestId: context.requestId, delta: parsed.delta, applied }, 'Mood model judgment completed');
       })()
         .catch(() => {
           if (!context.signal.aborted && !stop.signal.aborted) {
-            logger.warn('Mood model judgment failed or timed out; keyword mood retained');
+            logger.warn(
+              { requestId: context.requestId, reason: signal.aborted ? 'timeout' : 'request-failed' },
+              'Mood model judgment failed; keyword mood retained'
+            );
           }
         })
         .finally(() => {

@@ -90,7 +90,11 @@ test('a greeting cannot hide a single explicit emotion in automatic sticker sele
 
 test('mixed reactions retain text and cannot become an unrelated mood or random sticker', async () => {
   const { selectExpressionSticker } = await import('../lib/companion/expression.js');
-  const library = [{ id: 'laugh', tags: ['大笑', '开心'] }, { id: 'hug', tags: ['拥抱'] }, { id: 'angry', tags: ['炸毛'] }];
+  const library = [
+    { id: 'laugh', tags: ['大笑', '开心'] },
+    { id: 'hug', tags: ['拥抱'] },
+    { id: 'angry', tags: ['炸毛'] }
+  ];
   for (const text of ['哈哈，其实我很难过', '我很难过，但现在好开心', '气死我了哈哈哈', '早安，晚安']) {
     assert.equal(hasStickerIntent(text), false, text);
     assert.equal(selectIntentSticker(library, text), undefined, text);
@@ -98,4 +102,18 @@ test('mixed reactions retain text and cannot become an unrelated mood or random 
     assert.equal(needsTextSupplement(text, '抱抱'), true, text);
   }
   assert.equal(selectIntentSticker(library, '哈哈哈，今天好开心')?.id, 'laugh', 'aliases of the same emotion remain one intent');
+});
+
+test('common reactions match specific tags and exhausted candidates recover after a minute', async () => {
+  const { selectFreshExpressionSticker, recordExpressionSticker } = await import('../lib/companion/expression.js');
+  for (const word of ['谢谢', '收到', '无语', '惊讶', '比心', '你好']) {
+    const items = [{ id: word, tags: [word] }];
+    assert.equal(selectIntentSticker(items, word)?.id, word);
+  }
+  const items = [{ id: 'hug', tags: ['安慰'] }];
+  const select = rows => selectIntentSticker(rows, '抱抱');
+  recordExpressionSticker('cooldown-recovery', 'hug', 1000);
+  assert.equal(selectFreshExpressionSticker(items, 'cooldown-recovery', select, 2000), undefined);
+  assert.equal(selectFreshExpressionSticker(items, 'cooldown-recovery', select, 61000)?.id, 'hug');
+  assert.equal(selectFreshExpressionSticker([{ id: 'other', tags: ['开心'] }], 'cooldown-recovery', select, 61000), undefined);
 });

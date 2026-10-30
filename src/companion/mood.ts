@@ -53,7 +53,29 @@ export const keywordMoodDelta = (text: string): number => {
     return 4;
   }
 
+  if (/^(?:早上好|早安|晚安|晚上好|陪我聊聊天|一起喝茶吧)[！!。，,呀啊呢~～\s]*$/u.test(addressed)) {
+    return 1;
+  }
+
   return 0;
+};
+export const parseMoodJudgment = (content: string | null | undefined): { delta: number } | { reason: string } => {
+  if (!content?.trim()) return { reason: 'empty-content' };
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(content.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/iu, '$1'));
+  } catch {
+    return { reason: 'invalid-json' };
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { reason: 'invalid-object' };
+  const { delta, confidence } = parsed as Record<string, unknown>;
+
+  if (typeof delta !== 'number' || !Number.isInteger(delta) || Math.abs(delta) > 6) return { reason: 'invalid-delta' };
+  if (typeof confidence !== 'number' || !Number.isFinite(confidence) || confidence < 0 || confidence > 1) return { reason: 'invalid-confidence' };
+  if (confidence < 0.8) return { reason: 'low-confidence' };
+
+  return { delta };
 };
 export type MoodSnapshot = { value: number; label: string; token?: string };
 export class MoodStore {

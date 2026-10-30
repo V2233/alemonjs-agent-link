@@ -3,6 +3,7 @@ import type { AgentCapabilities } from '../dsh/client';
 import type { SpeechAudio } from '../media/speech';
 
 export type TurnContext = {
+  intelligenceLevel?: import('./intelligence').IntelligenceLevel;
   requestId?: string;
   yieldForTools?: () => Promise<void>;
   inputId?: string;

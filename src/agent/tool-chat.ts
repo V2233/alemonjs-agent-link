@@ -1,3 +1,4 @@
+import { reasoningParameters, type IntelligenceLevel } from './intelligence';
 import { setTimeout as delay } from 'node:timers/promises';
 import { budgetedFetch, BudgetExceededError } from '../billing/budget';
 import { readCompletionStream } from '../dsh/completion-stream';
@@ -13,7 +14,7 @@ import { abortFailure } from '../dsh/errors';
 
 type ToolCall = { id: string; type: 'function'; function: { name: string; arguments: string } };
 type ModelMessage = { role: string; content: unknown; reasoning_content?: string; tool_calls?: ToolCall[]; tool_call_id?: string };
-type RequestMeta = { sensitiveInput?: boolean; requestId?: string; channelId?: string; onRetry?: () => Promise<void> };
+type RequestMeta = { intelligenceLevel?: IntelligenceLevel; sensitiveInput?: boolean; requestId?: string; channelId?: string; onRetry?: () => Promise<void> };
 
 export const needsRealtimeLookup = (text: string): boolean => /天气|气温|降雨|下雨|空气质量|新闻|股价|汇率|比分|赛程|实时|最新/u.test(text);
 
@@ -80,6 +81,7 @@ export const requestModelMessage = async (
     }
     const body = JSON.stringify({
       model: current.model || config.model,
+      ...reasoningParameters(url, current.model || config.model, meta.intelligenceLevel),
       stream: Boolean(onContent),
       messages,
       ...(tools.length
@@ -373,6 +375,7 @@ export const runToolChat = async (options: {
       return await requestModelMessage(config, selected, requestMessages, requestTools, context.signal, onContent, {
         requestId: context.requestId,
         channelId: context.channelId,
+        intelligenceLevel: context.intelligenceLevel,
         onRetry: options.onRetry
       });
     } catch (error) {

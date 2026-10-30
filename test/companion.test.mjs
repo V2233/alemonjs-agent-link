@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { PersonaStore, getPersonaStore } from '../lib/companion/personas.js';
-import { MoodStore, keywordMoodDelta, moodOptions } from '../lib/companion/mood.js';
+import { MoodStore, keywordMoodDelta, moodOptions, parseMoodJudgment } from '../lib/companion/mood.js';
 import {
   automaticVoiceText,
   hasStickerIntent,
@@ -543,21 +543,40 @@ test('ordinary-user chat chooses comfort over a greeting and preserves text for 
     await writeFile(join(stickerRoot, 'manifest.json'), JSON.stringify(library));
     for (const item of library) await writeFile(join(stickerRoot, item.file), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
     Object.assign(globalThis.__config.value['alemonjs-agent-link'], {
-      modules: { settings: {
-        memory: { automatic: false }, mood: { modelJudge: false },
-        expression: { automatic: true, voiceChance: 0, stickerChance: 1, stickerIntentAlways: true, stickerMode: 'either', socialPolish: false }
-      } },
+      modules: {
+        settings: {
+          memory: { automatic: false },
+          mood: { modelJudge: false },
+          expression: { automatic: true, voiceChance: 0, stickerChance: 1, stickerIntentAlways: true, stickerMode: 'either', socialPolish: false }
+        }
+      },
       media: { stickerRoot }
     });
     globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '抱抱' } }] });
     for (const [index, input] of ['肥鱼在吗，我好难过', '早安，我好难过', '哈哈，其实我很难过', '我很难过，但现在好开心'].entries()) {
-      const images = [], texts = [];
+      const images = [],
+        texts = [];
       const transport = {
-        message: { send: async value => { texts.push(value); return [{ code: ResultCode.Ok, data: null }]; } },
-        media: { send: async value => { images.push(value.name); return { code: ResultCode.Ok, data: { messageId: `emotion-${index}` } }; } }
+        message: {
+          send: async value => {
+            texts.push(value);
+            return [{ code: ResultCode.Ok, data: null }];
+          }
+        },
+        media: {
+          send: async value => {
+            images.push(value.name);
+            return { code: ResultCode.Ok, data: { messageId: `emotion-${index}` } };
+          }
+        }
       };
       let outcome;
-      await runDSHChat({ Platform: 'qq', UserId: `ordinary-emotion-${index}`, IsPrivate: true, IsMaster: false, MessageId: `emotion-${index}` }, input, { transport, onOutcome: value => { outcome = value; } });
+      await runDSHChat({ Platform: 'qq', UserId: `ordinary-emotion-${index}`, IsPrivate: true, IsMaster: false, MessageId: `emotion-${index}` }, input, {
+        transport,
+        onOutcome: value => {
+          outcome = value;
+        }
+      });
       assert.equal(outcome.delivered, true, input);
       assert.deepEqual(images, index < 2 ? ['hug.png'] : [], input);
       assert.equal(texts.length, index < 2 ? 0 : 1, input);
@@ -1076,3 +1095,20 @@ test('social sequence uses a sticker for greeting, text for facts, occasional an
     await turn('sequence-task', '那继续看报错吧', '把日志发来。', 'text');
     assert.equal(ttsCalls, 1);
   }));
+
+test('mood judgment accepts JSON fences and explanation fields but validates scoring', () => {
+  assert.deepEqual(parseMoodJudgment('```json\n{"delta":2,"confidence":0.9,"reason":"greeting"}\n```'), { delta: 2 });
+  for (const [input, reason] of [
+    [null, 'empty-content'],
+    ['oops', 'invalid-json'],
+    ['[]', 'invalid-object'],
+    ['{"delta":7,"confidence":0.9}', 'invalid-delta'],
+    ['{"delta":2}', 'invalid-confidence'],
+    ['{"delta":2,"confidence":0.7}', 'low-confidence']
+  ]) {
+    assert.deepEqual(parseMoodJudgment(input), { reason });
+  }
+  assert.equal(keywordMoodDelta('肥鱼，早安'), 1);
+  assert.equal(keywordMoodDelta('肥鱼，一起喝茶吧'), 1);
+  assert.equal(keywordMoodDelta('他说早安'), 0);
+});

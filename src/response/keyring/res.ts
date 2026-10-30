@@ -77,7 +77,7 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
         const sections = ring.grants.length
           ? ring.grants.map((item, index) => ({
               title: `记录 ${item.id}`,
-              text: `群 ${item.channelId} · 钥匙 ${item.keyId} · ${current[index] ? current[index].label : '授权已失效'}${current[index] ? `\n提供者上限：${current[index].donor === null ? '未设置' : `${current[index].donor} 元/日`}；群上限：${current[index].group === null ? '未设置' : `${current[index].group} 元/日`}；生效上限：${current[index].effective === null ? '未设置' : `${current[index].effective} 元/日`}` : ''}`,
+              text: `群 ${item.channelId} · 钥匙 ${item.keyId} · ${current[index] ? current[index].label : '授权已失效'}${current[index] ? `\n提供者上限：${current[index].donor === null ? '未设置' : `${current[index].donor} 元/日`}；群上限：${current[index].group === null ? '未设置' : `${current[index].group} 元/日`}；生效上限：${current[index].effective === null ? '未设置' : `${current[index].effective} 元/日`}\n本次分享今日已用及预占 ${current[index].donorUsed} 元；提供者剩余：${current[index].donorRemaining === null ? '未设上限' : `${current[index].donorRemaining} 元`}` : ''}`,
               actions: [
                 ...(current[index]
                   ? [{ label: current[index].enabled ? '停用' : '启用', command: `/授权记录 ${current[index].enabled ? '停用' : '启用'} ${item.id}` }]
@@ -98,7 +98,7 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
         });
 
         return;
-      } else throw new DSHError('budget', '用法：/授权记录、/授权记录 移除 编号、/授权记录 上限 编号 金额');
+      } else throw new DSHError('budget', '用法：/授权记录、/授权记录 启用或停用 编号、/授权记录 移除 编号、/授权记录 上限 编号 金额');
     } else if (command === '/授权钥匙') {
       if (event.IsPrivate || args.length !== 1) throw new DSHError('budget', '请管理员在目标群发送 /授权钥匙 编号。');
       await changeKeyring(scope, 'grant', args[0]);

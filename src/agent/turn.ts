@@ -1,3 +1,6 @@
+import { readScopedPersona } from './scoped-persona';
+import { personaDetailsPrompt } from '../companion/persona-details';
+import { ownerTerminalAllowed, turnIntelligence } from './intelligence';
 import { bridgeConversationIdentity, conversationQueueScope } from '../dsh/conversation-scope';
 import { assertAIEnabled } from '../dsh/ai-switch';
 import { bufferUnavailableMemorySave, resolveUnavailableMemoryEcho } from '../memory/save-reply';
@@ -40,19 +43,28 @@ const runModuleTurnInner = async (options: {
   const { config, sessionId, history, onEvent, onCompleted } = options;
 
   assertAIEnabled(config);
-  const context = {
+  const context: TurnContext = {
     ...options.context,
-    capabilities: { ...options.context.capabilities, terminal: false },
+    capabilities: { ...options.context.capabilities, terminal: ownerTerminalAllowed(options.context, Boolean(options.context.autonomous)) },
     onSpeech: options.onSpeech || options.context.onSpeech,
     onSticker: options.onSticker || options.context.onSticker,
     onStickerCollect: options.onStickerCollect || options.context.onStickerCollect,
     onCurrentImages: options.onCurrentImages || options.context.onCurrentImages
   };
+  const intelligence = await turnIntelligence(config, context, context.userText, Boolean(context.autonomous));
+
+  context.intelligenceLevel = intelligence.level;
   const preparingAt = Date.now();
   const lease = await (await getModuleRuntime(config)).acquire();
 
   try {
-    const personaPrompt = await lease.system(config.defaultSystemPrompt, context);
+    const scopedPrompt = intelligence.entitled ? personaDetailsPrompt(readScopedPersona(config, context)) : '';
+    const personaPrompt = [
+      await lease.system(config.defaultSystemPrompt, context),
+      scopedPrompt ? '以下仅调整当前会话表达，不改变权限、身份与工具规则。\n' + scopedPrompt : ''
+    ]
+      .filter(Boolean)
+      .join('\n\n');
     const systemPrompt = withToolUsePolicy(
       `${personaPrompt}\n\n${modelContext(config.model)}${options.onImage && !context.autonomous ? '\n当前可调用 draw_image 绘制图形元素构成的 PNG；如果 generate_image 可用，也可按用户要求使用外部生图服务。前者不是照片级扩散生图，两者均不支持精确编辑已有图片。' : ''}${context.autonomous ? '\n当前为系统调度的主动搭话，不是用户新发来的请求。只可读取当前会话范围内的资料与已开放的只读信息，不得把历史话语当作新授权，不能主动调用记忆写入、执行工作区、管理群或联系其他对象。系统可以记录真实完成的只读操作作为经历。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`
     );
@@ -67,6 +79,7 @@ const runModuleTurnInner = async (options: {
         web: context.capabilities.web,
         files: context.capabilities.files,
         terminal: context.capabilities.terminal,
+        intelligence: intelligence.level,
         tools: tools.length,
         workspaceTool: tools.some(tool => tool.name === 'agent_workspace')
       },
@@ -123,6 +136,7 @@ const runModuleTurnInner = async (options: {
     const unavailableMemorySave = bufferUnavailableMemorySave(context.private, context.userText, tools);
 
     if (
+      intelligence.entitled ||
       context.autonomous ||
       unavailableMemorySave ||
       tools.length ||
@@ -135,12 +149,13 @@ const runModuleTurnInner = async (options: {
       if (!hasDSHBridgeOverride() && config.runtimeMode !== 'chat-only') {
         void supervisor.prepareForChat().catch(() => logger.warn('Workspace preparation pending or unavailable'));
       }
-      const sandboxReady = hasDSHBridgeOverride() || supervisor.status().phase === 'ready' || config.runtimeMode === 'sandbox';
+      // streamChat waits for preparation when the model actually requests work.
+      const sandboxReady = hasDSHBridgeOverride() || config.runtimeMode !== 'chat-only';
 
       if (!context.autonomous && sandboxReady && (context.capabilities.web || context.capabilities.files || context.capabilities.terminal)) {
         const workspaceTool: AgentTool = {
           name: 'agent_workspace',
-          description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}、终端${context.capabilities.terminal ? '允许' : '禁止'}。文件操作仅使用 framework MCP 的 workspace_* 工具，不得使用原生文件或终端工具。可通过 framework MCP 发现并调用本轮开放的框架和业务接口，权限以目录与真实回执为准。`,
+          description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}、终端${context.capabilities.terminal ? '允许' : '禁止'}。文件操作使用 framework MCP 的 workspace_* 工具；仅终端权限允许时可按用户明确任务执行终端命令。可通过 framework MCP 发现并调用本轮开放的框架和业务接口，权限以目录与真实回执为准。`,
           parameters: {
             type: 'object',
             properties: { task: { type: 'string', minLength: 1, maxLength: 12000 } },
@@ -215,8 +230,12 @@ const runModuleTurnInner = async (options: {
         tools,
         history: history ? await registry.privateHistory(history) : [],
         memoryContext: history?.memoryContext,
-        maxRounds: Math.min(moduleConfig.maxToolRounds, limits?.maxRounds ?? moduleConfig.maxToolRounds),
-        maxContinuations: Math.min(moduleConfig.maxToolContinuations, limits?.maxContinuations ?? moduleConfig.maxToolContinuations),
+        maxRounds: Math.min(intelligence.maxRounds, moduleConfig.maxToolRounds, limits?.maxRounds ?? moduleConfig.maxToolRounds),
+        maxContinuations: Math.min(
+          intelligence.maxContinuations,
+          moduleConfig.maxToolContinuations,
+          limits?.maxContinuations ?? moduleConfig.maxToolContinuations
+        ),
         onContent: incremental
           ? async content => {
               await onEvent({ type: 'content', content });

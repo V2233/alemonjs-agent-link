@@ -38,7 +38,12 @@ commandGroup.use(
 
 for (const path of ['广告列表', '广告详情']) commandGroup.use({ path, description: '私聊广告查阅' }, () => import('@src/response/agent-ads/res'));
 
+for (const path of ['智能程度', '我的权限'])
+  commandGroup.use({ path, description: '查看权益与设置当前会话智能程度' }, () => import('@src/response/agent-intelligence/res'));
+
 commandGroup.use({ path: '额度', description: '查询今日额度；主人可手动增加、设置、查看调整记录' }, () => import('@src/response/agent-budget/res'));
+
+commandGroup.use({ path: '人设', description: '编辑本人或本群专属人设细节' }, () => import('@src/response/agent-scoped-persona/res'));
 
 commandGroup.use({ path: '人格', description: '查看及切换当前会话人格' }, () => import('@src/response/agent-persona/res'));
 commandGroup.use({ path: '心情', description: '查看当前会话心情及变化' }, () => import('@src/response/agent-mood/res'));

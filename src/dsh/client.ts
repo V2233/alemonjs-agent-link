@@ -122,7 +122,7 @@ export const streamChat = async (
     ? bridgeConversationIdentity(privateHistory.channelId, privateHistory.scope)
     : undefined
 ): Promise<void> => {
-  capabilities = { ...capabilities, terminal: false };
+  // Terminal capability is granted only by the trusted owner turn policy.
   assertAIEnabled(config);
   config = { ...config, defaultSystemPrompt: withToolUsePolicy(config.defaultSystemPrompt) };
   const controller = new AbortController();
@@ -145,6 +145,7 @@ export const streamChat = async (
       await supervisor.prepareForChat();
       signal.throwIfAborted();
       if (!supervisor.useSandbox(sessionId, conversation)) {
+        if (framework) throw new Error('工作区未就绪，当前任务未执行；请检查沙箱运行状态后重试。');
         await supervisor.chatDirect(message, signal, onEvent, privateHistory, onCompleted);
 
         return;

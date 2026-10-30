@@ -71,10 +71,20 @@ const sample = (id: string, purpose: string): number =>
 
 type StickerIntent = { names: string[]; categories: string[]; tags: string[]; context: string[] };
 const INTENTS: { pattern: RegExp; intent: StickerIntent; social?: boolean }[] = [
+  { pattern: /谢谢|感谢/u, social: true, intent: { names: ['谢谢', '感谢'], categories: ['感谢'], tags: ['谢谢', '感谢', '感恩'], context: ['感谢'] } },
+  {
+    pattern: /^(?:肥鱼[，,\s]*)?(?:好的|好哒|收到|明白了|知道了)[！!。\s]*$/u,
+    social: true,
+    intent: { names: ['收到', '好的', 'OK'], categories: ['收到'], tags: ['收到', '好的', '点头', 'OK'], context: ['确认'] }
+  },
+  { pattern: /无语|无言|扶额/u, intent: { names: ['无语', '扶额'], categories: ['无语'], tags: ['无语', '无言', '扶额'], context: ['无语'] } },
+  { pattern: /震惊|惊讶|惊呆/u, intent: { names: ['震惊', '惊讶'], categories: ['惊讶'], tags: ['震惊', '惊讶', '惊呆'], context: ['惊讶'] } },
+  { pattern: /喜欢你|爱你|比心/u, intent: { names: ['比心', '爱你'], categories: ['喜爱'], tags: ['比心', '爱你', '喜欢', '爱心'], context: ['喜爱'] } },
+
   {
     social: true,
-    pattern: /在不在|在吗|在么|在嘛|有人吗|在不在呀/u,
-    intent: { names: ['在呢'], categories: ['日常'], tags: ['招呼', '回应', '日常'], context: ['招呼', '回应', '在呢'] }
+    pattern: /在不在|在吗|在么|在嘛|有人吗|在不在呀|你好|嗨/u,
+    intent: { names: ['在呢', '你好', '嗨'], categories: ['日常'], tags: ['招呼', '你好', '嗨', '回应', '日常'], context: ['招呼', '回应', '在呢'] }
   },
   {
     pattern: /早安|早上好/u,
@@ -100,7 +110,7 @@ const INTENTS: { pattern: RegExp; intent: StickerIntent; social?: boolean }[] = 
     intent: { names: ['生气', '不满'], categories: ['不满'], tags: ['生气', '不满', '愤怒', '气愤', '炸毛'], context: ['不满', '生气'] }
   },
   {
-    pattern: /委屈|难过|想哭|伤心|哭死/u,
+    pattern: /委屈|难过|想哭|伤心|哭死|抱抱/u,
     intent: { names: ['抱抱', '安慰'], categories: ['安慰'], tags: ['抱抱', '安慰', '拥抱', '摸摸', '拍拍', '陪伴', '心疼'], context: ['陪伴', '安慰'] }
   },
   {
@@ -277,4 +287,19 @@ export const freshExpressionStickers = (items: Sticker[], scope: string, now = D
   const excluded = new Set(recent.map(item => item.id));
 
   return items.filter(item => !excluded.has(item.id));
+};
+
+/** Prefer variety, but allow a relevant exhausted candidate again after one minute. */
+export const selectFreshExpressionSticker = (
+  items: Sticker[],
+  scope: string,
+  select: (items: Sticker[]) => Sticker | undefined,
+  now = Date.now()
+): Sticker | undefined => {
+  const fresh = select(freshExpressionStickers(items, scope, now));
+
+  if (fresh) return fresh;
+  const blocked = new Set((recentStickers.get(scope) || []).filter(item => now - item.at < 60_000).map(item => item.id));
+
+  return select(items.filter(item => !blocked.has(item.id)));
 };

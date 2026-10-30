@@ -1,3 +1,6 @@
+import { stickerAssets, stickerImage, saveStickerAsset, uploadStickerAsset } from './panel/sticker-service';
+import { readScopedPersona, saveScopedPersona } from './agent/scoped-persona';
+import { readIntelligenceLevel, saveIntelligenceLevel } from './agent/intelligence';
 import { readGeneralSettings, saveGeneralSettings } from './panel/general-settings';
 import { readAdsSettings, saveAdsSettings } from './panel/ads-settings';
 import { listEndpointModels } from './panel/model-list';
@@ -80,12 +83,32 @@ apiRouter.use(async (ctx, next) => {
     };
   }
 });
-apiRouter.use(bodyParser({ enableTypes: ['json'], jsonLimit: '1mb' }));
+const standardBody = bodyParser({ enableTypes: ['json'], jsonLimit: '1mb' });
+const stickerUploadBody = bodyParser({ enableTypes: ['json'], jsonLimit: '8mb' });
+
+apiRouter.use((ctx, next) => (ctx.path === '/api/admin/stickers/upload' ? stickerUploadBody : standardBody)(ctx, next));
 const success = (ctx: KoaRouter.RouterContext, data: unknown, message = 'ok') => {
   ctx.status = 200;
   ctx.body = { code: 200, message, data };
 };
 
+apiRouter.get('/stickers', async ctx => success(ctx, await stickerAssets()));
+apiRouter.get('/stickers/:id/image', async ctx => {
+  const image = await stickerImage(ctx.params.id);
+
+  ctx.type = image.mime;
+  ctx.set('X-Content-Type-Options', 'nosniff');
+  ctx.body = image.data;
+});
+apiRouter.post('/stickers/upload', async ctx => success(ctx, await uploadStickerAsset(ctx.request.body)));
+apiRouter.post('/stickers/edit', async ctx => {
+  await saveStickerAsset(ctx.request.body);
+  success(ctx, null);
+});
+apiRouter.post('/stickers/remove', async ctx => {
+  await saveStickerAsset(ctx.request.body, true);
+  success(ctx, null);
+});
 apiRouter.get('/dictionary', ctx => success(ctx, getDictionaryStore(getDSHConfig()).list()));
 apiRouter.post('/dictionary', ctx => success(ctx, getDictionaryStore(getDSHConfig()).save(ctx.request.body as Partial<Word>)));
 apiRouter.post('/dictionary/delete', ctx => {
@@ -124,6 +147,34 @@ apiRouter.post('/opinions/edit', ctx => {
 
   if (!body || typeof body.id !== 'string' || !Number.isFinite(body.revision)) ctx.throw(400);
   success(ctx, getOpinionStore(getDSHConfig()).edit(body.id, body.revision, body.action, body.value));
+});
+const intelligenceSessions = () =>
+  knownSessions().map(scope => ({
+    ...scope,
+    level: readIntelligenceLevel(getDSHConfig(), { ...scope, userId: 'admin-panel', owner: true, private: scope.channelId.startsWith('private:') }, true)
+  }));
+
+apiRouter.post('/scoped-persona/read', ctx => {
+  const scope = sessionTarget(ctx.request.body);
+
+  success(ctx, readScopedPersona(getDSHConfig(), { ...scope, userId: 'admin-panel', owner: true, private: scope.channelId.startsWith('private:') }));
+});
+apiRouter.post('/scoped-persona', async ctx => {
+  const body = ctx.request.body as { platform?: string; channelId?: string; details?: unknown; expected?: unknown };
+  const scope = sessionTarget(body);
+  const identity = { ...scope, userId: 'admin-panel', owner: true, private: scope.channelId.startsWith('private:') };
+
+  if (!body.expected || typeof body.expected !== 'object' || Array.isArray(body.expected)) ctx.throw(400, '请先读取当前人设');
+  await saveScopedPersona(getDSHConfig(), identity, body.details, body.expected);
+  success(ctx, readScopedPersona(getDSHConfig(), identity));
+});
+apiRouter.get('/intelligence', ctx => success(ctx, intelligenceSessions()));
+apiRouter.post('/intelligence', async ctx => {
+  const body = ctx.request.body as { platform?: string; channelId?: string; level?: unknown };
+  const scope = sessionTarget(body);
+
+  await saveIntelligenceLevel(getDSHConfig(), { ...scope, userId: 'admin-panel', owner: true, private: scope.channelId.startsWith('private:') }, body.level);
+  success(ctx, intelligenceSessions());
 });
 apiRouter.get('/sessions', ctx => success(ctx, knownSessions()));
 apiRouter.post('/persona-selection', async ctx => {
