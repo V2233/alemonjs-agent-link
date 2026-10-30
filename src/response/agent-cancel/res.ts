@@ -1,6 +1,6 @@
 import { useEvent, useMessage } from 'alemonjs';
 import { noticeBubble } from '../bubble';
-import { canReset, getConversationId } from '@src/response/dsh/util';
+import { canManageConversation, getConversationId } from '@src/response/dsh/util';
 import { getDSHConfig } from '../../dsh/runtime-config';
 import { cancelChatForUser, conversationQueueScope } from '@src/dsh/orchestrator';
 import { groupConversations } from '../../social/groups';
@@ -22,7 +22,7 @@ export default async (): Promise<void> => {
   }
 
   const userKey = event.UserKey || event.UserId || 'unknown';
-  const privileged = canReset(event);
+  const privileged = await canManageConversation(event);
   let result = cancelChatForUser(channelId, userKey, privileged, conversationQueueScope(getDSHConfig(), { platform: event.Platform, botId: event.BotId }));
 
   const cancelledPending = groupConversations.cancelPending(channelId, userKey, privileged, { platform: event.Platform, botId: event.BotId });

@@ -9,9 +9,9 @@ export default async (): Promise<void> => {
   const ads = getAds();
 
   if (!ads.enabled) return;
-  const [context] = useEvent({ selects: ['private.message.create'] });
+  const [context] = useEvent({ selects: ['message.create', 'private.message.create'] });
 
-  if (!context.match.selects || !context.current.IsPrivate) return;
+  if (!context.match.selects) return;
   const event = context.current;
   const [route] = useRoute();
   const [message] = useMessage();
@@ -52,7 +52,7 @@ export default async (): Promise<void> => {
     try {
       const credited = await claimAdvertisementReward(
         config,
-        { platform: event.Platform, userId: event.UserId, channelId: getConversationId(event) },
+        { platform: event.Platform, userId: event.UserId, channelId: getConversationId({ ...event, IsPrivate: true }) },
         ad.id,
         Math.round(ad.rewardYuan * 1_000_000)
       );
@@ -70,7 +70,7 @@ export default async (): Promise<void> => {
     await message.send({
       format: sectionBubble(
         '广告列表',
-        `查阅详情获得私聊额度，每条仅一次。第${page}页`,
+        `查阅详情获得本人私聊额度，群聊与私聊共用领取资格，每条仅一次。第${page}页`,
         items
           .slice((page - 1) * 5, page * 5)
           .map(ad => ({

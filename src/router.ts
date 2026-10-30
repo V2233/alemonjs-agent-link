@@ -36,7 +36,8 @@ commandGroup.use(
   () => import('@src/response/agent-proactive/res')
 );
 
-for (const path of ['广告列表', '广告详情']) commandGroup.use({ path, description: '私聊广告查阅' }, () => import('@src/response/agent-ads/res'));
+commandGroup.use({ path: '赞助列表', description: '查看赞助列表' }, () => import('@src/response/agent-sponsors/res'));
+for (const path of ['广告列表', '广告详情']) commandGroup.use({ path, description: '广告列表查阅' }, () => import('@src/response/agent-ads/res'));
 
 for (const path of ['智能程度', '我的权限'])
   commandGroup.use({ path, description: '查看权益与设置当前会话智能程度' }, () => import('@src/response/agent-intelligence/res'));

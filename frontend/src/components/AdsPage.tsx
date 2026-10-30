@@ -35,11 +35,11 @@ export default function AdsPage() {
   }, []);
   return (
     <Layout.Content className='workspace-content'>
-      <Typography.Title level={2}>私聊广告</Typography.Title>
+      <Typography.Title level={2}>广告列表</Typography.Title>
       <Alert
         showIcon
         title='默认关闭。关闭后广告指令静默，额度页不显示广告入口。'
-        description='每个平台用户每条广告仅奖励一次，详情发送成功后计入私聊充值余额；不验证外部链接阅读。修改广告ID会被视作新广告，请勿为重复发奖更换ID。'
+        description='群聊和私聊均可查阅，每个平台用户每条广告仅奖励一次，详情发送成功后计入本人私聊充值余额；不验证外部链接阅读。修改广告ID会被视作新广告，请勿为重复发奖更换ID。'
       />
       <Form
         form={form}

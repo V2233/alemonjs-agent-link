@@ -26,11 +26,11 @@ export default async (): Promise<void> => {
   try {
     const value = route.rawArgs.map(String).join(' ').trim();
 
-    if (value && value !== '状态') await saveIntelligenceLevel(config, identity, value);
+    if (route.key !== '我的权限' && value && value !== '状态') await saveIntelligenceLevel(config, identity, value);
     const access = await resolveIntelligenceAccess(identity, config);
     const level = readIntelligenceLevel(config, identity, access.entitled) || access.defaultLevel;
 
-    text = `身份：${identity.owner ? '机器人主人' : identity.admin ? '群管理员' : access.bound && identity.private ? '密钥主人' : '普通用户'}\n当前智能程度：${level} · ${identity.private ? '本人私聊' : '本群'}\n${access.bound ? '费用使用当前会话授权 Key。' : '使用默认服务额度。'}\n智能程度调节多步工具执行预算，仍受服务上限约束。\n绑定自己的 Key，解锁专属能力；群设置由管理员管理，授权可随时撤销。`;
+    text = `身份：${identity.owner ? '机器人主人' : identity.admin ? '群管理员' : access.bound && identity.private ? '密钥主人' : '普通用户'}\n当前智能程度：${level} · ${identity.private ? '本人私聊' : '本群'}\n${access.bound ? '费用使用当前会话授权 Key。' : '使用默认服务额度。'}\n智能程度调节多步工具执行预算，仍受服务上限约束。\n机器人主人：全局管理，私聊可用终端。\n密钥主人：管理自己的 Key、授权及私聊人设。\n群管理员：管理本群；本群启用 Key 权益后可调智能程度和人设。\n普通用户：使用默认服务；私聊绑定 Key 可解锁专属设置。`;
     await message.send({
       format: commandBubble(text, '智能程度与权益', {
         platform: event.Platform,

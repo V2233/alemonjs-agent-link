@@ -1,3 +1,4 @@
+import { readSponsorsSettings, saveSponsorsSettings } from './panel/sponsors-settings';
 import { readTokenUsage, rememberTokenKey, tokenKeyId } from './billing/token-usage';
 import { dirname } from 'node:path';
 import { readImageSettings, saveImageSettings, migrateImageSettings, previewImage } from './panel/image-service';
@@ -386,4 +387,8 @@ apiRouter.post('/settings', async ctx => {
 
   success(ctx, result.data, result.message);
 });
+
+apiRouter.get('/sponsors', async ctx => success(ctx, await readSponsorsSettings()));
+apiRouter.post('/sponsors', async ctx => success(ctx, await saveSponsorsSettings(ctx.request.body)));
+
 export default apiRouter;

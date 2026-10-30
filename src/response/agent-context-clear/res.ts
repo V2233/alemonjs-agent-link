@@ -3,7 +3,7 @@ import { getDSHConfig } from '@src/dsh/client';
 import { useEvent, useMessage } from 'alemonjs';
 import { noticeBubble } from '../bubble';
 import { clearRecentMessages } from '@src/chat-context/store';
-import { canReset } from '@src/response/dsh/util';
+import { canManageConversation } from '@src/response/dsh/util';
 
 export default async (): Promise<void> => {
   const [eventContext] = useEvent({ selects: ['message.create', 'private.message.create'] });
@@ -21,7 +21,7 @@ export default async (): Promise<void> => {
     return;
   }
 
-  if (!canReset(event)) {
+  if (!(await canManageConversation(event))) {
     await message.send({
       format: noticeBubble('仅主人或群管理员可清除聊天参考。', {
         platform: event.Platform,

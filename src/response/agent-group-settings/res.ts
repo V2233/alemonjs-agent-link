@@ -1,3 +1,4 @@
+import { resolveIntelligenceAccess } from '../../agent/intelligence';
 import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '@src/dsh/client';
@@ -249,6 +250,10 @@ export default async (): Promise<void> => {
     }
 
     if (action === '人设' || action === '人设补充') {
+      const personaAccess = await resolveIntelligenceAccess(
+        { platform, channelId, userId: event.UserId || '', owner: Boolean(event.IsMaster), private: false, admin: canEdit },
+        config
+      );
       const operation = args[1] || '';
       const persona = getPersonaStore(config);
       const scope = { platform, channelId };
@@ -259,10 +264,7 @@ export default async (): Promise<void> => {
           current
             ? `本群人设补充（${Array.from(current).length} 字）：\n${current}\n\n重新发送会整体替换：/群设置 人设 新内容\n清空：/群设置 人设 清空`
             : '本群还没有人设补充。\n直接发一句就会保存，例如：/群设置 人设 群里说话随意点，可以叫我阿鱼。\n重新发送会整体替换。',
-          [
-            { label: '清空人设', command: '/群设置 人设 清空' },
-            { label: '返回设置', command: '/群设置 查看' }
-          ]
+          [...(personaAccess.canEdit ? [{ label: '清空人设', command: '/群设置 人设 清空' }] : []), { label: '返回设置', command: '/群设置 查看' }]
         );
 
         return;
@@ -282,6 +284,11 @@ export default async (): Promise<void> => {
         return;
       }
       if (!(await requireEdit())) return;
+      if (!personaAccess.canEdit) {
+        await reply('本群需启用 Key 权益后，由群管理员编辑人设；机器人主人可直接编辑。查看 /我的权限 了解当前权益。');
+
+        return;
+      }
       if (operation === '清空' || operation === '删除' || operation === '移除') {
         persona.clearScopeAdditions(scope);
         await reply('已清空本群人设补充。');

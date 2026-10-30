@@ -1,3 +1,4 @@
+import { canManageConversation } from '../dsh/util';
 import { conversationQueueScope } from '../../dsh/conversation-scope';
 import { commandBubble } from '../bubble';
 import { useEvent, useMessage } from 'alemonjs';
@@ -44,7 +45,10 @@ export default async (): Promise<void> => {
     await message.send({
       format: commandBubble(preview ? `近期聊天参考\n${preview}` : '暂无近期聊天参考。', '近期聊天参考', {
         platform: event.Platform,
-        actions: [{ label: '刷新参考', command: '/聊天参考' }, ...(event.IsMaster || event.IsAdmin ? [{ label: '清除参考', command: '/聊天参考 清除' }] : [])]
+        actions: [
+          { label: '刷新参考', command: '/聊天参考' },
+          ...((await canManageConversation(event)) ? [{ label: '清除参考', command: '/聊天参考 清除' }] : [])
+        ]
       })
     });
   } catch {

@@ -21,7 +21,8 @@ export default function AdminLayout() {
     '/voices': '音色库',
     '/images': '生图库',
     '/stickers': '表情管理',
-    '/ads': '私聊广告',
+    '/ads': '广告列表',
+    '/sponsors': '赞助列表',
     '/settings': '设置',
     '/work-model': '工作模型'
   };
@@ -43,7 +44,8 @@ export default function AdminLayout() {
         { key: '/work-model', label: '工作模型' },
         { key: '/token-usage', label: 'Token 用量' },
         { key: '/rotation', label: '额度轮转' },
-        { key: '/ads', label: '私聊广告' }
+        { key: '/ads', label: '广告列表' },
+        { key: '/sponsors', label: '赞助列表' }
       ]}
       onClick={({ key }) => {
         navigate(key);

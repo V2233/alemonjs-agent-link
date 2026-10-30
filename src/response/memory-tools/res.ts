@@ -1,7 +1,7 @@
 import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
-import { canPrivateChatWithKey, canReset, getConversationId } from '../dsh/util';
+import { canPrivateChatWithKey, canManageConversation, getConversationId } from '../dsh/util';
 import { getMemoryStore } from '../../memory/store';
 import { MemoryConsolidator } from '../../memory/consolidation';
 import { forgetMemory, synchronizeExplicitMemory } from '../../memory/management';
@@ -63,9 +63,10 @@ export default async (): Promise<void> => {
     }
     const command = event.MessageText.trim().split(/\s+/u)[0];
     const args = route.rawArgs.join(' ').trim();
+    const canManage = event.IsPrivate || (await canManageConversation(event));
     const writing = ['/恢复记忆', '/整理记忆', '/忘记群记忆'].includes(command);
 
-    if (writing && !event.IsPrivate && !canReset(event)) {
+    if (writing && !event.IsPrivate && !canManage) {
       await reply('群记忆整理和修改需要管理员或机器人主人。');
 
       return;
@@ -93,9 +94,9 @@ export default async (): Promise<void> => {
       const sections = items.map(item => {
         const actions = [{ label: '来源', command: `/记忆来源 ${item.id}` }];
 
-        if (command === '/过时记忆') actions.push({ label: '恢复', command: `/恢复记忆 ${item.id}` });
+        if (command === '/过时记忆' && canManage) actions.push({ label: '恢复', command: `/恢复记忆 ${item.id}` });
         else if (event.IsPrivate) actions.push({ label: '忘记', command: `/忘记 ${item.id}` });
-        else if (canReset(event)) actions.push({ label: '忘记', command: `/忘记群记忆 ${item.id}` });
+        else if (canManage) actions.push({ label: '忘记', command: `/忘记群记忆 ${item.id}` });
 
         return {
           title: `[${item.subjectName || item.subjectId}] ${item.origin === 'explicit' ? '明确保存' : '自动整理'}`,

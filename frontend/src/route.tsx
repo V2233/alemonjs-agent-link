@@ -1,3 +1,4 @@
+import SponsorsPage from './components/SponsorsPage';
 import TokenUsagePage from './components/TokenUsagePage';
 import ImagesPage from './components/ImagesPage';
 import StickersPage from './components/StickersPage';
@@ -20,6 +21,7 @@ export default createHashRouter([
     children: [
       { path: '/settings', element: <SettingsPage /> },
       { path: '/ads', element: <AdsPage /> },
+      { path: '/sponsors', element: <SponsorsPage /> },
       { path: '/hobbies', element: <HobbiesPage /> },
       { path: '/stickers', element: <StickersPage /> },
       { path: '/images', element: <ImagesPage /> },

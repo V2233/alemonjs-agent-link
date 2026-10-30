@@ -2,7 +2,7 @@ import { commandExpression } from '../../companion/command-expression';
 import { logger, useEvent, useMessage } from 'alemonjs';
 import { noticeBubble } from '../bubble';
 import { getDSHConfig, toUserMessage } from '@src/dsh/client';
-import { canReset, getSessionId, getConversationId, canPrivateChatWithKey } from '@src/response/dsh/util';
+import { canManageConversation, getSessionId, getConversationId, canPrivateChatWithKey } from '@src/response/dsh/util';
 import { resetGroupSession } from '@src/dsh/orchestrator';
 
 export default async (): Promise<void> => {
@@ -27,7 +27,7 @@ export default async (): Promise<void> => {
     return;
   }
 
-  if (!event.IsPrivate && !canReset(event)) {
+  if (!event.IsPrivate && !(await canManageConversation(event))) {
     await reply('在群里开始新会话，需要管理员或机器人主人来操作。');
 
     return;

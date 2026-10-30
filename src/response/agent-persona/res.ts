@@ -1,9 +1,11 @@
+import { resolveIntelligenceAccess } from '../../agent/intelligence';
+import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
 import { commandBubble, sectionBubble } from '../bubble';
 import { useEvent, useMessage, useRoute } from 'alemonjs';
 import { getDSHConfig } from '../../dsh/client';
 import { personaModes, type PersonaMode } from '../../companion/persona-modes';
 import { getPersonaStore, validPersonaId } from '../../companion/personas';
-import { canPrivateChatWithKey, canReset, getConversationId } from '../dsh/util';
+import { canPrivateChatWithKey, getConversationId } from '../dsh/util';
 import { assertMessageDelivered } from '../../dsh/output';
 import { resetGroupSession } from '../../dsh/orchestrator';
 
@@ -55,6 +57,17 @@ export default async (): Promise<void> => {
     const store = getPersonaStore(config);
     const scope = { platform: event.Platform, channelId };
     const args = route.rawArgs.join(' ').trim();
+    const access = await resolveIntelligenceAccess(
+      {
+        platform: event.Platform,
+        channelId,
+        userId: event.UserId || '',
+        owner: Boolean(event.IsMaster),
+        private: Boolean(event.IsPrivate),
+        admin: !event.IsPrivate && (await verifyGroupKeyAdmin(event))
+      },
+      config
+    );
 
     if (/^(?:程度|全局程度)(?:\s|$)/u.test(args)) {
       const [action, value, ...rest] = args.split(/\s+/u);
@@ -89,7 +102,7 @@ export default async (): Promise<void> => {
       await reply(
         event.IsPrivate && event.IsMaster
           ? '人设管理\n/人格 程度 活跃|个性|工作|专业；/人格 全局程度 工作\n/人格 追加 编号 内容；/人格 查看追加 编号；/人格 清空追加 编号\n/人格 查看 编号；/人格 保存 编号 名称|提示词；/人格 删除 编号'
-          : '用法：/人格 使用 编号或默认。群内切换需管理员或主人，会开始新话题。'
+          : '用法：/人格 使用 编号或默认。切换需主人或 Key 权益；群内还需管理员身份，会开始新话题。细致编辑用 /人设。'
       );
 
       return;
@@ -98,7 +111,7 @@ export default async (): Promise<void> => {
       const selected = store.selected(scope) || config.modules?.settings?.persona?.defaultId || config.persona || '配置默认';
       const rows = await store.list();
 
-      const canSwitch = event.IsPrivate || canReset(event);
+      const canSwitch = access.canEdit;
       const visible = rows.slice(0, 12);
       const sections = visible.map(row => ({
         title: `${row.name}（${row.id}）${row.id === selected ? ' · 当前' : ''}`,
@@ -127,8 +140,8 @@ export default async (): Promise<void> => {
     const [, action, id, body] = match;
 
     if (action === '使用') {
-      if (body || (!event.IsPrivate && !canReset(event))) {
-        await reply('群内切换人格需要管理员或机器人主人，且只能指定一个编号。');
+      if (body || !access.canEdit) {
+        await reply('切换需要机器人主人、已绑定 Key 的私聊用户，或本群已启用 Key 权益的群管理员；只能指定一个编号。');
 
         return;
       }

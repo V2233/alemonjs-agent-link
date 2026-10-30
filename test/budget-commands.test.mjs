@@ -46,3 +46,15 @@ test('invalid amounts/extra arguments never reach a Redis mutation', () => {
   }
   assert.equal(parseBudgetCommand(['设置', '10000'], owner).amount, 10000000000);
 });
+
+test('help and explicit current query are public without opening cross-scope access', () => {
+  const member = { ...owner, IsMaster: false };
+  assert.equal(parseBudgetCommand(['帮助'], member).action, 'help');
+  assert.deepEqual(parseBudgetCommand(['查询'], member), parseBudgetCommand([], member));
+  for (const args of [
+    ['帮助', '群', 'g2'],
+    ['查询', '私聊', 'u2'],
+    ['充值', '1']
+  ])
+    assert.throws(() => parseBudgetCommand(args, member), /主人/);
+});

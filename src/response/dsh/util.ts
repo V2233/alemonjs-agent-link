@@ -1,3 +1,4 @@
+import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
 import { sessionBaseId } from '../../dsh/conversation-scope';
 import { groupAdminStatus, type MemberRoleEvent } from '../../platform/member-role';
 
@@ -21,6 +22,9 @@ export const extractPrompt = (messageText: string, bot: BotMention): string => {
 };
 
 export const canReset = (event: { IsMaster: boolean } & MemberRoleEvent): boolean => event.IsMaster || groupAdminStatus(event) === true;
+
+export const canManageConversation = async (event: Parameters<typeof verifyGroupKeyAdmin>[0] & { IsMaster?: boolean }): Promise<boolean> =>
+  Boolean(event.IsMaster) || (await verifyGroupKeyAdmin(event));
 
 export type ConversationEvent = { IsPrivate?: boolean; IsMaster?: boolean; Platform?: string; UserId?: string; UserKey?: string; ChannelId?: string };
 

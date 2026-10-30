@@ -1,3 +1,4 @@
+import { getSponsors } from '../../sponsors/config';
 import { verifyGroupKeyAdmin } from '../../credentials/group-admin';
 import { muteBudgetNoticesToday } from '../../billing/budget';
 import { getAds } from '../../ads/config';
@@ -159,6 +160,7 @@ export default async (): Promise<void> => {
       text = toUserMessage(error);
     }
   }
-  if (event.IsPrivate && budgetEnabled(config) && getAds().enabled) actions.push({ label: '查阅广告获得额度', command: '/广告列表' });
+  if (getSponsors().enabled) actions.push({ label: '赞助列表', command: '/赞助列表' });
+  if (budgetEnabled(config) && getAds().enabled) actions.push({ label: '广告列表', command: '/广告列表' });
   await message.send({ format: commandBubble(text, '今日额度', { platform: event.Platform, layout: 'auto', actions }) });
 };
