@@ -369,7 +369,19 @@ export class MemoryStore {
       else entry.score = Math.max(entry.score, score);
     }
 
-    return [...groups.values()]
+    const candidates = [...groups.values()];
+    const topical = candidates.filter(entry => entry.score > 0);
+    // An unrelated question should not receive a collection of old events.
+    // Keep one fresh fallback for ellipsis; a direct topic match can still recall
+    // an older cancelled item through its previous versions.
+    const selected = topical.length
+      ? topical
+      : candidates
+          .filter(entry => entry.item.updatedAt >= this.now() - 86400000)
+          .sort((a, b) => b.item.updatedAt - a.item.updatedAt)
+          .slice(0, 1);
+
+    return selected
       .sort((a, b) => b.score - a.score || b.item.updatedAt - a.item.updatedAt)
       .slice(0, Math.max(1, Math.min(20, limit)))
       .map(({ item, score }) => ({

@@ -1,3 +1,6 @@
+import { getChatArchive, historyEnabled } from '../../history/store';
+import type { ReplyState } from '../../history/reply-ledger';
+import { getInteractionStore } from '../../companion/interaction';
 import { automaticVoiceAvailable, emotionalVoiceReply, explicitVoiceRequest, recordVoiceTurn, voiceConversationKey } from '../../companion/voice-policy';
 import { getEventStore } from '../../events/store';
 import { getPersonaStore } from '../../companion/personas';
@@ -105,6 +108,16 @@ export const runDSHChat = async (
   const checkSend = async (): Promise<void> => {
     options.autonomous?.signal.throwIfAborted();
     turnSignal?.throwIfAborted();
+    if (options.autonomous && event.Platform && event.UserId && !config.modules?.disabled?.includes('interaction')) {
+      const state = getInteractionStore(config).decision({
+        platform: event.Platform,
+        botId: event.BotId,
+        channelId: getConversationId(event),
+        userId: event.UserId
+      });
+
+      if (state.reason === 'resting') throw new DSHError('cancelled', '用户已准备休息');
+    }
     if (options.autonomous && !(await options.autonomous.beforeSend(answer))) {
       throw new DSHError('cancelled', '主动消息已取消');
     }
@@ -136,7 +149,13 @@ export const runDSHChat = async (
 
     assertMessageDelivered(result);
     for (const receipt of result) {
-      archiveReply(config, event, text, receipt.data, firstAgentReply ? replyTarget.messageId : undefined);
+      archiveReply(
+        config,
+        { ...event, MessageId: replyTarget.messageId || event.MessageId },
+        text,
+        receipt.data,
+        firstAgentReply ? replyTarget.messageId : undefined
+      );
       if (!turnSignal?.aborted) {
         await messageReferences.rememberReply(event, receipt.data, text).catch(() => logger.warn('Message reference indexing failed'));
       }
@@ -449,8 +468,18 @@ export const runDSHChat = async (
   let renderedAnswer: string | undefined;
   const media = options.transport?.media || useMedia()[0];
   let silent = false;
+  let processingRecorded = false;
+  const recordResponseState = (state: ReplyState, id = event.MessageId): void => {
+    if (options.autonomous || !event.Platform || !id || !historyEnabled(config)) return;
+    try {
+      getChatArchive(config).recordReplyState({ platform: event.Platform, channelId, botId: event.BotId || '' }, id, state);
+    } catch {
+      logger.warn('Reply ledger update failed');
+    }
+  };
 
   try {
+    recordResponseState('queued');
     coordinated = await runCoordinatedChat(
       { ...event, ChannelId: channelId, MessageId: options.requestId || event.MessageId },
       buildAgentMessage(
@@ -477,6 +506,10 @@ ${agentPrompt}`
           }
         }
         if (streamEvent.type === 'content') {
+          if (!processingRecorded) {
+            recordResponseState('processing');
+            processingRecorded = true;
+          }
           const content = prefixFilter ? prefixFilter.push(streamEvent.content) : streamEvent.content;
 
           if (visibleAnswer.length < 6000) {
@@ -715,6 +748,16 @@ ${agentPrompt}`
         }
         if (!options.autonomous) {
           observeProactiveOutput(config, event, renderedAnswer || normalizeBubbleText(answer) || visibleAnswer);
+          if (event.Platform && event.UserId && !config.modules?.disabled?.includes('interaction')) {
+            try {
+              getInteractionStore(config).delivered(
+                { platform: event.Platform, botId: event.BotId, channelId, userId: event.UserId },
+                renderedAnswer || normalizeBubbleText(answer) || visibleAnswer
+              );
+            } catch {
+              logger.warn('Interaction delivery state could not be saved');
+            }
+          }
         }
         if (stickerMode === 'both' && expression.sticker && !config.modules?.disabled?.includes('stickers') && !stickerAttempted && !stickerDelivered) {
           try {
@@ -873,6 +916,7 @@ ${agentPrompt}`
         logger.warn({ err: error }, 'Unable to record festival response');
       }
     }
+    recordResponseState(!silent || stickerOnlySent ? 'delivered' : 'silent', replyTarget.messageId || event.MessageId);
     options.onOutcome?.({
       delivered: !silent || stickerOnlySent,
       completed: true,
@@ -880,6 +924,7 @@ ${agentPrompt}`
       ...(!silent ? { replyText: renderedAnswer || normalizeBubbleText(answer) || visibleAnswer } : {})
     });
   } catch (error) {
+    recordResponseState(error instanceof DSHError && error.kind === 'cancelled' ? 'cancelled' : 'failed', replyTarget.messageId || event.MessageId);
     output.abort();
     await coordinated?.release().catch(releaseError => logger.warn({ err: releaseError }, 'Unable to release failed DSH response'));
     if (error instanceof DSHError && error.kind === 'cancelled') {

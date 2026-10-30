@@ -11,7 +11,7 @@ const key = (scope: AffinityScope) => {
   return hash(JSON.stringify([scope.platform, scope.channelId, scope.userId, scope.personaId]));
 };
 
-export const affinityLabel = (score: number): string => (score >= 90 ? '恋情未满' : score >= 80 ? '闺蜜' : score >= 60 ? '朋友' : '相识');
+export const affinityLabel = (score: number): string => (score >= 90 ? '挚友' : score >= 80 ? '亲近朋友' : score >= 60 ? '朋友' : '相识');
 export class AffinityStore {
   private db: DatabaseSync;
   constructor(
@@ -42,7 +42,11 @@ export class AffinityStore {
     try {
       const seen = this.db.prepare('INSERT OR IGNORE INTO affinity_seen VALUES(?,?,?)').run(id, hash(inputId), now);
 
-      if (seen.changes) {
+      const evidence = seen.changes
+        ? this.db.prepare('INSERT OR IGNORE INTO affinity_seen VALUES(?,?,?)').run(id, hash('evidence:' + text.trim().toLowerCase()), now)
+        : undefined;
+
+      if (seen.changes && evidence?.changes) {
         const row = this.db.prepare('SELECT * FROM affinity WHERE scope=?').get(id);
         const gained = row?.day === day ? Number(row.gained) : 0;
         const eligible = gained + Math.abs(delta) <= 3 && (!row || now - Number(row.last_gain) >= 600000);

@@ -1,4 +1,4 @@
-import { dictionaryDefaults, dictionaryDefaultsVersion } from './defaults';
+import { dictionarySeedBatches } from './defaults';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -16,13 +16,14 @@ export class DictionaryStore {
     this.db.exec('CREATE TABLE IF NOT EXISTS dictionary_migrations (version TEXT PRIMARY KEY)');
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      if (!this.db.prepare('SELECT version FROM dictionary_migrations WHERE version=?').get(dictionaryDefaultsVersion)) {
-        for (const entry of dictionaryDefaults) {
+      for (const batch of dictionarySeedBatches) {
+        if (this.db.prepare('SELECT version FROM dictionary_migrations WHERE version=?').get(batch.version)) continue;
+        for (const entry of batch.entries) {
           const word: Word = { ...entry, id: randomUUID(), enabled: true, updatedAt: Date.now() };
 
           this.db.prepare('INSERT OR IGNORE INTO words VALUES (?,?,?)').run(word.id, word.term.toLowerCase(), JSON.stringify(word));
         }
-        this.db.prepare('INSERT INTO dictionary_migrations VALUES (?)').run(dictionaryDefaultsVersion);
+        this.db.prepare('INSERT INTO dictionary_migrations VALUES (?)').run(batch.version);
       }
       this.db.exec('COMMIT');
     } catch (error) {

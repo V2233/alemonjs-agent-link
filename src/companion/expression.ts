@@ -16,7 +16,7 @@ export const expressionOptions = (config: DSHBridgeConfig) => {
   const options = {
     automatic: raw.automatic ?? true,
     voiceChance: raw.voiceChance ?? 0.15,
-    stickerChance: raw.stickerChance ?? 0.35,
+    stickerChance: raw.stickerChance ?? 0.6,
     // 未识别明确意图的普通补图场景，没有匹配时是否随机挑一张（默认不发）。
     stickerFallback: raw.stickerFallback ?? false,
     // 识别到“在不在/晚安”等明确意图时，绕过概率抽样尝试一次匹配表情。
@@ -97,11 +97,11 @@ const INTENTS: { pattern: RegExp; intent: StickerIntent; social?: boolean }[] = 
     intent: { names: ['晚安', '睡了'], categories: ['晚安'], tags: ['晚安', '困'], context: ['睡前', '困倦', '晚安'] }
   },
   {
-    pattern: /哈哈|笑死|好笑|开心|好耶|太好/u,
+    pattern: /哈哈|嘿嘿|嘻嘻|笑喷|笑麻|乐死|芜湖|笑死|好笑|开心|好耶|太好/u,
     intent: {
       names: ['好耶', '开心', '笑死', '哈哈'],
       categories: ['开心'],
-      tags: ['开心', '笑', '哈哈', '哈哈哈', '大笑', '爆笑', '笑死', '搞笑', '高兴', '快乐'],
+      tags: ['开心', '笑', '哈哈', '哈哈哈', '大笑', '爆笑', '笑死', '搞笑', '高兴', '快乐', '嘿嘿', '嘻嘻', '笑喷', '笑麻', '芜湖'],
       context: ['庆祝', '好消息', '开心']
     }
   },
@@ -155,7 +155,7 @@ export const selectIntentSticker = (items: Sticker[], userText: string): Sticker
   return items.find(item => matchesStickerIntent(item, intent));
 };
 const INTENT_WORDS =
-  /在不在|在吗|在么|在嘛|有人吗|早安|早上好|晚安|睡了|困了|睡觉|好梦|哈哈|笑死|好笑|开心|好耶|太好|生气|好烦|讨厌|不满|气死|委屈|难过|想哭|伤心|哭死|害羞|不好意思|脸红|得意|厉害|牛啊|太强|崇拜|调皮|略略略|逗你|哼哼/gu;
+  /在不在|在吗|在么|在嘛|有人吗|早安|早上好|晚安|睡了|困了|睡觉|好梦|哈哈|嘿嘿|嘻嘻|笑喷|笑麻|乐死|芜湖|笑死|好笑|开心|好耶|太好|生气|好烦|讨厌|不满|气死|委屈|难过|想哭|伤心|哭死|害羞|不好意思|脸红|得意|厉害|牛啊|太强|崇拜|调皮|略略略|逗你|哼哼/gu;
 
 /**
  * A sticker can replace a greeting/acknowledgement, but not extra information.
@@ -163,14 +163,17 @@ const INTENT_WORDS =
  */
 export const needsTextSupplement = (userText: string, answer: string): boolean => {
   const residual = userText
-    .replace(/^(?:大肥鱼|小肥鱼|肥鱼|小鲸鱼)[，,：:\s]*/u, '')
+    .replace(/^(?:大肥鱼|大肥鱼|肥鱼|小鲸鱼)[，,：:\s]*/u, '')
     .replace(INTENT_WORDS, '')
     .replace(/[\s，,。.!！?？~～呀啊嘛哦嗯哈]/gu, '');
   const simpleEmotion = hasStickerIntent(userText) && /^(?:我|今天|有点|真的|好|很|太|了|死|啦|呢)*$/u.test(residual);
   const substantive = /https?:\/\/|```|\n[-*]|\d|[%¥$]|因为|所以|但是|需要|建议|步骤|报错|错误|地址|链接|价格|时间|版本/u.test(answer);
   // Only suppress a reply that the sticker itself can convey; short facts still need text.
   const extraReply = answer
-    .replace(/在(?:的|呢|听)?|早(?:安|上好)?|晚安|好梦|哈哈+|笑死|好耶|开心|抱(?:抱|一下)|摸摸|拍拍|哼哼?|恭喜|给你|给我|你|我/gu, '')
+    .replace(
+      /在(?:的|呢|听)?|早(?:安|上好)?|晚安|好梦|哈哈+|嘿嘿|嘻嘻|笑喷|笑麻|乐死|芜湖|笑死|好耶|开心|抱(?:抱|一下)|摸摸|拍拍|哼哼?|恭喜|给你|给我|你|我/gu,
+      ''
+    )
     .replace(/[\s，,。.!！?？~～呀啊嘛哦嗯哈啦呢]/gu, '');
 
   return !simpleEmotion || Array.from(answer).length > 24 || substantive || extraReply.length > 0;

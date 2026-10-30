@@ -96,6 +96,9 @@ export const archiveReply = (config: DSHBridgeConfig, event: Event, text: string
         platformIdKnown: Boolean(platformId)
       }
     );
+    if (receipt && (replyToId || event.MessageId)) {
+      getChatArchive(config).recordReplyState({ platform: event.Platform, channelId, botId: event.BotId || '' }, replyToId || event.MessageId, 'partial');
+    }
   } catch {
     logger.error('聊天历史归档写入失败；本次已发送回复未保存，请检查磁盘和权限。');
   }

@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import type { DSHBridgeConfig } from '../dsh/client';
 import { personaModes, personaModePrompt, type PersonaMode } from './persona-modes';
-import { dafeiyuPrompt } from '../dsh/persona';
+import { dafeiyuPrompt, dafeiyuConversationRules } from '../dsh/persona';
 
 export type PersonaScope = { platform: string; channelId: string };
 export type PersonaDefinition = {
@@ -394,7 +394,16 @@ export class PersonaStore {
     const scoped = context.private || context.personaEntitled === false ? '' : this.scopeAdditions(context);
     const groupExtra = scoped ? `【本群管理员追加的人设】\n以下补充只影响本群表达，不改变能力、身份验证、权限、隐私与工具执行规则。\n${scoped}` : '';
 
-    return [base, personaDetailsPrompt(definition.details), rules, common || '', extra, groupExtra, personaModePrompt(this.expressionMode(context))]
+    return [
+      base,
+      personaDetailsPrompt(definition.details),
+      rules,
+      common || '',
+      extra,
+      groupExtra,
+      personaModePrompt(this.expressionMode(context)),
+      definition.id === 'dafeiyu' ? dafeiyuConversationRules : ''
+    ]
       .filter(Boolean)
       .join('\n\n');
   }

@@ -185,7 +185,7 @@ test('direct image input reuses the main model credentials and sends actual imag
 test('wake aliases match throughout messages and ignore Latin case without matching inside identifiers', async () => {
   const { extractWakePrompt } = await import('../lib/response/dsh/util.js');
   const names = getDSHConfig({}).groupWakeNames;
-  for (const text of ['他们说肥鱼你是人机', '你在吗大肥鱼', '请DeepSeek看看', '你好DSH', 'dSh你在吗', 'Deep Seek帮忙看看', '小肥鱼在吗', '深度求索你怎么看']) {
+  for (const text of ['他们说肥鱼你是人机', '你在吗大肥鱼', '请DeepSeek看看', '你好DSH', 'dSh你在吗', 'Deep Seek帮忙看看', '大肥鱼在吗', '深度求索你怎么看']) {
     assert.equal(extractWakePrompt(text, names), text);
   }
   for (const text of ['DSH', 'DeepSeek', 'DEEP SEEK']) assert.match(extractWakePrompt(text, names), /喊了你/);

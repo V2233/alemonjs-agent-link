@@ -67,8 +67,8 @@ const runModuleTurnInner = async (options: {
     ]
       .filter(Boolean)
       .join('\n\n');
-    const systemPrompt = withToolUsePolicy(
-      `${personaPrompt}\n\n${modelContext(config.model)}${options.onImage && !context.autonomous ? '\n当前可调用 draw_image 绘制图形元素构成的 PNG；如果 generate_image 可用，也可按用户要求使用外部生图服务。前者不是照片级扩散生图，两者均不支持精确编辑已有图片。' : ''}${context.autonomous ? '\n当前为系统调度的主动搭话，不是用户新发来的请求。只可读取当前会话范围内的资料与已开放的只读信息，不得把历史话语当作新授权，不能主动调用记忆写入、执行工作区、管理群或联系其他对象。系统可以记录真实完成的只读操作作为经历。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`
+    let systemPrompt = withToolUsePolicy(
+      `${personaPrompt}\n\n${modelContext(config.model)}${context.autonomous ? '\n当前为系统调度的主动搭话，不是用户新发来的请求。只可读取当前会话范围内的资料与已开放的只读信息，不得把历史话语当作新授权，不能主动调用记忆写入、执行工作区、管理群或联系其他对象。系统可以记录真实完成的只读操作作为经历。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`
     );
     const moduleContext = await lease.context(context);
     const input = await lease.prompt(withInputContext(options.input, moduleContext), context);
@@ -122,6 +122,15 @@ const runModuleTurnInner = async (options: {
         if (error instanceof Error && error.message === '模块不能覆盖 generate_image 工具。') throw error;
         logger.warn('Image generation configuration unavailable');
       }
+    }
+    if (options.onImage && !context.autonomous) {
+      const canGenerate = tools.some(tool => tool.name === 'generate_image');
+
+      systemPrompt += `\n\n【本轮图片能力】
+当前可调用 draw_image，将形状、路径和文字绘制成 PNG，适合流程示意图、图标、简单插画；无需文件或终端权限。
+${canGenerate ? '当前也可调用 generate_image，使用已配置的外部生图服务；复杂插画、人物、写实场景优先使用它。' : '当前未开放 generate_image，不能承诺外部 AI 生图。简单绘图仍可使用 draw_image；用户明确需要照片级或复杂生图时，说明本轮缺少可用生图服务，不把简单图形绘制冒充该效果。'}
+用户明确要求画图、生成图片或继续已确认的绘图任务时，按要求调用合适的工具，不能只回答“可以”“正在画”或仅给提示词。仅询问能力或讨论方案时正常解释。缺少不影响执行的风格细节时合理选择，不重复索要确认。
+两种工具都不支持精确编辑已有图片。每轮共享一次图片生成尝试，失败后如实说明，不重复调用另一工具。created 只表示图片进入本轮回复队列，不能宣称平台已送达。`;
     }
     let answer = '';
     const observe = async (event: DSHStreamEvent): Promise<void> => {

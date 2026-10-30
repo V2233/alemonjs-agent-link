@@ -1,3 +1,4 @@
+import { ReplyLedger, type ReplyState } from './reply-ledger';
 import { conversationDataKey, conversationDataNamespace } from '../dsh/conversation-scope';
 import { rankMemories } from '../memory/retrieval';
 import { GroupInbox } from './inbox';
@@ -73,6 +74,7 @@ export class ChatArchive {
   private lastCleanup = 0;
   private readonly insertMessage: StatementSync;
   private readonly inbox: GroupInbox;
+  private readonly replies: ReplyLedger;
   constructor(
     path: string,
     private readonly days = 30,
@@ -113,6 +115,7 @@ export class ChatArchive {
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`
     );
     this.inbox = new GroupInbox(this.db);
+    this.replies = new ReplyLedger(this.db);
     this.db.exec(`CREATE TABLE IF NOT EXISTS history_scopes(scope TEXT PRIMARY KEY,group_hash TEXT NOT NULL,data_namespace TEXT);
       CREATE INDEX IF NOT EXISTS history_namespace ON history_scopes(data_namespace,group_hash);
       INSERT OR IGNORE INTO history_scopes SELECT scope,group_hash,NULL FROM messages;
@@ -128,6 +131,7 @@ export class ChatArchive {
       .prepare(`DELETE FROM messages WHERE timestamp < ? AND scope IN (SELECT scope FROM history_scopes WHERE ${this.namespaceCondition})`)
       .run(Date.now() - this.days * 86400000, ...this.namespaceArgs);
     this.db.prepare('DELETE FROM group_inbox_receipts WHERE issued_at < ?').run(Date.now() - 15 * 60000);
+    this.replies.cleanup();
     this.lastCleanup = Date.now();
   }
   append(scope: HistoryScope, message: ArchivedMessage): void {
@@ -156,6 +160,16 @@ export class ChatArchive {
       message.sourceMessageId ?? null,
       JSON.stringify({ context: message.context, platformIdKnown: message.platformIdKnown ?? false })
     );
+    this.replies.receive(key, message);
+  }
+  recordReplyState(scope: HistoryScope, id: string, state: ReplyState): void {
+    this.replies.transition(this.scopeId(scope), id, state);
+  }
+  replyState(scope: HistoryScope, id: string) {
+    return this.replies.state(this.scopeId(scope), id);
+  }
+  pendingReplies(scope: HistoryScope, now = Date.now(), excludeId = '') {
+    return this.replies.pending(this.scopeId(scope), now, excludeId);
   }
   recallSources(scope: HistoryScope, subjectId: string, query: string, excludeText = '', after = 0) {
     const now = Date.now();
@@ -291,6 +305,7 @@ export class ChatArchive {
     this.mutateSources(() => {
       this.inbox.invalidate(this.scopeId(scope));
       this.db.prepare('DELETE FROM messages WHERE scope=? AND (message_id=? OR reference_id=?)').run(this.scopeId(scope), id, id);
+      this.replies.cleanup();
     });
   }
   purgeHash(groupHash: string): void {
@@ -301,6 +316,7 @@ export class ChatArchive {
 
       for (const row of scopes) {
         this.inbox.purge('scope', String(row.scope));
+        this.replies.purge(String(row.scope));
         this.db.prepare('DELETE FROM messages WHERE scope=?').run(String(row.scope));
       }
       this.db.prepare(`DELETE FROM history_scopes WHERE group_hash=? AND ${this.namespaceCondition}`).run(groupHash, ...this.namespaceArgs);
@@ -425,6 +441,7 @@ export class ChatArchive {
   purge(scope: HistoryScope): void {
     this.mutateSources(() => {
       this.inbox.purge('scope', this.scopeId(scope));
+      this.replies.purge(this.scopeId(scope));
       this.db.prepare('DELETE FROM messages WHERE scope=?').run(this.scopeId(scope));
     });
   }

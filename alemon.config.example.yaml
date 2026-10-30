@@ -408,7 +408,7 @@ alemonjs-agent-link:
         # 用语音回复的概率（0-1）。
         voiceChance: 0.15 # 符合情绪场景后再抽样；受心情、关系、时段与频次约束
         # 附带表情的概率（0-1）。
-        stickerChance: 0.35
+        stickerChance: 0.6
         # 没有话题相关的表情时，是否随手发一个；false 表示宁可不发。
         stickerFallback: false
         # 发送前随机停顿区间 [最小, 最大]（0-3000 毫秒，前值不得大于后值）。

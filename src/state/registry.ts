@@ -1,3 +1,4 @@
+import { getInteractionStore } from '../companion/interaction';
 import { getGroupTopicStore } from '../group-topics/store';
 import { conversationQueueKey, type ConversationQueueScope } from '../dsh/conversation-scope';
 import { getOpinionStore } from '../opinions/store';
@@ -722,6 +723,7 @@ export class SessionRegistry {
     getMoodStore(this.config).purgeHash(hash);
     getGroupTopicStore(this.config).purgeHash(hash);
     getAffinityStore(this.config).purgeHash(hash);
+    getInteractionStore(this.config).purgeHash(hash);
     getOpinionStore(this.config).purgeHash(hash);
     if (includeArchive) {
       getChatArchive(this.config).purgeHash(hash);

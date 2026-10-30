@@ -1,6 +1,7 @@
+import { dictionaryHistory } from './history';
 /** 2026-10-30 核实；今年使用的词，不等同于今年首创或年度排名。来源见 docs/dictionary-defaults.md。 */
-export const dictionaryDefaultsVersion = '2026-10-30-v1';
-export const dictionaryDefaults: { term: string; aliases: string[]; definition: string }[] = [
+const initialVersion = '2026-10-30-v1';
+const initialDefaults: { term: string; aliases: string[]; definition: string }[] = [
   { term: '爱你老己', aliases: [], definition: '把自己亲切地叫作“老己”，表达好好照顾自己、给自己一点奖励。常用于自我安慰。' },
   { term: '老来得己', aliases: [], definition: '调侃终于开始关注自己的需要，找回自己，而非字面上的晚年生育。' },
   { term: '前额叶友好', aliases: [], definition: '网络上形容省心、易理解、不增加决策负担；不是医学判断。' },
@@ -24,3 +25,13 @@ export const dictionaryDefaults: { term: string; aliases: string[]; definition: 
   { term: '情绪价值', aliases: [], definition: '互动或体验带来的被理解、被支持、开心等感受，不表示必须无条件赞同。' },
   { term: '赛博对账', aliases: [], definition: '网友在网上相互核对经历、生活细节或共同记忆，以发现共鸣或差异。具体场景也可能真在谈账单。' }
 ];
+
+export const dictionaryDefaultsVersion = '2026-10-31-history-v1';
+export const dictionarySeedBatches = [
+  { version: initialVersion, entries: initialDefaults },
+  {
+    version: dictionaryDefaultsVersion,
+    entries: dictionaryHistory.map(({ term, aliases, definition, year }) => ({ term, aliases, definition: `【${year}流行记录，非首创年份】${definition}` }))
+  }
+];
+export const dictionaryDefaults = dictionarySeedBatches.flatMap(batch => batch.entries);

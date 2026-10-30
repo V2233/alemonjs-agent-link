@@ -13,6 +13,9 @@ test('short natural social turns can be completed by a relevant sticker without 
   for (const [input, reply, expected] of [
     ['早安', '早呀', 'morning'],
     ['哈哈哈', '笑死', 'laugh'],
+    ['嘿嘿', '嘻嘻', 'laugh'],
+    ['笑喷了', '哈哈', 'laugh'],
+    ['芜湖', '好耶', 'laugh'],
     ['我好难过', '抱抱', 'hug'],
     ['肥鱼在吗', '在呢', 'here']
   ]) {
@@ -23,11 +26,14 @@ test('short natural social turns can be completed by a relevant sticker without 
 });
 
 test('a matching mood or greeting cannot suppress substantive information or respond to quoted events', () => {
-  for (const input of ['他说“早安”', '不要再说晚安了', '怎么安慰难过的人', '我不难过']) assert.equal(hasStickerIntent(input), false, input);
+  for (const input of ['他说“早安”', '不要再说晚安了', '怎么安慰难过的人', '我不难过', '他说“嘿嘿”', '为什么大家都说芜湖'])
+    assert.equal(hasStickerIntent(input), false, input);
   assert.equal(selectIntentSticker([stickers.at(-1)], '哈哈哈'), undefined);
   assert.equal(needsTextSupplement('肥鱼在吗，帮我看报错', '需要补充日志'), true);
   assert.equal(needsTextSupplement('肥鱼在吗', '服务器已经恢复了'), true);
   assert.equal(needsTextSupplement('哈哈哈', '因为配置错误，需要重启'), true);
+  assert.equal(needsTextSupplement('嘿嘿，帮我查一下天气', '今天下雨'), true);
+  assert.equal(selectIntentSticker(stickers, '嘿嘿但是好难过'), undefined);
   assert.equal(needsTextSupplement('今天配置终于成功了，好耶', '下一步检查连接'), true);
 });
 

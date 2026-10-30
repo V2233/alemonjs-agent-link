@@ -4,7 +4,7 @@ export const requestedMemorySave = (text: string): boolean => {
     .replace(/```[\s\S]*?(?:```|$)/gu, ' ')
     .replace(/“[^”]*(?:”|$)|「[^」]*(?:」|$)|『[^』]*(?:』|$)|‘[^’]*(?:’|$)|"[^"\n]*"|`[^`\n]*`|(?<![\p{L}\p{N}])'[^']*'/gu, ' ')
     .trim()
-    .replace(/^(?:大肥鱼|小肥鱼|肥鱼|deepseek|dsh)[，,：:\s]*/iu, '');
+    .replace(/^(?:大肥鱼|大肥鱼|肥鱼|deepseek|dsh)[，,：:\s]*/iu, '');
 
   if (/^(?:如果|假如|比如|例如|他说|她说|有人说|请解释|解释|怎么|如何|怎样|为什么)/u.test(value)) return false;
   if (/(?:别|不要|不准|无需|不用|不必|不需要|不想|没让|没有让).{0,8}(?:记住|记下来|记一下|帮我记)|do not remember|don.t remember/iu.test(value)) return false;

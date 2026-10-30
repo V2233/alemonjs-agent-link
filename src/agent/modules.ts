@@ -1,3 +1,4 @@
+import { interactionModule } from '../modules/interaction';
 import { hobbiesModule } from '../modules/hobbies';
 import { opinionsModule } from '../modules/opinions';
 import { conversationModule } from '../modules/conversation';
@@ -258,6 +259,7 @@ export class ModuleRuntime {
       conversationModule(config),
       moodModule(config),
       affinityModule(config),
+      interactionModule(config),
       opinionsModule(config),
       platformModule(config),
       exposeModule(),

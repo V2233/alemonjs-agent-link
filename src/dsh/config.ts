@@ -83,7 +83,7 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
       '请教',
       '肥鱼',
       '大肥鱼',
-      '小肥鱼',
+      '大肥鱼',
       '肥鱼儿',
       '肥鱼酱',
       '鱼宝',

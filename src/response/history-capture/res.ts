@@ -1,3 +1,5 @@
+import { getInteractionStore, interactionSignal, interactionScene } from '../../companion/interaction';
+import { getConversationId } from '../dsh/util';
 import { observeGroupTopics } from '../../group-topics/observe';
 import { isPersonalKeyCommand } from '../../credentials/personal';
 import { messageReferences } from '../../social/references';
@@ -19,6 +21,29 @@ export default async (): Promise<void> => {
         observeGroupTopics(getDSHConfig(), context.current);
       } catch {
         logger.warn('Group topic observation failed');
+      }
+      try {
+        const config = getDSHConfig();
+        const event = context.current;
+
+        if (
+          !event.IsBot &&
+          event.Platform &&
+          event.UserId &&
+          !config.modules?.disabled?.includes('interaction') &&
+          (interactionSignal(event.MessageText || '') !== 'none' || interactionScene(event.MessageText || '') !== 'none')
+        ) {
+          const channelId = getConversationId(event);
+
+          if (channelId)
+            getInteractionStore(config).observe(
+              { platform: event.Platform, botId: event.BotId, channelId, userId: event.UserId },
+              event.MessageText || '',
+              event.MessageId || ''
+            );
+        }
+      } catch {
+        logger.warn('Interaction observation failed');
       }
       rememberRecentMedia(context.current);
       try {

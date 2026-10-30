@@ -45,3 +45,18 @@ test('short factual corrections start their own recall topic', () => {
   assert.equal(queries.resolve(scope, '我不喝茶', true, 1), '我不喝茶');
   assert.equal(queries.resolve(scope, '然后呢', true, 2), '我不喝茶 然后呢');
 });
+
+test('elliptical scene follow-ups keep their object without overriding facts or reopening a closed topic', () => {
+  const queries = new MemoryQueryContext();
+  const scope = {platform:'qq',channelId:'group',userId:'alice',botId:'fish',generation:1};
+  queries.resolve(scope,'今天便利店门口那只橘猫一直不走',true,0);
+  for(const [index,text] of ['后来呢','那后来怎么样了','它后来怎么样','按你说的'].entries()) {
+    assert.equal(queries.resolve(scope,text,true,index+1),`今天便利店门口那只橘猫一直不走 ${text}`);
+  }
+  assert.equal(queries.resolve({...scope,userId:'bob'},'后来呢',true,10),'后来呢');
+  assert.equal(queries.resolve(scope,'换个话题吧',true,11),'换个话题吧');
+  assert.equal(queries.resolve(scope,'后来呢',true,12),'后来呢');
+  queries.resolve(scope,'我喜欢红茶',true,13);
+  assert.equal(queries.resolve(scope,'我不喝茶',true,14),'我不喝茶');
+  assert.equal(queries.resolve(scope,'后来呢',true,15),'我不喝茶 后来呢');
+});

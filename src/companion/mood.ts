@@ -43,8 +43,8 @@ export const keywordMoodDelta = (text: string): number => {
   }
   const addressed = text
     .trim()
-    .replace(/^(?:大肥鱼|小肥鱼|肥鱼|小鲸鱼)[，,：:\s]*/u, '')
-    .replace(/[，,\s]*(?:大肥鱼|小肥鱼|肥鱼|小鲸鱼)[！!。\s]*$/u, '');
+    .replace(/^(?:大肥鱼|大肥鱼|肥鱼|小鲸鱼)[，,：:\s]*/u, '')
+    .replace(/[，,\s]*(?:大肥鱼|大肥鱼|肥鱼|小鲸鱼)[！!。\s]*$/u, '');
 
   if (/^(?:你(?:这个|真是|就是)?(?:废物|傻逼)|滚开)[！!。，,\s]*$/u.test(addressed)) {
     return -6;

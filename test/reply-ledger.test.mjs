@@ -1,0 +1,68 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ChatArchive } from '../lib/history/store.js';
+
+const scope = { platform: 'qq', botId: 'bot', channelId: 'group' };
+test('reply ledger separates users, partial receipts, command ownership and read acknowledgements', () => {
+  const root = mkdtempSync(join(tmpdir(), 'reply-ledger-'));
+  const path = join(root, 'history.sqlite');
+  let store = new ChatArchive(path);
+  const add = (id, text, extra = {}, target = scope) => store.append(target, { id, text, role: 'user', speakerId: id, speaker: id, ...extra });
+  const state = id => store.pendingReplies(scope).find(row => row.messageId === id)?.state;
+  try {
+    add('alice', '肥鱼，帮我看看');
+    add('bob', '肥鱼，在吗');
+    add('game', '/踏入仙途');
+    add('ambient', '普通闲聊');
+    assert.equal(state('alice'), 'pending');
+    assert.equal(state('game'), 'unclaimed_command');
+    assert.equal(state('ambient'), undefined);
+    const inbox = store.readGroupInbox(scope, 'bot');
+    store.acknowledgeGroupInbox(scope, 'bot', inbox.receipt);
+    assert.equal(state('alice'), 'pending');
+    store.recordReplyState(scope, 'alice', 'queued');
+    store.recordReplyState(scope, 'alice', 'processing');
+    add('waiting', '肥鱼，看下这条');
+    assert.equal(store.pendingReplies(scope).find(row => row.messageId === 'waiting').busyAtReceive, 1);
+    store.recordReplyState(scope, 'alice', 'delivered');
+    assert.equal(state('alice'), 'processing');
+    store.recordReplyState(scope, 'alice', 'partial');
+    assert.equal(state('alice'), 'partial');
+    store.recordReplyState(scope, 'alice', 'failed');
+    assert.equal(state('alice'), 'failed');
+    store.recordReplyState(scope, 'alice', 'queued');
+    store.recordReplyState(scope, 'alice', 'partial');
+    store.recordReplyState(scope, 'alice', 'delivered');
+    assert.equal(state('alice'), undefined);
+    assert.equal(state('bob'), 'pending');
+    assert.equal(state('game'), 'unclaimed_command');
+    add('alice', '肥鱼，重放消息');
+    store.recordReplyState(scope, 'alice', 'failed');
+    assert.equal(state('alice'), undefined);
+    store.recordReplyState({ ...scope, botId: 'other' }, 'bob', 'partial');
+    assert.equal(state('bob'), 'pending');
+    store.close();
+    store = new ChatArchive(path);
+    assert.equal(state('bob'), 'pending');
+    assert.equal(state('alice'), undefined);
+    add('stop', '肥鱼，别回了', { speakerId: 'bob' });
+    assert.equal(state('bob'), undefined);
+    assert.equal(state('waiting'), 'pending');
+    store.recordReplyState(scope, 'bob', 'failed');
+    assert.equal(state('bob'), undefined);
+    add('bob-new', '肥鱼，新问题', { speakerId: 'bob' });
+    add('stop', '肥鱼，别回了', { speakerId: 'bob' });
+    assert.equal(state('bob-new'), 'pending');
+    assert.equal(state('game'), 'unclaimed_command');
+    store.invalidate(scope, 'bob');
+    assert.equal(state('bob'), undefined);
+    store.purge(scope);
+    assert.equal(store.pendingReplies(scope).length, 0);
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

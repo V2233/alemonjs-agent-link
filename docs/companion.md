@@ -65,7 +65,7 @@ alemonjs-agent-link:
         automatic: true
         voiceChance: 0.15
         stickerMode: either # either=只发文字或只发匹配表情；both=正文后再补一张
-        stickerChance: 0.35 # 仅 both 模式下的补发概率
+        stickerChance: 0.6 # 普通场景尝试相关表情的基础概率，两种模式均适用
         stickerFallback: false # both 模式普通补图无匹配时是否随机；不覆盖明确意图或引述/否定
         stickerIntentAlways: true # 在不在/晚安等明确意图优先尝试表情
         modelVoice: false # 允许模型用 <voice>...</voice> 主动选择语音；开启后会缓冲整段回复

@@ -59,3 +59,16 @@ test('topic recall finds an old cancelled thread through earlier versions beyond
   assert.deepEqual(store.recallSharedThreads(scope,'other','鲸鱼生态比赛'),[]);
  }finally{store.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+test('unrelated prompts receive only one fresh fallback and never a collection of stale events',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'shared-relevance-'));let now=Date.now();const store=new MemoryStore(join(dir,'memory.sqlite'),()=>now);
+ const scope={platform:'qq',channelId:'g'};
+ try {
+  for(let i=0;i<3;i++){now++;store.recordSharedThread(scope,'u',{text:`便利店橘猫${i}`,state:'discussed',sources:[{seq:i+1,speakerId:'u',speaker:'u',text:'猫',timestamp:now}]});}
+  assert.equal(store.recallSharedThreads(scope,'u','解释一下数据库索引').length,1);
+  now+=86400001;
+  assert.deepEqual(store.recallSharedThreads(scope,'u','解释一下数据库索引'),[]);
+  const related=store.recallSharedThreads(scope,'u','便利店橘猫');
+  assert.equal(related.length,3);assert.ok(related.every(item=>item.match==='topic'));
+ }finally{store.close();rmSync(dir,{recursive:true,force:true});}
+});

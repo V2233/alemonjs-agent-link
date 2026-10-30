@@ -40,5 +40,32 @@ test('details supplement base and additions, survive legacy writes and default s
     const latest = await store.read('dafeiyu');
     const results = await Promise.allSettled([store.save({ ...latest, name: '甲' }), store.save({ ...latest, name: '乙' })]);
     assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
-  } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('electronic dafeiyu conversation rules follow saved details and every expression mode without affecting other personas', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dafeiyu-chat-rules-'));
+  const store = new PersonaStore(root);
+  const context = { platform: 'qq', channelId: 'chat-rules', private: false, owner: false };
+  try {
+    const saved = await store.read('dafeiyu');
+    await store.save({ ...saved, prompt: '旧人设：采用工作汇报表达' });
+    await store.select(context, 'dafeiyu');
+    for (const mode of ['活跃', '个性', '工作', '专业']) {
+      store.setExpressionMode(context, mode, true);
+      const prompt = await store.systemPrompt({ persona: 'dafeiyu', defaultSystemPrompt: '旧默认' }, context);
+      assert.ok(prompt.indexOf('【电子大肥鱼的交流约束】') > prompt.indexOf(`【当前表达程度：${mode}】`));
+      for (const phrase of ['禁止工作汇报式说话', '下一句立即', '允许玩在一起', '愿意加入', '停止', '不得谎称自己是现实中的人'])
+        assert.ok(prompt.includes(phrase), phrase);
+    }
+    await store.select(context, 'assistant');
+    const other = await store.systemPrompt({ persona: 'dafeiyu', defaultSystemPrompt: '旧默认' }, context);
+    assert.doesNotMatch(other, /【电子大肥鱼的交流约束】/);
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
