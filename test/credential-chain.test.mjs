@@ -6,11 +6,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Redis from 'ioredis';
 import { saveAccount } from '../lib/credentials/account.js';
-import { changeKeyring, readKeyring, grantIsCurrent } from '../lib/credentials/keyring.js';
+import { changeKeyring, readKeyring, grantIsCurrent, setGrantDailyLimit, setGrantState } from '../lib/credentials/keyring.js';
 import { setGroupKeyState, groupKeyStatus, groupStorageKey, resolveGrantScope } from '../lib/credentials/group.js';
 import { bindPersonalKey, updatePersonalKey, encryptStoredKey } from '../lib/credentials/personal.js';
 import { getBoundCredential, checkedBoundCredential } from '../lib/credentials/scoped.js';
-import { withBudgetScope, budgetedFetch, budgetStatus } from '../lib/billing/budget.js';
+import {
+  withBudgetScope,
+  budgetedFetch,
+  budgetStatus,
+  groupKeyBudgetStatus,
+  setGroupKeyDailyLimit,
+  reserveScript,
+  settleScript
+} from '../lib/billing/budget.js';
 import { resolveDSHConfig } from '../lib/dsh/config.js';
 
 test(
@@ -28,6 +36,8 @@ test(
     const own = userId => ({ platform: 'test', userId, channelId: `private:${JSON.stringify(['test', userId])}` });
     const group = { ...own('caller'), channelId: 'group' };
     const config = resolveDSHConfig({ budget: { enabled: true, personalDailyYuan: 1 }, runtimeMode: 'chat-only' });
+    let invalidTokens = new Set();
+    let modelUsage = { prompt_tokens: 10, completion_tokens: 10 };
     let calls = [],
       depleted = new Set(),
       failure;
@@ -54,12 +64,16 @@ test(
       globalThis.fetch = async (url, init) => {
         const h = new Headers(init.headers);
         const token = h.get('x-dsh-auth-token') || h.get('Authorization')?.replace('Bearer ', '');
+        if (invalidTokens.has(token)) {
+          calls.push(token);
+          return new Response('{}', { status: 401 });
+        }
         if (String(url).endsWith('/user/balance')) return Response.json({ is_available: !depleted.has(token) });
         assert.ok(!(h.has('x-dsh-auth-token') && h.has('Authorization')));
         calls.push(token);
         if (failure) throw new Error(failure);
         if (depleted.has(token)) return new Response('{}', { status: 402 });
-        return Response.json({ choices: [{ message: { content: 'ok' } }], usage: { prompt_tokens: 10, completion_tokens: 10 } });
+        return Response.json({ choices: [{ message: { content: 'ok' } }], usage: modelUsage });
       };
       const a = await saveAccount(own('a'), 'shared-a');
       const b = await saveAccount(own('b'), 'shared-b');
@@ -125,6 +139,84 @@ test(
         calls = [];
         await request();
         assert.deepEqual(calls, ['sk-robot-fixture']);
+      });
+      await t.test('donor usage is independent, limited donors are skipped and increases restore selection', async () => {
+        const target = { ...group, channelId: 'limits' };
+        await changeKeyring({ ...target, userId: 'a' }, 'grant', String(a));
+        await changeKeyring({ ...target, userId: 'b' }, 'grant', String(b));
+        const ga = (await readKeyring(own('a'))).ring.grants.find(g => g.channelId === 'limits');
+        const gb = (await readKeyring(own('b'))).ring.grants.find(g => g.channelId === 'limits');
+        await setGrantDailyLimit(own('a'), String(ga.id), '0.04');
+        await setGrantDailyLimit(own('b'), String(gb.id), '0.04');
+        await setGroupKeyDailyLimit(target, '1');
+        modelUsage = { prompt_tokens: 10000, completion_tokens: 1000 }; // 0.028 yuan, below reservation
+        calls = [];
+        await request(target);
+        await request(target);
+        assert.deepEqual(calls, ['shared-a', 'shared-b']);
+        const sa = await groupKeyBudgetStatus(config, { ...target, credentialId: ga.token });
+        const sb = await groupKeyBudgetStatus(config, { ...target, credentialId: gb.token });
+        assert.equal(sa.donorUsed, 0.028);
+        assert.equal(sb.donorUsed, 0.028);
+        assert.equal(sa.groupUsed, 0.056);
+        assert.equal((await groupKeyStatus(target)).active, 2, 'daily limit never permanently disables a key');
+        await setGrantDailyLimit(own('a'), String(ga.id), '1');
+        calls = [];
+        await request(target);
+        assert.deepEqual(calls, ['shared-a']);
+        await setGroupKeyDailyLimit(target, '0');
+        await updatePersonalKey(own('caller'), 'enable');
+        depleted.delete('sk-personal-fixture');
+        calls = [];
+        await request(target);
+        assert.deepEqual(calls, ['sk-personal-fixture']);
+        modelUsage = { prompt_tokens: 10, completion_tokens: 10 };
+        // A group cap cannot be bypassed by rotating; neither donor's ledger changes.
+        assert.equal((await groupKeyBudgetStatus(config, { ...target, credentialId: gb.token })).donorUsed, 0.028);
+      });
+      await t.test('authentication rejection skips only that grant and owner can re-enable without resetting usage', async () => {
+        const target = { ...group, channelId: 'limits' };
+        const ga = (await readKeyring(own('a'))).ring.grants.find(g => g.channelId === 'limits');
+        const gb = (await readKeyring(own('b'))).ring.grants.find(g => g.channelId === 'limits');
+        await setGroupKeyDailyLimit(target, '1');
+        await setGrantDailyLimit(own('b'), String(gb.id), '1');
+        invalidTokens.add('shared-a');
+        calls = [];
+        await request(target);
+        assert.deepEqual(calls, ['shared-a', 'shared-b']);
+        assert.equal((await groupKeyStatus(target)).reason, 'auth');
+        assert.equal((await groupKeyStatus(target)).active, 1);
+        const before = (await groupKeyBudgetStatus(config, { ...target, credentialId: ga.token })).donorUsed;
+        await assert.rejects(setGrantState(own('caller'), String(ga.id), true));
+        invalidTokens.clear();
+        await setGrantState(own('a'), String(ga.id), true);
+        assert.equal((await groupKeyBudgetStatus(config, { ...target, credentialId: ga.token })).donorUsed, before);
+        calls = [];
+        await request(target);
+        assert.deepEqual(calls, ['shared-a']);
+      });
+      await t.test('atomic admission protects group totals and individual donor ceilings under concurrency', async () => {
+        const ka = ['pool:group', 'pool:all', 'pool:request:a', 'pool:donor:a', 'pool:gate', 'pool:wallet'];
+        const kb = [...ka];
+        kb[2] = 'pool:request:b';
+        kb[3] = 'pool:donor:b';
+        const reserve = keys => redis.eval(reserveScript, keys.length, ...keys, 100, 150, 0, 86400, 100, 'key-pool', 0);
+        const results = await Promise.all([reserve(ka), reserve(kb)]);
+        assert.deepEqual([...results].sort(), [-2, 1]);
+        const winner = results[0] === 1 ? ka : kb;
+        const loser = results[0] === 1 ? kb : ka;
+        assert.equal(await redis.hget(winner[0], 'used'), '100');
+        assert.equal(await redis.hget(loser[3], 'used'), null);
+        assert.equal(await redis.eval(settleScript, winner.length, ...winner, 30, 1, 1, 0), 1);
+        assert.equal(await redis.eval(settleScript, winner.length, ...winner, 30, 1, 1, 0), 0);
+        assert.equal(await reserve(loser), 1);
+        assert.equal(await redis.hget(winner[0], 'used'), '130');
+        assert.equal(await redis.hget(winner[3], 'used'), '30');
+        const retry = [...winner];
+        retry[2] = 'pool:request:retry';
+        // Raise only the group ceiling: the original donor is still capped independently.
+        assert.equal(await redis.eval(reserveScript, retry.length, ...retry, 100, 1000, 0, 86400, 100, 'key-pool', 0), -3);
+        assert.equal(await redis.hget(winner[0], 'used'), '130');
       });
       await t.test('revoking one donor preserves the other, and legacy grants remain revocable', async () => {
         const ga = (await readKeyring(own('a'))).ring.grants[0];

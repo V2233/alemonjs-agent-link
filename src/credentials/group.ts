@@ -142,7 +142,7 @@ export const resolveGrantScope = async (scope: BudgetScope, token: string): Prom
 
   return raw && JSON.parse(raw).grantToken === token ? legacy : target;
 };
-export const credentialStateLabel = (value: Pick<RecordValue, 'enabled' | 'reason'>): string =>
+export const credentialStateLabel = (value: { enabled: boolean; reason: string }): string =>
   value.enabled
     ? '已启用，调用时校验'
     : value.reason === 'auth'

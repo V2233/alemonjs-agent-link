@@ -103,12 +103,19 @@ test('personal key encryption, isolation, manual switches and depletion fallback
       assert.equal(calls.at(-1).key, 'Bearer sk-shared-test-key');
     });
     await t.test('unknown failures keep enabled and do not charge the robot', async () => {
-      for (mode of ['timeout', 'invalid']) {
+      for (mode of ['timeout']) {
         const before = (await budgetStatus(config, scope)).used;
         await assert.rejects(request(), /查询/);
         assert.equal((await personalKeyStatus(scope)).enabled, true);
         assert.equal((await budgetStatus(config, scope)).used, before);
       }
+    });
+    await t.test('invalid credentials are disabled and quota is used; explicit enable restores selection', async () => {
+      mode = 'invalid';
+      await request();
+      assert.equal((await personalKeyStatus(scope)).reason, 'auth');
+      assert.equal(calls.at(-1).key, 'Bearer sk-shared-test-key');
+      await updatePersonalKey(scope, 'enable');
     });
     await t.test('insufficient balance disables the key and falls back to quota', async () => {
       mode = 'empty';

@@ -160,9 +160,9 @@ export const handleKeyringCommand = async (event: ReturnType<typeof useEvent>[0]
         sections.push({
           title: '群钥匙每日预算',
           text:
-            usage && !usage.unlimited
-              ? `今日已用及预占 ${usage.personalUsed} / ${usage.personalLimit} 元；剩余 ${usage.personalRemaining} 元`
-              : `未设置上限；今日已计量及预占 ${usage.personalUsed} 元。仅统计本功能上线后的可计量文字调用。图片和沙箱费用不在此数内。`,
+            usage.groupLimit !== null
+              ? `今日已用及预占 ${usage.groupUsed} / ${usage.groupLimit} 元；剩余 ${usage.groupRemaining} 元`
+              : `未设置群总上限；各提供者上限见下方。今日已计量及预占 ${usage.groupUsed} 元。仅统计本功能上线后的可计量文字调用。图片和沙箱费用不在此数内。`,
           actions: [{ label: '取消群上限', command: '/我的钥匙 上限 取消' }]
         });
 
