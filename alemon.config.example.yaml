@@ -505,8 +505,8 @@ alemonjs-agent-link:
     maxAttachments: 3
     # 一次语音合成最多多少字符（1-4000）。
     ttsMaxChars: 800
-    # 表情素材索引上限（1-500）。
-    stickerMaxItems: 300
+    # 表情素材索引上限（1-10000）。
+    stickerMaxItems: 1200
     # 允许下载媒体的域名白名单；空数组表示允许任意公网 HTTPS。
     # 填了就是精确域名（不支持通配符，也不能以 . 开头）。
     allowedHosts: []

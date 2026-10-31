@@ -35,6 +35,11 @@ export const generateImage = async (prompt: string, config: MediaConfig, signal:
     signal.throwIfAborted();
     throw new MediaError(deadline.aborted ? '生图服务超时，结果未确认。' : '生图服务连接失败，结果未确认。');
   }
+
+  return readGeneratedImage(response, config, deadline);
+};
+
+const readGeneratedImage = async (response: Response, config: MediaConfig, deadline: AbortSignal): Promise<Buffer> => {
   const payload = await readBounded(response, Math.ceil((config.maxBytes * 4) / 3) + 128 * 1024);
   let entry: { b64_json?: unknown; url?: unknown };
 
@@ -59,13 +64,46 @@ export const generateImage = async (prompt: string, config: MediaConfig, signal:
   } else {
     throw new MediaError('生图服务没有返回图片。');
   }
-  signal.throwIfAborted();
   deadline.throwIfAborted();
   if (data.length > config.maxBytes || !['image/png', 'image/jpeg', 'image/webp'].includes(imageMime(data) || '')) {
     throw new MediaError('生图结果格式无效或超过大小限制。');
   }
 
   return data;
+};
+
+/** The reference is submitted as image bytes; failures must never fall back to text-only generation. */
+export const editAppearanceImage = async (prompt: string, reference: Buffer, config: MediaConfig, signal: AbortSignal): Promise<Buffer> => {
+  const provider = config.imageGen;
+
+  if (!provider || provider.protocol === 'siliconflow') throw new MediaError('当前生图配置未提供兼容的参考图编辑接口，请选择支持 /images/edits 的服务。');
+  if (!prompt.trim() || Array.from(prompt).length > 2000) throw new MediaError('装扮描述需要1–2000字');
+  signal.throwIfAborted();
+  await assertBudgetAvailable(getDSHConfig());
+  const deadline = AbortSignal.any([signal, AbortSignal.timeout(config.timeoutMs)]);
+  const form = new FormData();
+
+  form.set('model', provider.model);
+  form.set('prompt', '保持参考图中同一人物的脸型、发色、眼睛、体型和物种特征，仅按用户要求调整装扮与场景。' + prompt.trim());
+  form.set('image', new Blob([new Uint8Array(reference)], { type: 'image/png' }), 'reference.png');
+  form.set('size', provider.size);
+  form.set('n', '1');
+  let response: Response;
+
+  try {
+    response = await fetch(provider.baseUrl + '/images/edits', {
+      method: 'POST',
+      redirect: 'error',
+      signal: deadline,
+      headers: provider.apiKey ? { Authorization: 'Bearer ' + provider.apiKey } : {},
+      body: form
+    });
+  } catch {
+    signal.throwIfAborted();
+    throw new MediaError('参考图编辑未完成，请核对服务是否支持图片编辑；不会改用无参考图重画。');
+  }
+
+  return readGeneratedImage(response, config, deadline);
 };
 
 export const imageGenerationTool = (config: MediaConfig, deliver: (data: Buffer) => Promise<void>, fallback = generateDshImage): AgentTool => ({

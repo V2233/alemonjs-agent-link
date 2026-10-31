@@ -1,3 +1,4 @@
+import { getAppearanceStore } from './media/appearance-store';
 import { getGroupTopicStore, groupTopicId, type GroupTopicProfile } from './group-topics/store';
 import { collectGroupVideoTopics } from './group-topics/collect';
 import { newsCandidate } from './group-topics/news';
@@ -7,7 +8,7 @@ import { readTokenUsage, rememberTokenKey, tokenKeyId } from './billing/token-us
 import { dirname } from 'node:path';
 import { readImageSettings, saveImageSettings, migrateImageSettings, previewImage } from './panel/image-service';
 import { imageMime } from './media/download';
-import { stickerAssets, stickerImage, saveStickerAsset, uploadStickerAsset } from './panel/sticker-service';
+import { readStickerSettings, saveStickerSettings, stickerAssets, stickerImage, saveStickerAsset, uploadStickerAsset } from './panel/sticker-service';
 import { readScopedPersona, saveScopedPersona } from './agent/scoped-persona';
 import { readIntelligenceLevel, saveIntelligenceLevel } from './agent/intelligence';
 import { readGeneralSettings, saveGeneralSettings } from './panel/general-settings';
@@ -95,12 +96,20 @@ apiRouter.use(async (ctx, next) => {
 const standardBody = bodyParser({ enableTypes: ['json'], jsonLimit: '1mb' });
 const stickerUploadBody = bodyParser({ enableTypes: ['json'], jsonLimit: '8mb' });
 
-apiRouter.use((ctx, next) => (ctx.path === '/api/admin/stickers/upload' ? stickerUploadBody : standardBody)(ctx, next));
+apiRouter.use((ctx, next) =>
+  (['/api/admin/stickers/upload', '/api/admin/appearances/upload'].includes(ctx.path) ? stickerUploadBody : standardBody)(ctx, next)
+);
 const success = (ctx: KoaRouter.RouterContext, data: unknown, message = 'ok') => {
   ctx.status = 200;
   ctx.body = { code: 200, message, data };
 };
 
+apiRouter.get('/stickers/settings', async ctx => success(ctx, await readStickerSettings()));
+apiRouter.post('/stickers/settings', async ctx => {
+  const result = await saveStickerSettings(ctx.request.body);
+
+  success(ctx, result.data, result.message);
+});
 apiRouter.get('/stickers', async ctx => success(ctx, await stickerAssets()));
 apiRouter.get('/stickers/:id/image', async ctx => {
   const image = await stickerImage(ctx.params.id);
@@ -116,6 +125,35 @@ apiRouter.post('/stickers/edit', async ctx => {
 });
 apiRouter.post('/stickers/remove', async ctx => {
   await saveStickerAsset(ctx.request.body, true);
+  success(ctx, null);
+});
+apiRouter.get('/appearances', ctx => success(ctx, getAppearanceStore(getDSHConfig()).list()));
+apiRouter.get('/appearances/:id/image', ctx => {
+  const result = getAppearanceStore(getDSHConfig()).read(ctx.params.id);
+
+  ctx.type = 'image/png';
+  ctx.body = result.data;
+});
+apiRouter.post('/appearances/upload', async ctx => {
+  const body = ctx.request.body as { personaId: string; name: string; data: string };
+
+  if (
+    !body ||
+    typeof body.data !== 'string' ||
+    body.data.length > 7 * 1024 * 1024 ||
+    !body.data.length ||
+    body.data.length % 4 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/u.test(body.data)
+  )
+    ctx.throw(400);
+  await getPersonaStore(getDSHConfig()).read(body.personaId);
+  success(ctx, await getAppearanceStore(getDSHConfig()).add(body.personaId, body.name, Buffer.from(body.data, 'base64')));
+});
+apiRouter.post('/appearances/edit', ctx => {
+  const body = ctx.request.body as { id: string; action: string };
+
+  if (!body || typeof body.id !== 'string') ctx.throw(400);
+  getAppearanceStore(getDSHConfig()).edit(body.id, body.action);
   success(ctx, null);
 });
 apiRouter.get('/images/settings', async ctx => success(ctx, await readImageSettings()));

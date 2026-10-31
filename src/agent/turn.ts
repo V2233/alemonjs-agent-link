@@ -1,3 +1,4 @@
+import { appearanceTool, appearanceRequest } from '../media/appearance-tool';
 import { describeVisualInput } from '../media/providers';
 import { containsPrivateOutput, privateOutputEvents, privateSafeOutput } from '../dsh/private-output';
 import { personalPersonaOwnership } from '../companion/persona-owner';
@@ -118,6 +119,7 @@ const runModuleTurnInner = async (options: {
       drawing.execute = async (args, turn) => {
         turn.signal.throwIfAborted();
         if (drawingAttempted || imagePending || imageQueued) throw new Error('本轮已有图片处理中或已提交，不能重复绘制。');
+        if (appearanceRequest(turn.userText)) throw new Error('人物形象请使用 persona_appearance 形象库工具。');
         drawingAttempted = true;
         imagePending = true;
         try {
@@ -131,6 +133,22 @@ const runModuleTurnInner = async (options: {
         }
       };
       tools.push(drawing);
+      if (tools.some(tool => tool.name === 'persona_appearance')) throw new Error('模块不能覆盖 persona_appearance 工具。');
+      const appearance = appearanceTool(config, deliverImage);
+      const executeAppearance = appearance.execute;
+
+      appearance.execute = async (args, turn) => {
+        if (args.action === 'list') return await executeAppearance(args, turn);
+        if (imagePending || imageQueued || generationAttempted || drawingAttempted) throw new Error('本轮已有图片处理，不重复发送。');
+        generationAttempted = true;
+        imagePending = true;
+        try {
+          return await executeAppearance(args, turn);
+        } finally {
+          imagePending = false;
+        }
+      };
+      tools.push(appearance);
       try {
         const media = getMediaConfig();
 
@@ -142,6 +160,7 @@ const runModuleTurnInner = async (options: {
           imageTool.execute = async (args, turn) => {
             turn.signal.throwIfAborted();
             if (generationAttempted || drawingAttempted || imagePending || imageQueued) throw new Error('每回合最多尝试一次外部生图，不能重复生成。');
+            if (appearanceRequest(turn.userText)) throw new Error('人物形象与换装请使用 persona_appearance 从形象库取图或参考图二创。');
             generationAttempted = true;
             imagePending = true;
             try {
@@ -164,7 +183,7 @@ const runModuleTurnInner = async (options: {
 当前可调用 draw_image，将形状、路径和文字绘制成 PNG，适合流程示意图、图标、简单插画；无需文件或终端权限。
 ${canGenerate ? '当前也可调用 generate_image，使用已配置的外部生图服务；复杂插画、人物、写实场景优先使用它。' : '当前未开放 generate_image，不能承诺外部 AI 生图。简单绘图仍可使用 draw_image；用户明确需要照片级或复杂生图时，说明本轮缺少可用生图服务，不把简单图形绘制冒充该效果。'}
 用户明确要求画图、生成图片或继续已确认的绘图任务时，按要求调用合适的工具，不能只回答“可以”“正在画”或仅给提示词。仅询问能力或讨论方案时正常解释。缺少不影响执行的风格细节时合理选择，不重复索要确认。
-两种工具都不支持精确编辑已有图片。外部生图每轮最多尝试一次；失败且未提交图片时，可以改用 draw_image 绘制一次，须依据原需求重新组织图形，并明确说明已降级为简单绘制、不能达到原生图效果。用户明确禁止降级或只接受照片级效果时，不强行绘制。已取消、已提交图片或提交结果不确定时不得再生成。不要将未配置的 DSH 插件当作可用生图服务。created 只表示图片进入本轮回复队列，不能宣称平台已送达。`;
+draw_image与generate_image不支持参考图编辑；当前人物外貌展示与换装必须使用persona_appearance，list可查版本，show发已有图，restyle带库中参考图提交编辑。库为空时提示先上传，编辑不支持或失败时不降级为无参考图重画。外部生图每轮最多尝试一次；失败且未提交图片时，可以改用 draw_image 绘制一次，须依据原需求重新组织图形，并明确说明已降级为简单绘制、不能达到原生图效果。用户明确禁止降级或只接受照片级效果时，不强行绘制。已取消、已提交图片或提交结果不确定时不得再生成。不要将未配置的 DSH 插件当作可用生图服务。created 只表示图片进入本轮回复队列，不能宣称平台已送达。`;
     }
     let answer = '';
     const observe = async (event: DSHStreamEvent): Promise<void> => {

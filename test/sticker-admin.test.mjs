@@ -1,3 +1,7 @@
+import { readStickerSettings, saveStickerSettings } from '../lib/panel/sticker-service.js';
+import { initializeAdminPanel, disposeAdminPanel } from '../lib/panel/admin-panel.js';
+import { writeFile, readFile } from 'node:fs/promises';
+import { parse } from 'yaml';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -26,6 +30,29 @@ test('admin manages the real sticker library, protects stale edits and validates
     assert.equal((await stickerAssets()).items.length, 0);
     await assert.rejects(stickerImage(item.id));
   } finally {
+    globalThis.__config = previous;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('capacity settings persist with revision protection and preserve other configuration', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sticker-settings-'));
+  const path = join(root, 'config.yaml');
+  const previous = globalThis.__config;
+  try {
+    await writeFile(path, JSON.stringify({ 'alemonjs-agent-link': { media: { stickerRoot: root, ttsMaxChars: 321 } } }));
+    globalThis.__config = { path, value: { 'alemonjs-agent-link': {} }, reload() {} };
+    await initializeAdminPanel();
+    const initial = await readStickerSettings();
+    assert.equal(initial.capacity, 1200);
+    await saveStickerSettings({ revision: initial.revision, capacity: 2400 });
+    const media = parse(await readFile(path, 'utf8'))['alemonjs-agent-link'].media;
+    assert.equal(media.stickerMaxItems, 2400);
+    assert.equal(media.ttsMaxChars, 321);
+    await assert.rejects(saveStickerSettings({ revision: initial.revision, capacity: 1200 }), /配置已/);
+    await assert.rejects(saveStickerSettings({ revision: (await readStickerSettings()).revision, capacity: 0 }));
+  } finally {
+    disposeAdminPanel();
     globalThis.__config = previous;
     await rm(root, { recursive: true, force: true });
   }

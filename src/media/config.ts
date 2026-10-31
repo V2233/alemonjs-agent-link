@@ -4,6 +4,9 @@ import { getAppConfigValue } from 'alemonjs';
 import { join, resolve } from 'node:path';
 import { speechOptions, type SpeechOptions } from './speech-config';
 
+export const DEFAULT_STICKER_CAPACITY = 1200;
+export const MAX_STICKER_CAPACITY = 10000;
+
 export type MediaProvider = { baseUrl: string; apiKey: string; model: string; voice?: string; protocol?: 'openai' | 'siliconflow' };
 export type ImageGenerationProvider = MediaProvider & { responseFormat?: 'b64_json' | 'url' | 'auto'; size: string; stylePrompt: string; ownerOnly: boolean };
 export type ImagePreset = { id: string; name: string; enabled: boolean; provider: ImageGenerationProvider };
@@ -119,7 +122,7 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
     maxAttachments: raw.maxAttachments ?? 3,
     ttsMaxChars: raw.ttsMaxChars ?? 800,
     stickerRoot: raw.stickerRoot ?? defaultStickerRoot(),
-    stickerMaxItems: raw.stickerMaxItems ?? 300,
+    stickerMaxItems: raw.stickerMaxItems ?? DEFAULT_STICKER_CAPACITY,
     vision: provider(raw.vision, true),
     asr: provider(raw.asr, true),
     tts: provider(raw.tts, true),
@@ -139,7 +142,7 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
     [config.maxBytes, 1024, 25 * 1024 * 1024],
     [config.maxAttachments, 1, 5],
     [config.ttsMaxChars, 1, 4000],
-    [config.stickerMaxItems, 1, 500]
+    [config.stickerMaxItems, 1, MAX_STICKER_CAPACITY]
   ]) {
     if (!Number.isSafeInteger(number) || number < min || number > max) {
       throw new MediaError('媒体大小、超时或次数配置超出范围。');

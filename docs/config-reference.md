@@ -485,7 +485,7 @@
 | `maxAttachments`  | number   | `3`               | 1–20                                    | 单条消息附件数上限                           |
 | `ttsMaxChars`     | number   | `800`             | 1–4000                                  | 一次合成文本上限                             |
 | `stickerRoot`     | string   | 数据目录/stickers | 非空                                    | 表情素材目录；默认会在首次使用时创建空清单   |
-| `stickerMaxItems` | number   | `300`             | 1–2000                                  | 素材索引上限                                 |
+| `stickerMaxItems` | number   | `1200`            | 1–10000                                 | 素材索引上限                                 |
 
 ### 9.1 媒体服务对象（`vision`/`asr`/`tts`/`imageGen`）
 

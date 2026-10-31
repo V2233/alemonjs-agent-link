@@ -1,7 +1,7 @@
 import { open, realpath, mkdir, lstat, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { relative, resolve, sep, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { MediaError, MediaUnavailableError, type MediaConfig } from './config';
+import { MAX_STICKER_CAPACITY, MediaError, MediaUnavailableError, type MediaConfig } from './config';
 import { imageMime } from './download';
 import { imageInfo, type ImageInfo } from './image-info';
 
@@ -41,8 +41,8 @@ export type StickerCollectMeta = {
   license?: string;
 };
 const SOURCES: StickerSource[] = ['manual', 'auto', 'forge', 'import', 'site', 'file', 'legacy'];
-const MANIFEST_MAX = 256 * 1024;
-const MAX_ENTRIES = 500;
+const MANIFEST_MAX = 16 * 1024 * 1024;
+const MAX_ENTRIES = MAX_STICKER_CAPACITY;
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,40}$/u;
 const readLocal = async (root: string, path: string, maxBytes: number): Promise<Buffer> => {
   const base = await realpath(root);
@@ -59,7 +59,7 @@ const readLocal = async (root: string, path: string, maxBytes: number): Promise<
     if (!info.isFile() || info.size > maxBytes) {
       throw new MediaError('表情文件超过限制或不是普通文件。');
     }
-    const data = Buffer.alloc(maxBytes + 1);
+    const data = Buffer.alloc(Math.min(info.size, maxBytes) + 1);
     const result = await file.read(data, 0, data.length, 0);
 
     if (result.bytesRead > maxBytes) {
@@ -284,7 +284,7 @@ const mutate = async <T>(
     const manifest = join(root, 'manifest.json');
     const stat = await lstat(manifest);
 
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MANIFEST_MAX) throw new MediaError('表情清单必须是素材目录内不超过 256 KiB 的普通文件。');
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MANIFEST_MAX) throw new MediaError('表情清单必须是素材目录内不超过 16 MiB 的普通文件。');
     const before = await readFile(manifest);
     const items = await listAssets({ ...config, stickerRoot: root });
     const result = await change(items, root);

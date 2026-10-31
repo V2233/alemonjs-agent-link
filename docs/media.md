@@ -70,7 +70,7 @@ alemonjs-agent-link:
       model: '<语音合成模型ID>'
       voice: '<该服务支持的音色ID>'
     stickerRoot: '/absolute/path/to/stickers'
-    stickerMaxItems: 300
+    stickerMaxItems: 1200
 ```
 
 只填写接口前缀，ASR/TTS 分别追加 `audio/transcriptions`、`audio/speech`。远程服务需使用 HTTPS 和独立密钥；本机 `localhost`、`127.0.0.1` 或 `[::1]` 的 ASR/TTS 可以使用 HTTP，密钥可省略。服务还需兼容以下请求/响应格式：
@@ -104,7 +104,7 @@ asr:
 ]
 ```
 
-默认最多 300 项（`media.stickerMaxItems`，1–500）；id 唯一，每项最多 10 个标签。支持 PNG/JPEG/WebP/GIF。文件须真实存在于该目录内，不能通过 `../` 或外部符号链接读取目录之外的文件。清单上限 256 KiB。插件不自带第三方表情素材；自动收集默认对所有用户私聊和所有群开启，`autoAllGroups: false` 后才只收 `autoGroups` 中列出的群。
+默认最多 1200 项（`media.stickerMaxItems`，1–10000）；id 唯一，每项最多 10 个标签。支持 PNG/JPEG/WebP/GIF。文件须真实存在于该目录内，不能通过 `../` 或外部符号链接读取目录之外的文件。清单上限 16 MiB。插件不自带第三方表情素材；自动收集默认对所有用户私聊和所有群开启，`autoAllGroups: false` 后才只收 `autoGroups` 中列出的群。
 
 插件收藏的条目会附带 `kind`（`sticker` 表情 / `avatar` 形象头像，旧条目没有时按表情处理）、`category`（头像类型或表情主分类，如 `头像`、`开心`、`无语`）、`context`（适用/不适用场景，便于模型选图）、`from`（`auto`/`manual`/`forge`/`import`/`site`/`file`/`legacy`）、`addedAt`、`uses`、`lastUsed`、`width`、`height`、`bytes`、`confidence`、`sourceUrl`、`license` 和 `emojiId`（已写入 QQ 收藏时的平台标识）等可选元数据；外部清单可以省略。超过数量上限时，只会淘汰 `from: auto` 中“使用次数最少、最久未使用”的条目；主人手动加入、表情工坊生成和旧清单条目不自动删除，因此库满且没有可淘汰项时会拒绝新收藏。`kind: avatar` 只出现在素材/头像视图，`list_stickers` 和发送表情默认只取 `kind: sticker`。
 

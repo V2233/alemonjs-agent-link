@@ -112,7 +112,7 @@ test('manifest metadata is validated and limits are enforced', async () => {
     );
     assert.equal((await listStickers(config)).length, 2);
     assert.throws(() => getMediaConfig({ media: { stickerMaxItems: 0 } }));
-    assert.throws(() => getMediaConfig({ media: { stickerMaxItems: 501 } }));
+    assert.throws(() => getMediaConfig({ media: { stickerMaxItems: 10001 } }));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -130,6 +130,32 @@ test('a missing library is created once without overwriting a manifest', async (
       (await listStickers(config)).map(item => item.id),
       ['keep']
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('default capacity is 1200 and large manifests can be read and updated without truncation', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'sticker-capacity-'));
+  const config = getMediaConfig({ media: { stickerRoot: root } });
+  try {
+    assert.equal(config.stickerMaxItems, 1200);
+    const items = Array.from({ length: 1200 }, (_, i) => ({
+      id: `large_${i}`,
+      file: `managed/${i}.png`,
+      tags: ['测试'],
+      context: '使用场景'.repeat(40),
+      from: 'manual'
+    }));
+    const encoded = JSON.stringify(items);
+    assert.ok(Buffer.byteLength(encoded) > 256 * 1024);
+    await writeFile(join(root, 'manifest.json'), encoded);
+    assert.equal((await listAssets(config)).length, 1200);
+    await markStickerUsed(config, 'large_1199', signal());
+    assert.equal((await listAssets(config)).find(item => item.id === 'large_1199').uses, 1);
+    const reduced = getMediaConfig({ media: { stickerRoot: root, stickerMaxItems: 100 } });
+    assert.equal((await listAssets(reduced)).length, 1200);
+    await assert.rejects(collectSticker(reduced, png, ['新素材'], signal()), /已满/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
