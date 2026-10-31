@@ -10,7 +10,7 @@ const config = {
   defaultSystemPrompt: 'hello',
   inputBlockedKeywords: [],
   outputBlockedKeywords: ['secret'],
-  maxRequestBytes: 4096
+  maxRequestBytes: 8192
 };
 test('direct chat sends no tools, filters the full answer, rejects tool-only responses', async () => {
   const original = globalThis.fetch;

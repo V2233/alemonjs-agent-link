@@ -106,6 +106,6 @@ export const groupConversations = (processState.__agentLinkGroupConversations__ 
     }
   },
   getPolicy: scopedGroupPolicy,
-  onTiming: timing => logger.info(timing, 'Group reply latency'),
+  onTiming: timing => logger.debug(timing, 'Group reply latency'),
   onError: () => logger.warn('AgentLink group conversation failed')
 }));

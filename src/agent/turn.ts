@@ -83,7 +83,7 @@ const runModuleTurnInner = async (options: {
     const input = await lease.prompt(withInputContext(visualInput, moduleContext), context);
     const tools = lease.tools(context);
 
-    logger.info(
+    logger.debug(
       {
         requestId: context.requestId,
         elapsedMs: Date.now() - preparingAt,
@@ -98,17 +98,34 @@ const runModuleTurnInner = async (options: {
     );
 
     if (options.onImage && !context.autonomous) {
-      let imageAttempted = false;
+      let generationAttempted = false;
+      let drawingAttempted = false;
+      let imagePending = false;
+      let imageQueued = false;
+      const deliverImage = async (data: Buffer) => {
+        // A delivery error must not trigger a second, possibly duplicate image.
+        imageQueued = true;
+        await options.onImage(data);
+      };
 
       if (tools.some(tool => tool.name === 'draw_image')) throw new Error('模块不能覆盖 draw_image 工具。');
-      const drawing = drawingTool(options.onImage);
+      const drawing = drawingTool(deliverImage);
       const executeDrawing = drawing.execute;
 
       drawing.execute = async (args, turn) => {
-        if (imageAttempted) throw new Error('每回合最多尝试生成一张图片。');
-        imageAttempted = true;
+        turn.signal.throwIfAborted();
+        if (drawingAttempted || imagePending || imageQueued) throw new Error('本轮已有图片处理中或已提交，不能重复绘制。');
+        drawingAttempted = true;
+        imagePending = true;
+        try {
+          const result = await executeDrawing(args, turn);
 
-        return await executeDrawing(args, turn);
+          return generationAttempted
+            ? { ...(result as Record<string, unknown>), fallback: 'local-drawing', notice: '外部生图失败，已降级为本地图形绘制，不是原生图模型的结果。' }
+            : result;
+        } finally {
+          imagePending = false;
+        }
       };
       tools.push(drawing);
       try {
@@ -116,14 +133,19 @@ const runModuleTurnInner = async (options: {
 
         if (media.imageGen) {
           if (tools.some(tool => tool.name === 'generate_image')) throw new Error('模块不能覆盖 generate_image 工具。');
-          const imageTool = imageGenerationTool(media, options.onImage);
+          const imageTool = imageGenerationTool(media, deliverImage);
           const generate = imageTool.execute;
 
           imageTool.execute = async (args, turn) => {
-            if (imageAttempted) throw new Error('每回合最多尝试生成一张图片。');
-            imageAttempted = true;
-
-            return await generate(args, turn);
+            turn.signal.throwIfAborted();
+            if (generationAttempted || drawingAttempted || imagePending || imageQueued) throw new Error('每回合最多尝试一次外部生图，不能重复生成。');
+            generationAttempted = true;
+            imagePending = true;
+            try {
+              return await generate(args, turn);
+            } finally {
+              imagePending = false;
+            }
           };
           if (!imageTool.available || imageTool.available(context)) tools.push(imageTool);
         }
@@ -139,7 +161,7 @@ const runModuleTurnInner = async (options: {
 当前可调用 draw_image，将形状、路径和文字绘制成 PNG，适合流程示意图、图标、简单插画；无需文件或终端权限。
 ${canGenerate ? '当前也可调用 generate_image，使用已配置的外部生图服务；复杂插画、人物、写实场景优先使用它。' : '当前未开放 generate_image，不能承诺外部 AI 生图。简单绘图仍可使用 draw_image；用户明确需要照片级或复杂生图时，说明本轮缺少可用生图服务，不把简单图形绘制冒充该效果。'}
 用户明确要求画图、生成图片或继续已确认的绘图任务时，按要求调用合适的工具，不能只回答“可以”“正在画”或仅给提示词。仅询问能力或讨论方案时正常解释。缺少不影响执行的风格细节时合理选择，不重复索要确认。
-两种工具都不支持精确编辑已有图片。每轮共享一次图片生成尝试，失败后如实说明，不重复调用另一工具。created 只表示图片进入本轮回复队列，不能宣称平台已送达。`;
+两种工具都不支持精确编辑已有图片。外部生图每轮最多尝试一次；失败且未提交图片时，可以改用 draw_image 绘制一次，须依据原需求重新组织图形，并明确说明已降级为简单绘制、不能达到原生图效果。用户明确禁止降级或只接受照片级效果时，不强行绘制。已取消、已提交图片或提交结果不确定时不得再生成。不要将未配置的 DSH 插件当作可用生图服务。created 只表示图片进入本轮回复队列，不能宣称平台已送达。`;
     }
     let answer = '';
     const observe = async (event: DSHStreamEvent): Promise<void> => {

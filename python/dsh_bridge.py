@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from plugin_policy import prepare_plugins, validate_plugins
+from plugin_policy import prepare_plugins, validate_plugins, warm_reviewed_plugins
 from sandbox_profile import linux_bwrap_command, macos_profile, sandbox_read_roots
 
 TOKEN = os.environ.get('DSH_BRIDGE_TOKEN', '')
@@ -1294,6 +1294,8 @@ def main():
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True); HOME_ROOT.mkdir(parents=True, exist_ok=True); RUNTIME_ROOT.mkdir(parents=True, exist_ok=True); atexit.register(close_workers)
     atexit.register(flush_bridge_metrics)
     load_bridge_metrics()
+    if DSH_PLUGINS:
+        threading.Thread(target=warm_reviewed_plugins, args=(DSH_PLUGINS, HOME_ROOT / '.plugin-tools', RUNTIME_PATH), name='reviewed-plugin-prefetch', daemon=True).start()
     threading.Thread(target=bridge_metrics_loop, name='bridge-metrics', daemon=True).start()
     cleanup_stale_group_data()
     schedule_local_cleanup()

@@ -24,6 +24,7 @@ import { clearRecentMedia } from './media/recent';
 import { ensureStickerRoot } from './media/stickers';
 import { warmCredentialPool, stopCredentialPool } from './credentials/pool';
 import { getMediaConfig } from './media/config';
+import { warmDshImageGeneration, stopDshImagePreparation } from './media/dsh-image-generation';
 import { startStickerPanel, type StickerPanel } from './panel/sticker-panel';
 import { initializeAdminPanel, disposeAdminPanel } from './panel/admin-panel';
 import apiRouter from './api-router';
@@ -63,14 +64,15 @@ export default defineChildren({
       const startupConfig = getDSHConfig();
 
       configureHttpsProxy(startupConfig);
+      warmDshImageGeneration(startupConfig);
 
       reconcileGroupWakes(startupConfig);
-      logger.info(runtimeSummary(startupConfig), 'AgentLink runtime resolved');
+      logger.debug(runtimeSummary(startupConfig), 'AgentLink runtime resolved');
       warmCredentialPool(startupConfig);
       if (budgetEnabled(startupConfig)) {
         void budgetRedis()
           .then(() =>
-            logger.info(
+            logger.debug(
               {
                 replyGateDailyYuan: startupConfig.budget?.replyGateDailyYuan ?? 1,
                 personalDailyYuan: startupConfig.budget?.personalDailyYuan ?? startupConfig.budget?.privateDailyYuan ?? 1
@@ -91,9 +93,10 @@ export default defineChildren({
           const next = getDSHConfig();
 
           configureHttpsProxy(next);
+          warmDshImageGeneration(next);
 
           reconcileGroupWakes(next);
-          logger.info(runtimeSummary(next), 'AgentLink runtime reloaded');
+          logger.debug(runtimeSummary(next), 'AgentLink runtime reloaded');
           warmCredentialPool(next);
           void syncStickerPanel(next);
           void getModuleRuntime(next)
@@ -174,6 +177,6 @@ export default defineChildren({
       stickerPanel = undefined;
     });
 
-    return Promise.all([adminStart.then(() => disposeAdminPanel()), closePanel, closeModuleRuntime()]).then(() => undefined);
+    return Promise.all([stopDshImagePreparation(), adminStart.then(() => disposeAdminPanel()), closePanel, closeModuleRuntime()]).then(() => undefined);
   }
 });

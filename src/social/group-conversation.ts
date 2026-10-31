@@ -749,7 +749,7 @@ export class GroupConversationCoordinator {
             this.now()
           );
         }
-        logger.info(
+        logger.debug(
           {
             reply: verdict.reply,
             activity: policy.activity,

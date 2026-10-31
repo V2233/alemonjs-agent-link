@@ -451,7 +451,7 @@ export const startStickerPanel = async (config: DSHBridgeConfig, portOverride?: 
       await mkdir(dirname(tokenFile), { recursive: true, mode: 0o700 });
       await writeFile(tokenFile, `${token}\n`, { mode: 0o600 });
       await chmod(tokenFile, 0o600);
-      logger.info({ path: tokenFile }, 'Sticker panel token written');
+      logger.debug({ path: tokenFile }, 'Sticker panel token written');
     }
   }
   const active = { ...panel, token };
@@ -487,7 +487,7 @@ export const startStickerPanel = async (config: DSHBridgeConfig, portOverride?: 
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : panel.port;
 
-  logger.info({ port, host: active.host, tokenFile }, 'Sticker panel ready on loopback');
+  logger.debug({ port, host: active.host, tokenFile }, 'Sticker panel ready on loopback');
 
   return {
     server,

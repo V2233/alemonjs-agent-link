@@ -8,6 +8,7 @@ export type MediaProvider = { baseUrl: string; apiKey: string; model: string; vo
 export type ImageGenerationProvider = MediaProvider & { responseFormat?: 'b64_json' | 'url' | 'auto'; size: string; stylePrompt: string; ownerOnly: boolean };
 export type ImagePreset = { id: string; name: string; enabled: boolean; provider: ImageGenerationProvider };
 export type MediaConfig = {
+  dshImageFallback?: boolean;
   voiceRotation?: boolean;
   imageLibrary?: ImagePreset[];
   activeImage?: string;
@@ -105,6 +106,7 @@ const imageProvider = (value: unknown): ImageGenerationProvider | undefined => {
 export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppConfigValue()): MediaConfig => {
   const raw = value?.media ?? {};
   const config: MediaConfig = {
+    dshImageFallback: raw.dshImageFallback ?? false,
     voiceRotation: raw.voiceRotation ?? false,
     imageLibrary: imageLibrary(raw.imageLibrary),
     activeImage: raw.activeImage,
@@ -150,6 +152,7 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
   if (config.activeVoice !== undefined && typeof config.activeVoice !== 'string') throw new MediaError('音色ID无效。');
   selectVoice(config, true);
 
+  if (typeof config.dshImageFallback !== 'boolean') throw new MediaError('DSH 生图兜底开关无效');
   if (config.activeImage !== undefined && typeof config.activeImage !== 'string') throw new MediaError('生图配置ID无效');
   if (config.activeImage) {
     const selected = config.imageLibrary?.find(item => item.id === config.activeImage);

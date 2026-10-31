@@ -142,7 +142,7 @@ export const resetGroupSession = async (channelId: string, config: DSHBridgeConf
     if (!(await registry.completeReset(channelId, resetting.operationId))) {
       throw new DSHError('migration', '会话重置被其他操作接管');
     }
-    logger.info({ group: await registry.groupKey(channelId) }, 'Reset isolated group session');
+    logger.debug({ group: await registry.groupKey(channelId) }, 'Reset isolated group session');
   })();
 
   groupResetTransitions.set(channelId, transition);
@@ -356,7 +356,7 @@ const runCoordinatedChatInner = async (
               onEvent: async modelEvent => {
                 if (modelEvent.type === 'content' && modelEvent.content && firstContentMs === undefined) {
                   firstContentMs = Date.now() - startedAt;
-                  logger.info({ requestId: duplicate.requestId, queueWaitMs, firstContentMs }, 'Agent first content');
+                  logger.debug({ requestId: duplicate.requestId, queueWaitMs, firstContentMs }, 'Agent first content');
                 }
                 await onEvent(modelEvent);
               },
@@ -413,7 +413,7 @@ const runCoordinatedChatInner = async (
           }
           throw error;
         } finally {
-          logger.info(
+          logger.debug(
             { requestId: duplicate.requestId, queueWaitMs, firstContentMs: firstContentMs ?? null, elapsedMs: Date.now() - startedAt },
             'Agent turn latency'
           );
@@ -428,7 +428,7 @@ const runCoordinatedChatInner = async (
     await release().catch(releaseError => logger.warn({ err: releaseError }, 'Unable to release failed DSH request'));
     throw error;
   }
-  logger.info({ requestId: duplicate.requestId, group: await registry.groupKey(event.ChannelId), status: 'model_completed' }, 'DSH chat completed');
+  logger.debug({ requestId: duplicate.requestId, group: await registry.groupKey(event.ChannelId), status: 'model_completed' }, 'DSH chat completed');
 
   return {
     ...duplicate,
@@ -443,7 +443,7 @@ const runCoordinatedChatInner = async (
 
         return;
       }
-      logger.info({ requestId: duplicate.requestId, group: await registry.groupKey(event.ChannelId), status: 'delivered' }, 'DSH response delivered');
+      logger.debug({ requestId: duplicate.requestId, group: await registry.groupKey(event.ChannelId), status: 'delivered' }, 'DSH response delivered');
     },
     release
   };

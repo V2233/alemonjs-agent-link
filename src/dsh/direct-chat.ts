@@ -1,3 +1,4 @@
+import { currentTimeContext } from './time-context';
 import { providerImageError } from './provider-error';
 import { localRequestFailure } from '../dsh/errors';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -58,7 +59,8 @@ export const directChat = async (
         },
         ...(privateHistory?.memoryContext ? [{ role: 'user', content: privateHistory.memoryContext }] : []),
         ...history,
-        { role: 'user', content: modelContent(message) }
+        { role: 'user', content: modelContent(message) },
+        { role: 'system', content: currentTimeContext() }
       ]
     });
 

@@ -104,3 +104,45 @@ test('explicit visual input preserves evidence limits and refuses truncated or f
   await assert.rejects(describeVisualInput(input, media, AbortSignal.timeout(5000), async () => Buffer.from(JSON.stringify({ choices: [{ message: { content: 'partial' }, finish_reason: 'length' }] }))), /截断/);
   await assert.rejects(describeVisualInput(input, media, AbortSignal.timeout(5000), async () => { throw new Error('fixture unavailable'); }), /fixture unavailable/);
 });
+
+test('ordinary image recognition rejects partial provider output', async () => {
+  const oldConfig = globalThis.__config, oldFetch = globalThis.fetch;
+  globalThis.__config = { value: { 'alemonjs-agent-link': { budget: { enabled: false } } } };
+  const media = getMediaConfig({ media: { vision: { baseUrl: 'https://vision.example/v1', apiKey: 'fixture-key', model: 'fixture' } } });
+  try {
+    globalThis.fetch = async () => Response.json({ choices: [{ message: { content: 'incomplete observation' }, finish_reason: 'length' }] });
+    await assert.rejects(understandMedia([{ Type: 'image', Url: 'https://example.org/a.png' }], '', media, AbortSignal.timeout(5000), async () => png), /图片识别结果被截断/);
+  } finally { globalThis.fetch = oldFetch; globalThis.__config = oldConfig; }
+});
+
+test('platform transcription preserves the boundary and refuses silently shortened text', async () => {
+  const media = getMediaConfig({});
+  const download = async () => assert.fail('platform transcript needs no download');
+  const transcript = '文'.repeat(12000);
+  const result = await understandMedia([{ Type: 'audio', Transcript: transcript }], '', media, AbortSignal.timeout(5000), download);
+  assert.ok(result.includes(transcript));
+  await assert.rejects(understandMedia([{ Type: 'audio', Transcript: transcript + '尾' }], '', media, AbortSignal.timeout(5000), download), /转写超过长度限制/);
+});
+
+test('cancelled transcription never starts fetch or accepts a late successful response', async () => {
+  const oldConfig = globalThis.__config, oldFetch = globalThis.fetch;
+  globalThis.__config = { value: { 'alemonjs-agent-link': { budget: { enabled: false } } } };
+  const media = getMediaConfig({ media: { asr: { baseUrl: 'https://asr.example/v1', apiKey: 'fixture-key', model: 'fixture' } } });
+  const reason = new Error('fixture cancellation');
+  try {
+    globalThis.fetch = async () => assert.fail('cancelled request must not start fetch');
+    await assert.rejects(transcribeAudio(mp3, media, AbortSignal.abort(reason)), error => error === reason);
+    const controller = new AbortController();
+    globalThis.fetch = async () => {
+      controller.abort(reason);
+      return Response.json({ text: 'late result' });
+    };
+    await assert.rejects(transcribeAudio(mp3, media, controller.signal), error => error === reason);
+  } finally { globalThis.fetch = oldFetch; globalThis.__config = oldConfig; }
+});
+
+test('cancelled explicit vision never invokes its transport', async () => {
+  const media = getMediaConfig({ media: { vision: { baseUrl: 'https://vision.example/v1', apiKey: 'fixture-key', model: 'fixture' } } });
+  const reason = new Error('fixture cancellation');
+  await assert.rejects(describeVisualInput([{ type: 'image', mimeType: 'image/png', data: png.toString('base64') }], media, AbortSignal.abort(reason), async () => assert.fail('cancelled request must not send')), error => error === reason);
+});

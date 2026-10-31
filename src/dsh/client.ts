@@ -1,3 +1,4 @@
+import { currentTimeContext } from './time-context';
 import { bridgeConversationIdentity, bridgeSessionHash, type BridgeConversationIdentity } from './conversation-scope';
 import { checkedBoundCredential, disableBoundCredential } from '../credentials/scoped';
 import { assertAIEnabled } from './ai-switch';
@@ -178,7 +179,7 @@ export const streamChat = async (
       body: JSON.stringify({
         sessionId,
         ...(conversation ? { conversation } : {}),
-        message: withInputContext(message, privateHistory?.memoryContext || ''),
+        message: withInputContext(message, [currentTimeContext(), privateHistory?.memoryContext].filter(Boolean).join('\n\n')),
         systemPrompt: config.defaultSystemPrompt,
         stream: true,
         capabilities: toCapabilities(capabilities),

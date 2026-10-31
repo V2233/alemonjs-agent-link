@@ -1,3 +1,4 @@
+import { currentTimeContext } from '../dsh/time-context';
 import { providerImageError } from '../dsh/provider-error';
 import { localRequestFailure } from '../dsh/errors';
 import { reasoningParameters, type IntelligenceLevel } from './intelligence';
@@ -85,7 +86,7 @@ export const requestModelMessage = async (
       current.report?.({ ok: false, errorKind: 'cancelled' });
       throw new Error(`模型请求超时：${attempts.length} 次尝试在 ${Math.round(budgetMs / 1000)} 秒内未成功${detail}。`);
     }
-    logger.info(
+    logger.debug(
       {
         requestId: meta.requestId,
         endpoint,
@@ -110,7 +111,7 @@ export const requestModelMessage = async (
       model: current.model || config.model,
       ...reasoningParameters(url, current.model || config.model, meta.intelligenceLevel),
       stream: Boolean(onContent),
-      messages,
+      messages: [...messages, { role: 'system', content: currentTimeContext() }],
       ...(tools.length
         ? {
             tools: tools.map(tool => ({ type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } })),
@@ -219,7 +220,7 @@ export const requestModelMessage = async (
         }
         continue;
       }
-      logger.info(
+      logger.debug(
         {
           requestId: meta.requestId,
           endpoint,
@@ -564,7 +565,7 @@ export const runToolChat = async (options: {
           }
           completed.set(call.id, { signature, result });
         }
-        logger.info(
+        logger.debug(
           {
             requestId: context.requestId,
             round: round + 1,
@@ -586,7 +587,7 @@ export const runToolChat = async (options: {
       }
     }
     if (segment >= maxContinuations) return await finish(limitReason);
-    logger.info(
+    logger.debug(
       { requestId: context.requestId, phase: 'tool-continuation', continuation: segment + 1, reason: limitReason, calls },
       'Agent tools silently queued to continue'
     );

@@ -79,11 +79,12 @@ test('sends a DSH SSE request and consumes content events', async () => {
   await streamChat(config, 'dsh:qq:group:1', 'hello', async event => events.push(event));
   globalThis.fetch = originalFetch;
 
+  assert.match(JSON.parse(request.options.body).message, /北京时间.*\n\n当前消息：\nhello/s);
   assert.equal(request.url, 'http://dsh.test/v1/chat');
   assert.equal(request.options.headers.Authorization, 'Bearer secret');
   assert.deepEqual(JSON.parse(request.options.body), {
     sessionId: 'dsh:qq:group:1',
-    message: 'hello',
+    message: JSON.parse(request.options.body).message,
     systemPrompt: withToolUsePolicy('test prompt'),
     stream: true,
     capabilities: { chat: true, web: true, files: true, terminal: false }
@@ -289,7 +290,8 @@ test('sandbox receives current explicit memory as reference alongside the actual
       generation: 1,
       memoryContext: '明确保存：喜欢科幻'
     });
-    assert.equal(body.message, '明确保存：喜欢科幻\n\n当前消息：\n今天聊什么');
+    assert.match(body.message, /北京时间/);
+    assert.equal(body.message.split('\n\n').slice(1).join('\n\n'), '明确保存：喜欢科幻\n\n当前消息：\n今天聊什么');
     assert.equal(body.systemPrompt, withToolUsePolicy(config.defaultSystemPrompt));
   } finally {
     globalThis.fetch = originalFetch;
@@ -305,7 +307,8 @@ test('sandbox bridge forwards image bytes as ACP blocks with memory intact', asy
   globalThis.fetch = async (_url, options) => {
     const body = JSON.parse(options.body);
     assert.deepEqual(body.message.slice(1), blocks);
-    assert.equal(body.message[0].text, '明确保存的记忆');
+    assert.match(body.message[0].text, /北京时间/);
+    assert.equal(body.message[0].text.split('\n\n').slice(1).join('\n\n'), '明确保存的记忆');
     return sseResponse('data: {"type":"done"}\n\n');
   };
   try {

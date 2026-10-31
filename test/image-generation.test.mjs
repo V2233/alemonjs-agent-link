@@ -92,3 +92,81 @@ test('a model tool call generates an image and queues it for the same reply', as
     await rm(root, { recursive: true, force: true });
   }
 });
+
+for (const scenario of ['provider-fails', 'provider-succeeds', 'delivery-fails']) {
+  test(`drawing fallback is bounded and only follows generation failure: ${scenario}`, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'image-fallback-'));
+    const previous = globalThis.__config, oldFetch = globalThis.fetch;
+    globalThis.__config = { value: { 'alemonjs-agent-link': {
+      apiKey: 'fixture', model: 'fixture', runtimeMode: 'chat-only', stateBackend: 'local',
+      workspaceRoot: join(root, 'work'), dshHomeRoot: join(root, 'home'), media: { imageGen: provider }
+    } } };
+    const config = getDSHConfig();
+    let modelCalls = 0, providerCalls = 0, deliveries = 0;
+    const call = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
+    const drawing = { width: 64, height: 64, elements: [{ type: 'circle', x: 32, y: 32, radius: 20, fill: '#0088ff' }] };
+    globalThis.fetch = async (url, init) => {
+      if (String(url).includes('images/generations')) {
+        providerCalls++;
+        return scenario === 'provider-fails' ? new Response('', { status: 503 }) : Response.json({ data: [{ b64_json: png.toString('base64') }] });
+      }
+      modelCalls++;
+      const body = JSON.parse(init.body);
+      if (modelCalls === 1) return Response.json({ choices: [{ message: { content: null, tool_calls: [call('generate', 'generate_image', { prompt: '蓝色圆形' })] } }] });
+      if (modelCalls === 2) return Response.json({ choices: [{ message: { content: null, tool_calls: [call('draw', 'draw_image', drawing), call('draw-again', 'draw_image', drawing), call('generate-again', 'generate_image', { prompt: '重试' })] } }] });
+      const results = body.messages.filter(m => m.role === 'tool');
+      const result = JSON.parse(results.find(m => m.tool_call_id === 'draw').content);
+      if (scenario === 'provider-fails') {
+        assert.equal(result.fallback, 'local-drawing');
+        assert.match(result.notice, /降级/);
+      } else assert.notEqual(result.ok, true);
+      for (const id of ['draw-again', 'generate-again']) assert.notEqual(JSON.parse(results.find(m => m.tool_call_id === id).content).ok, true);
+      return Response.json({ choices: [{ message: { content: '处理完毕。' } }] });
+    };
+    try {
+      await runModuleTurn({
+        config, sessionId: `fallback-${scenario}`, input: '画蓝色圆形，失败则绘制',
+        context: { channelId: 'private:fixture', userId: '1', platform: 'onebot', private: true, owner: false,
+          userText: '画蓝色圆形，失败则绘制', capabilities: { chat: true, web: false, files: false, terminal: false }, signal: new AbortController().signal },
+        onImage: async data => {
+          deliveries++;
+          assert.deepEqual(data.subarray(0, 8), png.subarray(0, 8));
+          if (scenario === 'delivery-fails') throw new Error('fixture delivery failed');
+        }, onEvent: async () => {}
+      });
+      assert.equal(providerCalls, 1);
+      assert.equal(deliveries, 1);
+      assert.equal(modelCalls, 3);
+    } finally {
+      await (await getModuleRuntime(config)).close();
+      globalThis.__config = previous; globalThis.fetch = oldFetch;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
+test('DSH fallback only follows provider failure, reports its source, and never repeats delivery', async () => {
+  const oldConfig = globalThis.__config, oldFetch = globalThis.fetch;
+  globalThis.__config = { value: { 'alemonjs-agent-link': { budget: { enabled: false } } } };
+  const config = getMediaConfig({ media: { imageGen: provider, dshImageFallback: true } });
+  let fallbackCalls = 0, deliveries = 0;
+  const context = { signal: new AbortController().signal };
+  const fallback = async () => { fallbackCalls++; return png; };
+  try {
+    globalThis.fetch = async () => new Response('', { status: 503 });
+    const result = await imageGenerationTool(config, async data => { assert.deepEqual(data, png); deliveries++; }, fallback).execute({ prompt: '鲸鱼' }, context);
+    assert.equal(result.source, 'dsh-image-gen');
+    assert.equal(deliveries, 1);
+    assert.equal(fallbackCalls, 1);
+    globalThis.fetch = async () => Response.json({ data: [{ b64_json: png.toString('base64') }] });
+    await assert.rejects(imageGenerationTool(config, async () => { throw new Error('delivery failed'); }, fallback).execute({ prompt: '鲸鱼' }, context), /delivery failed/);
+    assert.equal(fallbackCalls, 1);
+    globalThis.fetch = async () => new Response('', { status: 503 });
+    const stopped = new AbortController();stopped.abort();
+    await assert.rejects(imageGenerationTool(config, async () => assert.fail(), fallback).execute({ prompt: '鲸鱼' }, {signal:stopped.signal}));
+    assert.equal(fallbackCalls, 1);
+    await assert.rejects(imageGenerationTool({...config,dshImageFallback:false}, async () => assert.fail(), fallback).execute({prompt:'鲸鱼'},context));
+    assert.equal(fallbackCalls, 1);
+    await assert.rejects(imageGenerationTool(config, async () => assert.fail(), async () => {throw new Error('plugin failed');}).execute({prompt:'鲸鱼'},context), /plugin failed/);
+  } finally {globalThis.__config=oldConfig;globalThis.fetch=oldFetch;}
+});

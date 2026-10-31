@@ -4,6 +4,7 @@ import type { AgentTool } from '../agent/types';
 import { MediaError, type MediaConfig } from './config';
 import { downloadAttachment, imageMime } from './download';
 import { readBounded } from './providers';
+import { generateDshImage } from './dsh-image-generation';
 
 export const generateImage = async (prompt: string, config: MediaConfig, signal: AbortSignal): Promise<Buffer> => {
   const provider = config.imageGen;
@@ -67,18 +68,30 @@ export const generateImage = async (prompt: string, config: MediaConfig, signal:
   return data;
 };
 
-export const imageGenerationTool = (config: MediaConfig, deliver: (data: Buffer) => Promise<void>): AgentTool => ({
+export const imageGenerationTool = (config: MediaConfig, deliver: (data: Buffer) => Promise<void>, fallback = generateDshImage): AgentTool => ({
   name: 'generate_image',
   description:
-    '使用已配置的图片生成服务根据用户要求生成图片。调用前根据当前请求组织画面描述；每回合最多尝试一张。返回 created 只代表已生成，图片将在本轮回复阶段发送，不代表平台已送达。',
+    '使用已配置的图片生成服务根据用户要求生成图片。调用前根据当前请求组织画面描述；每回合最多尝试一张。' +
+    (config.dshImageFallback ? '服务失败后内部会尝试一次 DSH 生图插件；若工具仍失败，才考虑 draw_image 简单绘制。' : '') +
+    '返回 created 只代表已生成，图片将在本轮回复阶段发送，不代表平台已送达。',
   parameters: { type: 'object', properties: { prompt: { type: 'string', minLength: 1, maxLength: 4000 } }, required: ['prompt'], additionalProperties: false },
   available: context => !context.autonomous && Boolean(config.imageGen) && (!config.imageGen?.ownerOnly || context.owner),
   execute: async ({ prompt }, context) => {
-    const data = await generateImage(String(prompt), config, context.signal);
+    let data: Buffer;
+    let source = 'provider';
+
+    try {
+      data = await generateImage(String(prompt), config, context.signal);
+    } catch (error) {
+      context.signal.throwIfAborted();
+      if (!config.dshImageFallback || !(error instanceof MediaError)) throw error;
+      data = await fallback(String(prompt), config, context.signal);
+      source = 'dsh-image-gen';
+    }
 
     context.signal.throwIfAborted();
     await deliver(data);
 
-    return { ok: true, created: true, format: imageMime(data), delivery: 'queued-for-this-reply' };
+    return { ok: true, created: true, source, format: imageMime(data), delivery: 'queued-for-this-reply' };
   }
 });

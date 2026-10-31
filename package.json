@@ -18,6 +18,7 @@
     "python/dsh_bridge.py",
     "python/token_usage.py",
     "python/dsh_worker.py",
+    "python/dsh_imagegen.py",
     "python/native_permissions.mjs",
     "python/plugin_policy.py",
     "python/plugin_catalog.json",

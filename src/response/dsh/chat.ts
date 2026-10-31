@@ -365,7 +365,7 @@ export const runDSHChat = async (
     }
   }
 
-  logger.info(
+  logger.debug(
     {
       group: 'redacted',
       messageLength: prompt.length,
@@ -599,7 +599,7 @@ ${agentPrompt}`
           if (polished !== answer) {
             answer = polished;
             if (renderedAnswer) renderedAnswer = normalizeBubbleText(answer);
-            logger.info({ beforeChars: before, afterChars: Array.from(answer).length, durationMs: Date.now() - started }, 'Social reply polished');
+            logger.debug({ beforeChars: before, afterChars: Array.from(answer).length, durationMs: Date.now() - started }, 'Social reply polished');
           }
         }
         if (options.allowSilence && !options.autonomous) {
@@ -609,7 +609,7 @@ ${agentPrompt}`
           if (trimmed !== answer) {
             answer = trimmed;
             if (renderedAnswer) renderedAnswer = normalizeBubbleText(answer);
-            logger.info({ beforeChars: before, afterChars: Array.from(answer).length }, 'Social reply trimmed');
+            logger.debug({ beforeChars: before, afterChars: Array.from(answer).length }, 'Social reply trimmed');
           }
         }
         const speechText = normalizeBubbleText(answer);
@@ -935,18 +935,18 @@ ${agentPrompt}`
       const logDetails = { group: 'redacted', kind: 'budget', availableYuan: error.availableYuan, requiredYuan: error.requiredYuan };
 
       if (options.autonomous || options.allowSilence) {
-        logger.info(logDetails, 'Agent budget blocked silently');
+        logger.debug(logDetails, 'Agent budget blocked silently');
 
         return;
       }
       if (!(await claimBudgetNotice({ platform: event.Platform || '', channelId: getConversationId(event) }, event.MessageId))) {
-        logger.info(logDetails, 'Agent budget blocked; notice cooling down');
+        logger.debug(logDetails, 'Agent budget blocked; notice cooling down');
 
         return;
       }
       logger.warn(logDetails, 'Agent budget notice delivered');
     } else if (error instanceof DSHError && error.kind === 'migration') {
-      logger.info({ group: 'redacted' }, 'DSH chat awaits isolated-session migration');
+      logger.debug({ group: 'redacted' }, 'DSH chat awaits isolated-session migration');
     } else if (error instanceof DSHError && error.kind === 'timeout') {
       logger.warn({ group: 'redacted' }, 'Agent chat exceeded its request deadline');
     } else {

@@ -3,6 +3,7 @@ import { getMediaConfig } from '../media/config';
 import { visionSource } from '../media/vision';
 import { selectVoice } from '../media/voice-library';
 import { videoDecoderAvailable } from '../media/video-input';
+import { dshImagePreparationStatus } from '../media/dsh-image-generation';
 
 /** Capability discovery never returns provider URLs, keys, cookies or host paths. */
 export const mediaCapabilitiesModule = (): AgentModule => ({
@@ -35,6 +36,8 @@ export const mediaCapabilitiesModule = (): AgentModule => ({
           vision: visual ? 'configured' : 'main_model_support_required',
           visionSource: visual || 'main_model_unverified',
           imageGeneration: media.imageGen && (!media.imageGen.ownerOnly || context.owner) ? 'configured' : 'unavailable',
+          dshImageFallback: Boolean(media.dshImageFallback && media.imageGen && (!media.imageGen.ownerOnly || context.owner)),
+          dshImagePlugin: dshImagePreparationStatus(),
           videoUnderstanding: !decoder ? 'decoder_missing' : visual ? 'mp4_sampled_frames_not_full_video_or_audio' : 'decoder_present_vision_model_unverified',
           videoGeneration: { status: 'reserved', enabled: false, message: '尚未接入视频生成供应商，不提交生成任务。' },
           evidence: '仅配置和本地依赖检查，未调用收费服务，也未验证平台投递。'

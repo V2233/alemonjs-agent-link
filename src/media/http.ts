@@ -10,7 +10,8 @@ export class MediaHttpError extends MediaError {
 
 export const readBounded = async (response: Response, maxBytes: number): Promise<Buffer> => {
   if (!response.ok) {
-    await response.body?.cancel();
+    // Cleanup failures must not hide the provider's HTTP status.
+    await response.body?.cancel().catch(() => undefined);
     throw new MediaHttpError(response.status);
   }
   if (!response.body) {
@@ -34,7 +35,11 @@ export const readBounded = async (response: Response, maxBytes: number): Promise
       chunks.push(part.value);
     }
   } finally {
-    await reader.cancel();
+    try {
+      await reader.cancel().catch(() => undefined);
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   return Buffer.concat(chunks);
