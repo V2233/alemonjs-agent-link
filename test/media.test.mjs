@@ -95,7 +95,7 @@ test('vision sends bounded embedded bytes and interprets provider output as refe
     assert.match(result, /只是引用资料/);
     await assert.rejects(
       understandMedia([{ Type: 'image', Url: 'x' }], '', getMediaConfig({}), signal(), async () => png),
-      /看不懂，就当是夸我了/
+      /识别服务尚未配置/
     );
     await assert.rejects(
       understandMedia([{ Type: 'image', Url: 'x' }], '', config, signal(), async () => Buffer.from('<html>')),

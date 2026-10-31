@@ -183,7 +183,7 @@ export default {
 
 存在可用业务工具、回复转换模块或本轮系统提示词变化时，主模型通过兼容 Chat Completions 的 function tools 完成调用循环。存在工具时配置的模型服务必须支持工具调用；服务不支持时本轮报错，不假装执行成功。内置人格和心情见[人格、心情与自动表达](companion.md)。
 
-网页任务通过隔离 DSH 会话的 `agent_workspace` 执行，需要沙箱就绪和网页权限。文件由内置 `files` 模块的 `workspace_list/read/write/mkdir/move/delete` 工具执行，Node 模式也可用；路径固定在当前群或个人目录内，具体边界见 [安全说明](security.md#工具权限与隔离)。DSH 可通过 framework MCP 调用同一组受限文件工具，原生文件和终端工具始终禁用。
+网页任务通过隔离 DSH 会话的 `agent_workspace` 执行，需要沙箱就绪和网页权限。文件由内置 `files` 模块的 `workspace_list/read/write/mkdir/move/delete` 工具执行，Node 模式也可用；路径固定在当前群或个人目录内，具体边界见 [安全说明](security.md#工具权限与隔离)。DSH 可通过 framework MCP 调用同一组受限文件工具，原生文件与文件搜索工具随文件授权开启，仅操作 DSH 隔离工作目录；终端仍受机器人业务策略限制。启动及恢复会话时，通过 DSH 原生 `permissionPresets` 服务同步权限：无文件授权为 `read-only`，有文件授权为 `workspace-write`，不自动授予完全访问。审批保持原生 `ask`，当前机器人尚未接入人工审批交互。
 
 模块工具回合的问答在全部回复成功送达后保存到会话历史，群聊和私聊按会话隔离。沿用 `privateHistoryMaxTurns`、`privateHistoryTtlSeconds`、`privateHistoryMaxChars` 的历史预算；`/new` 和数据清理同样覆盖这份历史。回复转换后的最终文本写入历史，图片仅保存文字占位。模块未提供工具或回复转换时沿用原有聊天链路。
 

@@ -1,3 +1,5 @@
+import { webModule } from '../modules/web';
+import { mediaCapabilitiesModule } from '../modules/media-capabilities';
 import { interactionModule } from '../modules/interaction';
 import { hobbiesModule } from '../modules/hobbies';
 import { opinionsModule } from '../modules/opinions';
@@ -254,6 +256,8 @@ export class ModuleRuntime {
     private readonly config: DSHBridgeConfig,
     private readonly builtins: AgentModule[] = [
       filesModule(config),
+      webModule(),
+      mediaCapabilitiesModule(),
       personaModule(config),
       hobbiesModule(config),
       conversationModule(config),

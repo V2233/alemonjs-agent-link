@@ -1,3 +1,4 @@
+import { personaOwnerPrompt } from './persona-owner';
 import { alemonPreset } from './presets/alemon';
 import { bailiPreset } from './presets/baili';
 import lockfile from 'proper-lockfile';
@@ -371,7 +372,10 @@ export class PersonaStore {
     }
   }
 
-  async systemPrompt(config: DSHBridgeConfig, context: PersonaScope & { private: boolean; owner: boolean; personaEntitled?: boolean }): Promise<string> {
+  async systemPrompt(
+    config: DSHBridgeConfig,
+    context: PersonaScope & { private: boolean; owner: boolean; personalPersonaOwner?: boolean; groupPersonaFamily?: boolean; personaEntitled?: boolean }
+  ): Promise<string> {
     const configured = config.modules?.settings?.persona;
     const id = this.activeSelection(context) || configured?.defaultId;
 
@@ -402,7 +406,8 @@ export class PersonaStore {
       extra,
       groupExtra,
       personaModePrompt(this.expressionMode(context)),
-      definition.id === 'dafeiyu' ? dafeiyuConversationRules : ''
+      definition.id === 'dafeiyu' ? dafeiyuConversationRules : '',
+      definition.id === 'dafeiyu' ? personaOwnerPrompt(context) : ''
     ]
       .filter(Boolean)
       .join('\n\n');

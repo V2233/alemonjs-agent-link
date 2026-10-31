@@ -48,7 +48,7 @@ class InitializationTests(unittest.TestCase):
         }
         env = {'DSH_PROXY_TOKEN': 'test', 'DSH_PROXY_BASE_URL': 'http://127.0.0.1:1', 'DSH_CHAT_ONLY_PATCH': '/tmp/patch'}
         command = json.dumps({'type': 'chat', 'sessionId': 'test', 'message': 'hello'}) + '\n'
-        with patch.dict('sys.modules', modules), patch.dict(os.environ, env), patch('sys.stdin', io.StringIO(command)), patch.object(worker, 'emit', events.append):
+        with patch.dict('sys.modules', modules), patch.dict(os.environ, env), patch('sys.stdin', io.StringIO(command)), patch.object(worker, 'verify_native_permissions'), patch.object(worker, 'emit', events.append):
             self.assertEqual(worker.main(), 0)
         self.assertEqual(harness.runs, 1)
         self.assertEqual([event['type'] for event in events], ['phase', 'ready', 'phase', 'result'])
@@ -93,6 +93,34 @@ class InitializationTests(unittest.TestCase):
         self.assertEqual(worker.execution_error_code(RuntimeError('Unsupported or malformed image data.')), 'invalid-image')
 
 
+class PermissionVerificationTests(unittest.TestCase):
+    def test_ack_requires_current_process_session_and_preset(self):
+        session = SimpleNamespace(id='session', get_working_directory=lambda: '/tmp')
+        for value in (['old', 'session', 'read-only'], ['nonce', 'other', 'read-only'], ['nonce', 'session', 'workspace-write']):
+            harness = SimpleNamespace(client=SimpleNamespace(_stderr_lines=['AGENTLINK_PERMISSION ' + json.dumps(value)]))
+            with self.assertRaises(worker.PermissionVerificationError):
+                worker.verify_native_permissions(harness, session, 'nonce', 'read-only', timeout=0)
+        harness.client._stderr_lines.append('AGENTLINK_PERMISSION ' + json.dumps(['nonce', 'session', 'read-only']))
+        worker.verify_native_permissions(harness, session, 'nonce', 'read-only', timeout=0)
+
+    def test_missing_plugin_prevents_model_execution(self):
+        events = []
+        session = SimpleNamespace(id='session', get_working_directory=lambda: '/tmp',
+                                  run=lambda *_args, **_kwargs: self.fail('model must not run'))
+        harness = SimpleNamespace(start=lambda: None, close=lambda: None,
+                                  start_session=lambda _id: session, client=SimpleNamespace(_stderr_lines=[]))
+        modules = {
+            'deepseek_harness': SimpleNamespace(DeepSeekHarness=lambda **_kwargs: harness),
+            'deepseek_harness_runtime': SimpleNamespace(bundled_runtime_path=lambda: Path('/tmp/runtime')),
+        }
+        env = {'DSH_PROXY_TOKEN': 'fixture', 'DSH_PROXY_BASE_URL': 'http://127.0.0.1:1', 'DSH_CHAT_ONLY_PATCH': '/tmp/patch'}
+        command = json.dumps({'type': 'chat', 'sessionId': 'session', 'message': 'do not execute'}) + '\n'
+        with patch.dict('sys.modules', modules), patch.dict(os.environ, env), patch('sys.stdin', io.StringIO(command)), patch.object(worker, 'emit', events.append), patch.object(worker.time, 'monotonic', side_effect=[0, 3]):
+            self.assertEqual(worker.main(), 0)
+        self.assertEqual(events[-1]['code'], 'permission-verification')
+        self.assertNotIn('harness-run', [event.get('phase') for event in events])
+
+
 class NativeResumeTests(unittest.TestCase):
     def test_restored_turn_uses_native_resume_without_creating_an_empty_session(self):
         events, resumed = [], []
@@ -110,7 +138,7 @@ class NativeResumeTests(unittest.TestCase):
         env = {'DSH_PROXY_TOKEN': 'fixture', 'DSH_PROXY_BASE_URL': 'http://127.0.0.1:1',
                'DSH_CHAT_ONLY_PATCH': '/tmp/patch', 'DSH_SESSION_EPOCH': 'stable-epoch'}
         command = json.dumps({'type': 'chat', 'sessionId': 'fixture-session', 'message': 'continue', 'resume': True}) + '\n'
-        with patch.dict('sys.modules', modules), patch.dict(os.environ, env), patch('sys.stdin', io.StringIO(command)), patch.object(worker, 'emit', events.append):
+        with patch.dict('sys.modules', modules), patch.dict(os.environ, env), patch('sys.stdin', io.StringIO(command)), patch.object(worker, 'verify_native_permissions'), patch.object(worker, 'emit', events.append):
             self.assertEqual(worker.main(), 0)
         self.assertEqual(resumed, ['fixture-session:wstable-epoch'])
         self.assertEqual(events[-1]['content'], 'restored')

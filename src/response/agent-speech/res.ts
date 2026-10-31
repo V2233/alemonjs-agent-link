@@ -54,6 +54,7 @@ export default async (): Promise<void> => {
         system: '系统语音',
         edge: 'Edge 语音',
         openai: '兼容接口',
+        fish: 'Fish Audio',
         breeze: 'Breeze',
         cosyvoice: 'CosyVoice',
         gptsovits: 'GPT-SoVITS',

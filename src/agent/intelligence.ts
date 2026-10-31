@@ -75,7 +75,7 @@ export const turnIntelligence = async (config: DSHBridgeConfig, identity: Intell
   if (requested && access.entitled && !autonomous) level = requested;
   if (autonomous) level = '轻快';
 
-  return { level, ...intelligenceProfiles[level], entitled: access.entitled };
+  return { level, ...intelligenceProfiles[level], entitled: access.entitled, bound: access.bound };
 };
 
 export const ownerTerminalAllowed = (identity: IntelligenceIdentity, autonomous = false): boolean => identity.owner && identity.private && !autonomous;

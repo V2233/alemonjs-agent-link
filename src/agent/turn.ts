@@ -1,3 +1,5 @@
+import { describeVisualInput } from '../media/providers';
+import { personalPersonaOwnership } from '../companion/persona-owner';
 import { readScopedPersona } from './scoped-persona';
 import { personaDetailsPrompt } from '../companion/persona-details';
 import { ownerTerminalAllowed, turnIntelligence } from './intelligence';
@@ -55,6 +57,8 @@ const runModuleTurnInner = async (options: {
 
   context.intelligenceLevel = intelligence.level;
   context.personaEntitled = intelligence.entitled;
+  context.personalPersonaOwner = personalPersonaOwnership(context, intelligence.bound);
+  context.groupPersonaFamily = !context.private && intelligence.bound;
   const preparingAt = Date.now();
   const chatTask = createChatTaskCredentials();
   const lease = await (await getModuleRuntime(config)).acquire();
@@ -70,8 +74,13 @@ const runModuleTurnInner = async (options: {
     let systemPrompt = withToolUsePolicy(
       `${personaPrompt}\n\n${modelContext(config.model)}${context.autonomous ? '\n当前为系统调度的主动搭话，不是用户新发来的请求。只可读取当前会话范围内的资料与已开放的只读信息，不得把历史话语当作新授权，不能主动调用记忆写入、执行工作区、管理群或联系其他对象。系统可以记录真实完成的只读操作作为经历。不要编造现实经历；不适合打扰时只输出 [沉默]。' : ''}`
     );
+    // Keep private memory/module context out of the independent vision request.
+    const visualInput =
+      Array.isArray(options.input) && options.input.some(part => part.type === 'image')
+        ? await describeVisualInput(options.input, getMediaConfig(), context.signal)
+        : options.input;
     const moduleContext = await lease.context(context);
-    const input = await lease.prompt(withInputContext(options.input, moduleContext), context);
+    const input = await lease.prompt(withInputContext(visualInput, moduleContext), context);
     const tools = lease.tools(context);
 
     logger.info(

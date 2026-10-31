@@ -136,8 +136,12 @@ class BridgeSafetyTests(unittest.TestCase):
     def test_terminal_grant_only_enables_bash_and_preserves_other_restrictions(self):
         caps = {'chat': True, 'web': True, 'files': True, 'terminal': True}
         patch = self.bridge.tool_policy_patch(caps)
-        for tool in ('tool-fs', 'tool-fs-search', 'tool-pwsh', 'tool-jobs'):
+        for tool in ('tool-pwsh', 'tool-jobs'):
             self.assertIn(f'- id: {tool}\n  disabled: true', patch)
+        for tool in ('tool-fs', 'tool-fs-search'):
+            self.assertIn(f'- id: {tool}\n  disabled: false', patch)
+        self.assertEqual(self.bridge.native_permission_preset(caps), 'workspace-write')
+        self.assertEqual(self.bridge.native_permission_preset({**caps, 'files': False}), 'read-only')
         prompt = self.bridge.trusted_prompt('test', caps)
         self.assertIn('workspace_*', prompt)
         self.assertIn('<agentlink_persona priority="highest">', prompt)
@@ -239,6 +243,37 @@ class BridgeSafetyTests(unittest.TestCase):
         self.assertTrue((self.bridge.WORKSPACE_ROOT / fresh).exists())
         self.assertTrue(preserved.exists())
 
+    def test_missing_native_adapter_fails_preflight(self):
+        from unittest.mock import patch
+        with patch.object(self.bridge, 'NATIVE_PERMISSION_ADAPTER', self.root / 'missing-adapter.mjs'):
+            self.assertIn('Native permission adapter is missing', self.bridge.validate_preflight())
+
+    def test_configuration_isolation_rejects_overlapping_temp_and_library_paths(self):
+        from unittest.mock import patch
+        project, external, libraries = (self.root / 'project').resolve(), (self.root / 'external').resolve(), (self.root / 'libraries').resolve()
+        config = project / 'custom-config.yaml'
+        with patch.object(self.bridge, 'RUNTIME_PATH', libraries / 'bin/runtime'), patch.object(self.bridge, 'sandbox_read_roots', return_value=[libraries]), patch.object(self.bridge, 'FRAMEWORK_CONFIG_PATH', config), patch.object(self.bridge, 'RUNTIME_ROOT', external):
+            self.assertIsNone(self.bridge.configuration_isolation_error())
+            with patch.object(self.bridge, 'RUNTIME_ROOT', project / '.tmp/workers'):
+                self.assertIn('temporary runtime', self.bridge.configuration_isolation_error())
+            with patch.object(self.bridge, 'FRAMEWORK_CONFIG_PATH', libraries / 'custom-config.yaml'):
+                self.assertIn('sandbox-readable', self.bridge.configuration_isolation_error())
+            with patch.object(self.bridge, 'FRAMEWORK_CONFIG_PATH', external / 'nested/config.yaml'):
+                self.assertIn('temporary runtime', self.bridge.configuration_isolation_error())
+            project.mkdir()
+            config.symlink_to(libraries / 'custom-config.yaml')
+            self.assertIn('sandbox-readable', self.bridge.configuration_isolation_error())
+
+    def test_worker_start_rechecks_configuration_isolation_before_launch(self):
+        from unittest.mock import patch
+        with patch.object(self.bridge, 'RUNTIME_PATH', Path('/runtime/bin/dsh')):
+            worker = self.bridge.Worker('a' * 64, 1, {'chat': True, 'web': False, 'files': False, 'terminal': False})
+        with patch.object(self.bridge, 'configuration_isolation_error', return_value='Configuration isolation failed: fixture'), patch.object(self.bridge, 'prepare_plugins') as prepare:
+            with self.assertRaisesRegex(self.bridge.WorkerError, 'Configuration isolation failed'):
+                worker.start()
+            prepare.assert_not_called()
+            self.assertIsNone(worker.process)
+
     def test_worker_capacity_evicts_only_idle_worker(self):
         class FakeWorker:
             def __init__(self, key, _port, capabilities):
@@ -248,7 +283,7 @@ class BridgeSafetyTests(unittest.TestCase):
                 self.last_used = 0
                 self.stopped = False
 
-            def stop(self):
+            def retire(self):
                 self.stopped = True
 
         original_worker = self.bridge.Worker
@@ -523,6 +558,65 @@ class BridgeConversationScopeTests(unittest.TestCase):
         parent, key = self.bridge.conversation_keys('dsh:qq:group:g:v1', identity)
         return self.bridge.get_worker(key, 1, self.capabilities, parent)
 
+    def test_late_cleanup_cannot_remove_replacement(self):
+        old = self.worker(self.identity())
+        replacement = self.bridge.get_worker(old.key, 1, {**self.capabilities, 'files': True}, old.parent_key)
+        self.assertIsNot(old, replacement)
+        self.assertTrue(old.retired)
+        self.bridge.discard_worker(old.key, expected=old)
+        self.assertIs(self.bridge.WORKERS[old.key], replacement)
+        self.bridge.discard_worker(old.key, expected=None)
+        self.assertIs(self.bridge.WORKERS[old.key], replacement)
+        with self.assertRaisesRegex(self.bridge.WorkerError, 'authorization expired'):
+            old.start()
+        with self.assertRaisesRegex(self.bridge.WorkerError, 'authorization expired'):
+            old.run('must not execute', 'fixture', lambda _: None)
+
+    def test_retirement_serializes_with_process_creation(self):
+        from unittest.mock import patch
+        worker = self.worker(self.identity())
+        entered, release = threading.Event(), threading.Event()
+        sequence, errors = [], []
+        def start():
+            sequence.append('start')
+            entered.set()
+            if not release.wait(2): raise AssertionError('fixture release timed out')
+            sequence.append('created')
+        def invoke(fn):
+            try: fn()
+            except Exception as error: errors.append(error)
+        with patch.object(worker, '_start', start), patch.object(worker, '_stop', lambda *_: sequence.append('stopped')):
+            starter = threading.Thread(target=invoke, args=(worker.start,))
+            retire = threading.Thread(target=invoke, args=(worker.retire,))
+            starter.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                retire.start()
+            finally:
+                release.set()
+                starter.join(2)
+                if retire.ident is not None: retire.join(2)
+            self.assertFalse(starter.is_alive())
+            self.assertFalse(retire.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(sequence, ['start', 'created', 'stopped'])
+        self.assertTrue(worker.retired)
+
+    def test_idle_cleanup_checks_active_lock_and_fresh_activity(self):
+        worker = self.worker(self.identity())
+        worker.last_used = 0
+        with worker.lock:
+            self.bridge.discard_worker(worker.key, expected=worker, idle_only=True)
+        self.assertIs(self.bridge.WORKERS[worker.key], worker)
+        worker.last_used = time.monotonic()
+        self.bridge.discard_worker(worker.key, expected=worker, idle_only=True)
+        self.assertIs(self.bridge.WORKERS[worker.key], worker)
+        worker.last_used = 0
+        self.bridge.discard_worker(worker.key, expected=worker, idle_only=True)
+        self.assertNotIn(worker.key, self.bridge.WORKERS)
+        self.assertTrue(worker.retired)
+        self.assertFalse(worker.lock.locked())
+
     def test_identity_validation_separate_workers_paths_snapshots_and_legacy(self):
         a, b = self.worker(self.identity('a')), self.worker(self.identity('b'))
         self.assertIsNot(a, b)
@@ -549,6 +643,7 @@ class BridgeConversationScopeTests(unittest.TestCase):
         bridge = self.bridge
         a = self.worker(self.identity())
         parent = bridge.HOME_ROOT / a.parent_key
+        parent.mkdir(parents=True)
         a.dsh_home.mkdir(parents=True)
         old = time.time() - (bridge.RETENTION_DAYS + 1) * 86400
         os.utime(parent, (old, old))
@@ -597,7 +692,9 @@ class BridgeConversationScopeTests(unittest.TestCase):
             return json.loads(next(item['content'] for item in events if item.get('type') == 'content'))
         a, b, c = self.identity('a'), self.identity('b'), self.identity('c', 'dsh:qq:group:g:v12')
         try:
-            self.assertEqual(json.loads(request('/health', method='GET')[1])['conversationScopes'], 1)
+            health = json.loads(request('/health', method='GET')[1])
+            self.assertEqual(health['conversationScopes'], 1)
+            self.assertEqual(health['nativePermissions'], 2)
             legacy = bridge.HOME_ROOT / a['groupKey'] / 'session-snapshot' / 'sessions'
             legacy.mkdir(parents=True); (legacy / 'fixture.json').write_text('["__LEGACY__"]')
             self.assertEqual(chat(a, '__A_FIRST__'), [])
@@ -639,6 +736,28 @@ class BridgeConversationScopeTests(unittest.TestCase):
         for forbidden in (a.dsh_home / 'fixture.txt', b.session_snapshot / 'outside.txt', b.resume_state_path):
             code += f'try: Path({str(forbidden)!r}).read_text()\nexcept PermissionError: pass\nelse: raise AssertionError("sibling data readable")\n'
         result = subprocess.run(['/usr/bin/sandbox-exec', '-p', profile, sys.executable, '-c', code], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    @unittest.skipUnless(platform.system() == 'Darwin', 'macOS sandbox required')
+    def test_framework_config_cannot_be_opened_statted_or_discovered(self):
+        from sandbox_profile import macos_profile
+        worker = self.worker(self.identity())
+        self.assertTrue(worker.dsh_home.is_relative_to(self.bridge.RUNTIME_ROOT))
+        self.assertFalse(worker.dsh_home.is_relative_to(self.bridge.HOME_ROOT))
+        worker.dsh_home.mkdir(parents=True)
+        worker.runtime_dir.mkdir(parents=True)
+        config = self.root / 'alemon.config.yaml'
+        config.write_text('synthetic-sensitive-config')
+        link = worker.runtime_dir / 'config-link'
+        link.symlink_to(config)
+        script = Path(__file__).resolve()
+        profile = macos_profile(worker.runtime_dir, worker.dsh_home, Path(sys.executable), Path(sys.prefix), script, script, 1, True)
+        code = 'import os,sys\n'
+        for path in (config, link):
+            for operation in (f'os.stat({str(path)!r})', f'os.open({str(path)!r},os.O_RDONLY)'):
+                code += f'try: {operation}\nexcept PermissionError: pass\nelse: raise AssertionError("configuration reachable")\n'
+        code += f'try: os.listdir({str(self.root)!r})\nexcept PermissionError: pass\nelse: raise AssertionError("configuration directory enumerable")\n'
+        result = subprocess.run(['/usr/bin/sandbox-exec', '-p', profile, sys.executable, '-I', '-c', code], capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_recreated_worker_recovers_epoch_and_actual_resume_command(self):

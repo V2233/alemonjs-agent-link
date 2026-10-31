@@ -1,7 +1,8 @@
+import { AdminInputError } from './admin-error';
 import { parseSponsors } from '../sponsors/config';
 import { parseAds } from '../ads/config';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { readFile, writeFile, rename, mkdir, unlink } from 'node:fs/promises';
+import { readFile, writeFile, rename, mkdir, unlink, link } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import { resolveDSHConfig } from '../dsh/config';
@@ -11,8 +12,7 @@ import { resolveOneBotConfig } from '../onebot/config';
 import { getModuleConfig } from '../agent/modules';
 
 export const hiddenSecret = '__AGENTLINK_KEEP_SECRET__';
-const maskKey = randomBytes(32);
-const secretMarker = (value: unknown) => hiddenSecret + createHmac('sha256', maskKey).update(JSON.stringify(value)).digest('hex');
+const secretMarker = (maskKey: Buffer, value: unknown) => hiddenSecret + createHmac('sha256', maskKey).update(JSON.stringify(value)).digest('hex');
 const secretKey = /^key$|api.?key|secret|password|token|authorization|master_key|bot_key/i;
 const revision = (text: string) => createHash('sha256').update(text).digest('hex');
 const parse = (source: string) => {
@@ -39,7 +39,7 @@ export const validateConfiguration = (source: string, path: string) => {
 
   return config;
 };
-function redact(source: string) {
+function redact(source: string, maskKey: Buffer) {
   // Serialize values only: comments may contain credentials copied by users.
   const doc = parse(JSON.stringify(parse(source).toJS({ maxAliasCount: 100 })));
   const visit = (node: any, sensitive = false) => {
@@ -51,7 +51,7 @@ function redact(source: string) {
         else visit(pair.value, sensitive || secretKey.test(key));
       });
     else if (isSeq(node)) node.items.forEach(item => visit(item, sensitive));
-    else if (isScalar(node) && sensitive && node.value) node.value = secretMarker(node.value);
+    else if (isScalar(node) && sensitive && node.value) node.value = secretMarker(maskKey, node.value);
   };
 
   visit(doc.contents);
@@ -61,12 +61,37 @@ function redact(source: string) {
 export class ProductSettingsFile {
   private busy = false;
   constructor(readonly path: string) {}
+  private async maskingKey(): Promise<Buffer> {
+    const directory = join(dirname(this.path), '.agent-link-config-history');
+    const keyPath = join(directory, '.mask-key');
+
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    try {
+      return await readFile(keyPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const temp = keyPath + '.' + randomUUID();
+
+    try {
+      await writeFile(temp, randomBytes(32), { mode: 0o600, flag: 'wx' });
+      try {
+        await link(temp, keyPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+
+      return await readFile(keyPath);
+    } finally {
+      await unlink(temp).catch(() => undefined);
+    }
+  }
   async read() {
     const source = await readFile(this.path, 'utf8');
 
     const app = parse(source).toJS({ maxAliasCount: 100 })['alemonjs-agent-link'] ?? {};
 
-    return { source: redact(JSON.stringify({ 'alemonjs-agent-link': app })), revision: revision(source) };
+    return { source: redact(JSON.stringify({ 'alemonjs-agent-link': app }), await this.maskingKey()), revision: revision(source) };
   }
   async prepare(source: string, expected: string) {
     const original = await readFile(this.path, 'utf8');
@@ -78,6 +103,7 @@ export class ProductSettingsFile {
       throw new Error('只能修改 AgentLink 配置');
     const before = parse(original);
     const secrets = new Map<string, unknown>();
+    const maskKey = await this.maskingKey();
     const collect = (node: any, sensitive = false) => {
       if (isMap(node))
         node.items.forEach((pair: any) => {
@@ -87,7 +113,7 @@ export class ProductSettingsFile {
           else collect(pair.value, sensitive || secretKey.test(key));
         });
       else if (isSeq(node)) node.items.forEach(item => collect(item, sensitive));
-      else if (isScalar(node) && sensitive && node.value) secrets.set(secretMarker(node.value), node.value);
+      else if (isScalar(node) && sensitive && node.value) secrets.set(secretMarker(maskKey, node.value), node.value);
     };
 
     collect(parse(JSON.stringify(before.toJS({ maxAliasCount: 100 }))).contents);
@@ -97,7 +123,7 @@ export class ProductSettingsFile {
       else if (isScalar(node) && typeof node.value === 'string' && node.value.startsWith(hiddenSecret)) {
         const value = secrets.get(node.value);
 
-        if (value === undefined) throw new Error('新配置不能使用未修改密钥占位符');
+        if (value === undefined) throw new AdminInputError('密钥占位符已失效，请刷新音色库后重试；无需重新输入已保存的密钥。');
         node.value = value;
       }
     };

@@ -558,13 +558,17 @@ export class DSHSupervisor {
         continue;
       }
       if (response.ok) {
+        let nativePermissions: unknown;
+
         try {
           const value = JSON.parse((await readBounded(response, 8192)).toString('utf8'));
 
           if (value.status !== 'ready' || value.sandbox !== true || value.conversationScopes !== 1) throw new Error('incompatible');
+          nativePermissions = value.nativePermissions;
         } catch {
           throw new Error('DSH bridge does not support conversation scope protocol v1');
         }
+        if (nativePermissions !== 2) throw new Error('DSH bridge does not support native permission protocol v2');
 
         return;
       }
@@ -644,6 +648,15 @@ export class DSHSupervisor {
     if (message.includes('Configured Python')) {
       return '自定义 Python 环境不可用，请检查 pythonExecutable。';
     }
+    if (message.includes('native permission protocol')) {
+      return 'DSH Bridge 版本过旧，缺少原生权限校验；请重启机器人并使用完整的新版本安装包。';
+    }
+    if (message.includes('Native permission adapter is missing')) {
+      return '缺少 DSH 原生权限适配文件，请重新安装完整的 AgentLink 安装包。';
+    }
+    if (message.includes('Configuration isolation failed')) {
+      return '配置隔离检查未通过：请将临时目录设到项目外，并将框架配置移出系统或 Python 运行库目录。';
+    }
     if (message.includes('preflight failed')) {
       return '安全前置检查失败：请确认系统沙箱、Python 运行时和模型服务配置均有效。';
     }
@@ -663,7 +676,7 @@ export class DSHSupervisor {
 export const configureDSHSupervisor = (config: DSHBridgeConfig, credentials: DSHCredentials | null = null): DSHSupervisor => {
   installShutdownHook();
   const fingerprint = createHash('sha256')
-    .update(`conversation-scope-v1:${fingerprintConfig(config)}:${fingerprintCredentials(credentials)}`)
+    .update(`conversation-scope-v1:native-permissions-v2:${fingerprintConfig(config)}:${fingerprintCredentials(credentials)}`)
     .digest('hex');
 
   if (processState.supervisor && processState.fingerprint === fingerprint) {

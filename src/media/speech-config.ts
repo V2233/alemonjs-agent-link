@@ -1,4 +1,4 @@
-export type SpeechEngine = 'auto' | 'system' | 'edge' | 'openai' | 'breeze' | 'cosyvoice' | 'gptsovits' | 'http';
+export type SpeechEngine = 'auto' | 'system' | 'edge' | 'openai' | 'fish' | 'breeze' | 'cosyvoice' | 'gptsovits' | 'http';
 export type SpeechOptions = {
   engine: SpeechEngine;
   fallback: boolean;
@@ -24,7 +24,7 @@ export class SpeechError extends Error {
     super(detail);
   }
 }
-export const speechOptions = (value: unknown = {}): SpeechOptions => {
+export const speechOptions = (value: unknown = {}, allowUnselectedFishVoice = false): SpeechOptions => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new SpeechError('configuration', '语音引擎配置无效。');
   }
@@ -51,7 +51,7 @@ export const speechOptions = (value: unknown = {}): SpeechOptions => {
     !raw ||
     typeof raw !== 'object' ||
     Array.isArray(raw) ||
-    !['auto', 'system', 'edge', 'openai', 'breeze', 'cosyvoice', 'gptsovits', 'http'].includes(options.engine) ||
+    !['auto', 'system', 'edge', 'openai', 'fish', 'breeze', 'cosyvoice', 'gptsovits', 'http'].includes(options.engine) ||
     typeof options.fallback !== 'boolean' ||
     !Number.isSafeInteger(options.sampleRate) ||
     options.sampleRate < 8000 ||
@@ -90,6 +90,9 @@ export const speechOptions = (value: unknown = {}): SpeechOptions => {
   }
   if (options.engine === 'http' && !options.urlTemplate) {
     throw new SpeechError('configuration', 'HTTP 语音引擎需要 urlTemplate。');
+  }
+  if (options.engine === 'fish' && (!options.url || !options.apiKey || (!allowUnselectedFishVoice && !options.voiceId) || !options.model)) {
+    throw new SpeechError('configuration', 'Fish Audio 需要 url、apiKey、voiceId 和 model。');
   }
   if (options.engine === 'breeze' && (!options.url || !options.apiKey || !options.voiceId)) {
     throw new SpeechError('configuration', 'Breeze 语音引擎需要 url、apiKey 和 voiceId。');

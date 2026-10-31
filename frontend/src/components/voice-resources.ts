@@ -20,7 +20,7 @@ export const voiceResources: VoiceResource[] = [
     url: 'https://fish.audio/',
     docs: 'https://github.com/zbsdsb/dafeiyu-ai-vtuber/blob/dafeiyu/config.json',
     note: '项目 README 声明使用「蓝色大肥鱼」，配置中的 reference_id 为 fe50cdf3040449298470d58ff0991e1d。音色页当前无法公开核验，名称、权限及可用性需登录确认；不是官方授权声库的证明。',
-    integration: '待适配 Fish 原生 API；不能直接填入 OpenAI 或 Breeze 引擎。'
+    integration: '已接入 fish 引擎：服务地址 https://api.fish.audio，填写本人 API Key、模型和 reference_id；保存后试听。尚未完成真实账户合成验证。'
   },
   {
     id: 'siliconflow',

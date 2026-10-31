@@ -5,6 +5,7 @@ import { App, Alert, Button, Form, Input, Modal, Layout, Select, InputNumber, Sp
 
 type Voice = { id: string; name: string; enabled?: boolean; speech: Record<string, unknown>; ttsVoice?: string; balanceUrl?: string; probeUrl?: string };
 type Settings = {
+  voiceRotation?: boolean;
   legacyAvailable?: boolean;
   originalSpeech?: { engine: string; edgeVoice?: string; systemVoice?: string; fallback: boolean };
   localSpeech: { enabled: boolean; fallback: boolean; voice?: string };
@@ -43,6 +44,7 @@ export default function VoicesPage() {
   const [editing, setEditing] = useState<Voice | null>();
   const [filter, setFilter] = useState('all');
   const [form] = Form.useForm();
+  const voiceEnabled = Form.useWatch('enabled', form);
   const engine = Form.useWatch(['speech', 'engine'], form) || 'auto';
   const closeEditor = () => {
     if (busy) return;
@@ -112,6 +114,18 @@ export default function VoicesPage() {
         name
       });
     });
+  const moveVoice = (id: string, direction: number) => {
+    if (!settings) return;
+    const voices = [...settings.voices];
+    const index = voices.findIndex(v => v.id === id);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= voices.length) return;
+    [voices[index], voices[target]] = [voices[target], voices[index]];
+    void run(() => save({ ...settings, voices }));
+  };
+  const ordered = (settings?.voices || []).filter(v => v.enabled !== false && (v.speech.engine !== 'system' || settings?.localSpeech.enabled));
+  const stop = ordered.findIndex(v => v.speech.fallback === false);
+  const reachable = stop < 0 ? ordered : ordered.slice(0, stop + 1);
   return (
     <Layout.Content className='workspace-content'>
       <Typography.Title level={2}>音色库</Typography.Title>
@@ -126,13 +140,45 @@ export default function VoicesPage() {
                   <Alert
                     type='info'
                     showIcon
-                    title={`当前使用：${settings.activeVoice ? settings.voices.find(v => v.id === settings.activeVoice)?.name || settings.activeVoice : '配置文件 speech'}`}
+                    title={
+                      settings.voiceRotation
+                        ? '当前使用：按列表顺序轮转'
+                        : `当前使用：${settings.activeVoice ? settings.voices.find(v => v.id === settings.activeVoice)?.name || settings.activeVoice : '配置文件 speech'}`
+                    }
                     description={
-                      settings.activeVoice
-                        ? `音色库默认项优先。直接修改 media.speech 不会覆盖它；原始 speech 当前引擎：${settings.originalSpeech?.engine || 'auto'}${settings.originalSpeech?.edgeVoice ? ' / ' + settings.originalSpeech.edgeVoice : ''}。`
-                        : `直接使用 media.speech：${settings.originalSpeech?.engine || 'auto'}${settings.originalSpeech?.edgeVoice ? ' / ' + settings.originalSpeech.edgeVoice : ''}`
+                      settings.voiceRotation
+                        ? '列表从上到下执行，停用项跳过。失败或额度不足时，只有允许降级才会继续下一项。'
+                        : settings.activeVoice
+                          ? `音色库默认项优先。直接修改 media.speech 不会覆盖它；原始 speech 当前引擎：${settings.originalSpeech?.engine || 'auto'}${settings.originalSpeech?.edgeVoice ? ' / ' + settings.originalSpeech.edgeVoice : ''}。`
+                          : `直接使用 media.speech：${settings.originalSpeech?.engine || 'auto'}${settings.originalSpeech?.edgeVoice ? ' / ' + settings.originalSpeech.edgeVoice : ''}`
                     }
                   />
+                )}
+                {settings && (
+                  <Space orientation='vertical' style={{ width: '100%', margin: '16px 0' }}>
+                    <Space>
+                      <Switch
+                        checked={settings.voiceRotation === true}
+                        disabled={busy}
+                        onChange={voiceRotation => run(() => save({ ...settings, voiceRotation }))}
+                      />
+                      <Typography.Text>按列表顺序轮转（覆盖默认音色选择）</Typography.Text>
+                    </Space>
+                    <Alert
+                      type='info'
+                      showIcon
+                      title='实际尝试顺序'
+                      description={
+                        settings.voiceRotation
+                          ? [
+                              ...reachable.map((v, i) => `${i + 1}. ${v.name}${v.speech.fallback === false ? '（失败即停止）' : ''}`),
+                              ...(stop < 0 && settings.localSpeech.enabled && settings.localSpeech.fallback ? ['最后：本机系统语音兜底'] : []),
+                              '仍失败则交回文字回复'
+                            ].join(' → ')
+                          : '未开启轮转：默认音色优先；允许降级时通常尝试 Edge → 本机系统。额度不足直接走允许的本机兜底，不会轮转其他库内音色。'
+                      }
+                    />
+                  </Space>
                 )}
                 {settings?.legacyAvailable && (
                   <Alert
@@ -248,7 +294,7 @@ export default function VoicesPage() {
                     style={{ minWidth: 180 }}
                     placeholder='默认音色'
                     value={settings?.activeVoice || ''}
-                    disabled={busy || !settings}
+                    disabled={busy || !settings || settings.voiceRotation}
                     onChange={value => settings && run(() => save({ ...settings, activeVoice: value }))}
                     options={[
                       { value: '', label: `使用配置文件 speech（${settings?.originalSpeech?.engine || 'auto'}）` },
@@ -299,10 +345,36 @@ export default function VoicesPage() {
                     )}
                   columns={[
                     {
+                      title: '顺序',
+                      render: (_, v: Voice) => {
+                        const index = settings?.voices.findIndex(item => item.id === v.id) ?? -1;
+                        const rank = reachable.findIndex(item => item.id === v.id);
+                        return (
+                          <Space orientation='vertical'>
+                            <Tag>
+                              {!settings?.voiceRotation ? '未轮转' : rank >= 0 ? `第 ${rank + 1} 顺位` : v.enabled === false ? '停用跳过' : '当前不可达'}
+                            </Tag>
+                            <Space>
+                              <Button size='small' disabled={busy || index <= 0} onClick={() => moveVoice(v.id, -1)}>
+                                上移
+                              </Button>
+                              <Button
+                                size='small'
+                                disabled={busy || index < 0 || index === (settings?.voices.length || 0) - 1}
+                                onClick={() => moveVoice(v.id, 1)}
+                              >
+                                下移
+                              </Button>
+                            </Space>
+                          </Space>
+                        );
+                      }
+                    },
+                    {
                       title: '音色',
                       render: (_, v: Voice) => (
                         <>
-                          {v.name} {settings?.activeVoice === v.id && <Tag>默认</Tag>}
+                          {v.name} {!settings?.voiceRotation && settings?.activeVoice === v.id && <Tag>默认</Tag>}
                           <br />
                           <Typography.Text type='secondary'>
                             {v.id} · {String(v.speech.engine || 'auto')}
@@ -328,7 +400,7 @@ export default function VoicesPage() {
                       )
                     },
                     {
-                      title: '允许降级',
+                      title: settings?.voiceRotation ? '失败后继续下一项' : '允许降级',
                       render: (_, v: Voice) => (
                         <Switch
                           checked={v.speech.fallback !== false}
@@ -440,7 +512,7 @@ export default function VoicesPage() {
           </Form.Item>
           <Form.Item name={['speech', 'engine']} label='合成引擎' rules={[{ required: true }]}>
             <Select
-              options={['auto', 'system', 'edge', 'openai', 'breeze', 'cosyvoice', 'gptsovits', 'http'].map(value => ({
+              options={['auto', 'system', 'edge', 'openai', 'fish', 'breeze', 'cosyvoice', 'gptsovits', 'http'].map(value => ({
                 value,
                 label:
                   (
@@ -465,15 +537,25 @@ export default function VoicesPage() {
               <Input placeholder='例如 zh-TW-HsiaoChenNeural（台湾晓臻）' />
             </Form.Item>
           )}
-          {['breeze', 'cosyvoice', 'gptsovits'].includes(engine) && (
+          {['fish', 'breeze', 'cosyvoice', 'gptsovits'].includes(engine) && (
             <Form.Item name={['speech', 'url']} label='服务地址' rules={[{ required: true }]}>
               <Input />
             </Form.Item>
           )}
-          {['breeze', 'cosyvoice', 'gptsovits', 'http'].includes(engine) && (
-            <Form.Item name={['speech', 'apiKey']} label='API Key（保留占位符即保留原密钥）' rules={[{ required: engine === 'breeze' }]}>
+          {['fish', 'breeze', 'cosyvoice', 'gptsovits', 'http'].includes(engine) && (
+            <Form.Item name={['speech', 'apiKey']} label='API Key（保留占位符即保留原密钥）' rules={[{ required: ['fish', 'breeze'].includes(engine) }]}>
               <Input.Password autoComplete='new-password' />
             </Form.Item>
+          )}
+          {engine === 'fish' && (
+            <>
+              <Form.Item name={['speech', 'voiceId']} label='Fish 音色 reference_id' rules={[{ required: voiceEnabled !== false, whitespace: true }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item name={['speech', 'model']} label='Fish 模型（以账户权限为准）' rules={[{ required: true, whitespace: true }]}>
+                <Input placeholder='在 Fish 控制台确认模型名称' />
+              </Form.Item>
+            </>
           )}
           {engine === 'breeze' && (
             <>

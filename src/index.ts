@@ -1,3 +1,4 @@
+import { configureHttpsProxy, disposeHttpsProxy } from './network/https-proxy';
 import { reconcileGroupWakes } from './social/group-wake';
 import { getOpinionStore } from './opinions/store';
 import { getAffinityStore } from './companion/affinity';
@@ -61,6 +62,8 @@ export default defineChildren({
     try {
       const startupConfig = getDSHConfig();
 
+      configureHttpsProxy(startupConfig);
+
       reconcileGroupWakes(startupConfig);
       logger.info(runtimeSummary(startupConfig), 'AgentLink runtime resolved');
       warmCredentialPool(startupConfig);
@@ -86,6 +89,8 @@ export default defineChildren({
         clearRecentMedia();
         try {
           const next = getDSHConfig();
+
+          configureHttpsProxy(next);
 
           reconcileGroupWakes(next);
           logger.info(runtimeSummary(next), 'AgentLink runtime reloaded');
@@ -156,6 +161,7 @@ export default defineChildren({
     }
   },
   onDispose() {
+    disposeHttpsProxy();
     interruptAllProactive();
     autoStickerCollector.reset();
     clearRecentMedia();

@@ -94,14 +94,23 @@ const systemSpeech = async (text: string, file: string, config: MediaConfig, sig
   }
 };
 
-const remoteSpeech = async (engine: 'breeze' | 'cosyvoice' | 'gptsovits' | 'http', text: string, config: MediaConfig, signal: AbortSignal): Promise<Buffer> => {
+const remoteSpeech = async (
+  engine: 'fish' | 'breeze' | 'cosyvoice' | 'gptsovits' | 'http',
+  text: string,
+  config: MediaConfig,
+  signal: AbortSignal
+): Promise<Buffer> => {
   const options = speechOptions(config.speech);
   let url: string,
     body: string | URLSearchParams | FormData | undefined,
     method = 'POST';
   let headers: Record<string, string> = options.apiKey ? { Authorization: `Bearer ${options.apiKey}` } : {};
 
-  if (engine === 'breeze') {
+  if (engine === 'fish') {
+    url = `${options.url.replace(/\/+$/u, '')}/v1/tts`;
+    headers = { ...headers, 'Content-Type': 'application/json', model: options.model };
+    body = JSON.stringify({ text, reference_id: options.voiceId, format: 'mp3' });
+  } else if (engine === 'breeze') {
     // Breeze mirrors the ElevenLabs shape: one POST per voice, binary audio back.
     url = `${options.url.replace(/\/+$/u, '')}/v1/text-to-speech/${encodeURIComponent(options.voiceId)}?output_format=mp3`;
     headers = { ...headers, 'xi-api-key': options.apiKey, 'Content-Type': 'application/json' };
@@ -145,7 +154,7 @@ const remoteSpeech = async (engine: 'breeze' | 'cosyvoice' | 'gptsovits' | 'http
   return engine === 'cosyvoice' && !audioFormat(data) ? pcmWave(data, options.sampleRate) : data;
 };
 
-export const renderSpeech = async (
+const renderSingleSpeech = async (
   text: string,
   config: MediaConfig,
   signal: AbortSignal,
@@ -203,6 +212,7 @@ export const renderSpeech = async (
   const temp = await mkdtemp(join(root, 'job-'));
   const failures: string[] = [];
   let lastStage: SpeechError['stage'] = 'engine';
+  let lastReason = '引擎执行失败';
   const deadline = AbortSignal.any([signal, AbortSignal.timeout(config.timeoutMs)]);
 
   try {
@@ -216,8 +226,8 @@ export const renderSpeech = async (
 
         if (engine === 'openai') {
           data = await requestSpeechAudio(text, config, attempt);
-        } else if (['breeze', 'cosyvoice', 'gptsovits', 'http'].includes(engine)) {
-          data = await remoteSpeech(engine as 'breeze' | 'cosyvoice' | 'gptsovits' | 'http', text, config, attempt);
+        } else if (['fish', 'breeze', 'cosyvoice', 'gptsovits', 'http'].includes(engine)) {
+          data = await remoteSpeech(engine as 'fish' | 'breeze' | 'cosyvoice' | 'gptsovits' | 'http', text, config, attempt);
         } else {
           const file = join(temp, engine === 'edge' ? 'speech.mp3' : 'speech.wav');
 
@@ -247,6 +257,20 @@ export const renderSpeech = async (
       } catch (error) {
         signal.throwIfAborted();
         lastStage = error instanceof SpeechError ? error.stage : attempt.aborted ? 'timeout' : 'engine';
+        const networkCode = (error as { cause?: { code?: string } })?.cause?.code;
+
+        lastReason =
+          networkCode === 'UND_ERR_CONNECT_TIMEOUT'
+            ? '连接语音服务超时，请检查运行机器到供应商的网络'
+            : networkCode === 'ENOTFOUND' || networkCode === 'EAI_AGAIN'
+              ? '语音服务域名解析失败'
+              : error instanceof MediaHttpError
+                ? `供应商返回 HTTP ${error.status}`
+                : attempt.aborted
+                  ? '请求超时'
+                  : error instanceof SpeechError
+                    ? error.detail
+                    : '连接或引擎执行失败';
         failures.push(engine);
         if (error instanceof BudgetExceededError || (error instanceof MediaHttpError && error.status === 402)) {
           if (error instanceof MediaHttpError) {
@@ -258,7 +282,7 @@ export const renderSpeech = async (
         }
       }
     }
-    throw new SpeechError(deadline.aborted ? 'timeout' : lastStage, `语音合成未完成（${failures.join('、')}）。请用 /语音引擎 状态 检查。`);
+    throw new SpeechError(deadline.aborted ? 'timeout' : lastStage, `语音合成未完成（${failures.join('、')}）：${lastReason}。`);
   } catch (error) {
     signal.throwIfAborted();
     if (deadline.aborted) {
@@ -268,6 +292,61 @@ export const renderSpeech = async (
   } finally {
     await rm(temp, { recursive: true, force: true });
   }
+};
+
+/** Explicit rotation uses library order; individual previews disable it. */
+export const renderSpeech: typeof renderSingleSpeech = async (text, config, signal, runtime = getDSHConfig(), services = {}) => {
+  if (!config.voiceRotation) return renderSingleSpeech(text, config, signal, runtime, services);
+  const local = localSpeechOptions(config.localSpeech);
+  const candidates = (config.voices || []).filter(voice => voice.enabled !== false && (voice.speech.engine !== 'system' || local.enabled));
+  const deadline = AbortSignal.any([signal, AbortSignal.timeout(config.timeoutMs)]);
+  const failures: string[] = [];
+  const slots = candidates.length + (local.enabled && local.fallback ? 1 : 0);
+  const attemptMs = Math.max(1, Math.floor(config.timeoutMs / Math.max(1, slots)));
+
+  for (const voice of candidates) {
+    deadline.throwIfAborted();
+    const attempt = AbortSignal.any([deadline, AbortSignal.timeout(attemptMs)]);
+
+    try {
+      const result = await renderSingleSpeech(
+        text,
+        {
+          ...config,
+          voiceRotation: false,
+          activeVoice: voice.id,
+          voices: config.voices.map(item => (item.id === voice.id ? { ...item, speech: { ...item.speech, fallback: false } } : item))
+        },
+        attempt,
+        runtime,
+        services
+      );
+
+      return { ...result, fallbackFrom: failures };
+    } catch (error) {
+      deadline.throwIfAborted();
+      if (!(error instanceof SpeechError) && !attempt.aborted) throw error;
+      failures.push(voice.id);
+      if (voice.speech.fallback === false) throw new SpeechError('engine', `音色 ${voice.name} 失败，已按设置停止轮转。`);
+    }
+  }
+  if (local.enabled && local.fallback) {
+    const result = await renderSingleSpeech(
+      text,
+      {
+        ...config,
+        voiceRotation: false,
+        activeVoice: '',
+        speech: { engine: 'system', fallback: false }
+      },
+      deadline,
+      runtime,
+      services
+    );
+
+    return { ...result, fallbackFrom: failures };
+  }
+  throw new SpeechError('engine', '音色轮转已用尽，且未启用本机兜底。');
 };
 
 export const speechStatus = async (runtime = getDSHConfig()): Promise<{ edge: boolean; system: string; engines: string[] }> => {
@@ -285,7 +364,7 @@ export const speechStatus = async (runtime = getDSHConfig()): Promise<{ edge: bo
   return {
     edge,
     system: process.platform === 'darwin' ? 'macOS say' : process.platform === 'win32' ? 'Windows System.Speech' : 'espeak-ng / espeak（需安装）',
-    engines: ['auto', 'system', 'edge', 'openai', 'breeze', 'cosyvoice', 'gptsovits', 'http']
+    engines: ['auto', 'system', 'edge', 'openai', 'fish', 'breeze', 'cosyvoice', 'gptsovits', 'http']
   };
 };
 

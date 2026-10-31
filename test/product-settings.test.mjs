@@ -186,3 +186,31 @@ test('YAML alias credentials are masked and retained on save', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('secret markers survive backend process restart and preserve keys when voices reorder', async () => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const dir = await mkdtemp(join(tmpdir(), 'agent-restart-mask-'));
+  const path = join(dir, 'config.yaml');
+  try {
+    const voices = ['first', 'second'].map(id => ({ id, name: id, speech: { engine: 'breeze', url: 'https://voice.example', apiKey: id + '-private', voiceId: id } }));
+    await writeFile(path, JSON.stringify({ 'alemonjs-agent-link': { media: { voices } } }));
+    const first = await new ConfigStore(path).read();
+    const child = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', `
+      import { ProductSettingsFile } from './lib/panel/product-settings-file.js';
+      const store = new ProductSettingsFile(process.argv[1]);
+      const snapshot = await store.read();
+      const input = JSON.parse(process.argv[2]);
+      input['alemonjs-agent-link'].media.voices.reverse();
+      await store.save(JSON.stringify(input), snapshot.revision);
+    `, path, first.source], { cwd: process.cwd() });
+    assert.ok(!child.stderr.includes('second-private'));
+    const saved = parse(await readFile(path, 'utf8'))['alemonjs-agent-link'].media.voices;
+    assert.deepEqual(saved.map(v => v.speech.apiKey), ['second-private', 'first-private']);
+    const store = new ConfigStore(path), latest = await store.read();
+    const bad = JSON.parse(latest.source);
+    bad['alemonjs-agent-link'].media.voices[0].speech.apiKey = hiddenSecret + 'unknown';
+    await assert.rejects(store.save(JSON.stringify(bad), latest.revision), /刷新音色库/);
+    assert.equal(parse(await readFile(path, 'utf8'))['alemonjs-agent-link'].media.voices[0].speech.apiKey, 'second-private');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});

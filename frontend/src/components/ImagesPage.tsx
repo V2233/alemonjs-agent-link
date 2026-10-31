@@ -6,7 +6,16 @@ type Preset = {
   id: string;
   name: string;
   enabled: boolean;
-  provider: { baseUrl: string; apiKey: string; model: string; size?: string; stylePrompt?: string; ownerOnly?: boolean };
+  provider: {
+    protocol?: 'openai' | 'siliconflow';
+    responseFormat?: 'b64_json' | 'url' | 'auto';
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    size?: string;
+    stylePrompt?: string;
+    ownerOnly?: boolean;
+  };
 };
 type Settings = { revision: string; imageLibrary: Preset[]; activeImage: string; legacyAvailable: boolean };
 async function request(path: string, body?: unknown) {
@@ -291,6 +300,23 @@ export default function ImagesPage() {
           </Form.Item>
           <Form.Item name={['provider', 'model']} label='模型名称' rules={[{ required: true, whitespace: true }]}>
             <Input />
+          </Form.Item>
+          <Form.Item name={['provider', 'protocol']} label='请求协议'>
+            <Select
+              options={[
+                { value: 'openai', label: 'OpenAI 兼容' },
+                { value: 'siliconflow', label: '硅基流动（image_size）' }
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name={['provider', 'responseFormat']} label='响应格式（硅基流动协议忽略此项）'>
+            <Select
+              options={[
+                { value: 'b64_json', label: 'Base64' },
+                { value: 'url', label: '图片 URL' },
+                { value: 'auto', label: '不传，由服务决定' }
+              ]}
+            />
           </Form.Item>
           <Form.Item name={['provider', 'size']} label='尺寸（以供应商支持为准）' rules={[{ required: true, pattern: /^\d{2,4}x\d{2,4}$/ }]}>
             <Input placeholder='1024x1024' />

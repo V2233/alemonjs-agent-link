@@ -204,9 +204,65 @@ test('Bridge health rejects old or malformed protocol metadata before using a re
       }
       globalThis.fetch = async () => new Response('x'.repeat(8193));
       await assert.rejects(supervisor.waitForHealth(1000), /conversation scope protocol/);
-      globalThis.fetch = async () => Response.json({ status: 'ready', sandbox: true, conversationScopes: 1 });
+      for (const nativePermissions of [undefined, 0, 1, true, '2', 3]) {
+        globalThis.fetch = async () => Response.json({ status: 'ready', sandbox: true, conversationScopes: 1, nativePermissions });
+        await assert.rejects(supervisor.waitForHealth(1000), /native permission protocol/);
+      }
+      globalThis.fetch = async () => Response.json({ status: 'ready', sandbox: true, conversationScopes: 1, nativePermissions: 2 });
       await supervisor.waitForHealth(1000);
     } finally {
       supervisor.stop();
     }
+  }));
+
+test('ordinary image and sampled-video input honors explicit vision before private memory reaches chat', () =>
+  fixture(async f => {
+    globalThis.__config.value['alemonjs-agent-link'].media = {
+      vision: { baseUrl: 'https://explicit-vision.example/v1', apiKey: 'vision-fixture-key', model: 'explicit-vision' }
+    };
+    const calls = [];
+    globalThis.fetch = async (url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push({ url: String(url), body });
+      if (String(url).startsWith('https://explicit-vision.example/')) {
+        assert.equal(options.headers.Authorization, 'Bearer vision-fixture-key');
+        assert.equal(body.model, 'explicit-vision');
+        assert.ok(body.messages.at(-1).content.some(part => part.type === 'image_url'));
+        assert.match(JSON.stringify(body), /1.50 秒/);
+        assert.doesNotMatch(JSON.stringify(body), /private-memory-fixture/);
+        return Response.json({ choices: [{ message: { content: '1.50秒可见红色方块。' }, finish_reason: 'stop' }] });
+      }
+      assert.ok(String(url).endsWith('/chat/completions'));
+      assert.match(JSON.stringify(body.messages), /红色方块/);
+      assert.match(JSON.stringify(body.messages), /private-memory-fixture/);
+      assert.doesNotMatch(JSON.stringify(body.messages), /data:image/);
+      return Response.json({ choices: [{ message: { content: '采样画面里是红色方块，未听音轨。' } }] });
+    };
+    try {
+      await runModuleTurn({
+        config: f.config, sessionId: 'vision-fixture',
+        input: [{ type: 'text', text: '视频采样位置 1.50 秒，未听音轨。' }, { type: 'image', mimeType: 'image/png', data: 'aW1hZ2U=' }],
+        history: { channelId: 'g', generation: 1, memoryContext: 'private-memory-fixture' },
+        context: { platform: 'onebot', botId: 'a', channelId: 'g', userId: 'u', private: false, owner: false,
+          userText: '描述采样画面', allowedTools: ['media_capabilities'], capabilities: { chat: true, web: false, files: false, terminal: false }, signal: AbortSignal.timeout(5000) },
+        onEvent: async () => {}
+      });
+      assert.equal(calls.length, 2);
+      assert.ok(calls[0].url.startsWith('https://explicit-vision.example/'));
+      let failedCalls = 0;
+      globalThis.fetch = async url => {
+        failedCalls++;
+        assert.ok(String(url).startsWith('https://explicit-vision.example/'), 'must not silently send images to chat');
+        return new Response('unavailable', { status: 503 });
+      };
+      await assert.rejects(runModuleTurn({
+        config: f.config, sessionId: 'vision-failure-fixture',
+        input: [{ type: 'text', text: '看图' }, { type: 'image', mimeType: 'image/png', data: 'aW1hZ2U=' }],
+        context: { platform: 'onebot', botId: 'a', channelId: 'g', userId: 'u', private: false, owner: false,
+          userText: '看图', allowedTools: ['media_capabilities'], capabilities: { chat: true, web: false, files: false, terminal: false }, signal: AbortSignal.timeout(5000) },
+        onEvent: async () => {}
+      }), /HTTP 503/);
+      assert.equal(failedCalls, 1);
+
+    } finally { await (await getModuleRuntime(f.config)).close(); }
   }));

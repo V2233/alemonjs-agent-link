@@ -4,10 +4,11 @@ import { getAppConfigValue } from 'alemonjs';
 import { join, resolve } from 'node:path';
 import { speechOptions, type SpeechOptions } from './speech-config';
 
-export type MediaProvider = { baseUrl: string; apiKey: string; model: string; voice?: string };
-export type ImageGenerationProvider = MediaProvider & { size: string; stylePrompt: string; ownerOnly: boolean };
+export type MediaProvider = { baseUrl: string; apiKey: string; model: string; voice?: string; protocol?: 'openai' | 'siliconflow' };
+export type ImageGenerationProvider = MediaProvider & { responseFormat?: 'b64_json' | 'url' | 'auto'; size: string; stylePrompt: string; ownerOnly: boolean };
 export type ImagePreset = { id: string; name: string; enabled: boolean; provider: ImageGenerationProvider };
 export type MediaConfig = {
+  voiceRotation?: boolean;
   imageLibrary?: ImagePreset[];
   activeImage?: string;
   voices?: VoicePreset[];
@@ -28,7 +29,7 @@ export type MediaConfig = {
   stickerMaxItems: number;
 };
 export class MediaError extends Error {}
-export const unavailableMediaReply = '看不懂，就当是夸我了';
+export const unavailableMediaReply = '当前附件类型暂不支持，或识别服务尚未配置。语音可提供平台转写；图片、视频可改发截图或文字说明。';
 export class MediaUnavailableError extends MediaError {
   constructor() {
     super(unavailableMediaReply);
@@ -66,7 +67,15 @@ const provider = (value: unknown, allowLocal = false): MediaProvider | undefined
     throw new MediaError('语音音色配置无效。');
   }
 
-  return { baseUrl: input.baseUrl.replace(/\/+$/u, ''), apiKey: input.apiKey || '', model: input.model, voice: input.voice };
+  if (input.protocol !== undefined && !['openai', 'siliconflow'].includes(input.protocol)) throw new MediaError('媒体服务协议无效。');
+
+  return {
+    ...(input.protocol ? { protocol: input.protocol } : {}),
+    baseUrl: input.baseUrl.replace(/\/+$/u, ''),
+    apiKey: input.apiKey || '',
+    model: input.model,
+    voice: input.voice
+  };
 };
 
 const imageProvider = (value: unknown): ImageGenerationProvider | undefined => {
@@ -74,6 +83,8 @@ const imageProvider = (value: unknown): ImageGenerationProvider | undefined => {
 
   if (!base) return undefined;
   const raw = value as ImageGenerationProvider;
+
+  if (raw.responseFormat !== undefined && !['b64_json', 'url', 'auto'].includes(raw.responseFormat)) throw new MediaError('生图响应格式无效。');
   const size = raw.size ?? '1024x1024';
   const stylePrompt = raw.stylePrompt ?? '';
   const ownerOnly = raw.ownerOnly ?? false;
@@ -88,12 +99,13 @@ const imageProvider = (value: unknown): ImageGenerationProvider | undefined => {
     throw new MediaError('生图服务 size、stylePrompt 或 ownerOnly 配置无效。');
   }
 
-  return { ...base, size, stylePrompt, ownerOnly };
+  return { ...base, size, stylePrompt, ownerOnly, ...(raw.responseFormat ? { responseFormat: raw.responseFormat } : {}) };
 };
 
 export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppConfigValue()): MediaConfig => {
   const raw = value?.media ?? {};
   const config: MediaConfig = {
+    voiceRotation: raw.voiceRotation ?? false,
     imageLibrary: imageLibrary(raw.imageLibrary),
     activeImage: raw.activeImage,
     voices: voiceLibrary(raw.voices),
@@ -106,13 +118,14 @@ export const getMediaConfig = (value: { media?: Partial<MediaConfig> } = getAppC
     ttsMaxChars: raw.ttsMaxChars ?? 800,
     stickerRoot: raw.stickerRoot ?? defaultStickerRoot(),
     stickerMaxItems: raw.stickerMaxItems ?? 300,
-    vision: provider(raw.vision),
+    vision: provider(raw.vision, true),
     asr: provider(raw.asr, true),
     tts: provider(raw.tts, true),
     imageGen: imageProvider(raw.imageGen),
     speech: speechOptions(raw.speech)
   };
 
+  if (typeof config.voiceRotation !== 'boolean') throw new MediaError('音色轮转设置无效。');
   if (
     !Array.isArray(config.allowedHosts) ||
     config.allowedHosts.some(host => typeof host !== 'string' || !/^[a-z0-9.-]+$/u.test(host) || host.startsWith('.'))

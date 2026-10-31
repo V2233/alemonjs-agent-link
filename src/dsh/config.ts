@@ -1,3 +1,4 @@
+import { validateHttpsProxy } from '../network/https-proxy';
 import { alemonPreset } from '../companion/presets/alemon';
 import { bailiPreset } from '../companion/presets/baili';
 import type { BudgetConfig } from '../billing/budget';
@@ -12,6 +13,7 @@ export type AgentConfig = Partial<DSHBridgeConfig> & { baseUrl?: string; apiKey?
 export type ConfigContext = { cwd?: string; configPath?: string; dataRoot?: string; hasRedis?: boolean };
 
 export type DSHBridgeConfig = {
+  HTTPS_PROXY?: string;
   aiEnabled?: boolean;
   aiDisabledReason?: string;
   aiNoticeEpoch?: string;
@@ -174,6 +176,8 @@ export const resolveDSHConfig = (agentLink: AgentConfig = {}, options: ConfigCon
 
     config.defaultSystemPrompt = prompts[config.persona] ?? config.defaultSystemPrompt;
   }
+  validateHttpsProxy(config.HTTPS_PROXY);
+
   const ranges: Partial<Record<keyof DSHBridgeConfig, [number, number]>> = {
     privateHistoryMaxTurns: [0, 100],
     privateHistoryTtlSeconds: [1, 2592000],

@@ -25,9 +25,9 @@ export const generateImage = async (prompt: string, config: MediaConfig, signal:
       body: JSON.stringify({
         model: provider.model,
         prompt: [provider.stylePrompt, prompt.trim()].filter(Boolean).join('，'),
-        size: provider.size,
-        n: 1,
-        response_format: 'b64_json'
+        ...(provider.protocol === 'siliconflow'
+          ? { image_size: provider.size }
+          : { size: provider.size, n: 1, ...(provider.responseFormat === 'auto' ? {} : { response_format: provider.responseFormat || 'b64_json' }) })
       })
     });
   } catch {

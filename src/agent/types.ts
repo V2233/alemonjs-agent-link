@@ -4,6 +4,8 @@ import type { SpeechAudio } from '../media/speech';
 
 export type TurnContext = {
   personaEntitled?: boolean;
+  personalPersonaOwner?: boolean;
+  groupPersonaFamily?: boolean;
   intelligenceLevel?: import('./intelligence').IntelligenceLevel;
   requestId?: string;
   yieldForTools?: () => Promise<void>;

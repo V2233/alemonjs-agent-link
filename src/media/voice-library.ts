@@ -51,7 +51,7 @@ export const voiceLibrary = (value: unknown): VoicePreset[] => {
       enabled: item.enabled ?? true,
       balanceUrl: item.balanceUrl,
       probeUrl: item.probeUrl,
-      speech: speechOptions(item.speech),
+      speech: speechOptions(item.speech, item.enabled === false),
       ttsVoice: item.ttsVoice
     };
   });

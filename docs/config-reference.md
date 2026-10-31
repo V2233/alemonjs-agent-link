@@ -598,3 +598,18 @@ npm run init -- --config /absolute/path/alemon.config.yaml
 ---
 
 [← 文档首页](README.md) · [项目主页](../README.md) · [命令速查](commands.md)
+
+## HTTPS 出站代理
+
+在应用配置中直接使用 `HTTPS_PROXY`：
+
+```yaml
+alemonjs-agent-link:
+  HTTPS_PROXY: http://127.0.0.1:7892
+```
+
+应用启动和配置重载时自动应用，支持 `yarn dev`、独立运行和插件加载入口，无需 `NODE_USE_ENV_PROXY`。配置优先于同名环境变量；未设置则读取环境变量 `HTTPS_PROXY`，显式空字符串撤销本模块代理设置并恢复宿主原有 dispatcher。
+
+复用 Undici `EnvHttpProxyAgent`，影响同一 Node 进程的原生 `fetch` HTTPS 请求（包括 Fish、视觉、生图及聊天请求）；HTTP 请求保持直连。默认绕过 localhost、127.0.0.1、::1，额外绕过域名可用 `NO_PROXY` 环境变量设置。仅支持 HTTP/HTTPS 代理地址，不支持 SOCKS 地址及 URL 中的账号密码。代理不可用时请求失败，不偷偷直连。
+
+不会自动修改系统 VPN、Python 沙箱、WebSocket 或附件下载的独立 HTTPS 传输。附件下载保留现有地址校验和 DNS 固定措施。代理配置只在运行本模块的 Node 进程生效。新增依赖固定为 `undici@7.30.1`，兼容本项目 Node 版本范围。

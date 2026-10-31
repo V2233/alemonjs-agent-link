@@ -10,13 +10,13 @@
 - [音色候选直达地址](https://fish.audio/m/fe50cdf3040449298470d58ff0991e1d/)：本次无法公开读取确认，登录后核对名称、预览、可见性和使用权限；不能视作已经验证的可用音色。
 - [Fish API 文档](https://docs.fish.audio/)
 
-这条证据来自使用该声音的项目，不是声音作者的授权声明，也不能证明它是所有“大肥鱼”视频的同款。当前项目未适配 Fish 原生 API，不能把 reference_id 填入共享 OpenAI 接口便宣称接通。未下载、上传、克隆声音或产生付费合成请求。
+这条证据来自使用该声音的项目，不是声音作者的授权声明，也不能证明它是所有“大肥鱼”视频的同款。当前项目已适配 Fish 原生 API，音色库选择 `fish`，填写服务根地址、Key、模型及 reference_id，详见 [接入指南](media-setup.md)。不能把 reference_id 填入共享 OpenAI 接口便宣称接通。未下载、上传、克隆声音或产生付费合成请求。
 
 ## 服务地址与接入边界
 
 | 服务             | 注册 / 官网                                                        | 文档 / 证据                                                                               | 当前接入情况                                                       |
 | ---------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Fish Audio       | [官网](https://fish.audio/)                                        | [文档](https://docs.fish.audio/)                                                          | 需注册和 Key；待适配原生 API                                       |
+| Fish Audio       | [官网](https://fish.audio/)                                        | [文档](https://docs.fish.audio/)                                                          | 需注册和 Key；已适配 fish 引擎，待真实账户验证                     |
 | 硅基流动         | [控制台](https://cloud.siliconflow.cn/)                            | [语音合成](https://docs.siliconflow.cn/docs/userguide/capabilities/text-to-speech)        | 需注册和 Key；现有 OpenAI 兼容引擎可配置；自定义音色要求实名       |
 | MiniMax          | [语音官网](https://www.minimaxi.com/audio)                         | [调试台](https://solutions.minimaxi.com/)                                                 | 需账号和 Key；待适配                                               |
 | 阿里云百炼       | [控制台](https://bailian.console.aliyun.com/)                      | [合成文档](https://help.aliyun.cn/zh/model-studio/tts-model)                              | 需账号和开通服务；待适配，与自部署 cosyvoice 不同                  |

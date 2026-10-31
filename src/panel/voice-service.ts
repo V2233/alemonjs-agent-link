@@ -1,3 +1,6 @@
+import { AdminInputError } from './admin-error';
+import { SpeechError } from '../media/speech-config';
+import { renderSpeech } from '../media/speech';
 import { withAdminSpeechPreview } from '../media/admin-preview-context';
 import { legacyVoiceAvailable, migrateLegacyVoice } from '../media/voice-migration';
 import { localSpeechOptions } from '../media/local-speech';
@@ -53,19 +56,21 @@ export const readVoiceSettings = async () => {
     revision: snapshot.revision,
     voices: media.voices || [],
     activeVoice: media.activeVoice || '',
+    voiceRotation: media.voiceRotation ?? false,
     localSpeech: localSpeechOptions(media.localSpeech)
   };
 };
 export const updateVoiceSettings = async (input: unknown) => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('无效的音色设置');
-  const body = input as { revision: string; voices: unknown; activeVoice: string; localSpeech?: unknown };
+  const body = input as { revision: string; voices: unknown; activeVoice: string; voiceRotation?: boolean; localSpeech?: unknown };
 
   if (
-    Object.keys(body).some(key => !['revision', 'voices', 'activeVoice', 'localSpeech', 'legacyAvailable', 'originalSpeech'].includes(key)) ||
+    Object.keys(body).some(key => !['revision', 'voices', 'activeVoice', 'voiceRotation', 'localSpeech', 'legacyAvailable', 'originalSpeech'].includes(key)) ||
     typeof body.revision !== 'string' ||
     typeof body.activeVoice !== 'string'
   )
     throw new Error('无效的音色设置');
+  if (body.voiceRotation !== undefined && typeof body.voiceRotation !== 'boolean') throw new Error('音色轮转设置无效');
   const voices = voiceLibrary(body.voices);
 
   if (body.activeVoice && !voices.some(voice => voice.id === body.activeVoice)) throw new Error('音色不存在');
@@ -78,7 +83,13 @@ export const updateVoiceSettings = async (input: unknown) => {
 
   const localSpeech = localSpeechOptions(body.localSpeech ?? app.media?.localSpeech);
 
-  app.media = { ...app.media, localSpeech, voices: body.voices, activeVoice: body.activeVoice };
+  app.media = {
+    ...app.media,
+    localSpeech,
+    voices: body.voices,
+    activeVoice: body.activeVoice,
+    voiceRotation: body.voiceRotation ?? app.media?.voiceRotation ?? false
+  };
   await store.save(JSON.stringify(source), body.revision);
   let message = '音色设置已保存';
 
@@ -132,11 +143,22 @@ export const previewVoice = async (input: unknown) => {
   if (body.id && !config.voices?.some(v => v.id === body.id && v.enabled !== false)) throw new Error('音色不存在或已停用');
   previewRunning = true;
   try {
-    const { renderSpeech } = await import('../media/speech');
-
     return await withAdminSpeechPreview(() =>
-      renderSpeech(body.text as string, { ...config, activeVoice: body.id as string }, AbortSignal.timeout(Math.min(config.timeoutMs, 60000)))
+      renderSpeech(
+        body.text as string,
+        {
+          ...config,
+          voiceRotation: false,
+          activeVoice: body.id as string,
+          speech: { ...config.speech, fallback: false },
+          voices: config.voices?.map(v => ({ ...v, speech: { ...v.speech, fallback: false } }))
+        },
+        AbortSignal.timeout(Math.min(config.timeoutMs, 60000))
+      )
     );
+  } catch (error) {
+    if (error instanceof SpeechError) throw new AdminInputError(error.detail);
+    throw error;
   } finally {
     previewRunning = false;
   }

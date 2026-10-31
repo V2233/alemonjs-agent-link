@@ -19,7 +19,7 @@ export const imageResources: ImageResource[] = [
     url: 'https://cloud.siliconflow.cn/',
     docs: 'https://docs.siliconflow.cn/docs/userguide/capabilities/images',
     note: '提供多个文生图模型，模型清单和参数以官方文档为准。',
-    integration: '提供 /images/generations；可填写配置候选。需核对所选模型是否接受 size、n、response_format=b64_json，尚未真实合成验证。',
+    integration: '已适配硅基流动协议（image_size、images[].url）；添加配置后选择「硅基流动」请求协议。需填写有效 Key 和文生图模型，尚未真实账户合成验证。',
     baseUrl: 'https://api.siliconflow.cn/v1'
   },
   {
