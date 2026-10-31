@@ -138,6 +138,12 @@ class PluginPolicyTests(unittest.TestCase):
                 plugin_specs('/tmp', [{'name': name, 'version': '999.0.0'}])
             fetch.assert_not_called()
 
+    def test_unknown_pinned_plugin_is_not_an_implicit_review_grant(self):
+        with patch('plugin_policy.urllib.request.urlopen') as fetch:
+            with self.assertRaisesRegex(ValueError, 'not been reviewed'):
+                plugin_specs('/tmp', [{'name': 'unknown-package', 'version': '1.0.0'}])
+            fetch.assert_not_called()
+
     def test_rejects_unpinned_and_non_registry_specs(self):
         for value in (None, {}, [{'name': 'github:someone/repo', 'version': '1.0.0'}],
                       [{'name': 'demo', 'version': 'latest'}], [{'name': 'demo', 'version': '^1.0.0'}],
@@ -250,7 +256,7 @@ class PluginPolicyTests(unittest.TestCase):
                 class Process:
                     def wait(self, timeout=None): return 0
                 return Process()
-            with patch('plugin_policy.subprocess.Popen', side_effect=spawn), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'secret', 'DSH_BRIDGE_TOKEN': 'secret'}):
+            with patch('plugin_policy.plugin_specs', return_value=['demo@1.0.0']), patch('plugin_policy.subprocess.Popen', side_effect=spawn), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'secret', 'DSH_BRIDGE_TOKEN': 'secret'}):
                 self.assertEqual(prepare_plugins('/runtime', home, 'sdk', [{'name': 'demo', 'version': '1.0.0'}], dict(web=True, files=True, terminal=True)), ['demo'])
             settings = json.loads((profile / 'package.json').read_text())['dsh']['profile']
             self.assertEqual(settings['bundles'], ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-sdk-app', 'demo'])
@@ -318,7 +324,7 @@ class PluginPolicyTests(unittest.TestCase):
     def test_failure_does_not_leave_executable_profile(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            with patch('plugin_policy.subprocess.Popen') as spawn, patch('plugin_policy.os.killpg'):
+            with patch('plugin_policy.plugin_specs', return_value=['demo@1.0.0']), patch('plugin_policy.subprocess.Popen') as spawn, patch('plugin_policy.os.killpg'):
                 spawn.return_value.wait.return_value = 1
                 with self.assertRaisesRegex(RuntimeError, 'installation failed'):
                     prepare_plugins('/runtime', home, 'sdk', [{'name': 'demo', 'version': '1.0.0'}], dict(web=True, files=True, terminal=True))

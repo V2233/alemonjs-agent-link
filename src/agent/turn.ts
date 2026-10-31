@@ -1,4 +1,5 @@
 import { describeVisualInput } from '../media/providers';
+import { containsPrivateOutput, privateOutputEvents, privateSafeOutput } from '../dsh/private-output';
 import { personalPersonaOwnership } from '../companion/persona-owner';
 import { readScopedPersona } from './scoped-persona';
 import { personaDetailsPrompt } from '../companion/persona-details';
@@ -42,9 +43,11 @@ const runModuleTurnInner = async (options: {
   onEvent: (event: DSHStreamEvent) => Promise<void>;
   onCompleted?: (signal: AbortSignal) => Promise<void>;
 }): Promise<void> => {
-  const { config, sessionId, history, onEvent, onCompleted } = options;
+  const { config, sessionId, history, onCompleted } = options;
+  const onEvent = privateOutputEvents(options.onEvent, config, config.maxRequestBytes);
 
   assertAIEnabled(config);
+  if (containsPrivateOutput(inputText(options.input), config)) throw new Error('消息包含敏感信息，已阻止提交给模型。请在管理设置中配置凭证。');
   const context: TurnContext = {
     ...options.context,
     capabilities: { ...options.context.capabilities, terminal: ownerTerminalAllowed(options.context, Boolean(options.context.autonomous)) },
@@ -197,7 +200,7 @@ ${canGenerate ? '当前也可调用 generate_image，使用已配置的外部生
       if (!context.autonomous && sandboxReady && (context.capabilities.web || context.capabilities.files || context.capabilities.terminal)) {
         const workspaceTool: AgentTool = {
           name: 'agent_workspace',
-          description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}、终端${context.capabilities.terminal ? '允许' : '禁止'}。文件操作使用 framework MCP 的 workspace_* 工具；仅终端权限允许时可按用户明确任务执行终端命令。可通过 framework MCP 发现并调用本轮开放的框架和业务接口，权限以目录与真实回执为准。${context.capabilities.web && context.capabilities.files && context.capabilities.terminal && config.dshPlugins?.length ? `管理员已允许工作区加载这些 DSH 插件：${config.dshPlugins.map(item => item.name + '@' + item.version).join('、')}。相关任务优先检查并复用其实际工具，加载失败如实报告；不得自行安装名单外插件。` : ''}`,
+          description: `让隔离会话执行具体任务并返回结果。当前权限：网页${context.capabilities.web ? '允许' : '禁止'}、文件${context.capabilities.files ? '允许' : '禁止'}。通用终端命令始终禁止。文件操作使用 framework MCP 的 workspace_* 工具，仅限当前会话目录；禁止读取框架配置、凭证和工作区外文件。可通过 framework MCP 发现并调用本轮开放的框架和业务接口，权限以目录与真实回执为准。${context.capabilities.web && context.capabilities.files && context.capabilities.terminal && config.dshPlugins?.length ? `管理员已允许工作区加载这些 DSH 插件：${config.dshPlugins.map(item => item.name + '@' + item.version).join('、')}。相关任务优先检查并复用其实际工具，加载失败如实报告；不得自行安装名单外插件。` : ''}`,
           parameters: {
             type: 'object',
             properties: { task: { type: 'string', minLength: 1, maxLength: 12000 } },
@@ -299,7 +302,7 @@ ${canGenerate ? '当前也可调用 generate_image，使用已配置的外部生
         ? context.autonomous
           ? '[沉默]'
           : '回复因内容安全策略未发送。'
-        : transformed;
+        : privateSafeOutput(transformed, config);
       if (!answer.trim()) {
         throw new Error('模块未产生可发送的回复。');
       }

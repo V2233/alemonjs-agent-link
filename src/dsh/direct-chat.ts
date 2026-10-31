@@ -1,4 +1,5 @@
 import { currentTimeContext } from './time-context';
+import { containsPrivateOutput, privateOutputEvents, privateSafeOutput } from './private-output';
 import { providerImageError } from './provider-error';
 import { localRequestFailure } from '../dsh/errors';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -18,7 +19,7 @@ export const directChat = async (
   credentials: DSHCredentials | null,
   message: ChatInput,
   signal: AbortSignal,
-  onEvent: (event: DSHStreamEvent) => Promise<void>,
+  sendEvent: (event: DSHStreamEvent) => Promise<void>,
   privateHistory?: PrivateHistoryContext,
   onCompleted?: (signal: AbortSignal) => Promise<void>
 ): Promise<void> => {
@@ -29,6 +30,9 @@ export const directChat = async (
   if (!credentials) {
     throw new Error('纯聊天需要配置模型 API Key。');
   }
+  const onEvent = privateOutputEvents(sendEvent, { config, credentials }, config.maxRequestBytes);
+
+  if (containsPrivateOutput(inputText(message), { config, credentials })) throw new Error('消息包含敏感信息，已阻止提交给模型。');
   const registry = privateHistory ? new SessionRegistry(config) : undefined;
   const history = privateHistory ? await registry.privateHistory(privateHistory) : [];
   const maxBytes = typeof message === 'string' ? config.maxRequestBytes : MAX_IMAGE_REQUEST_BYTES;
@@ -64,6 +68,7 @@ export const directChat = async (
       ]
     });
 
+    if (containsPrivateOutput(body, { config, current })) throw new Error('模型上下文包含敏感信息，已阻止提交。');
     if (Buffer.byteLength(body) > maxBytes) {
       throw new Error('请求超过大小限制。');
     }
@@ -140,9 +145,7 @@ export const directChat = async (
     const streamed = !config.outputBlockedKeywords.length && response.headers.get('content-type')?.includes('text/event-stream');
 
     if (streamed) {
-      const result = await readCompletionStream(response, config.maxRequestBytes, signal, async content => {
-        await onEvent({ type: 'content', content });
-      });
+      const result = await readCompletionStream(response, config.maxRequestBytes, signal, async () => {});
 
       current.reportUsage?.(result.usage || {});
       answer = result.content || '';
@@ -182,11 +185,11 @@ export const directChat = async (
     }
     signal.throwIfAborted();
     current.report?.({ ok: true, status: response.status, headers: response.headers });
-    const content = config.outputBlockedKeywords.some(word => word && answer.includes(word)) ? '回复因内容安全策略未发送。' : answer;
+    const content = config.outputBlockedKeywords.some(word => word && answer.includes(word))
+      ? '回复因内容安全策略未发送。'
+      : privateSafeOutput(answer, { config, current });
 
-    if (!streamed) {
-      await onEvent({ type: 'content', content });
-    }
+    await onEvent({ type: 'content', content });
     await onEvent({ type: 'done' });
     signal.throwIfAborted();
     await onCompleted?.(signal);

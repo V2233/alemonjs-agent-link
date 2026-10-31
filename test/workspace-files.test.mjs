@@ -163,8 +163,8 @@ test('chat-only model tool loop saves and reads a real group file without sandbo
     assert.ok(body.tools.some(tool => tool.function.name === 'workspace_write'));
     assert.ok(!body.tools.some(tool => tool.function.name === 'agent_workspace'));
     calls++;
-    if (calls === 2) assert.equal(JSON.parse(body.messages.at(-1).content).ok, true);
-    if (calls === 3) assert.equal(JSON.parse(body.messages.at(-1).content).content, '周六活动');
+    if (calls === 2) assert.equal(JSON.parse(body.messages.filter(message => message.role === 'tool').at(-1).content).ok, true);
+    if (calls === 3) assert.equal(JSON.parse(body.messages.filter(message => message.role === 'tool').at(-1).content).content, '周六活动');
     return Response.json({
       choices: [
         {

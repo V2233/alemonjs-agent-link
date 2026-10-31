@@ -1,4 +1,5 @@
 import { getChatArchive, historyEnabled } from '../../history/store';
+import { containsPrivateOutput, privateSafeOutput } from '../../dsh/private-output';
 import type { ReplyState } from '../../history/reply-ledger';
 import { getInteractionStore } from '../../companion/interaction';
 import { automaticVoiceAvailable, emotionalVoiceReply, explicitVoiceRequest, recordVoiceTurn, voiceConversationKey } from '../../companion/voice-policy';
@@ -134,11 +135,12 @@ export const runDSHChat = async (
     options.autonomous
       ? undefined
       : await message.send({
-          format: noticeBubble(text, { platform: event.Platform, ...notice })
+          format: noticeBubble(privateSafeOutput(text, config), { platform: event.Platform, ...notice })
         });
   let firstAgentReply = true;
   let retryNoticeSent = false;
   const replyAgent = async (text: string): Promise<unknown> => {
+    text = privateSafeOutput(text, config);
     await beforeExpression();
     await checkSend();
     const format = createChatReplyFormat(text, event.Platform, firstAgentReply && !event.IsPrivate && !options.autonomous ? replyTarget.userId : undefined);
@@ -429,6 +431,7 @@ export const runDSHChat = async (
   const output = nativeStream
     ? new QQStreamOutput(
         async params => {
+          if (containsPrivateOutput(JSON.stringify(params), config)) throw new Error('回复包含敏感信息，已阻止发送。');
           await beforeExpression();
           turnSignal?.throwIfAborted();
 
@@ -611,6 +614,13 @@ ${agentPrompt}`
             if (renderedAnswer) renderedAnswer = normalizeBubbleText(answer);
             logger.debug({ beforeChars: before, afterChars: Array.from(answer).length }, 'Social reply trimmed');
           }
+        }
+        const checkedAnswer = privateSafeOutput(answer, config);
+
+        if (checkedAnswer !== answer) {
+          answer = checkedAnswer;
+          renderedAnswer = checkedAnswer;
+          generatedSpeech = undefined;
         }
         const speechText = normalizeBubbleText(answer);
         const voicePolicy = groupVoicePolicy(config, channelId, event.Platform || '');

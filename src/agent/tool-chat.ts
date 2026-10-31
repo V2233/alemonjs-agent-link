@@ -1,4 +1,5 @@
 import { currentTimeContext } from '../dsh/time-context';
+import { containsPrivateOutput } from '../dsh/private-output';
 import { providerImageError } from '../dsh/provider-error';
 import { localRequestFailure } from '../dsh/errors';
 import { reasoningParameters, type IntelligenceLevel } from './intelligence';
@@ -30,6 +31,7 @@ export const requestModelMessage = async (
   onContent?: (text: string) => Promise<void>,
   meta: RequestMeta = {}
 ): Promise<{ content?: string | null; reasoning_content?: string; tool_calls?: ToolCall[] }> => {
+  if (containsPrivateOutput(JSON.stringify(messages), { config, credentials })) throw new Error('模型上下文包含敏感信息，已阻止提交。');
   const containsImages = messages.some(message => Array.isArray(message.content) && message.content.some(block => block.type === 'image_url'));
   const maxBytes = containsImages ? MAX_IMAGE_REQUEST_BYTES : config.maxRequestBytes;
   let current = credentials;

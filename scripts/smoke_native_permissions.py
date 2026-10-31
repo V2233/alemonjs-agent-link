@@ -61,7 +61,9 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     saved = dict(os.environ)
     try:
-        with tempfile.TemporaryDirectory(prefix='native-permission-smoke-') as directory, tempfile.TemporaryDirectory(prefix='native-permission-outside-') as outside:
+        with tempfile.TemporaryDirectory(prefix='native-permission-smoke-') as directory, tempfile.TemporaryDirectory(prefix='native-permission-outside-') as outside, tempfile.NamedTemporaryFile(prefix='.framework-config-fixture-', suffix='.yaml', dir=ROOT, mode='w+') as framework_fixture:
+            framework_fixture.write('synthetic-framework-secret')
+            framework_fixture.flush()
             outside_file = Path(outside)/'sentinel.txt'
             outside_file.write_text('outside-private-fixture')
             home = Path(directory)
@@ -98,12 +100,12 @@ def main():
                         assert not outcome.get('is_error') and 'allowed-fixture' in json.dumps(outcome), outcome
                     link = home/f'outside-link-{index}'
                     link.symlink_to(outside_file)
-                    for path in (outside_file, link):
+                    for path in (outside_file, link, Path(framework_fixture.name)):
                         outcome = call_tool(session, 'write', {'file_path': str(path), 'content': 'unexpected-write'})
                         assert outcome.get('is_error'), outcome
                         assert outside_file.read_text() == 'outside-private-fixture'
                         outcome = call_tool(session, 'read', {'file_path': str(path)})
-                        assert outcome.get('is_error') and 'outside-private-fixture' not in json.dumps(outcome), outcome
+                        assert outcome.get('is_error') and 'outside-private-fixture' not in json.dumps(outcome) and 'synthetic-framework-secret' not in json.dumps(outcome), 'outside or framework fixture read was not blocked'
                     # No UI approval bridge is installed: an explicit wider retry
                     # must not turn ask into an automatic grant.
                     escalated = call_tool(session, 'write', {

@@ -1,4 +1,6 @@
 import { webModule } from '../modules/web';
+import { containsPrivateOutput } from '../dsh/private-output';
+import { getDSHConfig } from '../dsh/runtime-config';
 import { mediaCapabilitiesModule } from '../modules/media-capabilities';
 import { interactionModule } from '../modules/interaction';
 import { hobbiesModule } from '../modules/hobbies';
@@ -528,9 +530,14 @@ export const executeTool = async (tool: AgentTool, args: unknown, context: TurnC
   }
   if (context.allowedTools && !context.allowedTools.includes(tool.name)) throw new Error('本次活动未开放这个工具。');
   validateArguments(tool.parameters, args);
+  const safetyConfig = getDSHConfig();
+
+  if (containsPrivateOutput(JSON.stringify(args), safetyConfig)) throw new Error('工具参数包含敏感信息，已阻止执行。');
   const result = await tool.execute(args as Record<string, unknown>, context);
 
   context.signal.throwIfAborted();
+
+  if (containsPrivateOutput(JSON.stringify(result) || '', safetyConfig)) throw new Error('工具结果包含敏感信息，已阻止传递。');
 
   return result;
 };

@@ -1,4 +1,5 @@
 import { localSpeechOptions } from './local-speech';
+import { containsPrivateOutput } from '../dsh/private-output';
 import { voiceBalanceExhausted } from './voice-status';
 import { access, mkdtemp, mkdir, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
@@ -165,6 +166,7 @@ const renderSingleSpeech = async (
   } = {}
 ): Promise<SpeechAudio> => {
   signal.throwIfAborted();
+  if (containsPrivateOutput(text, { config, runtime })) throw new SpeechError('configuration', '语音文本包含敏感信息，已阻止合成。');
   if (!text.trim() || Array.from(text).length > config.ttsMaxChars) {
     throw new SpeechError('configuration', `语音文本需要1–${config.ttsMaxChars}字符。`);
   }

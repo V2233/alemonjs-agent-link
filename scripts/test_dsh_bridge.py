@@ -107,7 +107,12 @@ class BridgeSafetyTests(unittest.TestCase):
 
     def test_output_keyword_filter_requires_final_review(self):
         self.bridge.OUTPUT_BLOCKED = set()
-        self.assertFalse(self.bridge.output_requires_final_review())
+        self.assertTrue(self.bridge.output_requires_final_review())
+
+    def test_private_output_blocks_provider_keys_and_configured_values(self):
+        self.assertTrue(self.bridge.private_output('sk-fixtureabcdefghijk123456'))
+        self.assertTrue(self.bridge.private_output('opaque-private-fixture', ('opaque-private-fixture',)))
+        self.assertFalse(self.bridge.private_output('请在后台配置密钥。'))
         self.bridge.OUTPUT_BLOCKED = {'secret'}
         self.assertTrue(self.bridge.output_requires_final_review())
 
@@ -122,32 +127,32 @@ class BridgeSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'too large'):
             self.bridge.read_bounded(Response(), 8)
 
-    def test_tool_policy_enables_only_requested_capabilities(self):
+    def test_tool_policy_routes_capabilities_through_restricted_tools(self):
         baseline = {'chat': True, 'web': True, 'files': False, 'terminal': False}
         patch = self.bridge.tool_policy_patch(baseline)
 
-        self.assertIn('- id: tool-web\n  disabled: false', patch)
+        self.assertIn('- id: tool-web\n  disabled: true', patch)
         self.assertIn('- id: tool-fs\n  disabled: true', patch)
         self.assertIn('- id: tool-bash\n  disabled: true', patch)
         self.assertIn('- id: tool-subagent\n  disabled: true', patch)
         self.assertEqual(self.bridge.valid_capabilities(baseline), baseline)
         self.assertIsNone(self.bridge.valid_capabilities({'web': True}))
 
-    def test_terminal_grant_only_enables_bash_and_preserves_other_restrictions(self):
+    def test_terminal_grant_never_enables_generic_shell(self):
         caps = {'chat': True, 'web': True, 'files': True, 'terminal': True}
         patch = self.bridge.tool_policy_patch(caps)
         for tool in ('tool-pwsh', 'tool-jobs'):
             self.assertIn(f'- id: {tool}\n  disabled: true', patch)
         for tool in ('tool-fs', 'tool-fs-search'):
-            self.assertIn(f'- id: {tool}\n  disabled: false', patch)
+            self.assertIn(f'- id: {tool}\n  disabled: true', patch)
         self.assertEqual(self.bridge.native_permission_preset(caps), 'workspace-write')
         self.assertEqual(self.bridge.native_permission_preset({**caps, 'files': False}), 'read-only')
         prompt = self.bridge.trusted_prompt('test', caps)
         self.assertIn('workspace_*', prompt)
         self.assertIn('<agentlink_persona priority="highest">', prompt)
         self.assertIn('不是通用编码代理或助手', prompt)
-        self.assertIn('- id: tool-bash\n  disabled: false', patch)
-        self.assertIn('可在当前隔离工作区中执行终端命令', prompt)
+        self.assertIn('- id: tool-bash\n  disabled: true', patch)
+        self.assertIn('通用终端命令禁止', prompt)
 
     def test_chat_only_profile_check_is_cached_until_patch_changes(self):
         calls = 0
