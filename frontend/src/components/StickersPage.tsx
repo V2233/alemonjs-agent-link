@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Alert, App, Button, Form, Image, Input, Layout, Modal, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Form, Image, Input, InputNumber, Layout, Modal, Select, Space, Table, Tag, Typography } from 'antd';
 import { useUnsavedNavigation } from './useUnsavedNavigation';
 type Sticker = {
   id: string;
@@ -28,6 +28,8 @@ export default function StickersPage() {
   const { message, modal } = App.useApp();
   const [rows, setRows] = useState<Sticker[]>([]);
   const [capacity, setCapacity] = useState(0);
+  const [limits, setLimits] = useState<{ revision: string; capacity: number; maxCapacity: number }>();
+  const [capacityDraft, setCapacityDraft] = useState<number | null>(null);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('all');
   const [busy, setBusy] = useState(false);
@@ -37,7 +39,7 @@ export default function StickersPage() {
   const [file, setFile] = useState<File>();
   const [preview, setPreview] = useState('');
   const [form] = Form.useForm();
-  useUnsavedNavigation(dirty);
+  useUnsavedNavigation(dirty || Boolean(limits && capacityDraft !== limits.capacity));
   useEffect(() => {
     if (!file) {
       setPreview('');
@@ -59,7 +61,9 @@ export default function StickersPage() {
   };
   const load = async () => {
     try {
-      const data = await request();
+      const [data, settings] = await Promise.all([request(), request('/settings')]);
+      setLimits(settings);
+      setCapacityDraft(settings.capacity);
       setRows(data.items);
       setCapacity(data.capacity);
       setError('');
@@ -125,6 +129,39 @@ export default function StickersPage() {
       <Typography.Title level={2}>表情管理</Typography.Title>
       <Typography.Paragraph type='secondary'>与聊天共用素材库。移除后不再参与选取，原文件保留；本页操作不修改 QQ 收藏。</Typography.Paragraph>
       {error && <Alert type='error' title={error} action={<Button onClick={() => run(load)}>重试</Button>} />}
+      <Space wrap style={{ margin: '16px 0' }}>
+        <Typography.Text>素材上限（表情和头像合计）</Typography.Text>
+        <InputNumber
+          aria-label='素材上限'
+          min={1}
+          max={limits?.maxCapacity || 10000}
+          precision={0}
+          value={capacityDraft}
+          disabled={busy}
+          onChange={setCapacityDraft}
+        />
+        <Button
+          disabled={busy || !limits || capacityDraft === null || capacityDraft === limits.capacity}
+          onClick={() =>
+            run(async () => {
+              if (!limits) return;
+              const response = await fetch('./api/admin/stickers/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ revision: limits.revision, capacity: capacityDraft }),
+                signal: AbortSignal.timeout(15000)
+              });
+              const result = await response.json();
+              if (!response.ok) throw new Error(result.message || '保存失败');
+              await load();
+              message.success(result.message);
+            })
+          }
+        >
+          保存上限
+        </Button>
+        <Typography.Text type='secondary'>默认1200项。调低不立即删除素材，后续收藏沿用容量清理规则。</Typography.Text>
+      </Space>
       <Space wrap style={{ marginBottom: 16 }}>
         <Input.Search placeholder='搜索名称、ID或标签' value={query} onChange={e => setQuery(e.target.value)} allowClear />
         <Select

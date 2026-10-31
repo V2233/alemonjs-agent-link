@@ -1,3 +1,4 @@
+import AppearancesPage from './components/AppearancesPage';
 import GroupTopicsPage from './components/GroupTopicsPage';
 import FaqPage from './components/FaqPage';
 import KeysPage from './components/KeysPage';
@@ -22,6 +23,7 @@ export default createHashRouter([
   {
     element: <AdminLayout />,
     children: [
+      { path: '/appearances', element: <AppearancesPage /> },
       { path: '/settings', element: <SettingsPage /> },
       { path: '/ads', element: <AdsPage /> },
       { path: '/sponsors', element: <SponsorsPage /> },
